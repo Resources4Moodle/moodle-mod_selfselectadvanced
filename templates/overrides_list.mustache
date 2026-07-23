@@ -1,0 +1,89 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/overrides_list
+
+    Override lists per mode (user, group, guide) with add/edit/delete.
+
+    Context variables required for this template:
+    * tabs - the three mode tabs
+    * hasrows - whether overrides exist in this mode
+
+    Example context (json):
+    {
+        "tabs": [{"label": "User overrides", "url": "https://example.com/x", "active": true}],
+        "hasrows": true,
+        "rows": [{"overrideid": 1, "target": "Sam One", "summary": "Max lead: 2",
+                  "editurl": "https://example.com/edit"}],
+        "addurl": "https://example.com/add",
+        "actionurl": "https://example.com/mod/selfselectadvanced/overrides.php",
+        "cmid": 1,
+        "mode": "user",
+        "sesskey": "abc",
+        "backurl": "https://example.com/back"
+    }
+}}
+<div class="selfselectadvanced-overrides">
+    <ul class="nav nav-tabs mb-3">
+        {{#tabs}}
+            <li class="nav-item">
+                <a class="nav-link {{#active}}active{{/active}}" href="{{url}}">{{label}}</a>
+            </li>
+        {{/tabs}}
+    </ul>
+
+    {{#hasrows}}
+        <div class="table-responsive">
+            <table class="table generaltable">
+                <thead>
+                    <tr>
+                        <th scope="col">{{#str}} overridetargetheading, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} overridevalues, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} actions {{/str}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#rows}}
+                        <tr>
+                            <td>{{target}}</td>
+                            <td>{{summary}}</td>
+                            <td class="d-flex gap-1 flex-wrap">
+                                <a href="{{editurl}}" class="btn btn-secondary btn-sm">{{#str}} edit {{/str}}</a>
+                                <form method="post" action="{{actionurl}}" class="d-inline">
+                                    <input type="hidden" name="id" value="{{cmid}}">
+                                    <input type="hidden" name="mode" value="{{mode}}">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="override" value="{{overrideid}}">
+                                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        {{#str}} delete {{/str}}
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    {{/rows}}
+                </tbody>
+            </table>
+        </div>
+    {{/hasrows}}
+    {{^hasrows}}
+        <p class="text-muted">{{#str}} overridesnone, mod_selfselectadvanced {{/str}}</p>
+    {{/hasrows}}
+
+    <a href="{{addurl}}" class="btn btn-primary">{{#str}} overrideadd, mod_selfselectadvanced {{/str}}</a>
+    <a href="{{backurl}}" class="btn btn-secondary ms-2">{{#str}} back {{/str}}</a>
+</div>

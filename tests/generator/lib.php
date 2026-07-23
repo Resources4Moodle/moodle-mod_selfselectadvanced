@@ -196,6 +196,36 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
     }
 
     /**
+     * Create an override row through the store (fires events).
+     *
+     * Required: activityid, scope, targetid. Values per B5 field set.
+     *
+     * @param array|stdClass $record override fields
+     * @return stdClass the stored row
+     */
+    public function create_override($record): stdClass {
+        $record = (array) $record;
+        foreach (['activityid', 'scope', 'targetid'] as $required) {
+            if (!isset($record[$required])) {
+                throw new coding_exception('create_override requires ' . $required);
+            }
+        }
+        $activity = \mod_selfselectadvanced\activity::from_instance((int) $record['activityid']);
+        $values = array_intersect_key(
+            $record,
+            array_flip(\mod_selfselectadvanced\local\override\store::FIELDS[$record['scope']])
+        );
+
+        return \mod_selfselectadvanced\local\override\store::save(
+            $activity,
+            $record['scope'],
+            (int) $record['targetid'],
+            $values,
+            (int) ($record['actorid'] ?? 0)
+        );
+    }
+
+    /**
      * Create a membership/invitation row.
      *
      * Required: groupid, userid. Status defaults to confirmed.

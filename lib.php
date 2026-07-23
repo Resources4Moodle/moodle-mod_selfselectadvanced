@@ -86,10 +86,30 @@ function selfselectadvanced_update_instance(stdClass $data, $mform = null): bool
 
     $data->id = $data->instance;
     $data->timemodified = time();
+    $before = $DB->get_record('selfselectadvanced', ['id' => $data->id], '*', MUST_EXIST);
     $result = $DB->update_record('selfselectadvanced', $data);
 
     $instance = $DB->get_record('selfselectadvanced', ['id' => $data->id], '*', MUST_EXIST);
     selfselectadvanced_grade_item_update($instance);
+
+    // Spec 4A.8 / 14.7: record limit changes with old and new values.
+    $limits = ['minsize', 'maxsize', 'maxlead', 'maxmembership', 'maxguided'];
+    $old = [];
+    $new = [];
+    foreach ($limits as $limit) {
+        if ((int) $before->$limit !== (int) $instance->$limit) {
+            $old[$limit] = (int) $before->$limit;
+            $new[$limit] = (int) $instance->$limit;
+        }
+    }
+    if ($new) {
+        [, $cm] = get_course_and_cm_from_instance($instance->id, 'selfselectadvanced', $instance->course);
+        \mod_selfselectadvanced\event\limits_changed::create([
+            'objectid' => $instance->id,
+            'context' => context_module::instance($cm->id),
+            'other' => ['oldvalues' => $old, 'newvalues' => $new],
+        ])->trigger();
+    }
 
     return $result;
 }
@@ -224,6 +244,13 @@ function selfselectadvanced_extend_settings_navigation(settings_navigation $sett
         $node->add(
             get_string('managerdashboard', 'mod_selfselectadvanced'),
             new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]),
+            navigation_node::TYPE_SETTING
+        );
+    }
+    if (has_capability('mod/selfselectadvanced:override', $context)) {
+        $node->add(
+            get_string('overrides', 'mod_selfselectadvanced'),
+            new moodle_url('/mod/selfselectadvanced/overrides.php', ['id' => $cm->id]),
             navigation_node::TYPE_SETTING
         );
     }

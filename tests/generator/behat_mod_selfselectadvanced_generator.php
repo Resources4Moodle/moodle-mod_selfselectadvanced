@@ -58,6 +58,12 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                 'required' => ['selfselectadvanced', 'dimension'],
                 'switchids' => ['selfselectadvanced' => 'activityid'],
             ],
+            'overrides' => [
+                'singular' => 'override',
+                'datagenerator' => 'override',
+                'required' => ['selfselectadvanced', 'scope', 'target'],
+                'switchids' => ['selfselectadvanced' => 'activityid', 'target' => 'targetid'],
+            ],
             'attributes' => [
                 'singular' => 'attribute',
                 'datagenerator' => 'userattr',
@@ -115,6 +121,17 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
      * @return int the user id
      */
     protected function get_guide_id(string $username): int {
+        return $this->get_user_id($username);
+    }
+
+    /**
+     * Map an override target username to a user id (user and guide
+     * scopes; group-scope overrides are arranged via the PHP generator).
+     *
+     * @param string $username the username
+     * @return int the user id
+     */
+    protected function get_target_id(string $username): int {
         return $this->get_user_id($username);
     }
 
