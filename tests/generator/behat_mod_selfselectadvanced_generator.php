@@ -44,8 +44,8 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
             'members' => [
                 'singular' => 'member',
                 'datagenerator' => 'member',
-                'required' => ['group', 'user'],
-                'switchids' => ['group' => 'groupid', 'user' => 'userid'],
+                'required' => ['ssagroup', 'user'],
+                'switchids' => ['ssagroup' => 'groupid', 'user' => 'userid'],
             ],
         ];
     }
@@ -84,10 +84,14 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
     /**
      * Map a plugin group name to its id.
      *
-     * @param string $name the group name
+     * Named "ssagroup" in feature tables: the base class already owns
+     * get_group_id() for core course groups with an incompatible
+     * signature, so the plugin entity must use its own field name.
+     *
+     * @param string $name the plugin group name
      * @return int the group id
      */
-    protected function get_group_id(string $name): int {
+    protected function get_ssagroup_id(string $name): int {
         global $DB;
 
         $id = $DB->get_field('selfselectadvanced_group', 'id', ['name' => $name]);

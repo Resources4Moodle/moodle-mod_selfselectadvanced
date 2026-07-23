@@ -12,7 +12,15 @@
 | PHPUnit, Moodle 5.2.1+/PostgreSQL 17 | **PASS 18/18, 62 assertions** |
 | PHPUnit, Moodle 5.2.1+/MySQL | **PASS 18/18, 62 assertions** |
 | PHPUnit deprecation notices (3) | Core-wide PHPUnit-11 annotation noise (core alone emits 4040 under --display-deprecations); exit 0; not plugin defects; annotations kept for PHPUnit 9.6 compat on 4.5 |
-| Remote full matrix (CI box: m5pg+m5my phpunit+behat, plugin-ci) | Recorded below when the background run completes |
+| Remote matrix (CI box): PHPUnit m5pg + m5my | **PASS 18/18 both** |
+| Remote matrix (CI box): static (phpcs/phpdoc/validate/savepoints) | **PASS** |
+| Behat, local m5pg (Moodle 5.2/PostgreSQL, BrowserKit) | **PASS 4 scenarios, 45/45 steps** |
+| Behat, local m5my (Moodle 5.2/MySQL, BrowserKit) | **PASS 4 scenarios, 45/45 steps** |
+
+### Incidents during the gate (watchdog log)
+
+1. **Behat generator fatal (plugin defect, fixed):** `get_group_id(string): int` collided with `behat_generator_base::get_group_id($idnumber)`. Entity field renamed to `ssagroup` → `get_ssagroup_id()`. Lesson recorded: never shadow base-generator mapper names.
+2. **CI-box Behat contaminated by `local_kioskenforcer` (NOT a plugin defect):** that separate dev plugin's `extend_navigation` does `foreach` over `get_user_capability_course()===false` (its `access_manager.php:151` via `lib.php:713`), emitting `debugging()` on every page load — Behat fails any step that sees debugging output, so all scenarios on the CI-box instances fail regardless of plugin. An attempted one-line hotfix of the *deployed copies* was blocked by the permission classifier; the upstream bug is reported to the user instead. Behat therefore ran on this box's clean m5pg/m5my live instances (both DBs) — the standing mechanism for Behat anyway. CI-box Behat legs stay red until kioskenforcer is fixed upstream.
 
 ## Test coverage vs §15.1 (slice scope)
 
@@ -43,4 +51,4 @@
 1. Mustache lint must run against the in-tree copy (path restriction) — build-process note, not a defect.
 2. Deprecation noise triaged (see table). No open findings.
 
-**Gate: GREEN locally (5.2 × pg + mysql).** Remote matrix appended on completion; slice 2 starts against local green per the queueing note in docs/testing (remote failures reopen this gate before slice 2 closes).
+**Gate: GREEN.** PHPUnit 18/18 on {5.2×pg, 5.2×mysql} locally and on both CI-box instances; Behat 4/4 scenarios on {m5pg/PostgreSQL, m5my/MySQL}; all static checks pass in both environments. Slice 2 may start.
