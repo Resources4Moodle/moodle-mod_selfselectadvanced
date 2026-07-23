@@ -1,0 +1,149 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/landing
+
+    Capability-routed landing page: student panels and staff group list.
+
+    Context variables required for this template:
+    * isstudent - whether to show the student area
+    * isstaff - whether to show the all-groups area
+
+    Example context (json):
+    {
+        "isstudent": true,
+        "leadcounter": "You lead 1 of 2 groups",
+        "membercounter": "You are a member of 1 of 3 groups",
+        "showcreate": true,
+        "cancreate": true,
+        "createreason": null,
+        "createurl": "https://example.com/mod/selfselectadvanced/groupedit.php?id=1",
+        "hasmygroups": true,
+        "mygroups": [
+            {
+                "id": 1,
+                "pluginuid": "SSA-C101-0001",
+                "name": "Team Alpha",
+                "title": "Pendulum study",
+                "statelabel": "Forming",
+                "seatsummary": "2 of 6 seats filled, 1 invitation pending",
+                "url": "https://example.com/mod/selfselectadvanced/group.php?id=1&g=1"
+            }
+        ],
+        "hasmyinvitations": false,
+        "myinvitations": [],
+        "isstaff": false,
+        "hasallgroups": false,
+        "allgroups": []
+    }
+}}
+<div class="selfselectadvanced-landing">
+{{#isstudent}}
+    <div class="selfselectadvanced-counters mb-3">
+        <span class="badge bg-secondary text-light me-2">{{leadcounter}}</span>
+        <span class="badge bg-secondary text-light">{{membercounter}}</span>
+    </div>
+
+    {{#showcreate}}
+        <div class="mb-3">
+            {{#cancreate}}
+                <a href="{{createurl}}" class="btn btn-primary">{{#str}} creategroup, mod_selfselectadvanced {{/str}}</a>
+            {{/cancreate}}
+            {{^cancreate}}
+                <button type="button" class="btn btn-secondary" disabled aria-disabled="true">
+                    {{#str}} creategroup, mod_selfselectadvanced {{/str}}
+                </button>
+                <span class="ms-2 text-muted">{{createreason}}</span>
+            {{/cancreate}}
+        </div>
+    {{/showcreate}}
+
+    <h3>{{#str}} mygroups, mod_selfselectadvanced {{/str}}</h3>
+    {{#hasmygroups}}
+        <ul class="list-group mb-4 selfselectadvanced-mygroups">
+            {{#mygroups}}
+                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap">
+                    <span>
+                        <a href="{{url}}">{{name}}</a>
+                        <span class="text-muted small ms-2">{{pluginuid}}</span>
+                        <span class="d-block small">{{title}}</span>
+                    </span>
+                    <span class="text-end">
+                        <span class="badge bg-info text-dark">{{statelabel}}</span>
+                        <span class="d-block small text-muted">{{seatsummary}}</span>
+                    </span>
+                </li>
+            {{/mygroups}}
+        </ul>
+    {{/hasmygroups}}
+    {{^hasmygroups}}
+        <p class="text-muted">{{#str}} nogroupsyet, mod_selfselectadvanced {{/str}}</p>
+    {{/hasmygroups}}
+
+    <h3>{{#str}} myinvitations, mod_selfselectadvanced {{/str}}</h3>
+    {{#hasmyinvitations}}
+        <ul class="list-group mb-4 selfselectadvanced-myinvitations">
+            {{#myinvitations}}
+                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap">
+                    <span>
+                        <a href="{{url}}">{{name}}</a>
+                        <span class="text-muted small ms-2">{{pluginuid}}</span>
+                        <span class="d-block small">{{title}}</span>
+                    </span>
+                    <span class="badge bg-warning text-dark">{{#str}} invitationpending, mod_selfselectadvanced {{/str}}</span>
+                </li>
+            {{/myinvitations}}
+        </ul>
+    {{/hasmyinvitations}}
+    {{^hasmyinvitations}}
+        <p class="text-muted">{{#str}} noinvitations, mod_selfselectadvanced {{/str}}</p>
+    {{/hasmyinvitations}}
+{{/isstudent}}
+
+{{#isstaff}}
+    <h3>{{#str}} allgroups, mod_selfselectadvanced {{/str}}</h3>
+    {{#hasallgroups}}
+        <div class="table-responsive">
+            <table class="table generaltable selfselectadvanced-allgroups">
+                <thead>
+                    <tr>
+                        <th scope="col">{{#str}} groupname, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} pluginid, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} worktitle, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} state, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} size, mod_selfselectadvanced {{/str}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#allgroups}}
+                        <tr>
+                            <td><a href="{{url}}">{{name}}</a></td>
+                            <td>{{pluginuid}}</td>
+                            <td>{{title}}</td>
+                            <td>{{statelabel}}</td>
+                            <td>{{seatsummary}}</td>
+                        </tr>
+                    {{/allgroups}}
+                </tbody>
+            </table>
+        </div>
+    {{/hasallgroups}}
+    {{^hasallgroups}}
+        <p class="text-muted">{{#str}} nogroupsyet, mod_selfselectadvanced {{/str}}</p>
+    {{/hasallgroups}}
+{{/isstaff}}
+</div>

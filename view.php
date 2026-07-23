@@ -17,9 +17,9 @@
 /**
  * Landing page for mod_selfselectadvanced, routed by capability.
  *
- * Slice 1 replaces the placeholder body with the student landing
- * (my groups, my invitations and nominations, create) and onward links
- * for guides and managers.
+ * Read-only (GET): student panels with limit counters, my groups and my
+ * invitations; staff see the all-groups list. State changes happen on
+ * the action pages via POST.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -33,8 +33,9 @@ $id = required_param('id', PARAM_INT);
 [$course, $cm] = get_course_and_cm_from_cmid($id, 'selfselectadvanced');
 require_login($course, true, $cm);
 
-$instance = $DB->get_record('selfselectadvanced', ['id' => $cm->instance], '*', MUST_EXIST);
-$context = context_module::instance($cm->id);
+$activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
+$instance = $activity->settings();
+$context = $activity->context();
 
 $event = \mod_selfselectadvanced\event\course_module_viewed::create([
     'objectid' => $instance->id,
@@ -51,6 +52,9 @@ $PAGE->set_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]);
 $PAGE->set_title(format_string($instance->name));
 $PAGE->set_heading(format_string($course->fullname));
 
+$api = new \mod_selfselectadvanced\local\api($activity);
+$landing = new \mod_selfselectadvanced\output\landing($api, (int) $USER->id);
+
 echo $OUTPUT->header();
-echo $OUTPUT->notification(get_string('landingnotready', 'mod_selfselectadvanced'), 'info');
+echo $OUTPUT->render_from_template('mod_selfselectadvanced/landing', $landing->export_for_template($OUTPUT));
 echo $OUTPUT->footer();

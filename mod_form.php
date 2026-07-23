@@ -137,7 +137,8 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
     }
 
     /**
-     * Enforce the numeric-limit validation of spec section 4A.7.
+     * Enforce the numeric-limit validation of spec section 4A.7,
+     * delegated to the unit-tested settings validator.
      *
      * @param array $data submitted data
      * @param array $files submitted files
@@ -146,47 +147,9 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
     public function validation($data, $files): array {
         $errors = parent::validation($data, $files);
 
-        // Integers of at least 1; no unlimited/zero sentinel values.
-        foreach (['minsize', 'maxsize', 'maxlead', 'maxmembership', 'maxguided'] as $field) {
-            if (empty($data[$field]) || (int) $data[$field] < 1) {
-                $errors[$field] = get_string('errpositiveint', 'mod_selfselectadvanced');
-            }
-        }
-        if (
-            empty($errors['minsize']) && empty($errors['maxsize'])
-                && (int) $data['minsize'] > (int) $data['maxsize']
-        ) {
-            $errors['minsize'] = get_string('errminsizegtmax', 'mod_selfselectadvanced');
-        }
-        if (
-            empty($errors['maxlead']) && empty($errors['maxmembership'])
-                && (int) $data['maxlead'] > (int) $data['maxmembership']
-        ) {
-            $errors['maxlead'] = get_string('errleadgtmembership', 'mod_selfselectadvanced');
-        }
-
-        if ((int) $data['grade'] < 0) {
-            $errors['grade'] = get_string('errnonnegative', 'mod_selfselectadvanced');
-        }
-        if ((float) $data['penaltyperday'] < 0) {
-            $errors['penaltyperday'] = get_string('errnonnegative', 'mod_selfselectadvanced');
-        }
-        if ((int) $data['inviteexpiry'] < 0) {
-            $errors['inviteexpiry'] = get_string('errnonnegative', 'mod_selfselectadvanced');
-        }
-
-        // Dates in order among those enabled: open <= due <= cutoff.
-        $open = empty($data['timeopen']) ? 0 : (int) $data['timeopen'];
-        $due = empty($data['timedue']) ? 0 : (int) $data['timedue'];
-        $cutoff = empty($data['timecutoff']) ? 0 : (int) $data['timecutoff'];
-        if ($open && $due && $open > $due) {
-            $errors['timedue'] = get_string('errdatesorder', 'mod_selfselectadvanced');
-        }
-        if ($due && $cutoff && $due > $cutoff) {
-            $errors['timecutoff'] = get_string('errdatesorder', 'mod_selfselectadvanced');
-        }
-        if ($open && $cutoff && $open > $cutoff) {
-            $errors['timecutoff'] = get_string('errdatesorder', 'mod_selfselectadvanced');
+        $rules = \mod_selfselectadvanced\local\rules\settings_validator::validate($data);
+        foreach ($rules as $field => $stringkey) {
+            $errors[$field] = get_string($stringkey, 'mod_selfselectadvanced');
         }
 
         return $errors;
