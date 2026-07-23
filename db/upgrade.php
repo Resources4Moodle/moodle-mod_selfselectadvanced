@@ -42,5 +42,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072401, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072402) {
+        // Slice 3: nomination and nominationresult message providers.
+        upgrade_mod_savepoint(true, 2026072402, 'selfselectadvanced');
+    }
+
     return true;
 }

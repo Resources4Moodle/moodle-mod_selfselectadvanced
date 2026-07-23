@@ -39,7 +39,12 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                 'singular' => 'group',
                 'datagenerator' => 'group',
                 'required' => ['selfselectadvanced', 'name', 'leader'],
-                'switchids' => ['selfselectadvanced' => 'activityid', 'leader' => 'leaderid'],
+                'switchids' => [
+                    'selfselectadvanced' => 'activityid',
+                    'leader' => 'leaderid',
+                    'successor' => 'successorid',
+                    'guide' => 'guideid',
+                ],
             ],
             'members' => [
                 'singular' => 'member',
@@ -78,6 +83,26 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
      * @return int the user id
      */
     protected function get_leader_id(string $username): int {
+        return $this->get_user_id($username);
+    }
+
+    /**
+     * Map a successor username to a user id.
+     *
+     * @param string $username the username
+     * @return int the user id
+     */
+    protected function get_successor_id(string $username): int {
+        return $this->get_user_id($username);
+    }
+
+    /**
+     * Map a guide username to a user id.
+     *
+     * @param string $username the username
+     * @return int the user id
+     */
+    protected function get_guide_id(string $username): int {
         return $this->get_user_id($username);
     }
 

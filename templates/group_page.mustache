@@ -134,6 +134,56 @@
         </ul>
     {{/haspendinginvites}}
 
+    {{#hasnomination}}
+        <div class="selfselectadvanced-nomination alert alert-warning">
+            {{#nominationisstepout}}
+                <p>{{#str}} nominationbannerstepout, mod_selfselectadvanced, {{nomineename}} {{/str}}</p>
+            {{/nominationisstepout}}
+            {{^nominationisstepout}}
+                <p>{{#str}} nominationbannertransfer, mod_selfselectadvanced, {{nomineename}} {{/str}}</p>
+            {{/nominationisstepout}}
+            {{#isnominee}}
+                {{#nomineeblocked}}
+                    <p class="text-muted">{{nomineeblockedreason}}</p>
+                {{/nomineeblocked}}
+                <form method="post" action="{{actionurl}}" class="d-inline">
+                    <input type="hidden" name="id" value="{{cmid}}">
+                    <input type="hidden" name="g" value="{{groupid}}">
+                    <input type="hidden" name="action" value="confirmnomination">
+                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                    <button type="submit" class="btn btn-primary btn-sm" {{#nomineeblocked}}disabled aria-disabled="true"{{/nomineeblocked}}>
+                        {{#str}} accept, mod_selfselectadvanced {{/str}}
+                    </button>
+                </form>
+                <form method="post" action="{{actionurl}}" class="d-inline">
+                    <input type="hidden" name="id" value="{{cmid}}">
+                    <input type="hidden" name="g" value="{{groupid}}">
+                    <input type="hidden" name="action" value="declinenomination">
+                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                    <button type="submit" class="btn btn-secondary btn-sm">
+                        {{#str}} decline, mod_selfselectadvanced {{/str}}
+                    </button>
+                </form>
+            {{/isnominee}}
+            {{#isleader}}
+                <form method="post" action="{{actionurl}}" class="d-inline">
+                    <input type="hidden" name="id" value="{{cmid}}">
+                    <input type="hidden" name="g" value="{{groupid}}">
+                    <input type="hidden" name="action" value="cancelnomination">
+                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                        {{#str}} cancelnomination, mod_selfselectadvanced {{/str}}
+                    </button>
+                </form>
+            {{/isleader}}
+        </div>
+    {{/hasnomination}}
+
+    {{#shownominateform}}
+        <h4>{{#str}} succession, mod_selfselectadvanced {{/str}}</h4>
+        {{{nominateformhtml}}}
+    {{/shownominateform}}
+
     {{#caninvite}}
         <h4>{{#str}} invitemembers, mod_selfselectadvanced {{/str}}</h4>
         {{{inviteformhtml}}}

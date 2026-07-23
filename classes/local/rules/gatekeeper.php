@@ -220,6 +220,118 @@ class gatekeeper {
     }
 
     /**
+     * May the leader nominate this member as successor? (Spec 6.4, A3.)
+     *
+     * State precondition: forming (S2). The nominee must be a confirmed
+     * member other than the leader, no other nomination may be active,
+     * and the nominee needs a free lead slot under their effective
+     * max_lead (L3) - members at their cap are excluded from the
+     * nomination list with this reason shown.
+     *
+     * @param \stdClass $group group row
+     * @param int $nomineeid the proposed successor
+     * @param string $type 'transfer' or 'stepout'
+     * @param int $actorid the acting user
+     * @return refusal|null null when allowed
+     */
+    public function can_nominate(stdClass $group, int $nomineeid, string $type, int $actorid): ?refusal {
+        global $DB;
+
+        if ($group->state !== state::FORMING) {
+            return new refusal('refusalwrongstate');
+        }
+        if ((int) $group->leaderid !== $actorid) {
+            return new refusal('refusalnotleader');
+        }
+        if (!in_array($type, ['transfer', 'stepout'], true)) {
+            return new refusal('refusalwrongstate');
+        }
+        if (!empty($group->successorid)) {
+            return new refusal('refusalnominationactive');
+        }
+        if ($nomineeid === (int) $group->leaderid) {
+            return new refusal('refusalnomineeisleader');
+        }
+        $member = $DB->get_record('selfselectadvanced_member', [
+            'groupid' => $group->id,
+            'userid' => $nomineeid,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        if (!$member) {
+            return new refusal('refusalnomineenotmember');
+        }
+
+        return $this->check_nominee_leadslot($nomineeid);
+    }
+
+    /**
+     * May this user confirm the active succession nomination?
+     *
+     * State precondition: forming (S2). Re-checked atomically inside
+     * the confirmation transaction: the nominee's L3 slot (both types),
+     * and for step-out the post-departure minimum size (L1) - the
+     * leader cannot step out until a replacement member is confirmed
+     * (spec 6.4).
+     *
+     * @param \stdClass $group group row
+     * @param int $userid the confirming user
+     * @return refusal|null null when allowed
+     */
+    public function can_confirm_succession(stdClass $group, int $userid): ?refusal {
+        global $DB;
+
+        if ($group->state !== state::FORMING) {
+            return new refusal('refusalwrongstate');
+        }
+        if (empty($group->successorid) || (int) $group->successorid !== $userid) {
+            return new refusal('refusalnotnominee');
+        }
+        $member = $DB->get_record('selfselectadvanced_member', [
+            'groupid' => $group->id,
+            'userid' => $userid,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        if (!$member) {
+            return new refusal('refusalnomineenotmember');
+        }
+        if ($refusal = $this->check_nominee_leadslot($userid)) {
+            return $refusal;
+        }
+        if ($group->successortype === 'stepout') {
+            $minsize = $this->resolver->effective_minsize((int) $group->id);
+            $after = groups::count_confirmed((int) $group->id) - 1;
+            if ($after < $minsize->value) {
+                return new refusal('refusalreplacementneeded', (object) [
+                    'after' => $after,
+                    'min' => $minsize->value,
+                ]);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * L3 check for a succession nominee: a free lead slot under their
+     * effective max_lead.
+     *
+     * @param int $nomineeid the nominee
+     * @return refusal|null null when a slot is free
+     */
+    public function check_nominee_leadslot(int $nomineeid): ?refusal {
+        $maxlead = $this->resolver->effective_maxlead($nomineeid);
+        $leading = groups::count_leading($this->activity, $nomineeid);
+        if ($leading >= $maxlead->value) {
+            return new refusal('refusalnomineeleadcap', (object) [
+                'current' => $leading,
+                'max' => $maxlead->value,
+            ]);
+        }
+
+        return null;
+    }
+
+    /**
      * May the leader withdraw this pending invitation?
      *
      * State precondition: forming (S2); leader only; invited rows only.

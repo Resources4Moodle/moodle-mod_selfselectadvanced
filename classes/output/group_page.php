@@ -49,6 +49,8 @@ class group_page implements renderable, templatable {
         private readonly int $userid,
         /** @var \mod_selfselectadvanced\form\invite_form|null Leader's invite form. */
         private readonly ?\mod_selfselectadvanced\form\invite_form $inviteform = null,
+        /** @var \mod_selfselectadvanced\form\nominate_form|null Leader's succession form. */
+        private readonly ?\mod_selfselectadvanced\form\nominate_form $nominateform = null,
     ) {
     }
 
@@ -106,7 +108,27 @@ class group_page implements renderable, templatable {
         ]);
         $caninvite = $isleader && $isforming && $seats->free > 0;
 
+        // Succession (spec 6.4, A3): active nomination banner for the
+        // nominee, status plus cancel for the leader.
+        $nomineename = '';
+        if (!empty($this->group->successorid)) {
+            $nomineename = fullname(\core_user::get_user((int) $this->group->successorid));
+        }
+        $isnominee = !empty($this->group->successorid) && (int) $this->group->successorid === $this->userid;
+        $nomineerefusal = null;
+        if ($isnominee) {
+            $nomineerefusal = $this->api->gatekeeper()->can_confirm_succession($this->group, $this->userid);
+        }
+
         return (object) [
+            'hasnomination' => !empty($this->group->successorid),
+            'nomineename' => $nomineename,
+            'nominationisstepout' => ($this->group->successortype ?? '') === 'stepout',
+            'isnominee' => $isnominee,
+            'nomineeblocked' => $isnominee && $nomineerefusal !== null,
+            'nomineeblockedreason' => $nomineerefusal?->get_message(),
+            'shownominateform' => $this->nominateform !== null,
+            'nominateformhtml' => $this->nominateform?->render() ?? '',
             'pluginuid' => $this->group->pluginuid,
             'name' => format_string($this->group->name),
             'title' => format_string($this->group->title),

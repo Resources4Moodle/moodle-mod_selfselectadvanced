@@ -75,6 +75,15 @@ class api {
     }
 
     /**
+     * The succession engine (transfer and step-out).
+     *
+     * @return succession
+     */
+    public function succession(): succession {
+        return new succession($this->activity, $this->gatekeeper);
+    }
+
+    /**
      * Create a group with the acting user as leader (transition T1).
      *
      * @param int $userid the leader-to-be

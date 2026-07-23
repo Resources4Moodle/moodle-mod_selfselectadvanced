@@ -66,15 +66,83 @@ $PAGE->set_url($baseurl);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
+$isleaderforming = (int) $group->leaderid === (int) $USER->id
+    && $group->state === \mod_selfselectadvanced\local\state::FORMING;
+
 $inviteform = null;
-if (
-    (int) $group->leaderid === (int) $USER->id
-        && $group->state === \mod_selfselectadvanced\local\state::FORMING
-) {
+if ($isleaderforming) {
     $inviteform = new \mod_selfselectadvanced\form\invite_form($baseurl->out(false), [
         'cmid' => $cm->id,
         'groupid' => (int) $group->id,
     ]);
+}
+
+$nominateform = null;
+if ($isleaderforming && empty($group->successorid)) {
+    // Roster-scoped nominee list: eligible members, and cap-excluded
+    // members shown with the reason (spec 6.4).
+    $eligible = [];
+    $excluded = [];
+    foreach (\mod_selfselectadvanced\local\groups::get_roster((int) $group->id) as $member) {
+        if ((int) $member->userid === (int) $group->leaderid) {
+            continue;
+        }
+        if ($refusal = $api->gatekeeper()->check_nominee_leadslot((int) $member->userid)) {
+            $excluded[] = [
+                'userid' => (int) $member->userid,
+                'name' => fullname($member),
+                'reason' => $refusal->get_message(),
+            ];
+        } else {
+            $eligible[(int) $member->userid] = fullname($member);
+        }
+    }
+    if ($eligible || $excluded) {
+        $nominateform = new \mod_selfselectadvanced\form\nominate_form($baseurl->out(false), [
+            'cmid' => $cm->id,
+            'groupid' => (int) $group->id,
+            'eligible' => $eligible,
+            'excluded' => $excluded,
+        ]);
+    }
+}
+
+if ($action === 'nominate' && $nominateform && ($data = $nominateform->get_data())) {
+    $api->succession()->nominate($group, (int) $data->nominee, $data->stype, (int) $USER->id);
+    redirect(
+        $baseurl,
+        get_string('nominationsent', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
+if ($action === 'confirmnomination' && data_submitted() && confirm_sesskey()) {
+    $type = $api->succession()->confirm($group, (int) $USER->id);
+    $notice = $type === 'stepout'
+        ? get_string('successionstepoutdone', 'mod_selfselectadvanced')
+        : get_string('successiontransferdone', 'mod_selfselectadvanced');
+    redirect($baseurl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
+}
+
+if ($action === 'declinenomination' && data_submitted() && confirm_sesskey()) {
+    $api->succession()->decline($group, (int) $USER->id);
+    redirect(
+        $baseurl,
+        get_string('nominationdeclined', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
+if ($action === 'cancelnomination' && data_submitted() && confirm_sesskey()) {
+    $api->succession()->cancel($group, (int) $USER->id);
+    redirect(
+        $baseurl,
+        get_string('nominationcancelled', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
 }
 
 if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
@@ -162,7 +230,7 @@ if ($action === 'delete') {
     die;
 }
 
-$page = new \mod_selfselectadvanced\output\group_page($api, $group, (int) $USER->id, $inviteform);
+$page = new \mod_selfselectadvanced\output\group_page($api, $group, (int) $USER->id, $inviteform, $nominateform);
 
 echo $OUTPUT->header();
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/group_page', $page->export_for_template($OUTPUT));

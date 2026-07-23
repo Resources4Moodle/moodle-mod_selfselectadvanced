@@ -113,6 +113,19 @@ class landing implements renderable, templatable {
                 $data->myinvitations[] = $this->export_group_row($group, $cmid);
             }
             $data->hasmyinvitations = !empty($data->myinvitations);
+
+            // Pending succession nominations for this user (spec 6.4, A3).
+            $data->mynominations = [];
+            $nominated = $DB->get_records('selfselectadvanced_group', [
+                'activityid' => $activity->id(),
+                'successorid' => $this->userid,
+            ], 'timenominated ASC');
+            foreach ($nominated as $group) {
+                $row = $this->export_group_row($group, $cmid);
+                $row->isstepout = $group->successortype === 'stepout';
+                $data->mynominations[] = $row;
+            }
+            $data->hasmynominations = !empty($data->mynominations);
         }
 
         if (has_capability('mod/selfselectadvanced:viewall', $context, $this->userid, false)) {
