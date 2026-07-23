@@ -152,8 +152,16 @@ function selfselectadvanced_grade_item_update(stdClass $instance, $grades = null
         $grades = null;
     }
 
-    return grade_update('mod/selfselectadvanced', $instance->course, 'mod', 'selfselectadvanced',
-        $instance->id, 0, $grades, $params);
+    return grade_update(
+        'mod/selfselectadvanced',
+        $instance->course,
+        'mod',
+        'selfselectadvanced',
+        $instance->id,
+        0,
+        $grades,
+        $params
+    );
 }
 
 /**
@@ -166,8 +174,16 @@ function selfselectadvanced_grade_item_delete(stdClass $instance): int {
     global $CFG;
     require_once($CFG->libdir . '/gradelib.php');
 
-    return grade_update('mod/selfselectadvanced', $instance->course, 'mod', 'selfselectadvanced',
-        $instance->id, 0, null, ['deleted' => 1]);
+    return grade_update(
+        'mod/selfselectadvanced',
+        $instance->course,
+        'mod',
+        'selfselectadvanced',
+        $instance->id,
+        0,
+        null,
+        ['deleted' => 1]
+    );
 }
 
 /**

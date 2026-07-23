@@ -30,7 +30,6 @@ require_once($CFG->dirroot . '/course/moodleform_mod.php');
  * Instance settings form, enforcing the validation of spec section 4A.7.
  */
 class mod_selfselectadvanced_mod_form extends moodleform_mod {
-
     /**
      * Define the form elements.
      */
@@ -87,14 +86,26 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
 
         // Formation window.
         $mform->addElement('header', 'formationwindow', get_string('formationwindow', 'mod_selfselectadvanced'));
-        $mform->addElement('date_time_selector', 'timeopen', get_string('timeopen', 'mod_selfselectadvanced'),
-            ['optional' => true]);
+        $mform->addElement(
+            'date_time_selector',
+            'timeopen',
+            get_string('timeopen', 'mod_selfselectadvanced'),
+            ['optional' => true]
+        );
         $mform->addHelpButton('timeopen', 'timeopen', 'mod_selfselectadvanced');
-        $mform->addElement('date_time_selector', 'timedue', get_string('timedue', 'mod_selfselectadvanced'),
-            ['optional' => true]);
+        $mform->addElement(
+            'date_time_selector',
+            'timedue',
+            get_string('timedue', 'mod_selfselectadvanced'),
+            ['optional' => true]
+        );
         $mform->addHelpButton('timedue', 'timedue', 'mod_selfselectadvanced');
-        $mform->addElement('date_time_selector', 'timecutoff', get_string('timecutoff', 'mod_selfselectadvanced'),
-            ['optional' => true]);
+        $mform->addElement(
+            'date_time_selector',
+            'timecutoff',
+            get_string('timecutoff', 'mod_selfselectadvanced'),
+            ['optional' => true]
+        );
         $mform->addHelpButton('timecutoff', 'timecutoff', 'mod_selfselectadvanced');
 
         // Late penalty.
@@ -141,12 +152,16 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
                 $errors[$field] = get_string('errpositiveint', 'mod_selfselectadvanced');
             }
         }
-        if (empty($errors['minsize']) && empty($errors['maxsize'])
-                && (int) $data['minsize'] > (int) $data['maxsize']) {
+        if (
+            empty($errors['minsize']) && empty($errors['maxsize'])
+                && (int) $data['minsize'] > (int) $data['maxsize']
+        ) {
             $errors['minsize'] = get_string('errminsizegtmax', 'mod_selfselectadvanced');
         }
-        if (empty($errors['maxlead']) && empty($errors['maxmembership'])
-                && (int) $data['maxlead'] > (int) $data['maxmembership']) {
+        if (
+            empty($errors['maxlead']) && empty($errors['maxmembership'])
+                && (int) $data['maxlead'] > (int) $data['maxmembership']
+        ) {
             $errors['maxlead'] = get_string('errleadgtmembership', 'mod_selfselectadvanced');
         }
 

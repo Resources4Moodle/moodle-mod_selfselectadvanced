@@ -45,8 +45,10 @@ echo $OUTPUT->heading(get_string('modulenameplural', 'mod_selfselectadvanced'));
 
 $instances = get_all_instances_in_course('selfselectadvanced', $course);
 if (empty($instances)) {
-    notice(get_string('thereareno', 'moodle', get_string('modulenameplural', 'mod_selfselectadvanced')),
-        new moodle_url('/course/view.php', ['id' => $course->id]));
+    notice(
+        get_string('thereareno', 'moodle', get_string('modulenameplural', 'mod_selfselectadvanced')),
+        new moodle_url('/course/view.php', ['id' => $course->id])
+    );
 }
 
 $usesections = course_format_uses_sections($course->format);
