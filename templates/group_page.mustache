@@ -17,12 +17,13 @@
 {{!
     @template mod_selfselectadvanced/group_page
 
-    One group: identity, roster, seat position and leader actions.
+    One group: identity, roster, seat position, invitations and actions.
 
     Context variables required for this template:
     * pluginuid - plugin-scoped unique group id
     * name - group name
     * statelabel - localised state
+    * sesskey - session key for the action forms
 
     Example context (json):
     {
@@ -39,6 +40,18 @@
             {"fullname": "Bob Member", "isleader": false}
         ],
         "isleader": true,
+        "caninvite": true,
+        "inviteformhtml": "",
+        "invitedisabledreason": "",
+        "haspendinginvites": true,
+        "pendinginvites": [
+            {"memberid": 3, "fullname": "Cara Invitee", "invitedon": "Wednesday, 22 July"}
+        ],
+        "showrespond": false,
+        "sesskey": "abc",
+        "actionurl": "https://example.com/mod/selfselectadvanced/group.php",
+        "cmid": 1,
+        "groupid": 1,
         "candelete": true,
         "deleteurl": "https://example.com/mod/selfselectadvanced/group.php?id=1&g=1&action=delete",
         "backurl": "https://example.com/mod/selfselectadvanced/view.php?id=1"
@@ -61,6 +74,26 @@
         <span class="d-block text-muted small">{{minsizenote}}</span>
     </p>
 
+    {{#showrespond}}
+        <div class="selfselectadvanced-respond alert alert-info d-flex align-items-center flex-wrap gap-2">
+            <span class="me-2">{{#str}} respondprompt, mod_selfselectadvanced {{/str}}</span>
+            <form method="post" action="{{actionurl}}" class="d-inline">
+                <input type="hidden" name="id" value="{{cmid}}">
+                <input type="hidden" name="g" value="{{groupid}}">
+                <input type="hidden" name="action" value="accept">
+                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <button type="submit" class="btn btn-primary btn-sm">{{#str}} accept, mod_selfselectadvanced {{/str}}</button>
+            </form>
+            <form method="post" action="{{actionurl}}" class="d-inline">
+                <input type="hidden" name="id" value="{{cmid}}">
+                <input type="hidden" name="g" value="{{groupid}}">
+                <input type="hidden" name="action" value="decline">
+                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <button type="submit" class="btn btn-secondary btn-sm">{{#str}} decline, mod_selfselectadvanced {{/str}}</button>
+            </form>
+        </div>
+    {{/showrespond}}
+
     <h4>{{#str}} roster, mod_selfselectadvanced {{/str}}</h4>
     {{#hasroster}}
         <ul class="list-group mb-3 selfselectadvanced-roster">
@@ -74,6 +107,45 @@
             {{/roster}}
         </ul>
     {{/hasroster}}
+
+    {{#haspendinginvites}}
+        <h4>{{#str}} pendinginvitations, mod_selfselectadvanced {{/str}}</h4>
+        <ul class="list-group mb-3 selfselectadvanced-pendinginvites">
+            {{#pendinginvites}}
+                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap">
+                    <span>
+                        {{fullname}}
+                        <span class="text-muted small ms-2">{{invitedon}}</span>
+                    </span>
+                    {{#isleader}}
+                        <form method="post" action="{{actionurl}}" class="d-inline">
+                            <input type="hidden" name="id" value="{{cmid}}">
+                            <input type="hidden" name="g" value="{{groupid}}">
+                            <input type="hidden" name="action" value="withdraw">
+                            <input type="hidden" name="m" value="{{memberid}}">
+                            <input type="hidden" name="sesskey" value="{{sesskey}}">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                {{#str}} withdraw, mod_selfselectadvanced {{/str}}
+                            </button>
+                        </form>
+                    {{/isleader}}
+                </li>
+            {{/pendinginvites}}
+        </ul>
+    {{/haspendinginvites}}
+
+    {{#caninvite}}
+        <h4>{{#str}} invitemembers, mod_selfselectadvanced {{/str}}</h4>
+        {{{inviteformhtml}}}
+    {{/caninvite}}
+    {{#invitedisabledreason}}
+        <p>
+            <button type="button" class="btn btn-secondary" disabled aria-disabled="true">
+                {{#str}} invitemembers, mod_selfselectadvanced {{/str}}
+            </button>
+            <span class="ms-2 text-muted">{{invitedisabledreason}}</span>
+        </p>
+    {{/invitedisabledreason}}
 
     <div class="mt-3">
         <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>

@@ -123,6 +123,127 @@ class gatekeeper {
     }
 
     /**
+     * May the leader invite this user to the group? (Spec section 6.2.)
+     *
+     * State precondition: forming (S2). Blocks, in order: window closed
+     * for the inviter's group context; (c) invitee already confirmed;
+     * (b) invitee already has a pending invitation; (a) invitee at
+     * their effective membership cap n (L4); (d) no free seat -
+     * confirmed plus pending equal the effective max_size (L2, reserved
+     * seats). With n = 1, (a) is exactly "a confirmed student of
+     * another group cannot be invited" (decision D2).
+     *
+     * Counts compare against current effective limits, so an over-limit
+     * grandfathered state can never grow (review item B3).
+     *
+     * @param \stdClass $group group row
+     * @param int $inviteeid the candidate
+     * @param int|null $now time of the action, defaults to now
+     * @return refusal|null null when allowed
+     */
+    public function can_invite(stdClass $group, int $inviteeid, ?int $now = null): ?refusal {
+        global $DB;
+        $now = $now ?? time();
+
+        if ($group->state !== state::FORMING) {
+            return new refusal('refusalwrongstate');
+        }
+        if ($refusal = $this->check_window((int) $group->leaderid, (int) $group->id, $now)) {
+            return $refusal;
+        }
+
+        $existing = $DB->get_record('selfselectadvanced_member', [
+            'groupid' => $group->id,
+            'userid' => $inviteeid,
+        ]);
+        if ($existing && $existing->status === groups::STATUS_CONFIRMED) {
+            return new refusal('refusalalreadymember');
+        }
+        if ($existing && $existing->status === groups::STATUS_INVITED) {
+            return new refusal('refusalalreadyinvited');
+        }
+
+        $cap = $this->resolver->effective_maxmembership($inviteeid);
+        $memberships = groups::count_memberships($this->activity, $inviteeid);
+        if ($memberships >= $cap->value) {
+            return new refusal('refusalinviteecap', (object) ['current' => $memberships, 'max' => $cap->value]);
+        }
+
+        $seats = $this->seat_position($group);
+        if ($seats->free < 1) {
+            return new refusal('refusalnoseats');
+        }
+
+        return null;
+    }
+
+    /**
+     * May this invitee accept their pending invitation?
+     *
+     * State precondition: forming (S2). Re-checks atomically inside the
+     * acceptance transaction: the invitee's own effective window, the
+     * group's seat count (L2) and the invitee's membership cap (L4) -
+     * two simultaneous acceptances must overshoot neither (spec 6.2).
+     *
+     * @param \stdClass $group group row
+     * @param \stdClass $member the invited member row
+     * @param int|null $now time of the action, defaults to now
+     * @return refusal|null null when allowed
+     */
+    public function can_accept(stdClass $group, stdClass $member, ?int $now = null): ?refusal {
+        $now = $now ?? time();
+
+        if ($group->state !== state::FORMING) {
+            return new refusal('refusalwrongstate');
+        }
+        if ($member->status !== groups::STATUS_INVITED) {
+            return new refusal('refusalnotinvited');
+        }
+        if ($refusal = $this->check_window((int) $member->userid, (int) $group->id, $now)) {
+            return $refusal;
+        }
+
+        $cap = $this->resolver->effective_maxmembership((int) $member->userid);
+        $memberships = groups::count_memberships($this->activity, (int) $member->userid);
+        if ($memberships >= $cap->value) {
+            return new refusal('refusalmembershipcap', (object) ['current' => $memberships, 'max' => $cap->value]);
+        }
+
+        // Seat re-check: the invitee already holds a reserved seat, so the
+        // group is over only if confirmed-plus-invited exceeds the maximum.
+        $seats = $this->seat_position($group);
+        if ($seats->taken > $seats->max) {
+            return new refusal('refusalnoseats');
+        }
+
+        return null;
+    }
+
+    /**
+     * May the leader withdraw this pending invitation?
+     *
+     * State precondition: forming (S2); leader only; invited rows only.
+     *
+     * @param \stdClass $group group row
+     * @param \stdClass $member the invited member row
+     * @param int $userid the acting user
+     * @return refusal|null null when allowed
+     */
+    public function can_withdraw(stdClass $group, stdClass $member, int $userid): ?refusal {
+        if ($group->state !== state::FORMING) {
+            return new refusal('refusalwrongstate');
+        }
+        if ((int) $group->leaderid !== $userid) {
+            return new refusal('refusalnotleader');
+        }
+        if ($member->status !== groups::STATUS_INVITED) {
+            return new refusal('refusalnotinvited');
+        }
+
+        return null;
+    }
+
+    /**
      * Formation-window check against the user's effective dates.
      *
      * @param int $userid the acting user

@@ -15,8 +15,11 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * The group page. GET renders (including the delete confirmation page);
- * every state change arrives as a sesskey-protected POST.
+ * The group page. GET renders (including confirmation pages); every
+ * state change arrives as a sesskey-protected POST.
+ *
+ * Actions: invite (leader), withdraw (leader), accept/decline (the
+ * invitee acting on their own invitation), delete (leader).
  *
  * Access: confirmed or invited members of the group, and viewall
  * holders. Ownership of every id is verified server-side (IDOR rule,
@@ -63,6 +66,73 @@ $PAGE->set_url($baseurl);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
+$inviteform = null;
+if (
+    (int) $group->leaderid === (int) $USER->id
+        && $group->state === \mod_selfselectadvanced\local\state::FORMING
+) {
+    $inviteform = new \mod_selfselectadvanced\form\invite_form($baseurl->out(false), [
+        'cmid' => $cm->id,
+        'groupid' => (int) $group->id,
+    ]);
+}
+
+if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
+    $sent = 0;
+    $problems = [];
+    foreach (array_filter(array_map('intval', (array) $data->invitees)) as $inviteeid) {
+        try {
+            $api->invitations()->send($group, $inviteeid, (int) $USER->id);
+            $sent++;
+        } catch (moodle_exception $e) {
+            $problems[] = $e->getMessage();
+        }
+    }
+    $notice = get_string('invitationssent', 'mod_selfselectadvanced', $sent);
+    if ($problems) {
+        $notice .= ' ' . implode(' ', $problems);
+    }
+    redirect(
+        $baseurl,
+        $notice,
+        null,
+        $problems
+            ? \core\output\notification::NOTIFY_WARNING
+            : \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
+if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
+    $memberid = required_param('m', PARAM_INT);
+    $api->invitations()->withdraw($group, $memberid, (int) $USER->id);
+    redirect(
+        $baseurl,
+        get_string('invitationwithdrawn', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
+if ($action === 'accept' && data_submitted() && confirm_sesskey()) {
+    $api->invitations()->accept($group, (int) $USER->id);
+    redirect(
+        $baseurl,
+        get_string('invitationaccepted', 'mod_selfselectadvanced', format_string($group->name)),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
+if ($action === 'decline' && data_submitted() && confirm_sesskey()) {
+    $api->invitations()->decline($group, (int) $USER->id);
+    redirect(
+        $viewurl,
+        get_string('invitationdeclined', 'mod_selfselectadvanced', format_string($group->name)),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
 if ($action === 'delete') {
     // Leader-only, forming-only; the gatekeeper repeats this server-side on POST.
     if ($refusal = $api->gatekeeper()->can_delete_group($group, (int) $USER->id)) {
@@ -92,7 +162,7 @@ if ($action === 'delete') {
     die;
 }
 
-$page = new \mod_selfselectadvanced\output\group_page($api, $group, (int) $USER->id);
+$page = new \mod_selfselectadvanced\output\group_page($api, $group, (int) $USER->id, $inviteform);
 
 echo $OUTPUT->header();
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/group_page', $page->export_for_template($OUTPUT));

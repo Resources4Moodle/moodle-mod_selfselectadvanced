@@ -103,8 +103,28 @@
                         <a href="{{url}}">{{name}}</a>
                         <span class="text-muted small ms-2">{{pluginuid}}</span>
                         <span class="d-block small">{{title}}</span>
+                        <span class="d-block small text-muted">{{seatsummary}}</span>
                     </span>
-                    <span class="badge bg-warning text-dark">{{#str}} invitationpending, mod_selfselectadvanced {{/str}}</span>
+                    <span class="text-end">
+                        <form method="post" action="{{actionurl}}" class="d-inline">
+                            <input type="hidden" name="id" value="{{cmid}}">
+                            <input type="hidden" name="g" value="{{id}}">
+                            <input type="hidden" name="action" value="accept">
+                            <input type="hidden" name="sesskey" value="{{sesskey}}">
+                            <button type="submit" class="btn btn-primary btn-sm">
+                                {{#str}} accept, mod_selfselectadvanced {{/str}}
+                            </button>
+                        </form>
+                        <form method="post" action="{{actionurl}}" class="d-inline">
+                            <input type="hidden" name="id" value="{{cmid}}">
+                            <input type="hidden" name="g" value="{{id}}">
+                            <input type="hidden" name="action" value="decline">
+                            <input type="hidden" name="sesskey" value="{{sesskey}}">
+                            <button type="submit" class="btn btn-secondary btn-sm">
+                                {{#str}} decline, mod_selfselectadvanced {{/str}}
+                            </button>
+                        </form>
+                    </span>
                 </li>
             {{/myinvitations}}
         </ul>

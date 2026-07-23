@@ -15,32 +15,22 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Upgrade steps for mod_selfselectadvanced.
- *
- * Versioned from day one (spec section 15.4): the plugin must upgrade
- * cleanly from any released version as well as install cleanly.
+ * External function declarations for mod_selfselectadvanced.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-/**
- * Execute an upgrade from the given old version.
- *
- * @param int $oldversion the version we are upgrading from
- * @return bool always true
- */
-function xmldb_selfselectadvanced_upgrade($oldversion): bool {
-    // First public schema is 2026072400; upgrade steps accumulate below
-    // with upgrade_mod_savepoint() calls as the plugin evolves.
+defined('MOODLE_INTERNAL') || die();
 
-    if ($oldversion < 2026072401) {
-        // Slice 2: external function, message providers and the
-        // invitation expiry task registered from their db/ files; no
-        // schema change.
-        upgrade_mod_savepoint(true, 2026072401, 'selfselectadvanced');
-    }
-
-    return true;
-}
+$functions = [
+    'mod_selfselectadvanced_search_candidates' => [
+        'classname' => \mod_selfselectadvanced\external\search_candidates::class,
+        'description' => 'Search the course-level candidate pool for group invitations, '
+            . 'with per-candidate eligibility and reasons.',
+        'type' => 'read',
+        'ajax' => true,
+        'capabilities' => 'mod/selfselectadvanced:creategroup',
+    ],
+];

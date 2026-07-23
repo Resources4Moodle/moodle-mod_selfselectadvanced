@@ -15,32 +15,26 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Upgrade steps for mod_selfselectadvanced.
+ * Scheduled task definitions for mod_selfselectadvanced.
  *
- * Versioned from day one (spec section 15.4): the plugin must upgrade
- * cleanly from any released version as well as install cleanly.
+ * Later slices add: run_autogrouping, reconcile_penalties,
+ * deadline_reminder (spec section 14.9).
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-/**
- * Execute an upgrade from the given old version.
- *
- * @param int $oldversion the version we are upgrading from
- * @return bool always true
- */
-function xmldb_selfselectadvanced_upgrade($oldversion): bool {
-    // First public schema is 2026072400; upgrade steps accumulate below
-    // with upgrade_mod_savepoint() calls as the plugin evolves.
+defined('MOODLE_INTERNAL') || die();
 
-    if ($oldversion < 2026072401) {
-        // Slice 2: external function, message providers and the
-        // invitation expiry task registered from their db/ files; no
-        // schema change.
-        upgrade_mod_savepoint(true, 2026072401, 'selfselectadvanced');
-    }
-
-    return true;
-}
+$tasks = [
+    [
+        'classname' => \mod_selfselectadvanced\task\expire_invitations::class,
+        'blocking' => 0,
+        'minute' => '13',
+        'hour' => '*',
+        'day' => '*',
+        'month' => '*',
+        'dayofweek' => '*',
+    ],
+];

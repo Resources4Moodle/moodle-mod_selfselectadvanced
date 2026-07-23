@@ -14,33 +14,33 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
+namespace mod_selfselectadvanced\event;
+
 /**
- * Upgrade steps for mod_selfselectadvanced.
- *
- * Versioned from day one (spec section 15.4): the plugin must upgrade
- * cleanly from any released version as well as install cleanly.
+ * Event fired when a group invitation is expired.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-
-/**
- * Execute an upgrade from the given old version.
- *
- * @param int $oldversion the version we are upgrading from
- * @return bool always true
- */
-function xmldb_selfselectadvanced_upgrade($oldversion): bool {
-    // First public schema is 2026072400; upgrade steps accumulate below
-    // with upgrade_mod_savepoint() calls as the plugin evolves.
-
-    if ($oldversion < 2026072401) {
-        // Slice 2: external function, message providers and the
-        // invitation expiry task registered from their db/ files; no
-        // schema change.
-        upgrade_mod_savepoint(true, 2026072401, 'selfselectadvanced');
+class invitation_expired extends invitation_responded {
+    /**
+     * Localised event name.
+     *
+     * @return string
+     */
+    public static function get_name(): string {
+        return get_string('eventinvitationexpired', 'mod_selfselectadvanced');
     }
 
-    return true;
+    /**
+     * Human-readable description.
+     *
+     * @return string
+     */
+    public function get_description(): string {
+        $uid = $this->other['pluginuid'] ?? '';
+
+        return "The user with id '$this->relateduserid' had their invitation expire for the group '$uid'.";
+    }
 }

@@ -24,8 +24,8 @@ use renderer_base;
 use templatable;
 
 /**
- * The group page: identity, roster, seat position and leader actions
- * (UI inventory, spec section 14.13; displays, section 4A.6).
+ * The group page: identity, roster, seat position, invitations and
+ * leader actions (UI inventory, spec section 14.13; displays, 4A.6).
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -38,6 +38,7 @@ class group_page implements renderable, templatable {
      * @param api $api the application facade
      * @param \stdClass $group the group row
      * @param int $userid the viewing user
+     * @param \mod_selfselectadvanced\form\invite_form|null $inviteform leader's invite form, when applicable
      */
     public function __construct(
         /** @var api The application facade. */
@@ -46,6 +47,8 @@ class group_page implements renderable, templatable {
         private readonly \stdClass $group,
         /** @var int The viewing user. */
         private readonly int $userid,
+        /** @var \mod_selfselectadvanced\form\invite_form|null Leader's invite form. */
+        private readonly ?\mod_selfselectadvanced\form\invite_form $inviteform = null,
     ) {
     }
 
@@ -56,11 +59,14 @@ class group_page implements renderable, templatable {
      * @return \stdClass
      */
     public function export_for_template(renderer_base $output): \stdClass {
+        global $DB;
+
         $activity = $this->api->activity();
         $context = $activity->context();
         $cmid = $activity->cm()->id;
         $seats = $this->api->gatekeeper()->seat_position($this->group);
         $isleader = (int) $this->group->leaderid === $this->userid;
+        $isforming = $this->group->state === state::FORMING;
 
         $roster = [];
         foreach (groups::get_roster((int) $this->group->id) as $member) {
@@ -69,6 +75,36 @@ class group_page implements renderable, templatable {
                 'isleader' => (bool) $member->isleader,
             ];
         }
+
+        // Pending invitations, visible to the leader and staff.
+        $pendinginvites = [];
+        if ($isleader || has_capability('mod/selfselectadvanced:viewall', $context, $this->userid)) {
+            $namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
+            $sql = "SELECT m.id AS memberid, m.userid, m.timeinvited, $namefields
+                      FROM {selfselectadvanced_member} m
+                      JOIN {user} u ON u.id = m.userid
+                     WHERE m.groupid = :groupid AND m.status = :status
+                  ORDER BY m.timeinvited ASC";
+            foreach (
+                $DB->get_records_sql($sql, [
+                    'groupid' => $this->group->id,
+                    'status' => groups::STATUS_INVITED,
+                ]) as $invite
+            ) {
+                $pendinginvites[] = (object) [
+                    'memberid' => (int) $invite->memberid,
+                    'fullname' => fullname($invite),
+                    'invitedon' => $invite->timeinvited ? userdate($invite->timeinvited) : '',
+                ];
+            }
+        }
+
+        // The viewer's own pending invitation, if any.
+        $ownrow = $DB->get_record('selfselectadvanced_member', [
+            'groupid' => $this->group->id,
+            'userid' => $this->userid,
+        ]);
+        $caninvite = $isleader && $isforming && $seats->free > 0;
 
         return (object) [
             'pluginuid' => $this->group->pluginuid,
@@ -81,7 +117,19 @@ class group_page implements renderable, templatable {
             'roster' => $roster,
             'hasroster' => !empty($roster),
             'isleader' => $isleader,
-            'candelete' => $isleader && $this->group->state === state::FORMING,
+            'candelete' => $isleader && $isforming,
+            'caninvite' => $caninvite,
+            'inviteformhtml' => $caninvite && $this->inviteform ? $this->inviteform->render() : '',
+            'invitedisabledreason' => $isleader && $isforming && $seats->free < 1
+                ? get_string('refusalnoseats', 'mod_selfselectadvanced')
+                : '',
+            'pendinginvites' => $pendinginvites,
+            'haspendinginvites' => !empty($pendinginvites),
+            'showrespond' => $ownrow && $ownrow->status === groups::STATUS_INVITED,
+            'sesskey' => sesskey(),
+            'actionurl' => (new \moodle_url('/mod/selfselectadvanced/group.php'))->out(false),
+            'cmid' => $cmid,
+            'groupid' => (int) $this->group->id,
             'deleteurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
                 'id' => $cmid,
                 'g' => $this->group->id,

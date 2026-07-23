@@ -66,6 +66,9 @@ class landing implements renderable, templatable {
         $data = (object) [
             'isstudent' => false,
             'isstaff' => false,
+            'sesskey' => sesskey(),
+            'cmid' => $cmid,
+            'actionurl' => (new \moodle_url('/mod/selfselectadvanced/group.php'))->out(false),
         ];
 
         if (
