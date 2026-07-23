@@ -147,7 +147,10 @@ class group_page implements renderable, templatable {
             $guidename = fullname(\core_user::get_user((int) $this->group->guideid));
         }
 
+        $quota = \mod_selfselectadvanced\local\quota\evaluator::evaluate($activity, (int) $this->group->id);
+
         return (object) [
+            'quota' => $quota,
             'showsubmit' => $this->submitform !== null,
             'submitformhtml' => $this->submitform?->render() ?? '',
             'submitblockedreason' => $isleader && $isforming && $submitrefusal !== null

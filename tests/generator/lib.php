@@ -160,6 +160,42 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
     }
 
     /**
+     * Create a quota rule.
+     *
+     * Required: activityid, dimension. Optional: rtype (default value),
+     * value, mincount, maxcount, priority (default appends).
+     *
+     * @param array|stdClass $record rule fields
+     * @return stdClass the rule row
+     */
+    public function create_quota($record): stdClass {
+        global $DB;
+
+        $record = (object) (array) $record;
+        if (!isset($record->activityid) || !isset($record->dimension)) {
+            throw new coding_exception('create_quota requires activityid and dimension');
+        }
+        $now = time();
+        $rule = (object) [
+            'activityid' => (int) $record->activityid,
+            'dimension' => $record->dimension,
+            'rtype' => $record->rtype ?? 'value',
+            'value' => $record->value ?? null,
+            'mincount' => $record->mincount ?? null,
+            'maxcount' => $record->maxcount ?? null,
+            'priority' => $record->priority ?? (1 + (int) $DB->get_field_sql(
+                'SELECT COALESCE(MAX(priority), 0) FROM {selfselectadvanced_quota} WHERE activityid = ?',
+                [(int) $record->activityid]
+            )),
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ];
+        $rule->id = $DB->insert_record('selfselectadvanced_quota', $rule);
+
+        return $rule;
+    }
+
+    /**
      * Create a membership/invitation row.
      *
      * Required: groupid, userid. Status defaults to confirmed.

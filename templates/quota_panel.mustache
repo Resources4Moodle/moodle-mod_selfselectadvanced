@@ -1,0 +1,70 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/quota_panel
+
+    The live quota bucket panel (spec 8.2): one row per rule in
+    priority order, satisfied state marked with an icon AND text
+    (never colour alone, spec 14.14), deficiencies worded explicitly.
+
+    Context variables required for this template:
+    * hasrules - whether any rules exist
+    * rules - evaluated rule entries
+
+    Example context (json):
+    {
+        "hasrules": true,
+        "compliant": false,
+        "rules": [
+            {"label": "At least 1 member with Gender = Female", "current": 0,
+             "satisfied": false, "deficiency": "Needs 1 more member with Gender = Female"}
+        ],
+        "unknowncount": 1
+    }
+}}
+{{#hasrules}}
+<div class="selfselectadvanced-quotapanel card mb-3" aria-live="polite">
+    <div class="card-body">
+        <h4 class="card-title">{{#str}} quotapanel, mod_selfselectadvanced {{/str}}</h4>
+        <ul class="list-group list-group-flush">
+            {{#rules}}
+                <li class="list-group-item d-flex justify-content-between align-items-start flex-wrap">
+                    <span>
+                        {{#satisfied}}
+                            {{#pix}} i/checked, core, {{#str}} quotasatisfied, mod_selfselectadvanced {{/str}} {{/pix}}
+                            <span class="visually-hidden">{{#str}} quotasatisfied, mod_selfselectadvanced {{/str}}</span>
+                        {{/satisfied}}
+                        {{^satisfied}}
+                            {{#pix}} i/warning, core, {{#str}} quotadeficient, mod_selfselectadvanced {{/str}} {{/pix}}
+                        {{/satisfied}}
+                        {{label}}
+                        {{^satisfied}}
+                            <span class="d-block small fw-bold">{{deficiency}}</span>
+                        {{/satisfied}}
+                    </span>
+                    <span class="text-muted small">{{#str}} quotacurrent, mod_selfselectadvanced, {{current}} {{/str}}</span>
+                </li>
+            {{/rules}}
+        </ul>
+        {{#unknowncount}}
+            <p class="text-muted small mb-0 mt-2">
+                {{#str}} quotaunknown, mod_selfselectadvanced, {{unknowncount}} {{/str}}
+            </p>
+        {{/unknowncount}}
+    </div>
+</div>
+{{/hasrules}}

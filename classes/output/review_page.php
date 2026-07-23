@@ -86,7 +86,10 @@ class review_page implements renderable, templatable {
             ? $this->api->gatekeeper()->can_approve($this->group, $this->userid)
             : null;
 
+        $quota = \mod_selfselectadvanced\local\quota\evaluator::evaluate($activity, (int) $this->group->id);
+
         return (object) [
+            'quota' => $quota,
             'pluginuid' => $this->group->pluginuid,
             'name' => format_string($this->group->name),
             'title' => format_string($this->group->title),

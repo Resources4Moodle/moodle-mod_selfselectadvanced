@@ -1,0 +1,105 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/quota_rules
+
+    Manager list of quota rules in priority order with reorder controls.
+
+    Context variables required for this template:
+    * hasrules - whether any rules exist
+    * sesskey - session key for the action forms
+
+    Example context (json):
+    {
+        "hasrules": true,
+        "rules": [
+            {"ruleid": 1, "priority": 1, "label": "At least 1 member with Gender = Female",
+             "isfirst": true, "islast": false, "editurl": "https://example.com/mod/selfselectadvanced/quotas.php?id=1&action=edit&rule=1"}
+        ],
+        "addurl": "https://example.com/mod/selfselectadvanced/quotas.php?id=1&action=edit",
+        "actionurl": "https://example.com/mod/selfselectadvanced/quotas.php?id=1",
+        "cmid": 1,
+        "sesskey": "abc",
+        "backurl": "https://example.com/mod/selfselectadvanced/manage.php?id=1"
+    }
+}}
+<div class="selfselectadvanced-quotarules">
+    <h3>{{#str}} quotarules, mod_selfselectadvanced {{/str}}</h3>
+    <p class="text-muted">{{#str}} quotarulesintro, mod_selfselectadvanced {{/str}}</p>
+
+    {{#hasrules}}
+        <div class="table-responsive">
+            <table class="table generaltable">
+                <thead>
+                    <tr>
+                        <th scope="col">{{#str}} quotapriority, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} quotarule, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} actions {{/str}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#rules}}
+                        <tr>
+                            <td>{{priority}}</td>
+                            <td>{{label}}</td>
+                            <td class="d-flex gap-1 flex-wrap">
+                                {{^isfirst}}
+                                    <form method="post" action="{{actionurl}}" class="d-inline">
+                                        <input type="hidden" name="id" value="{{cmid}}">
+                                        <input type="hidden" name="action" value="moveup">
+                                        <input type="hidden" name="rule" value="{{ruleid}}">
+                                        <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                            {{#str}} up {{/str}}
+                                        </button>
+                                    </form>
+                                {{/isfirst}}
+                                {{^islast}}
+                                    <form method="post" action="{{actionurl}}" class="d-inline">
+                                        <input type="hidden" name="id" value="{{cmid}}">
+                                        <input type="hidden" name="action" value="movedown">
+                                        <input type="hidden" name="rule" value="{{ruleid}}">
+                                        <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                            {{#str}} down {{/str}}
+                                        </button>
+                                    </form>
+                                {{/islast}}
+                                <a href="{{editurl}}" class="btn btn-secondary btn-sm">{{#str}} edit {{/str}}</a>
+                                <form method="post" action="{{actionurl}}" class="d-inline">
+                                    <input type="hidden" name="id" value="{{cmid}}">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="rule" value="{{ruleid}}">
+                                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        {{#str}} delete {{/str}}
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    {{/rules}}
+                </tbody>
+            </table>
+        </div>
+    {{/hasrules}}
+    {{^hasrules}}
+        <p class="text-muted">{{#str}} quotanorules, mod_selfselectadvanced {{/str}}</p>
+    {{/hasrules}}
+
+    <a href="{{addurl}}" class="btn btn-primary">{{#str}} quotaaddrule, mod_selfselectadvanced {{/str}}</a>
+    <a href="{{backurl}}" class="btn btn-secondary ms-2">{{#str}} back {{/str}}</a>
+</div>

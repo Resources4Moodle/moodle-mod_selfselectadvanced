@@ -52,6 +52,12 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                 'required' => ['ssagroup', 'user'],
                 'switchids' => ['ssagroup' => 'groupid', 'user' => 'userid'],
             ],
+            'quotas' => [
+                'singular' => 'quota',
+                'datagenerator' => 'quota',
+                'required' => ['selfselectadvanced', 'dimension'],
+                'switchids' => ['selfselectadvanced' => 'activityid'],
+            ],
             'attributes' => [
                 'singular' => 'attribute',
                 'datagenerator' => 'userattr',

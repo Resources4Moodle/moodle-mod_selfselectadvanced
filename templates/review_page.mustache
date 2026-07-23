@@ -58,6 +58,8 @@
     <div class="selfselectadvanced-brief mb-3">{{{brief}}}</div>
     <p><strong>{{seatsummary}}</strong></p>
 
+    {{#quota}}{{> mod_selfselectadvanced/quota_panel }}{{/quota}}
+
     <h4>{{#str}} roster, mod_selfselectadvanced {{/str}}</h4>
     {{#hasroster}}
         <ul class="list-group mb-3">

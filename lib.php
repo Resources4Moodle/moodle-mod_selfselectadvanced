@@ -202,3 +202,36 @@ function selfselectadvanced_grade_item_delete(stdClass $instance): int {
 function selfselectadvanced_update_grades(stdClass $instance, int $userid = 0, bool $nullifnone = true): void {
     selfselectadvanced_grade_item_update($instance);
 }
+
+/**
+ * Add plugin tools to the activity's secondary/settings navigation.
+ *
+ * @param settings_navigation $settingsnav the settings navigation
+ * @param navigation_node $node this activity's node
+ */
+function selfselectadvanced_extend_settings_navigation(settings_navigation $settingsnav, navigation_node $node): void {
+    $cm = $settingsnav->get_page()->cm;
+    if (!$cm) {
+        return;
+    }
+    $context = $cm->context;
+    if (has_capability('mod/selfselectadvanced:manage', $context)) {
+        $node->add(
+            get_string('quotarules', 'mod_selfselectadvanced'),
+            new moodle_url('/mod/selfselectadvanced/quotas.php', ['id' => $cm->id]),
+            navigation_node::TYPE_SETTING
+        );
+        $node->add(
+            get_string('managerdashboard', 'mod_selfselectadvanced'),
+            new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]),
+            navigation_node::TYPE_SETTING
+        );
+    }
+    if (has_capability('mod/selfselectadvanced:guide', $context)) {
+        $node->add(
+            get_string('guidedashboard', 'mod_selfselectadvanced'),
+            new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
+            navigation_node::TYPE_SETTING
+        );
+    }
+}

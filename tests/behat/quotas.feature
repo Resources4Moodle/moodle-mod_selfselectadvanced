@@ -1,0 +1,61 @@
+@mod @mod_selfselectadvanced
+Feature: Composition quotas with a live deficiency panel
+  In order to balance lab groups
+  As a manager
+  I configure prioritised quota rules that leaders see as buckets
+
+  Background:
+    Given the following "users" exist:
+      | username | firstname | lastname | email                |
+      | student1 | Sam       | One      | student1@example.com |
+      | student2 | Tara      | Two      | student2@example.com |
+      | teacher1 | Tina      | Teach    | teach1@example.com   |
+    And the following "courses" exist:
+      | fullname | shortname |
+      | Course 1 | C1        |
+    And the following "course enrolments" exist:
+      | user     | course | role           |
+      | student1 | C1     | student        |
+      | student2 | C1     | student        |
+      | teacher1 | C1     | editingteacher |
+    And the following "mod_selfselectadvanced > attributes" exist:
+      | user     | gender | department | subdepartment |
+      | student1 | Male   | Civil      | Structures    |
+      | student2 | Female | Civil      | Hydraulics    |
+    And the following "activities" exist:
+      | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership |
+      | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 4       | 1       | 2             |
+    And the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name      | leader   |
+      | ssa1               | Team Blue | student1 |
+
+  Scenario: The manager creates a rule from the ingested values
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
+    And I follow "Manager dashboard"
+    Then I should see "Guide assignment queue"
+    When I am on the "Lab groups" "mod_selfselectadvanced > quotas" page
+    Then I should see "No quota rules yet."
+    When I follow "Add rule"
+    And I set the field "Attribute value" to "Female"
+    And I set the field "Minimum members" to "1"
+    And I press "Save changes"
+    Then I should see "Rule saved."
+    And I should see "At least 1 members with Gender = Female"
+
+  Scenario: The leader sees the deficiency bucket and satisfies it
+    Given the following "mod_selfselectadvanced > quotas" exist:
+      | selfselectadvanced | dimension | value  | mincount |
+      | ssa1               | gender    | Female | 1        |
+    And the following "mod_selfselectadvanced > members" exist:
+      | ssagroup  | user     | status  |
+      | Team Blue | student2 | invited |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    And I follow "Team Blue"
+    Then I should see "Composition requirements"
+    And I should see "Needs 1 more from Gender Female"
+    And I should see "The group does not yet satisfy the composition quota rules."
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
+    And I press "Accept"
+    Then I should see "You have joined the group \"Team Blue\"."
+    And I should not see "Needs 1 more from Gender Female"
+    And I should see "Satisfied"
