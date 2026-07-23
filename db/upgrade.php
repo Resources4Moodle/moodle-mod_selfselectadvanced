@@ -53,5 +53,11 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072403, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072404) {
+        // Slice 5: attribute value cache definition and the
+        // user_deleted observer.
+        upgrade_mod_savepoint(true, 2026072404, 'selfselectadvanced');
+    }
+
     return true;
 }

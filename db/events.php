@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Version metadata for mod_selfselectadvanced.
+ * Event observers for mod_selfselectadvanced (review item M3).
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -24,9 +24,9 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'mod_selfselectadvanced';
-$plugin->version = 2026072404;
-$plugin->requires = 2024100700; // Moodle 4.5 LTS.
-$plugin->supported = [405, 502];
-$plugin->maturity = MATURITY_ALPHA; // MATURITY_STABLE at release (slice 14).
-$plugin->release = '0.1.0';
+$observers = [
+    [
+        'eventname' => '\core\event\user_deleted',
+        'callback' => '\mod_selfselectadvanced\observer::user_deleted',
+    ],
+];

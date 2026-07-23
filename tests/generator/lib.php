@@ -128,6 +128,38 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
     }
 
     /**
+     * Create a site-wide participant attribute record.
+     *
+     * Required: userid. Optional: gender, department, subdepartment, mobile.
+     *
+     * @param array|stdClass $record attribute fields
+     * @return stdClass the stored record
+     */
+    public function create_userattr($record): stdClass {
+        global $DB;
+
+        $record = (object) (array) $record;
+        if (!isset($record->userid)) {
+            throw new coding_exception('create_userattr requires userid');
+        }
+        $now = time();
+        $attr = (object) [
+            'userid' => (int) $record->userid,
+            'gender' => $record->gender ?? null,
+            'department' => $record->department ?? null,
+            'subdepartment' => $record->subdepartment ?? null,
+            'mobile' => $record->mobile ?? null,
+            'usermodified' => 0,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ];
+        $attr->id = $DB->insert_record('selfselectadvanced_userattr', $attr);
+        \mod_selfselectadvanced\local\attributes\manager::purge_value_cache();
+
+        return $attr;
+    }
+
+    /**
      * Create a membership/invitation row.
      *
      * Required: groupid, userid. Status defaults to confirmed.

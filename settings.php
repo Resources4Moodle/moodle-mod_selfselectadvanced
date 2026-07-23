@@ -15,7 +15,9 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Version metadata for mod_selfselectadvanced.
+ * Admin tree for mod_selfselectadvanced: Site administration >
+ * Plugins > Activity modules > Group self-selection (Advanced) >
+ * Participant attributes (spec 8.1).
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -24,9 +26,19 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'mod_selfselectadvanced';
-$plugin->version = 2026072404;
-$plugin->requires = 2024100700; // Moodle 4.5 LTS.
-$plugin->supported = [405, 502];
-$plugin->maturity = MATURITY_ALPHA; // MATURITY_STABLE at release (slice 14).
-$plugin->release = '0.1.0';
+if ($hassiteconfig) {
+    $ADMIN->add('modsettings', new admin_category(
+        'modselfselectadvancedcat',
+        new lang_string('pluginname', 'mod_selfselectadvanced')
+    ));
+    $ADMIN->add('modselfselectadvancedcat', new admin_externalpage(
+        'modselfselectadvancedattributes',
+        new lang_string('participantattributes', 'mod_selfselectadvanced'),
+        new moodle_url('/mod/selfselectadvanced/attributes.php'),
+        'mod/selfselectadvanced:ingestattributes'
+    ));
+}
+
+// No traditional settings page: all configuration is per activity
+// instance; the category above hosts the admin tools.
+$settings = null;

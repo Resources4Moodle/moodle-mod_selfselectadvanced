@@ -72,11 +72,26 @@ class group_page implements renderable, templatable {
         $isleader = (int) $this->group->leaderid === $this->userid;
         $isforming = $this->group->state === state::FORMING;
 
+        // Staff see participant attributes on the roster (spec 8.1 read
+        // access); the mobile number only with viewall (U4).
+        $canviewall = has_capability('mod/selfselectadvanced:viewall', $context, $this->userid);
+        $rostermembers = groups::get_roster((int) $this->group->id);
+        $attrs = $canviewall
+            ? \mod_selfselectadvanced\local\attributes\manager::get_for_users(
+                array_map(static fn($m) => (int) $m->userid, $rostermembers)
+            )
+            : [];
         $roster = [];
-        foreach (groups::get_roster((int) $this->group->id) as $member) {
+        foreach ($rostermembers as $member) {
             $roster[] = (object) [
                 'fullname' => fullname($member),
                 'isleader' => (bool) $member->isleader,
+                'attrline' => $canviewall
+                    ? \mod_selfselectadvanced\local\attributes\manager::display_line(
+                        $attrs[(int) $member->userid] ?? null,
+                        true
+                    )
+                    : '',
             ];
         }
 

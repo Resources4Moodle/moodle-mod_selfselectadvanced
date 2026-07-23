@@ -1,0 +1,81 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/attr_import_report
+
+    CSV import validation report: dry-run preview or committed result.
+
+    Context variables required for this template:
+    * committed - whether the import has been written
+    * report - counts object (total, created, updated)
+
+    Example context (json):
+    {
+        "committed": false,
+        "report": {"total": 10, "created": 6, "updated": 2, "warnings": ["Line 4: name mismatch"], "rejected": ["Line 7: no such user"]},
+        "haswarnings": true,
+        "hasrejected": true,
+        "headererror": null,
+        "canconfirm": true,
+        "importid": 123,
+        "sesskey": "abc",
+        "actionurl": "https://example.com/mod/selfselectadvanced/attributes.php",
+        "backurl": "https://example.com/mod/selfselectadvanced/attributes.php"
+    }
+}}
+<div class="selfselectadvanced-importreport">
+    {{#headererror}}
+        <div class="alert alert-danger">{{headererror}}</div>
+    {{/headererror}}
+    {{^headererror}}
+        <h4>
+            {{#committed}}{{#str}} csvcommitted, mod_selfselectadvanced {{/str}}{{/committed}}
+            {{^committed}}{{#str}} csvpreviewheading, mod_selfselectadvanced {{/str}}{{/committed}}
+        </h4>
+        <ul>
+            <li>{{#str}} csvtotal, mod_selfselectadvanced, {{report.total}} {{/str}}</li>
+            <li>{{#str}} csvcreated, mod_selfselectadvanced, {{report.created}} {{/str}}</li>
+            <li>{{#str}} csvupdated, mod_selfselectadvanced, {{report.updated}} {{/str}}</li>
+        </ul>
+
+        {{#hasrejected}}
+            <h5>{{#str}} csvrejected, mod_selfselectadvanced {{/str}}</h5>
+            <ul class="text-danger">
+                {{#report.rejected}}<li>{{.}}</li>{{/report.rejected}}
+            </ul>
+        {{/hasrejected}}
+        {{#haswarnings}}
+            <h5>{{#str}} csvwarnings, mod_selfselectadvanced {{/str}}</h5>
+            <ul>
+                {{#report.warnings}}<li>{{.}}</li>{{/report.warnings}}
+            </ul>
+        {{/haswarnings}}
+
+        {{#canconfirm}}
+            <form method="post" action="{{actionurl}}" class="mb-3">
+                <input type="hidden" name="action" value="confirmimport">
+                <input type="hidden" name="importid" value="{{importid}}">
+                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <button type="submit" class="btn btn-primary">
+                    {{#str}} csvconfirm, mod_selfselectadvanced {{/str}}
+                </button>
+            </form>
+        {{/canconfirm}}
+    {{/headererror}}
+
+    <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>
+</div>

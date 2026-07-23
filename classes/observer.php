@@ -14,19 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
+namespace mod_selfselectadvanced;
+
 /**
- * Version metadata for mod_selfselectadvanced.
+ * Core event observers (review item M3).
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-
-defined('MOODLE_INTERNAL') || die();
-
-$plugin->component = 'mod_selfselectadvanced';
-$plugin->version = 2026072404;
-$plugin->requires = 2024100700; // Moodle 4.5 LTS.
-$plugin->supported = [405, 502];
-$plugin->maturity = MATURITY_ALPHA; // MATURITY_STABLE at release (slice 14).
-$plugin->release = '0.1.0';
+class observer {
+    /**
+     * A user was deleted: remove their site-wide attribute record and
+     * purge the distinct-value cache (M3). Group membership rows are
+     * course data handled by the plugin's own lifecycle and privacy
+     * paths.
+     *
+     * @param \core\event\user_deleted $event the core event
+     */
+    public static function user_deleted(\core\event\user_deleted $event): void {
+        \mod_selfselectadvanced\local\attributes\manager::delete_for_user((int) $event->objectid);
+    }
+}

@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Version metadata for mod_selfselectadvanced.
+ * Cache definitions for mod_selfselectadvanced.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -24,9 +24,15 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'mod_selfselectadvanced';
-$plugin->version = 2026072404;
-$plugin->requires = 2024100700; // Moodle 4.5 LTS.
-$plugin->supported = [405, 502];
-$plugin->maturity = MATURITY_ALPHA; // MATURITY_STABLE at release (slice 14).
-$plugin->release = '0.1.0';
+$definitions = [
+    // Distinct ingested attribute values per dimension, feeding the
+    // quota value pickers. Purged on every attribute write and on
+    // user deletion (review item M3).
+    'attrvalues' => [
+        'mode' => cache_store::MODE_APPLICATION,
+        'simplekeys' => true,
+        'simpledata' => true,
+        'staticacceleration' => true,
+        'staticaccelerationsize' => 3,
+    ],
+];

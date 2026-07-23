@@ -62,11 +62,21 @@ class review_page implements renderable, templatable {
         $cmid = $activity->cm()->id;
         $seats = $this->api->gatekeeper()->seat_position($this->group);
 
+        // Guides read participant attributes on the roster (spec 8.1).
+        $rostermembers = groups::get_roster((int) $this->group->id);
+        $attrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users(
+            array_map(static fn($m) => (int) $m->userid, $rostermembers)
+        );
+        $canseemobile = has_capability('mod/selfselectadvanced:viewall', $context, $this->userid);
         $roster = [];
-        foreach (groups::get_roster((int) $this->group->id) as $member) {
+        foreach ($rostermembers as $member) {
             $roster[] = (object) [
                 'fullname' => fullname($member),
                 'isleader' => (bool) $member->isleader,
+                'attrline' => \mod_selfselectadvanced\local\attributes\manager::display_line(
+                    $attrs[(int) $member->userid] ?? null,
+                    $canseemobile
+                ),
             ];
         }
 
