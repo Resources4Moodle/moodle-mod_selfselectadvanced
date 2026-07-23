@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="mod/selfselectadvanced/db" VERSION="20260724" COMMENT="XMLDB file for Moodle mod/selfselectadvanced"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
+>
+  <TABLES>
+    <TABLE NAME="selfselectadvanced" COMMENT="Instance settings for each Group self-selection (Advanced) activity">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="course" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Course this activity belongs to"/>
+        <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="intro" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="introformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="grade" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="100" SEQUENCE="false" COMMENT="Point value of the activity"/>
+        <FIELD NAME="minsize" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="L1: minimum confirmed members per group, leader included"/>
+        <FIELD NAME="maxsize" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="6" SEQUENCE="false" COMMENT="L2: maximum members per group counting confirmed plus pending invitations"/>
+        <FIELD NAME="maxlead" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="L3: maximum groups a student may lead in this activity"/>
+        <FIELD NAME="maxmembership" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="L4: maximum groups a student may belong to (led plus joined)"/>
+        <FIELD NAME="maxguided" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="10" SEQUENCE="false" COMMENT="L5: default maximum groups per guide"/>
+        <FIELD NAME="timeopen" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Formation window opens (0 = not set)"/>
+        <FIELD NAME="timedue" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Penalty-free deadline (0 = not set)"/>
+        <FIELD NAME="timecutoff" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Hard stop (0 = not set)"/>
+        <FIELD NAME="penaltytype" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 = percent of grade per day late, 1 = points per day late"/>
+        <FIELD NAME="penaltyperday" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Penalty per day late between timedue and timecutoff"/>
+        <FIELD NAME="guidemode" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Guide selection mode: 0 = leader selects, 1 = manager assigns"/>
+        <FIELD NAME="inviteexpiry" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Invitation expiry in days, 0 = never"/>
+        <FIELD NAME="autogroup" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Auto-grouping of groupless students enabled"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_course" TYPE="foreign" FIELDS="course" REFTABLE="course" REFFIELDS="id"/>
+      </KEYS>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_group" COMMENT="Plugin-side proposed groups, distinct from Moodle core groups until frozen">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Activity instance this group belongs to"/>
+        <FIELD NAME="pluginuid" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false" COMMENT="Plugin-scoped unique human-readable group ID, e.g. SSA-PHYS101-0042"/>
+        <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Group name, unique within the activity, fixed by the creating student"/>
+        <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Title of work"/>
+        <FIELD NAME="brief" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Brief of work (rich text)"/>
+        <FIELD NAME="briefformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="leaderid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Current leader (also has a confirmed member row with isleader = 1)"/>
+        <FIELD NAME="guideid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Assigned guide; cleared when the guide returns the group"/>
+        <FIELD NAME="state" TYPE="char" LENGTH="15" NOTNULL="true" DEFAULT="forming" SEQUENCE="false" COMMENT="forming, pending_guide, firm or frozen"/>
+        <FIELD NAME="autoformed" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Created by the auto-grouping engine"/>
+        <FIELD NAME="successorid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Active succession nominee, if any"/>
+        <FIELD NAME="successortype" TYPE="char" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="transfer or stepout"/>
+        <FIELD NAME="timenominated" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="returncomment" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Latest guide return comment; history lives in events"/>
+        <FIELD NAME="timesubmitted" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="timeapproved" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Drives the penalty ledger"/>
+        <FIELD NAME="timefrozen" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="coregroupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Mirrored Moodle core group id while frozen; ownership tracking"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+        <KEY NAME="fk_leaderid" TYPE="foreign" FIELDS="leaderid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="fk_guideid" TYPE="foreign" FIELDS="guideid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="fk_successorid" TYPE="foreign" FIELDS="successorid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="pluginuid" UNIQUE="true" FIELDS="pluginuid"/>
+        <INDEX NAME="activityid_name" UNIQUE="true" FIELDS="activityid, name"/>
+        <INDEX NAME="state" UNIQUE="false" FIELDS="state"/>
+        <INDEX NAME="guideid_state" UNIQUE="false" FIELDS="guideid, state"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_member" COMMENT="Group membership and invitations; one row per group and user">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="invited, confirmed, declined, expired or removed"/>
+        <FIELD NAME="isleader" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="invitedby" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="timeinvited" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="timeresponded" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="leaverequested" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Timestamp of a pending leave request awaiting leader confirmation"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_groupid" TYPE="foreign" FIELDS="groupid" REFTABLE="selfselectadvanced_group" REFFIELDS="id"/>
+        <KEY NAME="fk_userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="fk_invitedby" TYPE="foreign" FIELDS="invitedby" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="groupid_userid" UNIQUE="true" FIELDS="groupid, userid"/>
+        <INDEX NAME="groupid_status" UNIQUE="false" FIELDS="groupid, status"/>
+        <INDEX NAME="userid_status" UNIQUE="false" FIELDS="userid, status"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_userattr" COMMENT="Site-wide participant attributes held for this plugin only; never read from or written to profile fields">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="gender" TYPE="char" LENGTH="50" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="department" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="subdepartment" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="mobile" TYPE="char" LENGTH="32" NOTNULL="false" SEQUENCE="false" COMMENT="Contact number; shown only to holders of the viewall capability"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_userid" TYPE="foreign-unique" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_quota" COMMENT="Composition quota rules per activity, with explicit priority order">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="dimension" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false" COMMENT="gender, department or subdepartment"/>
+        <FIELD NAME="rtype" TYPE="char" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="value rule (value, min, max) or distinct rule (at least k distinct values)"/>
+        <FIELD NAME="value" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="Attribute value for value rules; null for distinct rules"/>
+        <FIELD NAME="mincount" TYPE="int" LENGTH="5" NOTNULL="false" SEQUENCE="false" COMMENT="Minimum members (value rules) or minimum distinct values (distinct rules)"/>
+        <FIELD NAME="maxcount" TYPE="int" LENGTH="5" NOTNULL="false" SEQUENCE="false" COMMENT="Maximum members; null for no maximum"/>
+        <FIELD NAME="priority" TYPE="int" LENGTH="5" NOTNULL="true" SEQUENCE="false" COMMENT="Rule priority; uniqueness per activity enforced by the store to allow safe reordering"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="activityid_priority" UNIQUE="false" FIELDS="activityid, priority"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_override" COMMENT="Override rows resolved exclusively through the override resolution service">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="scope" TYPE="char" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="user, group, guide or move"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Target user for user and guide scopes"/>
+        <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Target group for group scope"/>
+        <FIELD NAME="moveid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Target staged move for move scope"/>
+        <FIELD NAME="timeopen" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="timedue" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="timecutoff" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="maxlead" TYPE="int" LENGTH="5" NOTNULL="false" SEQUENCE="false" COMMENT="L3 override, user scope"/>
+        <FIELD NAME="maxmembership" TYPE="int" LENGTH="5" NOTNULL="false" SEQUENCE="false" COMMENT="L4 override, user scope"/>
+        <FIELD NAME="maxguided" TYPE="int" LENGTH="5" NOTNULL="false" SEQUENCE="false" COMMENT="L5 override, guide scope"/>
+        <FIELD NAME="minsize" TYPE="int" LENGTH="5" NOTNULL="false" SEQUENCE="false" COMMENT="L1 override, group scope"/>
+        <FIELD NAME="maxsize" TYPE="int" LENGTH="5" NOTNULL="false" SEQUENCE="false" COMMENT="L2 override, group scope"/>
+        <FIELD NAME="quotaexempt" TYPE="int" LENGTH="1" NOTNULL="false" SEQUENCE="false" COMMENT="Group scope quota exemption"/>
+        <FIELD NAME="penaltywaived" TYPE="int" LENGTH="1" NOTNULL="false" SEQUENCE="false" COMMENT="Group scope penalty waiver"/>
+        <FIELD NAME="rulesbypassed" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="Move scope: comma-separated rule codes bypassed for that move"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+        <KEY NAME="fk_userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="fk_groupid" TYPE="foreign" FIELDS="groupid" REFTABLE="selfselectadvanced_group" REFFIELDS="id"/>
+        <KEY NAME="fk_moveid" TYPE="foreign" FIELDS="moveid" REFTABLE="selfselectadvanced_move" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="activityid_scope" UNIQUE="false" FIELDS="activityid, scope"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_move" COMMENT="Staged manager moves, committed atomically only when every rule passes or is overridden">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Student being moved"/>
+        <FIELD NAME="sourcegroupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Null when placing a groupless student"/>
+        <FIELD NAME="targetgroupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="makeleader" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Designate the moved student leader of the target group"/>
+        <FIELD NAME="successorid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="New leader for the source group when moving its leader out"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="pending" SEQUENCE="false" COMMENT="pending, committed or cancelled"/>
+        <FIELD NAME="statusinfo" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON per-rule validation results for the manager UI"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timecommitted" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+        <KEY NAME="fk_userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="fk_sourcegroupid" TYPE="foreign" FIELDS="sourcegroupid" REFTABLE="selfselectadvanced_group" REFFIELDS="id"/>
+        <KEY NAME="fk_targetgroupid" TYPE="foreign" FIELDS="targetgroupid" REFTABLE="selfselectadvanced_group" REFFIELDS="id"/>
+        <KEY NAME="fk_successorid" TYPE="foreign" FIELDS="successorid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="activityid_status" UNIQUE="false" FIELDS="activityid, status"/>
+        <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_snapshot" COMMENT="Append-only roster snapshots taken at freeze time and refreshed by staged moves on frozen groups">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="coregroupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Mirrored core group at snapshot time"/>
+        <FIELD NAME="roster" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="JSON array of userid and isleader entries"/>
+        <FIELD NAME="takenby" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_groupid" TYPE="foreign" FIELDS="groupid" REFTABLE="selfselectadvanced_group" REFFIELDS="id"/>
+        <KEY NAME="fk_takenby" TYPE="foreign" FIELDS="takenby" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="groupid" UNIQUE="false" FIELDS="groupid"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_penalty" COMMENT="Authoritative per-group penalty ledger; one current row per group">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="dayslate" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Days between effective timedue and timeapproved, bounded by effective timecutoff"/>
+        <FIELD NAME="penaltyvalue" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Resolved points deduction"/>
+        <FIELD NAME="waived" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="waivereason" TYPE="char" LENGTH="20" NOTNULL="false" SEQUENCE="false" COMMENT="dateoverride or waiver"/>
+        <FIELD NAME="basis" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON audit record: effective dates, rate, type and arithmetic"/>
+        <FIELD NAME="timecomputed" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+        <KEY NAME="fk_groupid" TYPE="foreign-unique" FIELDS="groupid" REFTABLE="selfselectadvanced_group" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="activityid" UNIQUE="false" FIELDS="activityid"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_agrun" COMMENT="Auto-grouping run records: seed, summary and full decision log">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="seed" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Deterministic replay seed"/>
+        <FIELD NAME="triggeredby" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 for the scheduled task, else the manager userid"/>
+        <FIELD NAME="timestarted" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timefinished" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="groupsformed" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="placed" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="unplaced" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="log" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON decision trail including every rule relaxation"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+      </KEYS>
+    </TABLE>
+  </TABLES>
+</XMLDB>

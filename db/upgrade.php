@@ -1,0 +1,38 @@
+<?php
+// This file is part of Moodle - https://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+
+/**
+ * Upgrade steps for mod_selfselectadvanced.
+ *
+ * Versioned from day one (spec section 15.4): the plugin must upgrade
+ * cleanly from any released version as well as install cleanly.
+ *
+ * @package    mod_selfselectadvanced
+ * @copyright  2026 JSP <jsp@jsp.net.in>
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
+/**
+ * Execute an upgrade from the given old version.
+ *
+ * @param int $oldversion the version we are upgrading from
+ * @return bool always true
+ */
+function xmldb_selfselectadvanced_upgrade($oldversion): bool {
+    // First public schema is 2026072400; upgrade steps accumulate below
+    // with upgrade_mod_savepoint() calls as the plugin evolves.
+    return true;
+}

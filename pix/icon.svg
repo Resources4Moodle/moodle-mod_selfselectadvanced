@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<!--
+  Legacy/fallback activity icon for mod_selfselectadvanced ("Group self-selection (Advanced)").
+  Original artwork for this plugin, licensed GPL v3 or later, like the plugin itself.
+  Same motif as monologo.svg with self-coloured fills for pre-4.0 icon API paths.
+-->
+<g fill="#5c6ac4">
+  <circle cx="5.4" cy="8.2" r="2.5"/>
+  <path d="M1.2 16.4c0-2.32 1.88-4.2 4.2-4.2 1.02 0 1.95.36 2.68.97a6.9 6.9 0 0 0-2.06 3.23H1.2z"/>
+  <circle cx="18.6" cy="8.2" r="2.5"/>
+  <path d="M22.8 16.4c0-2.32-1.88-4.2-4.2-4.2-1.02 0-1.95.36-2.68.97a6.9 6.9 0 0 1 2.06 3.23h4.82z"/>
+  <circle cx="12" cy="6.6" r="3.1"/>
+  <path d="M6.7 17.6c0-2.93 2.37-5.3 5.3-5.3s5.3 2.37 5.3 5.3H6.7z"/>
+</g>
+<path fill="#2e7d32" d="M17.3 15.2a4.2 4.2 0 1 0 0 8.4 4.2 4.2 0 0 0 0-8.4zm-.82 6.28-1.9-1.9 1.06-1.06.84.84 2.48-2.48 1.06 1.06-3.54 3.54z"/>
+</svg>

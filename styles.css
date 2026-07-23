@@ -1,0 +1,8 @@
+/*
+ * Styles for mod_selfselectadvanced.
+ *
+ * Bound per the gate-1 plan (S5a): plugin-specific STRUCTURAL selectors only,
+ * every selector prefixed .selfselectadvanced-, and no colour, spacing or
+ * typography values duplicating theme tokens — visual styling comes from the
+ * Bootstrap utility classes Moodle ships. Audited every slice.
+ */
