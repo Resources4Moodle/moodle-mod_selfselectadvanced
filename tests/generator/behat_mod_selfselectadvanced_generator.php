@@ -58,6 +58,18 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                 'required' => ['selfselectadvanced', 'dimension'],
                 'switchids' => ['selfselectadvanced' => 'activityid'],
             ],
+            'moves' => [
+                'singular' => 'move',
+                'datagenerator' => 'move',
+                'required' => ['selfselectadvanced', 'user', 'targetgroup'],
+                'switchids' => [
+                    'selfselectadvanced' => 'activityid',
+                    'user' => 'userid',
+                    'sourcegroup' => 'sourcegroupid',
+                    'targetgroup' => 'targetgroupid',
+                    'successor' => 'successorid',
+                ],
+            ],
             'overrides' => [
                 'singular' => 'override',
                 'datagenerator' => 'override',
@@ -133,6 +145,26 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
      */
     protected function get_target_id(string $username): int {
         return $this->get_user_id($username);
+    }
+
+    /**
+     * Map a source group name to its id.
+     *
+     * @param string $name the plugin group name
+     * @return int the group id
+     */
+    protected function get_sourcegroup_id(string $name): int {
+        return $this->get_ssagroup_id($name);
+    }
+
+    /**
+     * Map a target group name to its id.
+     *
+     * @param string $name the plugin group name
+     * @return int the group id
+     */
+    protected function get_targetgroup_id(string $name): int {
+        return $this->get_ssagroup_id($name);
     }
 
     /**

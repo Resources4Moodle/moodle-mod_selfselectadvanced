@@ -59,5 +59,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072404, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072405) {
+        // Slice 8: movecommitted message provider.
+        upgrade_mod_savepoint(true, 2026072405, 'selfselectadvanced');
+    }
+
     return true;
 }

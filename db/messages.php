@@ -73,6 +73,13 @@ $messageproviders = [
             'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
         ],
     ],
+    // A staged move committed (to the moved student).
+    'movecommitted' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
     // The guide approved the group (to all confirmed members).
     'groupapproved' => [
         'defaults' => [

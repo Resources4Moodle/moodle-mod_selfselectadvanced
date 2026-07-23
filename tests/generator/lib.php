@@ -226,6 +226,34 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
     }
 
     /**
+     * Stage a move through the service (validates and events).
+     *
+     * Required: activityid, userid, targetgroupid.
+     *
+     * @param array|stdClass $record move fields
+     * @return stdClass the pending move row
+     */
+    public function create_move($record): stdClass {
+        $record = (object) (array) $record;
+        foreach (['activityid', 'userid', 'targetgroupid'] as $required) {
+            if (!isset($record->$required)) {
+                throw new coding_exception('create_move requires ' . $required);
+            }
+        }
+        $activity = \mod_selfselectadvanced\activity::from_instance((int) $record->activityid);
+        $api = new \mod_selfselectadvanced\local\api($activity);
+
+        return $api->moves()->stage(
+            (int) $record->userid,
+            isset($record->sourcegroupid) ? (int) $record->sourcegroupid : null,
+            (int) $record->targetgroupid,
+            !empty($record->makeleader),
+            isset($record->successorid) ? (int) $record->successorid : null,
+            (int) ($record->actorid ?? 0)
+        );
+    }
+
+    /**
      * Create a membership/invitation row.
      *
      * Required: groupid, userid. Status defaults to confirmed.
