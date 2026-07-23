@@ -1,6 +1,6 @@
 # mod_selfselectadvanced — Architecture Plan (Gate 1)
 
-**Version:** 1.0 — for user review (§16 work order, gate 1). No implementation code exists yet; per C14 no slice starts before this plan is approved.
+**Version:** 1.1 — **gate 1 APPROVED** (review of 2026-07-24, `/var/www/html/Temp/gate1-review-comment.md`) with blocking items B1–B5 folded in below and S1–S7/M1–M4 recorded against their owning slices in §17. Review-item markers `[B..]/[S..]/[M..]` appear at each amended spot.
 
 **Spec:** `/var/www/html/Temp/moodle-labgroup-plugin-prompt(2).md` (referred to below as "spec"). The spec text uses the working name `labgroup`; the user renamed the plugin on 2026-07-23. Every occurrence of `labgroup` in the spec is to be read as `selfselectadvanced`.
 
@@ -44,8 +44,8 @@
 - **A10 — Group deletion is a hard delete** (allowed only in `forming`): members/invitations rows removed, notifications sent, `group_deleted` event carries the payload. No tombstones — deleted groups release every counted slot (§4A.3/.5).
 - **A11 — Guide return clears `guideid`** (frees the L5 slot per §6.5) and stores the mandatory comment on the group (`returncomment`, latest) — full comment history remains in the `group_returned` events.
 - **A12 — Penalty ledger holds one current row per group** (unique `groupid`), recomputed in place (settings save + reconciliation task + approval); every recomputation emits an event. Explicit zero rows are stored for on-time groups (exportable). Grade floor is 0 (no negative grades); ledger keeps the uncapped arithmetic in `basis`.
-- **A13 — Auto-group sizing is deterministic:** with pool size P and effective band [min,max], the engine forms `g = max(1, ceil(P / max))` groups if `P ≥ g·min` (fewest, fullest groups); otherwise it decrements g until `P ≥ g·min`; if `P < min` no group forms and the whole pool is residue (§9.4). Members are drawn by seeded shuffle (`mt_srand(seed)`) so a stored seed replays the run exactly.
-- **A14 — Email-matching visibility (U3):** the candidate search WHERE clause matches firstname/lastname/email for everyone allowed to invite; the email is *displayed* in results only when the viewer holds `moodle/site:viewuseridentity` (or `moodle/course:viewhiddenuserfields`) in course context, per core identity-field rules. Candidates are already course peers, so match-by-email leaks nothing beyond enrolment.
+- **A13 — Auto-group sizing is deterministic** *(corrected per review B1 — the earlier decrement step could breach L2)*: with pool size P and effective band [min,max], take `g = ceil(P / max)`; if `g·min > P`, fall back to `g = floor(P / min)`; if `g = 0` the whole pool is residue (§9.4). Groups are filled up to `g·max` and any remainder goes to residue per §9.4 — no group ever exceeds `max_size`. (min 4 / max 6 / pool 7 → one group of 6 + 1 residue student; pool 24 → four groups of 6.) Members are drawn by seeded shuffle (`mt_srand(seed)`) so a stored seed replays the run exactly.
+- **A14 — Email-matching visibility (U3, S7 decided):** the candidate search WHERE clause matches name fields/email for everyone allowed to invite; the email is *displayed* in results only when the viewer holds `moodle/site:viewuseridentity` (or `moodle/course:viewhiddenuserfields`) in course context, per core identity-field rules. **S7 decision (2026-07-24, autonomous per user instruction):** email *matching* stays available to all inviters — U3 explicitly requires students to select peers by email ID, and the capability-gated alternative would break that exact requirement for the primary audience. Residual disclosure (a student can confirm an address belongs to a named course peer) is accepted and documented in the README privacy statement. Name matching covers the **full core name-field set** (`\core_user\fields::for_name()` — first/last/middle/alternate), mirroring core participants search [S6].
 
 Anything not listed above follows the spec verbatim; §13's D1–C15 remain binding and unreopened.
 
@@ -89,6 +89,7 @@ mod/selfselectadvanced/
 │   ├── messages.php             # §12 providers
 │   ├── tasks.php                # §12 scheduled tasks
 │   ├── services.php             # external functions (§10.4)
+│   ├── events.php               # observer: core user_deleted → attr cleanup [M3]
 │   └── caches.php               # MUC: ingested attribute value lists (request/app)
 ├── classes/
 │   ├── activity.php             # instance model (settings + helpers, cached)
@@ -179,7 +180,7 @@ All tables `INTKEY id` + sequence; `foreign` below = declared XMLDB foreign key 
 | Field | Type | Null | Notes |
 |---|---|---|---|
 | activityid | int(10) | NN | FK instance, **index**; **unique(activityid,name)** |
-| pluginuid | char(32) | NN | **unique index** — A1 format |
+| pluginuid | char(64) | NN | **unique index** — A1 format; shortname segment sanitised to `[A-Z0-9]`, capped at 12 chars [S4] |
 | name | char(255) | NN | student-fixed, unique in activity |
 | title | char(255) | NN | title of work |
 | brief / briefformat | text / int(4) | NN | core editor content |
@@ -228,7 +229,7 @@ Counting bases read from this table (always via `local\groups` helpers — singl
 
 | Field | Type | Null | Notes |
 |---|---|---|---|
-| activityid | int(10) | NN | FK instance, **index**; **unique(activityid,priority)** |
+| activityid | int(10) | NN | FK instance, **index**; priority uniqueness enforced by the store (plain index only — a unique index would block two-phase-free reordering on both DBs) [S1] |
 | dimension | char(20) | NN | `gender` \| `department` \| `subdepartment` |
 | rtype | char(10) | NN | `value` (value,min,max) or `distinct` (≥ k distinct values) |
 | value | char(100) | NULL | NULL for `distinct` rules |
@@ -410,6 +411,7 @@ Precedence rule (spec): **group override > user override > activity setting** �
 | P13 | move bypass | — | — | during that move's validation only: listed rules treated satisfied, logged in statusinfo + event |
 | P14 | **tie** (duplicate rows same scope+target — store-prevented) | — | — | deterministic: highest id (latest) wins + `debugging()`; covered by test |
 | P15 | user+group date override **and** group quota exemption together | set | set | dates per P1–P7; quota per P11 — orthogonal quantities never interact |
+| P16 | **group-level assessment dates** (penalty §10, and any date question asked *of a group*) [B2] | set | set (leader) | standard chain with the **leader as the user context**: group.F > *leader's* user.F > activity.F — a leader personally granted an extension who forms within it incurs no penalty; other members' date overrides affect only their own actions (P1–P7), never the group's assessment |
 
 Invalid scope/type combinations (e.g. a user-scope `minsize`) are rejected by `override\store` at write time and, defensively, ignored by the resolver with `debugging()`.
 
@@ -421,7 +423,15 @@ Invalid scope/type combinations (e.g. a user-scope `minsize`) are rejected by `o
 
 ### 6.4 Override UI (mod_assign pattern)
 
-`overrides.php?mode=user|group|guide` — three core tables (target, overridden fields with provenance badges, actions) + `overrideedit.php` moodleforms: user picker (U3-searching autocomplete), plugin-group picker, guide picker (holders of `:guide`), date fields (enable/disable), cap fields, flags. Move-scope overrides are attached inside the staged-move UI (§7), not here. All POST + sesskey; `:override` required.
+`overrides.php?mode=user|group|guide` — three core tables (target, overridden fields with provenance badges, actions) + `overrideedit.php` moodleforms. **Field set per mode is fixed [B5]** — the form can never offer a scope/type pair the store would reject:
+
+| Mode | Target picker | Fields offered |
+|---|---|---|
+| `user` | user autocomplete (U3-searching) | `timeopen`, `timedue`, `timecutoff` (each enable/disable), `maxlead`, `maxmembership` |
+| `group` | plugin-group select | `timeopen`, `timedue`, `timecutoff`, `minsize`, `maxsize`, `quotaexempt`, `penaltywaived` |
+| `guide` | guide picker (holders of `:guide`) | `maxguided` only |
+
+Move-scope overrides (`rulesbypassed` only) are attached inside the staged-move UI (§7), not here. All POST + sesskey; `:override` required.
 
 ### 6.5 Override test matrix (PHPUnit, slice 7)
 
@@ -433,27 +443,31 @@ Rows P1–P15 each × {value read, gate outcome} + guarantees 1–3 + store reje
 
 Single choke point: `local\rules\gatekeeper` — pure, unit-testable, resolver-fed. Pages never compute rules; they call `api` which calls gatekeeper; UI renders gatekeeper's structured refusals as disabled-control reasons (§4A.6). ✓ = checked there; **bold** = atomic re-check under lock+transaction (A7).
 
-| Enforcement point | Function (gatekeeper unless noted) | L1 | L2 | L3 | L4 | L5 | Quota | Window |
-|---|---|---|---|---|---|---|---|---|
-| Group creation | `can_create_group(user)` | | | ✓ | ✓ | | | ✓ |
-| Invitation send | `can_invite(group, invitee)` | | ✓ seats | | ✓ invitee | | | ✓ |
-| Invitation accept | `can_accept(member)` → `invitations::accept()` | | **✓** | | **✓** + cascade | | | ✓ |
-| Invitation withdraw/decline/expiry | `invitations::release_seat()` | | frees seat | | | | | |
-| Acceptance cascade (§4A.4) | `invitations::cascade(user)` — same transaction, leaders notified, reason recorded | | | | ✓ | | | |
-| Leave request confirm | `can_confirm_leave(member)` | ✓ source | | | | | | |
-| Succession: nominate | `can_nominate(group, member, type)` | ✓ (stepout) | ✓ (replacement seat) | ✓ nominee | | | | ✓ |
-| Succession: confirm | `succession::confirm()` | **✓** | **✓** | **✓** | | | | |
-| Submit to guide | `can_submit(group)` | ✓ | | | | ✓ guide list | ✓ | ✓ |
-| Guide assignment (A5 / reassign) | `can_assign_guide(group, guide)` | | | | | **✓** | | |
-| Guide approval | `can_approve(group)` | **✓** | ✓ | | | **✓** | **✓** | |
-| Freeze (single/bulk) | `can_freeze(group)` — defence in depth | ✓ | ✓ | | | | ✓ | |
-| Staged-move commit (per selected set, net state) | `moves::validate_set()` | **✓ source** | **✓ target** | **✓ if makeleader/successor** | **✓ moved user** | **✓ affected guides** | **✓ both groups** | (dates n/a — manager action) |
-| Auto-grouping formation | `autogroup\engine` | ✓ band | ✓ band | | ✓ | | ✓ priority cascade | at cutoff |
-| Auto-grouping leader pick | `engine::designate_leader()` | | | ✓ else manager queue (§9.5) | | | | |
-| Auto-grouping guide queue | `can_assign_guide()` per group | | | | | ✓ + no-capacity report | | |
-| Unfreeze restore | `freeze::unfreeze()` | grandfathered (§4A.8) — restored verbatim, flagged if now out-of-limit | | | | | | |
-| Settings save (grandfather) | `compliance_report(activity)` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| Violation-increase block (§4A.8) | `would_increase_violation()` consulted by can_invite/can_create_group/can_assign_guide | ✓ | ✓ | ✓ | ✓ | ✓ | | |
+Every gatekeeper `can_*` method carries an explicit **state precondition** checked before any limit [S2] — pages call the gatekeeper directly, so a stale POST can never act on a group whose state has moved on (e.g. invite into a `pending_guide` group).
+
+| Enforcement point | Function (gatekeeper unless noted) | State req. [S2] | L1 | L2 | L3 | L4 | L5 | Quota | Window |
+|---|---|---|---|---|---|---|---|---|---|
+| Group creation | `can_create_group(user)` | — | | | ✓ | ✓ | | | ✓ |
+| Invitation send | `can_invite(group, invitee)` | `forming` | | ✓ seats | | ✓ invitee | | | ✓ |
+| Invitation accept | `can_accept(member)` → `invitations::accept()` | `forming` | | **✓** | | **✓** + cascade | | | ✓ |
+| Invitation withdraw/decline/expiry | `invitations::release_seat()` | any (releases only) | | frees seat | | | | | |
+| Acceptance cascade (§4A.4) | `invitations::cascade(user)` — same transaction, leaders notified, reason recorded | — | | | | ✓ | | | |
+| Leave request confirm | `can_confirm_leave(member)` | `forming` | ✓ source | | | | | | |
+| Succession: nominate | `can_nominate(group, member, type)` | `forming` | ✓ (stepout) | ✓ (replacement seat) | ✓ nominee | | | | ✓ |
+| Succession: confirm | `succession::confirm()` | `forming` | **✓** | **✓** | **✓** | | | | |
+| Submit to guide | `can_submit(group)` | `forming` | ✓ | | | | ✓ guide list | ✓ | ✓ |
+| Guide assignment (A5 / reassign) | `can_assign_guide(group, guide)` | `pending_guide` | | | | | **✓** | | |
+| Guide approval | `can_approve(group)` | `pending_guide` | **✓** | ✓ | | | **✓** | **✓** | |
+| Guide return | `state::return_group()` | `pending_guide` | (comment mandatory; releases L5) | | | | | | |
+| Freeze (single/bulk) | `can_freeze(group)` — defence in depth | `firm` | ✓ | ✓ | | | | ✓ | |
+| Unfreeze | `freeze::unfreeze()` | `frozen` | grandfathered (§4A.8) — restored verbatim, flagged if now out-of-limit | | | | | | |
+| Group delete | `can_delete_group(group)` | `forming` | | | | | | | |
+| Staged-move commit (per selected set, net state) | `moves::validate_set()` | source/target in `firm`/`frozen` (or target `forming+` for §9.4 placement) | **✓ source** | **✓ target** | **✓ if makeleader/successor** | **✓ moved user** | **✓ affected guides** | **✓ both groups** | (dates n/a — manager action) |
+| Auto-grouping formation | `autogroup\engine` | — | ✓ band | ✓ band | | ✓ | | ✓ priority cascade | per-user eff. cutoff [B4] |
+| Auto-grouping leader pick | `engine::designate_leader()` | — | | | ✓ else manager queue (§9.5) | | | | |
+| Auto-grouping guide queue | `can_assign_guide()` per group | `pending_guide` | | | | | ✓ + no-capacity report | | |
+| Settings save (grandfather) | `compliance_report(activity)` | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Violation-increase block (§4A.8) | `would_increase_violation()` consulted by `can_create_group`, `can_invite`, **`can_accept`**, `can_assign_guide`, **`moves::validate_set()`** [B3] | — | ✓ | ✓ | ✓ | ✓ | ✓ | | |
 
 Display duties (§4A.6) rendered from the same gatekeeper DTOs: student landing counters, leader seat panel + disabled-invite reason, guide-list load figures, guide dashboard header, manager Load/Size/count columns (core tables). One wording source = lang strings fed by gatekeeper reason codes.
 
@@ -467,13 +481,13 @@ Display duties (§4A.6) rendered from the same gatekeeper DTOs: student landing 
 
 ## 9. Auto-grouping engine (§9)
 
-`local\autogroup\engine::run(activity, trigger, ?seed)` — scheduled task at `timecutoff` (+ manual manager trigger with confirm). Deterministic: seed stored in `agrun`; seeded shuffle orders the pool; A13 sizing; per group, rules applied strictly in priority order — rule unfillable (no eligible students left) → **bypassed and logged**, cascade continues (§9.3); leftovers fill within `maxcount` limits. Exhaustion (§9.4): unformable residue stays unassigned → flagged list (`flagged.php`) → manager places via **override-backed staged moves** only. Leader designation per §9.5 (L3-checked; none eligible → manager queue, no silent breach). Groups flagged `autoformed=1`, enter guide-assignment queue (A5 path, L5-checked, no-capacity reported). Lateness accrues per ledger; per-group waiver via override. Every decision (assignment, relaxation, exhaustion, leader pick, failure) appended to `agrun.log` JSON + `autogroup_run` event. Whole run in one transaction + activity lock (A7); students confirmed elsewhere between pool snapshot and commit are re-checked and skipped (logged).
+`local\autogroup\engine::run(activity, trigger, ?seed)` — scheduled task at `timecutoff` (+ manual manager trigger with confirm). **Pool rule [B4]:** the pool contains only groupless candidates whose **own effective cutoff** (resolver, per-user) has passed — a student holding a `timecutoff` extension is still inside their window and is excluded; the task re-runs as later windows close, sweeping newly-expired students into follow-up runs (each `agrun` records who was processed; manual runs behave identically). Deterministic: seed stored in `agrun`; seeded shuffle orders the pool; A13 sizing (B1-corrected — never exceeds `max_size`, remainder → residue); per group, rules applied strictly in priority order — rule unfillable (no eligible students left) → **bypassed and logged**, cascade continues (§9.3); leftovers fill within `maxcount` limits. Exhaustion (§9.4): unformable residue stays unassigned → flagged list (`flagged.php`) → manager places via **override-backed staged moves** only. Leader designation per §9.5 (L3-checked; none eligible → manager queue, no silent breach). Groups flagged `autoformed=1`, enter guide-assignment queue (A5 path, L5-checked, no-capacity reported). Lateness accrues per ledger; per-group waiver via override. Every decision (assignment, relaxation, exhaustion, leader pick, failure) appended to `agrun.log` JSON + `autogroup_run` event. Whole run in one transaction + activity lock (A7); students confirmed elsewhere between pool snapshot and commit are re-checked and skipped (logged).
 
 ---
 
 ## 10. Penalty ledger & gradebook (§11, D5)
 
-- `penalty\calculator::compute(group): penalty` — pure: `dayslate = max(0, ceil((timeapproved − eff_due)/DAYSECS))` bounded by eff. cutoff; value = `penaltyperday × dayslate` (percent-type → % of `grade`); waived if P12 says so (reason recorded). Effective dates come from resolver with the **group** context (group override > user overrides don't apply to a group-level assessment > activity).
+- `penalty\calculator::compute(group): penalty` — pure: `dayslate = max(0, ceil((timeapproved − eff_due)/DAYSECS))` bounded by eff. cutoff; value = `penaltyperday × dayslate` (percent-type → % of `grade`); waived if P12 says so (reason recorded). Effective dates come from the resolver's standard chain applied with the **leader as user context** (P16 [B2]): group override > leader's user override > activity — a leader granted a personal extension who forms within it incurs no penalty; no quantity gets a narrowed precedence chain (§10's core rule).
 - `penalty\ledger` — upsert on approval (T4); full recompute on settings save and via nightly `reconcile_penalties` task; export via core table download on `ledger.php` (§ C12) for external/manual grading.
 - **Gradebook:** one grade item (`grade_update` in lib.php). Student grade = `grade − Σ penaltyvalue` over groups where they are a **confirmed** member (each group's own penalty, cumulatively — D5), floored at 0 (A12). Students in no firm/frozen group: grade stays **null** (not zero) and they appear in `flagged.php` until placed (§11).
 
@@ -496,7 +510,9 @@ Display duties (§4A.6) rendered from the same gatekeeper DTOs: student landing 
 
 **Message providers** (`db/messages.php`, all user-preference-respecting, deep links — §14.8): `invitation` (→invitee), `invitationresult` (→leader: accept/decline/expire/cascade with reason), `nomination` (→nominee), `nominationresult` (→leader), `leaverequest` (→leader), `leaveresult` (→member), `guidequeue` (→guide on submission / manager in A5 mode), `groupreturned` (→leader, with comment), `groupapproved` (→all confirmed members), `groupfrozen` (→members), `groupunfrozen` (→members+guide), `movecommitted` (→moved student, both leaders), `autogroupresult` (→placed students; →manager summary incl. residue), `deadlinereminder` (→students not yet in a firm group, 24 h before eff. due), `gradepenalty`? — no: penalties surface via gradebook + ledger (not a nag). Sends centralised in `local\notifier`.
 
-**Scheduled tasks** (`db/tasks.php` — §14.9): `expire_invitations` (hourly; effective expiry via resolver; auto-decline + seat release + notify), `run_autogrouping` (5-min cadence, fires per activity where eff. cutoff passed, enabled, not yet run), `reconcile_penalties` (nightly full recompute — catches date-override edits), `deadline_reminder` (hourly window scan, per-user effective due, sent-marker via user preference key).
+**Scheduled tasks** (`db/tasks.php` — §14.9): `expire_invitations` (hourly; effective expiry via resolver; auto-decline + seat release + notify), `run_autogrouping` (5-min cadence; fires per enabled activity whenever unprocessed groupless students exist whose **per-user effective cutoff** has passed [B4] — i.e. it re-runs as override-extended windows close, not only once at activity cutoff), `reconcile_penalties` (nightly full recompute — catches date-override edits), `deadline_reminder` (hourly window scan, per-user effective due, sent-marker via user preference key).
+
+**Observer** (`db/events.php`) [M3]: `\core\event\user_deleted` → delete the user's `userattr` row, scrub pending member/nomination references, purge the distinct-value MUC cache (which is also invalidated on ingest and inline edit).
 
 ---
 
@@ -519,7 +535,9 @@ Display duties (§4A.6) rendered from the same gatekeeper DTOs: student landing 
 | `attributes.php` | **site admin** (`:ingestattributes`, system ctx, via `admin_externalpage` under Plugins → Activity modules → Group self-selection (Advanced) → Participant attributes) | CSV upload form (U4/A9) + full validation report template + **core table** of all attribute records w/ inline edit form |
 | `index.php` | course viewers | standard instance list |
 
-**Candidate selector (C10 + U3):** `form\candidates_selector` — core `autocomplete` element, `ajax` handler = AMD `mod_selfselectadvanced/candidateselector` (thin wrapper of the core form-autocomplete transport, the enrol-manual pattern) → external function `search_candidates` (`db/services.php`, loginrequired, capability-checked): pool = `get_enrolled_users($ctx,'mod/selfselectadvanced:respond')`, WHERE matches **firstname OR lastname OR fullname-concat OR email** (`$DB->sql_like` + `sql_fullname`/`sql_concat` — cross-DB), minus gatekeeper-ineligible users, each result labelled with its eligibility reason when excluded-but-shown is needed (spec §6.2 "says why"); email shown per A14 identity rules. Same element reused for nomination (roster-scoped), override user pick, move stage.
+**Candidate selector (C10 + U3):** `form\candidates_selector` — core `autocomplete` element, `ajax` handler = AMD `mod_selfselectadvanced/candidateselector` (thin wrapper of the core form-autocomplete transport, the enrol-manual pattern) → external function `search_candidates` (`db/services.php`, loginrequired, capability-checked): pool = `get_enrolled_users($ctx,'mod/selfselectadvanced:respond')`, WHERE matches the **full core name-field set** (`\core_user\fields::for_name()` — first/last/middle/alternate, mirroring core participants search [S6]) **OR email** (`$DB->sql_like` + cross-DB concat), minus gatekeeper-ineligible users, each result labelled with its eligibility reason when excluded-but-shown is needed (spec §6.2 "says why"); email match per A14/S7, email display identity-gated. Same element reused for nomination (roster-scoped), override user pick, move stage. **C9 justification on record [S5b]:** core's `form_user_selector`-style providers cannot attach per-candidate eligibility filtering and localized refusal reasons, which §6.2 requires — `candidateselector.js` therefore exists solely as the transport for our provider and adds no UI of its own; per-slice audits treat it as this justified exception.
+
+**styles.css bound [S5a]:** plugin-specific structural selectors only (all prefixed `.selfselectadvanced-`); **no** colour, spacing, or typography values duplicating theme tokens — visual styling comes from the Bootstrap utility classes Moodle ships. Audited each slice.
 
 **Templates:** one Mustache per renderable, core-component partials (notifications, modals via `core/modal_save_cancel`, badges, `core/form_autocomplete_*` internals untouched). No HTML in PHP (renderer + templates only), no inline JS (all behaviour via core AMD or the single custom module), all strings via `get_string`, RTL-safe, WCAG 2.1 AA (labels, aria-live on the deficiency panel, non-colour state markers).
 
@@ -537,9 +555,9 @@ Display duties (§4A.6) rendered from the same gatekeeper DTOs: student landing 
 
 ## 15. Privacy, backup/restore, security
 
-**Privacy provider** (§14.10): metadata for all 10 tables (userid-bearing: group.leaderid/guideid/successorid/usermodified, member.*, userattr.*, override.userid/usermodified, move.userid/successorid/usermodified, snapshot.roster+takenby, agrun.log/triggeredby, penalty via membership); export: per-user groups led/joined (name, title, brief), invitations+responses, nominations, guide decisions on their groups, overrides targeting them, penalty entries of their groups, site-scope userattr record (gender/department/subdepartment/mobile); delete (user/context/users-in-context): member rows removed, attr row removed, leader/guide/successor/actor ids blanked to 0 with group structure kept (course data), snapshot roster entries scrubbed of the user, agrun log entries pseudonymised. Frozen core-group membership is core data handled by core's own privacy machinery.
+**Privacy provider** (§14.10): metadata for all 10 tables (userid-bearing: group.leaderid/guideid/successorid/usermodified, member.*, userattr.*, override.userid/usermodified, move.userid/successorid/usermodified, snapshot.roster+takenby, agrun.log/triggeredby, penalty via membership); export: per-user groups led/joined (name, title, brief), invitations+responses, nominations, guide decisions on their groups, overrides targeting them, penalty entries of their groups, site-scope userattr record (gender/department/subdepartment/mobile); delete (user/context/users-in-context): member rows removed, attr row removed, leader/guide/successor/actor ids blanked to 0 with group structure kept (course data), snapshot roster entries scrubbed of the user, agrun log entries pseudonymised. A deletion that blanks `leaderid` leaves the group leaderless — such groups are routed to `flagged.php` for manager succession via staged move [M1]. Frozen core-group membership is core data handled by core's own privacy machinery.
 
-**Backup/restore** (§14.11): activity backup = instance + groups + members + quota + overrides (user & group scope; move-scope skipped with its move) + snapshots + penalty (+`agrun` **excluded** — operational log; documented). `userinfo=false` → structural-only: quota rules + settings survive; groups/members/overrides/snapshots/penalties dropped (user-created content). Restore remaps `coregroupid` via core group mapping (core groups restore first), userids via standard annotation; missing mapped core group → coregroupid nulled + group flagged for re-freeze. Site-wide `userattr` is **not course data — excluded** from course backup (documented in README, §14.11).
+**Backup/restore** (§14.11): activity backup = instance + groups + members + quota + overrides (user & group scope; move-scope skipped with its move) + snapshots + penalty. **Excluded and README-documented [M2]:** `agrun` (operational log) and **pending staged moves** (transient manager state — a restore should never replay half-staged edits). `userinfo=false` → structural-only: quota rules + settings survive; groups/members/overrides/snapshots/penalties dropped (user-created content). Restore remaps `coregroupid` via core group mapping (core groups restore first), userids via standard annotation; missing mapped core group → coregroupid nulled + group flagged for re-freeze. Site-wide `userattr` is **not course data — excluded** from course backup (documented in README, §14.11).
 
 **Security checklist** (§14.12) — per-slice gate items: `require_login($course,$cm)` + capability on every page/external; `require_sesskey()` on every POST; all params `PARAM_*`; `$DB` placeholders only (no concatenated SQL — grep-audited); output escaped via Mustache/renderers only; IDOR: every group/member/invitation/move/override id re-fetched server-side and ownership/scope verified against `$cm->instance` + actor (never trusted from the request); race-safety per A7; CSV hardening per §14; no secrets in logs.
 
@@ -552,29 +570,29 @@ Display duties (§4A.6) rendered from the same gatekeeper DTOs: student landing 
 - **Behat** (per user-facing flow): create→invite→accept (U3 search by lastname & email included), decline+withdraw seats, transfer, step-out with replacement, submit+return+approve, freeze/bulk-freeze/unfreeze, staged move UI, overrides UI, quota panel wording, attributes admin (upload report), landing counters/disabled reasons, ledger download page presence. JS scenarios limited to autocomplete + modals (`@javascript` used sparingly — local Selenium constraint noted in docs/testing.md).
 - **Local runs:** maintainer testbed 4.5/5.2 × pg/mysql (PHP 8.2/8.4 per branch) for PHPUnit; live m5pg/m5my for Behat; full remote matrix on the CI box (`dev-test.sh`). **Both DBs green = gate condition** (§15.2).
 - **GitHub Actions** (`moodle-ci.yml`, moodle-plugin-ci): matrix `{MOODLE_405_STABLE×php8.2, MOODLE_502_STABLE×php8.4} × {pgsql (postgres:16), mariadb:10.11}` — phplint, phpcs (`--max-warnings 0`), phpdoc, savepoints, mustache, grunt, phpunit, behat. Repo self-sufficient for verification (§15.3) + README docker instructions (`moodlehq/moodle-docker`).
-- **Per-slice audit** (§15.2): written report per slice — standards, §14.12 checklist, good-neighbour (§14.5), native-components (C9), raw-settings-read grep (§6.3.2), both-DB results — accumulated into `docs/audits/` and consolidated at delivery.
+- **Per-slice audit** (§15.2): written report per slice — standards, §14.12 checklist, good-neighbour (§14.5), native-components (C9), raw-settings-read grep (§6.3.2), both-DB results — accumulated into `docs/audits/` and consolidated at delivery. The native-components grep covers CDN/vendor references **plus inline `<style>`/`<script>` blocks in templates and any runtime dependency appearing in `package.json`** [M4].
 
 ---
 
 ## 17. Slice plan (§16.3 — each closes via §15.2 gate before the next starts)
 
-| # | Slice | Contents | Key tests |
+| # | Slice | Contents (review items owned by the slice in brackets) | Key tests |
 |---|---|---|---|
-| 0 | Skeleton | version/lib/mod_form/index/view stubs, install.xml, access.php, lang, icons (U2), CI workflow green | plugin-ci matrix passes |
-| 1 | Creation | activity model, groups, state T1/T7, uid A1, landing, group page shell, counters | L3/L4 at creation, window |
-| 2 | Invitations | candidates (U3), selector, send/accept/decline/withdraw/expiry task, seats, cascade | L2/L4 trio, races, cascade |
+| 0 | Skeleton | version/lib/mod_form/index/view stubs, install.xml, access.php, lang, icons (U2) [S5a styles.css bound] | plugin-ci matrix passes |
+| 1 | Creation | activity model, groups, state T1/T7, uid A1 [S4 char(64), sanitised ≤12-char segment], landing, group page shell, counters | L3/L4 at creation, window |
+| 2 | Invitations | candidates (U3), selector [S5b justification in audit, S6 full name-field set], send/accept/decline/withdraw/expiry task, seats, cascade [S2 state preconditions on all gatekeeper methods; B3 `can_accept` violation-block] | L2/L4 trio, races, cascade, stale-POST state guards |
 | 3 | Succession | transfer + step-out (A3), replacement flow | L3 trio, L1 stepout, atomicity |
 | 4 | Guide review | submit (T2), return (T3), approve (T4), guide lists+loads, A5 queue | L1/L5/quota gates, L5 race |
-| 5 | Attributes | site admin page, CSV ingest (A9/U4), inline edit, caches, flagged missing | importer suite |
-| 6 | Quotas | rule CRUD+priority, evaluator, bucket panel, submit/approve gates | evaluator+ordering suite |
-| 7 | **Overrides** | resolver+store+UI+events; *retro-wire*: slices 1–6 gates now read resolver (they were built against the resolver interface with a null store, so this is config not rework) | §6.5 full matrix |
-| 8 | Staged moves | move stage/list/joint-commit/cancel, bypass overrides, frozen-target sync (pre-wired to slice 10 by interface) | joint validation suite |
-| 9 | Penalty+grade | calculator, ledger, grade item, recompute+task, ledger page+export | penalty suite |
+| 5 | Attributes | site admin page, CSV ingest (A9/U4), inline edit, caches, flagged missing [M3 user_deleted observer] | importer suite, observer test |
+| 6 | Quotas | rule CRUD+priority [S1 store-enforced uniqueness, safe reorder], evaluator, bucket panel, submit/approve gates | evaluator+ordering+reorder suite |
+| 7 | **Overrides** | resolver+store+UI+events [B5 per-mode field sets; B2/P16 leader-context assessment dates]; *retro-wire*: slices 1–6 gates now read resolver | §6.5 full matrix incl. P16; **exit condition [S3]: slices 1–6 suites re-run green with overrides active on both DBs** |
+| 8 | Staged moves | move stage/list/joint-commit/cancel [B3 violation-block in validate_set], bypass overrides, frozen-target sync (pre-wired to slice 10 by interface) | joint validation suite |
+| 9 | Penalty+grade | calculator [B2 leader-context dates], ledger, grade item, recompute+task, ledger page+export | penalty suite incl. leader-extension zero |
 | 10 | Freeze/unfreeze | core-group sync, snapshots, drift, restriction warning, uninstall behaviour | snapshot/restore suite |
 | 11 | Bulk ops | guide bulk freeze + filters, manager dashboard completion, flagged report | behat bulk flows |
-| 12 | Auto-grouping | engine, task, manual trigger, run log UI, residue placement path | determinism+cascade suite |
-| 13 | Compliance wrap | privacy provider, backup/restore, messaging polish, a11y pass | provider+roundtrip suites |
-| 14 | Final audit + release | consolidated §15.2 audit report, README/CHANGELOG/screenshots, Plugins-Directory package (§15.5), MATURITY_STABLE | full matrix on CI box + GH Actions |
+| 12 | Auto-grouping | engine [B1 corrected sizing; B4 per-user cutoff pool + re-runs], task, manual trigger, run log UI, residue placement path | determinism+cascade suite incl. B1 overflow sweep + B4 exclusion |
+| 13 | Compliance wrap | privacy provider [M1 leaderless→flagged], backup/restore [M2 documented exclusions], messaging polish, a11y pass | provider+roundtrip suites |
+| 14 | Final audit + release | consolidated §15.2 audit report [M4 widened grep], README/CHANGELOG/screenshots (README records S7 + M2), Plugins-Directory package (§15.5), MATURITY_STABLE | full matrix on CI box + GH Actions |
 
 Slices 1–6 depend on the resolver **interface** from day one (constructor-injected; null-object store until slice 7) so §10's "no raw reads" holds from the first line without rework.
 
@@ -631,10 +649,11 @@ U-rows = user amendments this session. Component paths relative to plugin root; 
 
 ---
 
-## 19. Surfaced points (per spec §1 — conflicts raised, not worked around)
+## 19. Surfaced points and their resolutions
 
 1. **`self_select_advanced` → `selfselectadvanced`** — Moodle forbids underscores in mod names; resolved with user 2026-07-23 (U1).
-2. **Snapshot vs staged-moves-into-frozen-groups** (§5 "restored to the frozen snapshot" vs §7 moves updating frozen groups): resolved as A6 (moves refresh the snapshot; only out-of-band core edits are discarded). Flagging per instruction since it refines the letter of §12's "exactly as the guide froze it".
-3. **U4 name columns:** `First name`/`Last name` in the CSV cannot update Moodle accounts (would violate C11/§8.1) — treated as cross-check columns with warnings (A9). Flag: if you instead want mismatching rows *rejected*, say so — one-line change.
+2. **Snapshot vs staged-moves-into-frozen-groups** (§5 "restored to the frozen snapshot" vs §7 moves updating frozen groups): resolved as A6 (moves refresh the snapshot; only out-of-band core edits are discarded). Reviewer concurred (gate-1 review Part 1).
+3. **U4 name columns:** cross-check with warnings (A9); standing offer to switch to reject-on-mismatch remains open.
+4. **S7 email matching:** decided 2026-07-24 (autonomous, per user instruction) — matching for all inviters, display identity-gated, README-documented; rationale in A14.
 
-Everything else implements the spec as written. **Awaiting your review of this plan (gate 1). On approval, slice 0 (skeleton + CI green) begins.**
+**Gate 1 status: APPROVED 2026-07-24** — review verdict "aligned", B1–B5 folded into this v1.1 (see markers), S1–S7/M1–M4 assigned to owning slices in §17. Slice 0 in progress.
