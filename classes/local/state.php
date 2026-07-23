@@ -16,21 +16,323 @@
 
 namespace mod_selfselectadvanced\local;
 
+use mod_selfselectadvanced\activity;
+use mod_selfselectadvanced\local\rules\gatekeeper;
+use stdClass;
+
 /**
- * The explicit group lifecycle state machine (spec section 5).
- *
- * forming -> pending_guide -> firm -> frozen, with guide return
- * (pending_guide -> forming) and manager unfreeze (frozen -> firm).
- * Transitions T2-T6 are implemented by their owning slices; this class
- * is the single authority on state names and legal edges from day one,
- * and every gatekeeper method states its state precondition (review
- * item S2).
+ * The explicit group lifecycle state machine (spec section 5): the
+ * single authority on state names, legal edges, and the guide-review
+ * transitions T2 (submit), T3 (return) and T4 (approve). T5/T6
+ * (freeze/unfreeze) live in the freeze service, which asserts its
+ * edges here. Every gatekeeper method states its state precondition
+ * (review item S2).
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class state {
+    /**
+     * Constructor for transition execution.
+     *
+     * @param activity $activity the activity
+     * @param gatekeeper $gatekeeper the gatekeeper guarding every edge
+     */
+    public function __construct(
+        /** @var activity The activity. */
+        private readonly activity $activity,
+        /** @var gatekeeper The gatekeeper guarding every edge. */
+        private readonly gatekeeper $gatekeeper,
+    ) {
+    }
+
+    /**
+     * T2: the leader submits the group for guide review (spec 6.5).
+     *
+     * Leader-selects mode requires a guide with a free L5 slot;
+     * manager-assigns mode (decision A5) submits without a guide and
+     * the group enters the manager's assignment queue.
+     *
+     * @param stdClass $group group row
+     * @param int|null $guideid chosen guide, null in manager-assigns mode
+     * @param int $actorid the acting leader
+     * @return stdClass the updated group row
+     * @throws \moodle_exception when a gate refuses
+     */
+    public function submit(stdClass $group, ?int $guideid, int $actorid): stdClass {
+        global $DB;
+
+        $leaderselects = (int) $this->activity->settings()->guidemode === 0;
+        if ($leaderselects && !$guideid) {
+            throw new \moodle_exception('refusalguiderequired', 'mod_selfselectadvanced');
+        }
+
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = groups::get($this->activity, (int) $group->id);
+            if ($refusal = $this->gatekeeper->can_submit($fresh, $actorid)) {
+                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            }
+            if ($leaderselects && ($refusal = $this->gatekeeper->can_take_guide($guideid))) {
+                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            }
+
+            $now = time();
+            $fresh->state = self::PENDING_GUIDE;
+            $fresh->guideid = $leaderselects ? $guideid : null;
+            $fresh->timesubmitted = $now;
+            $fresh->usermodified = $actorid;
+            $fresh->timemodified = $now;
+            $DB->update_record('selfselectadvanced_group', $fresh);
+
+            \mod_selfselectadvanced\event\group_submitted::create([
+                'objectid' => $fresh->id,
+                'context' => $this->activity->context(),
+                'relateduserid' => $fresh->guideid,
+                'other' => ['pluginuid' => $fresh->pluginuid],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } finally {
+            $lock->release();
+        }
+
+        $url = $this->review_url((int) $fresh->id);
+        $a = (object) [
+            'group' => format_string($fresh->name),
+            'pluginuid' => $fresh->pluginuid,
+            'activity' => $this->activity->name(),
+        ];
+        if ($fresh->guideid) {
+            notifier::send(
+                $this->activity,
+                'guidequeue',
+                (int) $fresh->guideid,
+                'msgsubmittedsubject',
+                'msgsubmittedbody',
+                $a,
+                $url,
+                format_string($fresh->name)
+            );
+        } else {
+            // A5: notify the managers that the queue has a new entry.
+            foreach (get_users_by_capability($this->activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $manager) {
+                notifier::send(
+                    $this->activity,
+                    'guidequeue',
+                    (int) $manager->id,
+                    'msgqueuedsubject',
+                    'msgqueuedbody',
+                    $a,
+                    $url,
+                    format_string($fresh->name)
+                );
+            }
+        }
+
+        return $fresh;
+    }
+
+    /**
+     * A5: a manager assigns (or reassigns) the guide of a submitted group.
+     *
+     * @param stdClass $group group row
+     * @param int $guideid the guide to assign
+     * @param int $actorid the acting manager
+     * @return stdClass the updated group row
+     * @throws \moodle_exception when a gate refuses
+     */
+    public function assign_guide(stdClass $group, int $guideid, int $actorid): stdClass {
+        global $DB;
+
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = groups::get($this->activity, (int) $group->id);
+            if ($fresh->state !== self::PENDING_GUIDE) {
+                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+            }
+            if ($refusal = $this->gatekeeper->can_take_guide($guideid)) {
+                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            }
+
+            $fresh->guideid = $guideid;
+            $fresh->usermodified = $actorid;
+            $fresh->timemodified = time();
+            $DB->update_record('selfselectadvanced_group', $fresh);
+
+            $transaction->allow_commit();
+        } finally {
+            $lock->release();
+        }
+
+        notifier::send(
+            $this->activity,
+            'guidequeue',
+            $guideid,
+            'msgsubmittedsubject',
+            'msgsubmittedbody',
+            (object) [
+                'group' => format_string($fresh->name),
+                'pluginuid' => $fresh->pluginuid,
+                'activity' => $this->activity->name(),
+            ],
+            $this->review_url((int) $fresh->id),
+            format_string($fresh->name)
+        );
+
+        return $fresh;
+    }
+
+    /**
+     * T3: the assigned guide returns the group with a mandatory
+     * comment; the guide's L5 slot is released immediately (guideid
+     * cleared, decision A11).
+     *
+     * @param stdClass $group group row
+     * @param string $comment the mandatory return comment
+     * @param int $actorid the acting guide
+     * @return stdClass the updated group row
+     * @throws \moodle_exception when a gate refuses or the comment is empty
+     */
+    public function return_group(stdClass $group, string $comment, int $actorid): stdClass {
+        global $DB;
+
+        if (trim($comment) === '') {
+            throw new \moodle_exception('errcommentrequired', 'mod_selfselectadvanced');
+        }
+
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = groups::get($this->activity, (int) $group->id);
+            if ($refusal = $this->gatekeeper->can_return($fresh, $actorid)) {
+                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            }
+
+            $now = time();
+            $fresh->state = self::FORMING;
+            $fresh->guideid = null;
+            $fresh->returncomment = trim($comment);
+            $fresh->usermodified = $actorid;
+            $fresh->timemodified = $now;
+            $DB->update_record('selfselectadvanced_group', $fresh);
+
+            \mod_selfselectadvanced\event\group_returned::create([
+                'objectid' => $fresh->id,
+                'context' => $this->activity->context(),
+                'relateduserid' => (int) $fresh->leaderid,
+                'other' => ['pluginuid' => $fresh->pluginuid, 'comment' => trim($comment)],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } finally {
+            $lock->release();
+        }
+
+        notifier::send(
+            $this->activity,
+            'groupreturned',
+            (int) $fresh->leaderid,
+            'msgreturnedsubject',
+            'msgreturnedbody',
+            (object) ['group' => format_string($fresh->name), 'comment' => trim($comment)],
+            $this->group_url((int) $fresh->id),
+            format_string($fresh->name)
+        );
+
+        return $fresh;
+    }
+
+    /**
+     * T4: the assigned guide approves the group - irreversible (spec
+     * 6.5). Sets timeapproved, which drives the penalty ledger.
+     *
+     * @param stdClass $group group row
+     * @param int $actorid the acting guide
+     * @return stdClass the updated group row
+     * @throws \moodle_exception when a gate refuses
+     */
+    public function approve(stdClass $group, int $actorid): stdClass {
+        global $DB;
+
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = groups::get($this->activity, (int) $group->id);
+            if ($refusal = $this->gatekeeper->can_approve($fresh, $actorid)) {
+                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            }
+
+            $now = time();
+            $fresh->state = self::FIRM;
+            $fresh->timeapproved = $now;
+            $fresh->usermodified = $actorid;
+            $fresh->timemodified = $now;
+            $DB->update_record('selfselectadvanced_group', $fresh);
+
+            \mod_selfselectadvanced\event\group_approved::create([
+                'objectid' => $fresh->id,
+                'context' => $this->activity->context(),
+                'relateduserid' => (int) $fresh->leaderid,
+                'other' => ['pluginuid' => $fresh->pluginuid],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } finally {
+            $lock->release();
+        }
+
+        // The penalty ledger row for this approval is computed by the
+        // penalty service (slice 9) on this same timeapproved value.
+
+        foreach (groups::get_roster((int) $fresh->id) as $member) {
+            notifier::send(
+                $this->activity,
+                'groupapproved',
+                (int) $member->userid,
+                'msgapprovedsubject',
+                'msgapprovedbody',
+                (object) ['group' => format_string($fresh->name)],
+                $this->group_url((int) $fresh->id),
+                format_string($fresh->name)
+            );
+        }
+
+        return $fresh;
+    }
+
+    /**
+     * Deep link to a group page.
+     *
+     * @param int $groupid the group
+     * @return \moodle_url
+     */
+    private function group_url(int $groupid): \moodle_url {
+        return new \moodle_url('/mod/selfselectadvanced/group.php', [
+            'id' => $this->activity->cm()->id,
+            'g' => $groupid,
+        ]);
+    }
+
+    /**
+     * Deep link to the guide review page.
+     *
+     * @param int $groupid the group
+     * @return \moodle_url
+     */
+    private function review_url(int $groupid): \moodle_url {
+        return new \moodle_url('/mod/selfselectadvanced/review.php', [
+            'id' => $this->activity->cm()->id,
+            'g' => $groupid,
+        ]);
+    }
     /** @var string Leader edits, invites, transfers; members join and leave. */
     public const FORMING = 'forming';
 

@@ -107,6 +107,40 @@ if ($isleaderforming && empty($group->successorid)) {
     }
 }
 
+$submitform = null;
+if ($isleaderforming && $api->gatekeeper()->can_submit($group, (int) $USER->id) === null) {
+    $leaderselects = (int) $activity->settings()->guidemode === 0;
+    $guideoptions = [];
+    if ($leaderselects) {
+        foreach (
+            \mod_selfselectadvanced\local\guides::selectable(
+                $activity,
+                $api->gatekeeper()->resolver()
+            ) as $guide
+        ) {
+            $guideoptions[$guide->id] = $guide->fullname . ' — ' . $guide->label;
+        }
+    }
+    if (!$leaderselects || $guideoptions) {
+        $submitform = new \mod_selfselectadvanced\form\submit_form($baseurl->out(false), [
+            'cmid' => $cm->id,
+            'groupid' => (int) $group->id,
+            'leaderselects' => $leaderselects,
+            'guides' => $guideoptions,
+        ]);
+    }
+}
+
+if ($action === 'submit' && $submitform && ($data = $submitform->get_data())) {
+    $api->lifecycle()->submit($group, isset($data->guide) ? (int) $data->guide : null, (int) $USER->id);
+    redirect(
+        $baseurl,
+        get_string('groupsubmitted', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
 if ($action === 'nominate' && $nominateform && ($data = $nominateform->get_data())) {
     $api->succession()->nominate($group, (int) $data->nominee, $data->stype, (int) $USER->id);
     redirect(
@@ -230,7 +264,14 @@ if ($action === 'delete') {
     die;
 }
 
-$page = new \mod_selfselectadvanced\output\group_page($api, $group, (int) $USER->id, $inviteform, $nominateform);
+$page = new \mod_selfselectadvanced\output\group_page(
+    $api,
+    $group,
+    (int) $USER->id,
+    $inviteform,
+    $nominateform,
+    $submitform
+);
 
 echo $OUTPUT->header();
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/group_page', $page->export_for_template($OUTPUT));

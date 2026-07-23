@@ -152,6 +152,13 @@
     {{/hasmynominations}}
 {{/isstudent}}
 
+{{#isguide}}
+    <p><a href="{{guideurl}}" class="btn btn-outline-primary">{{#str}} guidedashboard, mod_selfselectadvanced {{/str}}</a></p>
+{{/isguide}}
+{{#ismanager}}
+    <p><a href="{{manageurl}}" class="btn btn-outline-primary">{{#str}} managerdashboard, mod_selfselectadvanced {{/str}}</a></p>
+{{/ismanager}}
+
 {{#isstaff}}
     <h3>{{#str}} allgroups, mod_selfselectadvanced {{/str}}</h3>
     {{#hasallgroups}}

@@ -128,6 +128,11 @@ class landing implements renderable, templatable {
             $data->hasmynominations = !empty($data->mynominations);
         }
 
+        $data->isguide = has_capability('mod/selfselectadvanced:guide', $context, $this->userid, false);
+        $data->guideurl = (new \moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cmid]))->out(false);
+        $data->ismanager = has_capability('mod/selfselectadvanced:manage', $context, $this->userid, false);
+        $data->manageurl = (new \moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cmid]))->out(false);
+
         if (has_capability('mod/selfselectadvanced:viewall', $context, $this->userid, false)) {
             $data->isstaff = true;
             $data->allgroups = [];

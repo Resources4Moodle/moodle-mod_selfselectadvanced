@@ -51,6 +51,8 @@ class group_page implements renderable, templatable {
         private readonly ?\mod_selfselectadvanced\form\invite_form $inviteform = null,
         /** @var \mod_selfselectadvanced\form\nominate_form|null Leader's succession form. */
         private readonly ?\mod_selfselectadvanced\form\nominate_form $nominateform = null,
+        /** @var \mod_selfselectadvanced\form\submit_form|null Leader's submit-to-guide form. */
+        private readonly ?\mod_selfselectadvanced\form\submit_form $submitform = null,
     ) {
     }
 
@@ -120,7 +122,27 @@ class group_page implements renderable, templatable {
             $nomineerefusal = $this->api->gatekeeper()->can_confirm_succession($this->group, $this->userid);
         }
 
+        // Submission control state (T2) with the 4A.6 reason when blocked.
+        $submitrefusal = null;
+        if ($isleader && $isforming) {
+            $submitrefusal = $this->api->gatekeeper()->can_submit($this->group, $this->userid);
+        }
+        $guidename = '';
+        if (!empty($this->group->guideid)) {
+            $guidename = fullname(\core_user::get_user((int) $this->group->guideid));
+        }
+
         return (object) [
+            'showsubmit' => $this->submitform !== null,
+            'submitformhtml' => $this->submitform?->render() ?? '',
+            'submitblockedreason' => $isleader && $isforming && $submitrefusal !== null
+                ? $submitrefusal->get_message()
+                : '',
+            'guidename' => $guidename,
+            'hasguide' => $guidename !== '',
+            'returncomment' => $isforming && !empty($this->group->returncomment)
+                ? format_text($this->group->returncomment, FORMAT_PLAIN, ['context' => $context])
+                : '',
             'hasnomination' => !empty($this->group->successorid),
             'nomineename' => $nomineename,
             'nominationisstepout' => ($this->group->successortype ?? '') === 'stepout',

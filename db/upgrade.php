@@ -47,5 +47,11 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072402, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072403) {
+        // Slice 4: guidequeue, groupreturned and groupapproved
+        // message providers.
+        upgrade_mod_savepoint(true, 2026072403, 'selfselectadvanced');
+    }
+
     return true;
 }

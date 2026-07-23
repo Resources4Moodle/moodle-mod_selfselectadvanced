@@ -1,0 +1,64 @@
+<?php
+// This file is part of Moodle - https://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+
+namespace mod_selfselectadvanced\form;
+
+defined('MOODLE_INTERNAL') || die();
+
+require_once($CFG->libdir . '/formslib.php');
+
+/**
+ * Submit-to-guide form (T2, spec 6.5). In leader-selects mode the
+ * guide list shows each guide's used/remaining load and excludes those
+ * at capacity; in manager-assigns mode (A5) no guide is chosen here.
+ *
+ * Custom data: cmid, groupid, leaderselects (bool),
+ * guides (value => "Name — Guiding x of y").
+ *
+ * @package    mod_selfselectadvanced
+ * @copyright  2026 JSP <jsp@jsp.net.in>
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class submit_form extends \moodleform {
+    /**
+     * Define the form elements.
+     */
+    protected function definition(): void {
+        $mform = $this->_form;
+
+        $mform->addElement('hidden', 'id', $this->_customdata['cmid']);
+        $mform->setType('id', PARAM_INT);
+        $mform->addElement('hidden', 'g', $this->_customdata['groupid']);
+        $mform->setType('g', PARAM_INT);
+        $mform->addElement('hidden', 'action', 'submit');
+        $mform->setType('action', PARAM_ALPHA);
+
+        if ($this->_customdata['leaderselects']) {
+            $mform->addElement(
+                'select',
+                'guide',
+                get_string('chooseguide', 'mod_selfselectadvanced'),
+                $this->_customdata['guides']
+            );
+            $mform->addRule('guide', get_string('required'), 'required', null, 'client');
+            $mform->addHelpButton('guide', 'chooseguide', 'mod_selfselectadvanced');
+        } else {
+            $mform->addElement('static', 'guidenote', '', get_string('submitmanagerassigns', 'mod_selfselectadvanced'));
+        }
+
+        $this->add_action_buttons(false, get_string('submittoguide', 'mod_selfselectadvanced'));
+    }
+}

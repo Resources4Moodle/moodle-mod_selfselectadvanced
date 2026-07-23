@@ -17,8 +17,7 @@
 /**
  * Message provider definitions for mod_selfselectadvanced.
  *
- * Later slices add: nomination, nominationresult, leaverequest,
- * leaveresult, guidequeue, groupreturned, groupapproved, groupfrozen,
+ * Later slices add: leaverequest, leaveresult, groupfrozen,
  * groupunfrozen, movecommitted, autogroupresult, deadlinereminder
  * (spec section 14.8).
  *
@@ -54,6 +53,28 @@ $messageproviders = [
     ],
     // The outcome of a nomination: confirmed, declined or cancelled.
     'nominationresult' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
+    // A group entered a guide's queue (to the guide; to managers in
+    // manager-assigns mode).
+    'guidequeue' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
+    // The guide returned the group with a comment (to the leader).
+    'groupreturned' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
+    // The guide approved the group (to all confirmed members).
+    'groupapproved' => [
         'defaults' => [
             'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
             'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,

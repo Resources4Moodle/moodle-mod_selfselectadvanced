@@ -84,6 +84,15 @@ class api {
     }
 
     /**
+     * The lifecycle transition service (T2-T4 and A5 assignment).
+     *
+     * @return state
+     */
+    public function lifecycle(): state {
+        return new state($this->activity, $this->gatekeeper);
+    }
+
+    /**
      * Create a group with the acting user as leader (transition T1).
      *
      * @param int $userid the leader-to-be

@@ -1,0 +1,108 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/review_page
+
+    Guide review of one submitted group: approve or return with comment.
+
+    Context variables required for this template:
+    * pluginuid - plugin group id
+    * name - group name
+    * isassigned - whether the viewer is the assigned guide
+
+    Example context (json):
+    {
+        "pluginuid": "SSA-C101-0001",
+        "name": "Team Alpha",
+        "title": "Pendulum study",
+        "brief": "<p>We study pendulums.</p>",
+        "statelabel": "Awaiting guide",
+        "seatsummary": "4 of 6 seats filled, 0 invitation(s) pending",
+        "hasroster": true,
+        "roster": [{"fullname": "Alice Lead", "isleader": true}],
+        "isassigned": true,
+        "canapprove": true,
+        "approveblockedreason": null,
+        "approveurl": "https://example.com/mod/selfselectadvanced/review.php?id=1&g=1&action=approve",
+        "actionurl": "https://example.com/mod/selfselectadvanced/review.php",
+        "sesskey": "abc",
+        "cmid": 1,
+        "groupid": 1,
+        "backurl": "https://example.com/mod/selfselectadvanced/guide.php?id=1"
+    }
+}}
+<div class="selfselectadvanced-reviewpage">
+    <div class="d-flex justify-content-between align-items-start flex-wrap mb-2">
+        <div>
+            <h3 class="mb-0">{{name}}</h3>
+            <span class="text-muted small">{{pluginuid}}</span>
+        </div>
+        <span class="badge bg-info text-dark">{{statelabel}}</span>
+    </div>
+
+    <h4>{{title}}</h4>
+    <div class="selfselectadvanced-brief mb-3">{{{brief}}}</div>
+    <p><strong>{{seatsummary}}</strong></p>
+
+    <h4>{{#str}} roster, mod_selfselectadvanced {{/str}}</h4>
+    {{#hasroster}}
+        <ul class="list-group mb-3">
+            {{#roster}}
+                <li class="list-group-item">
+                    {{fullname}}
+                    {{#isleader}}
+                        <span class="badge bg-primary ms-2">{{#str}} leader, mod_selfselectadvanced {{/str}}</span>
+                    {{/isleader}}
+                </li>
+            {{/roster}}
+        </ul>
+    {{/hasroster}}
+
+    {{#isassigned}}
+        <div class="selfselectadvanced-reviewactions mb-3">
+            {{#canapprove}}
+                <a href="{{approveurl}}" class="btn btn-primary">{{#str}} approve, mod_selfselectadvanced {{/str}}</a>
+            {{/canapprove}}
+            {{#approveblockedreason}}
+                <button type="button" class="btn btn-secondary" disabled aria-disabled="true">
+                    {{#str}} approve, mod_selfselectadvanced {{/str}}
+                </button>
+                <span class="ms-2 text-muted">{{approveblockedreason}}</span>
+            {{/approveblockedreason}}
+        </div>
+
+        <h4>{{#str}} returngroup, mod_selfselectadvanced {{/str}}</h4>
+        <form method="post" action="{{actionurl}}" class="mb-3">
+            <input type="hidden" name="id" value="{{cmid}}">
+            <input type="hidden" name="g" value="{{groupid}}">
+            <input type="hidden" name="action" value="returngroup">
+            <input type="hidden" name="sesskey" value="{{sesskey}}">
+            <div class="mb-2">
+                <label for="selfselectadvanced-returncomment-{{groupid}}">
+                    {{#str}} returncommentlabel, mod_selfselectadvanced {{/str}}
+                </label>
+                <textarea id="selfselectadvanced-returncomment-{{groupid}}" name="comment" rows="3"
+                    class="form-control" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-secondary">
+                {{#str}} returngroup, mod_selfselectadvanced {{/str}}
+            </button>
+        </form>
+    {{/isassigned}}
+
+    <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>
+</div>

@@ -332,6 +332,140 @@ class gatekeeper {
     }
 
     /**
+     * May the leader submit this group to a guide? (T2, spec 6.5.)
+     *
+     * State precondition: forming (S2). Checks: window (leader-effective
+     * dates), minimum size L1 against effective minsize, quota
+     * compliance or exemption. In leader-selects mode the chosen guide
+     * is validated separately by can_take_guide().
+     *
+     * @param \stdClass $group group row
+     * @param int $actorid the acting user
+     * @param int|null $now time of the action, defaults to now
+     * @return refusal|null null when allowed
+     */
+    public function can_submit(stdClass $group, int $actorid, ?int $now = null): ?refusal {
+        $now = $now ?? time();
+
+        if ($group->state !== state::FORMING) {
+            return new refusal('refusalwrongstate');
+        }
+        if ((int) $group->leaderid !== $actorid) {
+            return new refusal('refusalnotleader');
+        }
+        if ($refusal = $this->check_window($actorid, (int) $group->id, $now)) {
+            return $refusal;
+        }
+
+        $minsize = $this->resolver->effective_minsize((int) $group->id);
+        $confirmed = groups::count_confirmed((int) $group->id);
+        if ($confirmed < $minsize->value) {
+            return new refusal('refusalbelowminsize', (object) [
+                'current' => $confirmed,
+                'min' => $minsize->value,
+            ]);
+        }
+
+        if (
+            !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($this->activity, (int) $group->id)
+            && !$this->resolver->is_quota_exempt((int) $group->id)->enabled
+        ) {
+            return new refusal('refusalquota');
+        }
+
+        return null;
+    }
+
+    /**
+     * May this guide take on one more group? (L5, spec 4A.5.)
+     *
+     * Used at submission (leader-selects) and at manager assignment
+     * (A5): the guide's load must leave a free slot.
+     *
+     * @param int $guideid the guide
+     * @return refusal|null null when a slot is free
+     */
+    public function can_take_guide(int $guideid): ?refusal {
+        if (!has_capability('mod/selfselectadvanced:guide', $this->activity->context(), $guideid)) {
+            return new refusal('refusalnotaguide');
+        }
+        $max = $this->resolver->effective_maxguided($guideid);
+        $used = groups::count_guiding($this->activity, $guideid);
+        if ($used >= $max->value) {
+            return new refusal('refusalguidecap', (object) ['current' => $used, 'max' => $max->value]);
+        }
+
+        return null;
+    }
+
+    /**
+     * May this guide approve the group? (T4, spec 6.5.)
+     *
+     * State precondition: pending_guide (S2); the assigned guide only.
+     * Atomic re-checks: the guide's load within their effective
+     * max_guided (the group already occupies its slot, so the test is
+     * load exceeding the cap), minimum size L1 and quota compliance -
+     * each bypassable only through an override resolved upstream.
+     *
+     * @param \stdClass $group group row
+     * @param int $actorid the acting user
+     * @return refusal|null null when allowed
+     */
+    public function can_approve(stdClass $group, int $actorid): ?refusal {
+        if ($group->state !== state::PENDING_GUIDE) {
+            return new refusal('refusalwrongstate');
+        }
+        if (empty($group->guideid) || (int) $group->guideid !== $actorid) {
+            return new refusal('refusalnotassignedguide');
+        }
+
+        $max = $this->resolver->effective_maxguided($actorid);
+        $used = groups::count_guiding($this->activity, $actorid);
+        if ($used > $max->value) {
+            return new refusal('refusalguidecap', (object) ['current' => $used, 'max' => $max->value]);
+        }
+
+        $minsize = $this->resolver->effective_minsize((int) $group->id);
+        $confirmed = groups::count_confirmed((int) $group->id);
+        if ($confirmed < $minsize->value) {
+            return new refusal('refusalbelowminsize', (object) [
+                'current' => $confirmed,
+                'min' => $minsize->value,
+            ]);
+        }
+
+        if (
+            !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($this->activity, (int) $group->id)
+            && !$this->resolver->is_quota_exempt((int) $group->id)->enabled
+        ) {
+            return new refusal('refusalquota');
+        }
+
+        return null;
+    }
+
+    /**
+     * May this guide return the group to forming? (T3, spec 6.5.)
+     *
+     * State precondition: pending_guide (S2); the assigned guide only.
+     * The mandatory comment is enforced by the return service.
+     *
+     * @param \stdClass $group group row
+     * @param int $actorid the acting user
+     * @return refusal|null null when allowed
+     */
+    public function can_return(stdClass $group, int $actorid): ?refusal {
+        if ($group->state !== state::PENDING_GUIDE) {
+            return new refusal('refusalwrongstate');
+        }
+        if (empty($group->guideid) || (int) $group->guideid !== $actorid) {
+            return new refusal('refusalnotassignedguide');
+        }
+
+        return null;
+    }
+
+    /**
      * May the leader withdraw this pending invitation?
      *
      * State precondition: forming (S2); leader only; invited rows only.

@@ -72,7 +72,17 @@
     <p>
         <strong>{{seatsummary}}</strong>
         <span class="d-block text-muted small">{{minsizenote}}</span>
+        {{#hasguide}}
+            <span class="d-block small">{{#str}} guidelabel, mod_selfselectadvanced, {{guidename}} {{/str}}</span>
+        {{/hasguide}}
     </p>
+
+    {{#returncomment}}
+        <div class="alert alert-warning selfselectadvanced-returncomment">
+            <strong>{{#str}} returnedwithcomment, mod_selfselectadvanced {{/str}}</strong>
+            <p class="mb-0">{{{returncomment}}}</p>
+        </div>
+    {{/returncomment}}
 
     {{#showrespond}}
         <div class="selfselectadvanced-respond alert alert-info d-flex align-items-center flex-wrap gap-2">
@@ -183,6 +193,19 @@
         <h4>{{#str}} succession, mod_selfselectadvanced {{/str}}</h4>
         {{{nominateformhtml}}}
     {{/shownominateform}}
+
+    {{#showsubmit}}
+        <h4>{{#str}} submittoguide, mod_selfselectadvanced {{/str}}</h4>
+        {{{submitformhtml}}}
+    {{/showsubmit}}
+    {{#submitblockedreason}}
+        <p>
+            <button type="button" class="btn btn-secondary" disabled aria-disabled="true">
+                {{#str}} submittoguide, mod_selfselectadvanced {{/str}}
+            </button>
+            <span class="ms-2 text-muted">{{submitblockedreason}}</span>
+        </p>
+    {{/submitblockedreason}}
 
     {{#caninvite}}
         <h4>{{#str}} invitemembers, mod_selfselectadvanced {{/str}}</h4>

@@ -1,0 +1,111 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/guide_dashboard
+
+    Guide dashboard: own load header, review queue, guided groups.
+
+    Context variables required for this template:
+    * loadline - "You are guiding 3 of 10 groups"
+    * hasqueue - whether the queue has entries
+
+    Example context (json):
+    {
+        "loadline": "You are guiding 3 of 10 groups",
+        "hasqueue": true,
+        "queue": [
+            {
+                "pluginuid": "SSA-C101-0001",
+                "name": "Team Alpha",
+                "title": "Pendulums",
+                "statelabel": "Awaiting guide",
+                "size": 4,
+                "reviewurl": "https://example.com/mod/selfselectadvanced/review.php?id=1&g=1"
+            }
+        ],
+        "hasguided": false,
+        "guided": [],
+        "backurl": "https://example.com/mod/selfselectadvanced/view.php?id=1"
+    }
+}}
+<div class="selfselectadvanced-guidedashboard">
+    <p><span class="badge bg-secondary text-light">{{loadline}}</span></p>
+
+    <h3>{{#str}} reviewqueue, mod_selfselectadvanced {{/str}}</h3>
+    {{#hasqueue}}
+        <div class="table-responsive">
+            <table class="table generaltable">
+                <thead>
+                    <tr>
+                        <th scope="col">{{#str}} groupname, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} pluginid, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} worktitle, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} size, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} actions {{/str}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#queue}}
+                        <tr>
+                            <td>{{name}}</td>
+                            <td>{{pluginuid}}</td>
+                            <td>{{title}}</td>
+                            <td>{{size}}</td>
+                            <td><a class="btn btn-primary btn-sm" href="{{reviewurl}}">{{#str}} review, mod_selfselectadvanced {{/str}}</a></td>
+                        </tr>
+                    {{/queue}}
+                </tbody>
+            </table>
+        </div>
+    {{/hasqueue}}
+    {{^hasqueue}}
+        <p class="text-muted">{{#str}} queueempty, mod_selfselectadvanced {{/str}}</p>
+    {{/hasqueue}}
+
+    <h3>{{#str}} guidedgroups, mod_selfselectadvanced {{/str}}</h3>
+    {{#hasguided}}
+        <div class="table-responsive">
+            <table class="table generaltable">
+                <thead>
+                    <tr>
+                        <th scope="col">{{#str}} groupname, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} pluginid, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} state, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} size, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} actions {{/str}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#guided}}
+                        <tr>
+                            <td>{{name}}</td>
+                            <td>{{pluginuid}}</td>
+                            <td>{{statelabel}}</td>
+                            <td>{{size}}</td>
+                            <td><a class="btn btn-secondary btn-sm" href="{{reviewurl}}">{{#str}} review, mod_selfselectadvanced {{/str}}</a></td>
+                        </tr>
+                    {{/guided}}
+                </tbody>
+            </table>
+        </div>
+    {{/hasguided}}
+    {{^hasguided}}
+        <p class="text-muted">{{#str}} noguidedgroups, mod_selfselectadvanced {{/str}}</p>
+    {{/hasguided}}
+
+    <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>
+</div>
