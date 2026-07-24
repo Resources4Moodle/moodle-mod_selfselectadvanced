@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.4.0 (2026-07-24)
+
+- Guide decision window with an auto-approve switch: submitted groups
+  undecided within the window are automatically counted as accepted.
+- Minimum memberships per student: defaulters are listed on the
+  flagged report and penalised per missing group after the due date.
+- Incomplete-group penalty with a teacher-set leader majority share.
+- Sequence-of-joining gradebook decomposition: guide-awarded group
+  marks and every penalty bind to the student's groups in joining
+  order with stepwise clamping; the full breakdown is published as
+  gradebook feedback.
+
+## 1.3.0 (2026-07-24)
+
+- Slot-based composition templates (booked members, value/distinct
+  matches, overlap control) gating compliance with the classic rules.
+- Programme attribute with its own vocabulary; admin-level CSV ingest
+  now auto-creates missing departments, sub-departments and
+  programmes; downloadable blank CSV templates per programme.
+- Project proposal upload with a per-activity mandate; guide rich-text
+  notes on the review page.
+- Defined behaviour for size changes after freezing: grandfathered
+  groups, flagged-report listing.
+
+## 1.2.0 (2026-07-24)
+
+- Guarded reduction overrides (pending until blockers clear), explicit
+  leader-replacement consent on moves, AJAX user selectors at scale,
+  guides and roster tables, seat location attribute, bulk department
+  updates.
+
 ## 1.2.0 (2026-07-24)
 
 - Guarded reductions: an override that reduces a cap below the
