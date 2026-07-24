@@ -137,7 +137,9 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         // become their children.
         $now = time();
         $seen = [];
-        $pairs = $DB->get_records_sql(
+        // Recordset, NOT get_records_sql: records keyed by the first
+        // column would collapse duplicate departments to one pair.
+        $pairs = $DB->get_recordset_sql(
             "SELECT DISTINCT department, subdepartment
                FROM {selfselectadvanced_userattr}
               WHERE department IS NOT NULL AND department <> ''"
@@ -182,7 +184,60 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
             }
         }
 
+        $pairs->close();
+
         upgrade_mod_savepoint(true, 2026072412, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026072413) {
+        // Repair pass: 2026072412 first shipped with get_records_sql,
+        // whose first-column keying collapsed duplicate departments —
+        // sites that ran it are missing sub-departments. Re-seed
+        // idempotently with the corrected recordset query.
+        $now = time();
+        $pairs = $DB->get_recordset_sql(
+            "SELECT DISTINCT department, subdepartment
+               FROM {selfselectadvanced_userattr}
+              WHERE department IS NOT NULL AND department <> ''"
+        );
+        foreach ($pairs as $pair) {
+            $dept = trim((string) $pair->department);
+            if ($dept === '' || core_text::strlen($dept) > 100) {
+                continue;
+            }
+            $parentid = $DB->get_field('selfselectadvanced_dept', 'id', ['parent' => 0, 'name' => $dept]);
+            if (!$parentid) {
+                $parentid = $DB->insert_record('selfselectadvanced_dept', (object) [
+                    'name' => $dept,
+                    'parent' => 0,
+                    'depth' => 1,
+                    'path' => '',
+                    'sortorder' => 1 + (int) $DB->count_records('selfselectadvanced_dept', ['parent' => 0]),
+                    'timecreated' => $now,
+                    'timemodified' => $now,
+                ]);
+                $DB->set_field('selfselectadvanced_dept', 'path', '/' . $parentid, ['id' => $parentid]);
+            }
+            $sub = trim((string) $pair->subdepartment);
+            if ($sub === '' || core_text::strlen($sub) > 100) {
+                continue;
+            }
+            if (!$DB->record_exists('selfselectadvanced_dept', ['parent' => $parentid, 'name' => $sub])) {
+                $id = $DB->insert_record('selfselectadvanced_dept', (object) [
+                    'name' => $sub,
+                    'parent' => (int) $parentid,
+                    'depth' => 2,
+                    'path' => '',
+                    'sortorder' => 1 + (int) $DB->count_records('selfselectadvanced_dept', ['parent' => $parentid]),
+                    'timecreated' => $now,
+                    'timemodified' => $now,
+                ]);
+                $DB->set_field('selfselectadvanced_dept', 'path', '/' . $parentid . '/' . $id, ['id' => $id]);
+            }
+        }
+        $pairs->close();
+
+        upgrade_mod_savepoint(true, 2026072413, 'selfselectadvanced');
     }
 
     return true;
