@@ -101,7 +101,9 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
             'successortype' => $record->successortype ?? null,
             'timenominated' => isset($record->successorid) ? $now : null,
             'timesubmitted' => $record->timesubmitted ?? null,
-            'timeapproved' => $record->timeapproved ?? null,
+            'timeapproved' => isset($record->timeapproved) && !is_numeric($record->timeapproved)
+                ? strtotime((string) $record->timeapproved)
+                : ($record->timeapproved ?? null),
             'timefrozen' => $record->timefrozen ?? null,
             'coregroupid' => $record->coregroupid ?? null,
             'usermodified' => (int) $record->leaderid,

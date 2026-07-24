@@ -29,6 +29,15 @@ defined('MOODLE_INTERNAL') || die();
 
 $tasks = [
     [
+        'classname' => \mod_selfselectadvanced\task\reconcile_penalties::class,
+        'blocking' => 0,
+        'minute' => '27',
+        'hour' => '3',
+        'day' => '*',
+        'month' => '*',
+        'dayofweek' => '*',
+    ],
+    [
         'classname' => \mod_selfselectadvanced\task\expire_invitations::class,
         'blocking' => 0,
         'minute' => '13',

@@ -111,6 +111,12 @@ function selfselectadvanced_update_instance(stdClass $data, $mform = null): bool
         ])->trigger();
     }
 
+    // Spec 11: date or penalty edits recompute the full ledger
+    // immediately (the nightly task reconciles as defence in depth).
+    \mod_selfselectadvanced\local\penalty\ledger::recompute_all(
+        \mod_selfselectadvanced\activity::from_instance((int) $instance->id)
+    );
+
     return $result;
 }
 
@@ -256,6 +262,13 @@ function selfselectadvanced_extend_settings_navigation(settings_navigation $sett
         $node->add(
             get_string('overrides', 'mod_selfselectadvanced'),
             new moodle_url('/mod/selfselectadvanced/overrides.php', ['id' => $cm->id]),
+            navigation_node::TYPE_SETTING
+        );
+    }
+    if (has_capability('mod/selfselectadvanced:viewall', $context)) {
+        $node->add(
+            get_string('penaltyledger', 'mod_selfselectadvanced'),
+            new moodle_url('/mod/selfselectadvanced/ledger.php', ['id' => $cm->id]),
             navigation_node::TYPE_SETTING
         );
     }

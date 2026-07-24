@@ -64,5 +64,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072405, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072406) {
+        // Slice 9: reconcile_penalties scheduled task.
+        upgrade_mod_savepoint(true, 2026072406, 'selfselectadvanced');
+    }
+
     return true;
 }

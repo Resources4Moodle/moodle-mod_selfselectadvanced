@@ -289,8 +289,10 @@ final class state {
             $lock->release();
         }
 
-        // The penalty ledger row for this approval is computed by the
-        // penalty service (slice 9) on this same timeapproved value.
+        // Spec 11: the approval writes the group's ledger row (explicit
+        // zero for on-time groups) and pushes member grades.
+        penalty\ledger::upsert_for_group($this->activity, $fresh, $this->gatekeeper->resolver());
+        penalty\ledger::push_grades($this->activity);
 
         foreach (groups::get_roster((int) $fresh->id) as $member) {
             notifier::send(

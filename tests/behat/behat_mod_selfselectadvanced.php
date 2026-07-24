@@ -44,6 +44,7 @@ class behat_mod_selfselectadvanced extends behat_base {
             'guide' => '/mod/selfselectadvanced/guide.php',
             'moves' => '/mod/selfselectadvanced/moves.php',
             'overrides' => '/mod/selfselectadvanced/overrides.php',
+            'ledger' => '/mod/selfselectadvanced/ledger.php',
         ];
         $type = strtolower($type);
         if (!isset($pages[$type])) {
