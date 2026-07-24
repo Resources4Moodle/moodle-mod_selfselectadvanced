@@ -37,6 +37,42 @@ require_capability('mod/selfselectadvanced:guide', $context);
 
 $api = new \mod_selfselectadvanced\local\api($activity);
 
+// Bulk freeze of selected firm groups (spec 12).
+$action = optional_param('action', '', PARAM_ALPHA);
+if ($action === 'bulkfreeze' && data_submitted() && confirm_sesskey()) {
+    require_capability('mod/selfselectadvanced:freeze', $context);
+    $selected = optional_param_array('selected', [], PARAM_INT);
+    $done = 0;
+    $skipped = [];
+    foreach ($selected as $sgid) {
+        try {
+            $sgroup = \mod_selfselectadvanced\local\groups::get($activity, $sgid);
+            \mod_selfselectadvanced\local\freeze::freeze_group($activity, $sgroup, (int) $USER->id);
+            $done++;
+        } catch (moodle_exception $e) {
+            $skipped[] = format_string($sgroup->name ?? (string) $sgid) . ': ' . $e->getMessage();
+        }
+    }
+    $notice = get_string('bulkfrozen', 'mod_selfselectadvanced', $done);
+    if ($skipped) {
+        $notice .= ' ' . get_string('bulkskipped', 'mod_selfselectadvanced', implode(' ', $skipped));
+    }
+    redirect(
+        new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
+        $notice,
+        null,
+        $skipped ? \core\output\notification::NOTIFY_WARNING : \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
+// Filters (spec 12): state, quota compliance, approved before/after, department.
+$fstate = optional_param('fstate', '', PARAM_ALPHAEXT);
+$fquota = optional_param('fquota', '', PARAM_ALPHA);
+$fdept = optional_param('fdept', '', PARAM_TEXT);
+$fapprovedop = optional_param('fapprovedop', '', PARAM_ALPHA);
+$fapproved = optional_param('fapproved', '', PARAM_RAW_TRIMMED);
+$fapprovedts = $fapproved !== '' ? (strtotime($fapproved) ?: 0) : 0;
+
 $PAGE->set_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
@@ -68,9 +104,49 @@ foreach ($mygroups as $group) {
             'g' => $group->id,
         ]))->out(false),
     ];
+    // Apply the guide filters to the guided (non-queue) list.
+    $matchesfilters = true;
+    if ($group->state !== \mod_selfselectadvanced\local\state::PENDING_GUIDE) {
+        if ($fstate !== '' && $group->state !== $fstate) {
+            $matchesfilters = false;
+        }
+        if ($matchesfilters && $fquota !== '') {
+            $compliant = \mod_selfselectadvanced\local\quota\evaluator::is_compliant($activity, (int) $group->id);
+            if (($fquota === 'yes') !== $compliant) {
+                $matchesfilters = false;
+            }
+        }
+        if ($matchesfilters && $fapprovedts && $fapprovedop !== '' && !empty($group->timeapproved)) {
+            if ($fapprovedop === 'before' && $group->timeapproved >= $fapprovedts) {
+                $matchesfilters = false;
+            }
+            if ($fapprovedop === 'after' && $group->timeapproved <= $fapprovedts) {
+                $matchesfilters = false;
+            }
+        }
+        if ($matchesfilters && $fdept !== '') {
+            $rosterids = array_map(
+                static fn($m) => (int) $m->userid,
+                \mod_selfselectadvanced\local\groups::get_roster((int) $group->id)
+            );
+            $rosterattrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users($rosterids);
+            $hasdept = false;
+            foreach ($rosterattrs as $attr) {
+                if (\core_text::strtolower((string) $attr->department) === \core_text::strtolower($fdept)) {
+                    $hasdept = true;
+                    break;
+                }
+            }
+            if (!$hasdept) {
+                $matchesfilters = false;
+            }
+        }
+    }
+
     if ($group->state === \mod_selfselectadvanced\local\state::PENDING_GUIDE) {
         $queue[] = $row;
-    } else {
+    } else if ($matchesfilters) {
+        $row->groupid = (int) $group->id;
         $row->canfreeze = $group->state === \mod_selfselectadvanced\local\state::FIRM
             && has_capability('mod/selfselectadvanced:freeze', $context);
         $row->freezeurl = (new moodle_url('/mod/selfselectadvanced/group.php', [
@@ -83,12 +159,38 @@ foreach ($mygroups as $group) {
 }
 
 echo $OUTPUT->header();
+$departments = \mod_selfselectadvanced\local\attributes\manager::distinct_values('department');
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/guide_dashboard', (object) [
     'loadline' => get_string('guideloadheader', 'mod_selfselectadvanced', $load),
     'queue' => $queue,
     'hasqueue' => !empty($queue),
     'guided' => $guided,
     'hasguided' => !empty($guided),
+    'canbulkfreeze' => has_capability('mod/selfselectadvanced:freeze', $context)
+        && !empty(array_filter($guided, static fn($g) => !empty($g->canfreeze))),
+    'sesskey' => sesskey(),
+    'cmid' => $cm->id,
+    'actionurl' => (new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]))->out(false),
+    'filters' => (object) [
+        'fstate' => $fstate,
+        'fquota' => $fquota,
+        'fquotayes' => $fquota === 'yes',
+        'fquotano' => $fquota === 'no',
+        'fbefore' => $fapprovedop === 'before',
+        'fafter' => $fapprovedop === 'after',
+        'fdept' => $fdept,
+        'fapprovedop' => $fapprovedop,
+        'fapproved' => $fapproved,
+        'stateoptions' => array_map(static fn($st) => (object) [
+            'value' => $st,
+            'label' => get_string('state' . str_replace('_', '', $st), 'mod_selfselectadvanced'),
+            'selected' => $st === $fstate,
+        ], \mod_selfselectadvanced\local\state::all()),
+        'deptoptions' => array_map(static fn($d) => (object) [
+            'value' => $d,
+            'selected' => $d === $fdept,
+        ], $departments),
+    ],
     'backurl' => (new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]))->out(false),
 ]);
 echo $OUTPUT->footer();

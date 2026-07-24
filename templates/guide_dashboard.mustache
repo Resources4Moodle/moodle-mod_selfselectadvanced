@@ -77,36 +77,91 @@
     {{/hasqueue}}
 
     <h3>{{#str}} guidedgroups, mod_selfselectadvanced {{/str}}</h3>
+
+    <form method="get" action="{{actionurl}}" class="selfselectadvanced-guidefilters mb-3 d-flex flex-wrap gap-2 align-items-end">
+        <input type="hidden" name="id" value="{{cmid}}">
+        <label>{{#str}} state, mod_selfselectadvanced {{/str}}
+            <select name="fstate" class="form-select form-select-sm">
+                <option value="">{{#str}} all {{/str}}</option>
+                {{#filters.stateoptions}}
+                    <option value="{{value}}" {{#selected}}selected{{/selected}}>{{label}}</option>
+                {{/filters.stateoptions}}
+            </select>
+        </label>
+        <label>{{#str}} filterquota, mod_selfselectadvanced {{/str}}
+            <select name="fquota" class="form-select form-select-sm">
+                <option value="">{{#str}} all {{/str}}</option>
+                <option value="yes" {{#filters.fquotayes}}selected{{/filters.fquotayes}}>{{#str}} yes {{/str}}</option>
+                <option value="no" {{#filters.fquotano}}selected{{/filters.fquotano}}>{{#str}} no {{/str}}</option>
+            </select>
+        </label>
+        <label>{{#str}} attrdepartment, mod_selfselectadvanced {{/str}}
+            <select name="fdept" class="form-select form-select-sm">
+                <option value="">{{#str}} all {{/str}}</option>
+                {{#filters.deptoptions}}
+                    <option value="{{value}}" {{#selected}}selected{{/selected}}>{{value}}</option>
+                {{/filters.deptoptions}}
+            </select>
+        </label>
+        <label>{{#str}} filterapproved, mod_selfselectadvanced {{/str}}
+            <select name="fapprovedop" class="form-select form-select-sm">
+                <option value="">{{#str}} all {{/str}}</option>
+                <option value="before" {{#filters.fbefore}}selected{{/filters.fbefore}}>{{#str}} filterbefore, mod_selfselectadvanced {{/str}}</option>
+                <option value="after" {{#filters.fafter}}selected{{/filters.fafter}}>{{#str}} filterafter, mod_selfselectadvanced {{/str}}</option>
+            </select>
+        </label>
+        <label>{{#str}} filterdate, mod_selfselectadvanced {{/str}}
+            <input type="text" name="fapproved" value="{{filters.fapproved}}" size="12"
+                placeholder="YYYY-MM-DD" class="form-control form-control-sm">
+        </label>
+        <button type="submit" class="btn btn-secondary btn-sm">{{#str}} filter {{/str}}</button>
+    </form>
+
     {{#hasguided}}
-        <div class="table-responsive">
-            <table class="table generaltable">
-                <thead>
-                    <tr>
-                        <th scope="col">{{#str}} groupname, mod_selfselectadvanced {{/str}}</th>
-                        <th scope="col">{{#str}} pluginid, mod_selfselectadvanced {{/str}}</th>
-                        <th scope="col">{{#str}} state, mod_selfselectadvanced {{/str}}</th>
-                        <th scope="col">{{#str}} size, mod_selfselectadvanced {{/str}}</th>
-                        <th scope="col">{{#str}} actions {{/str}}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {{#guided}}
+        <form method="post" action="{{actionurl}}">
+            <input type="hidden" name="id" value="{{cmid}}">
+            <input type="hidden" name="action" value="bulkfreeze">
+            <input type="hidden" name="sesskey" value="{{sesskey}}">
+            <div class="table-responsive">
+                <table class="table generaltable">
+                    <thead>
                         <tr>
-                            <td>{{name}}</td>
-                            <td>{{pluginuid}}</td>
-                            <td>{{statelabel}}</td>
-                            <td>{{size}}</td>
-                            <td>
-                                <a class="btn btn-secondary btn-sm" href="{{reviewurl}}">{{#str}} review, mod_selfselectadvanced {{/str}}</a>
-                                {{#canfreeze}}
-                                    <a class="btn btn-primary btn-sm" href="{{freezeurl}}">{{#str}} freeze, mod_selfselectadvanced {{/str}}</a>
-                                {{/canfreeze}}
-                            </td>
+                            <th scope="col">{{#str}} select {{/str}}</th>
+                            <th scope="col">{{#str}} groupname, mod_selfselectadvanced {{/str}}</th>
+                            <th scope="col">{{#str}} pluginid, mod_selfselectadvanced {{/str}}</th>
+                            <th scope="col">{{#str}} state, mod_selfselectadvanced {{/str}}</th>
+                            <th scope="col">{{#str}} size, mod_selfselectadvanced {{/str}}</th>
+                            <th scope="col">{{#str}} actions {{/str}}</th>
                         </tr>
-                    {{/guided}}
-                </tbody>
-            </table>
-        </div>
+                    </thead>
+                    <tbody>
+                        {{#guided}}
+                            <tr>
+                                <td>
+                                    {{#canfreeze}}
+                                        <input type="checkbox" name="selected[]" value="{{groupid}}" checked
+                                            aria-label="{{#str}} select {{/str}} {{name}}">
+                                    {{/canfreeze}}
+                                </td>
+                                <td>{{name}}</td>
+                                <td>{{pluginuid}}</td>
+                                <td>{{statelabel}}</td>
+                                <td>{{size}}</td>
+                                <td>
+                                    <a class="btn btn-secondary btn-sm" href="{{reviewurl}}">{{#str}} review, mod_selfselectadvanced {{/str}}</a>
+                                    {{#canfreeze}}
+                                        <a class="btn btn-primary btn-sm" href="{{freezeurl}}">{{#str}} freeze, mod_selfselectadvanced {{/str}}</a>
+                                    {{/canfreeze}}
+                                </td>
+                            </tr>
+                        {{/guided}}
+                    </tbody>
+                </table>
+            </div>
+            {{#canbulkfreeze}}
+                <button type="submit" class="btn btn-primary">{{#str}} bulkfreezeselected, mod_selfselectadvanced {{/str}}</button>
+            {{/canbulkfreeze}}
+        </form>
     {{/hasguided}}
     {{^hasguided}}
         <p class="text-muted">{{#str}} noguidedgroups, mod_selfselectadvanced {{/str}}</p>

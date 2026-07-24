@@ -1,0 +1,93 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/flagged_report
+
+    Flagged students and group anomalies.
+
+    Context variables required for this template:
+    * hasgroupless - whether groupless students exist
+    * grouplesscount - their number
+
+    Example context (json):
+    {
+        "hasgroupless": true,
+        "grouplesscount": 1,
+        "groupless": [{"fullname": "Sam One", "attrline": "Female · Civil",
+                       "placeurl": "https://example.com/moveedit"}],
+        "hasmissingattrs": false,
+        "missingattrs": [],
+        "hasanomalies": false,
+        "anomalies": [],
+        "backurl": "https://example.com/back"
+    }
+}}
+<div class="selfselectadvanced-flagged">
+    <h3>{{#str}} flaggedreport, mod_selfselectadvanced {{/str}}</h3>
+
+    <h4>{{#str}} flaggroupless, mod_selfselectadvanced, {{grouplesscount}} {{/str}}</h4>
+    {{#hasgroupless}}
+        <ul class="list-group mb-4">
+            {{#groupless}}
+                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap">
+                    <span>
+                        {{fullname}}
+                        <span class="d-block text-muted small">{{attrline}}</span>
+                    </span>
+                    <a href="{{placeurl}}" class="btn btn-primary btn-sm">
+                        {{#str}} flagplace, mod_selfselectadvanced {{/str}}
+                    </a>
+                </li>
+            {{/groupless}}
+        </ul>
+    {{/hasgroupless}}
+    {{^hasgroupless}}
+        <p class="text-muted">{{#str}} flagnonegroupless, mod_selfselectadvanced {{/str}}</p>
+    {{/hasgroupless}}
+
+    <h4>{{#str}} flagmissingattrs, mod_selfselectadvanced {{/str}}</h4>
+    {{#hasmissingattrs}}
+        <ul class="list-group mb-4">
+            {{#missingattrs}}
+                <li class="list-group-item">{{fullname}}</li>
+            {{/missingattrs}}
+        </ul>
+    {{/hasmissingattrs}}
+    {{^hasmissingattrs}}
+        <p class="text-muted">{{#str}} flagnonemissing, mod_selfselectadvanced {{/str}}</p>
+    {{/hasmissingattrs}}
+
+    <h4>{{#str}} flaganomalies, mod_selfselectadvanced {{/str}}</h4>
+    {{#hasanomalies}}
+        <ul class="list-group mb-4">
+            {{#anomalies}}
+                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap">
+                    <span>
+                        <a href="{{url}}">{{name}}</a>
+                        <span class="text-muted small ms-2">{{pluginuid}} · {{statelabel}}</span>
+                        <span class="d-block small fw-bold">{{issues}}</span>
+                    </span>
+                </li>
+            {{/anomalies}}
+        </ul>
+    {{/hasanomalies}}
+    {{^hasanomalies}}
+        <p class="text-muted">{{#str}} flagnoneanomalies, mod_selfselectadvanced {{/str}}</p>
+    {{/hasanomalies}}
+
+    <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>
+</div>

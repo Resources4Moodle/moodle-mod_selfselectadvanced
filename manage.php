@@ -59,6 +59,26 @@ if ($action === 'assignguide' && data_submitted() && confirm_sesskey()) {
     );
 }
 
+$statefilter = optional_param('statefilter', '', PARAM_ALPHAEXT);
+if (!in_array($statefilter, \mod_selfselectadvanced\local\state::all(), true)) {
+    $statefilter = '';
+}
+$download = optional_param('download', '', PARAM_ALPHA);
+$tableurl = new moodle_url($baseurl, $statefilter !== '' ? ['statefilter' => $statefilter] : []);
+$groupstable = new \mod_selfselectadvanced\table\groups_table(
+    'ssagroups',
+    $activity,
+    $api->gatekeeper(),
+    $tableurl,
+    $statefilter,
+    $download !== ''
+);
+if ($download !== '') {
+    $groupstable->is_downloading($download, 'groups');
+    $groupstable->out(50, false);
+    die;
+}
+
 $guides = \mod_selfselectadvanced\local\guides::with_load($activity, $api->gatekeeper()->resolver());
 $guideoptions = [];
 foreach ($guides as $guide) {
@@ -85,6 +105,44 @@ foreach ($unassigned as $group) {
 }
 
 echo $OUTPUT->header();
+echo $OUTPUT->heading(get_string('managerdashboard', 'mod_selfselectadvanced'));
+
+// Tool links.
+$links = [
+    ['quotas.php', 'quotarules'],
+    ['moves.php', 'pendingmoves'],
+    ['overrides.php', 'overrides'],
+    ['ledger.php', 'penaltyledger'],
+    ['flagged.php', 'flaggedreport'],
+];
+$linkhtml = '';
+foreach ($links as [$file, $stringkey]) {
+    $linkhtml .= html_writer::link(
+        new moodle_url('/mod/selfselectadvanced/' . $file, ['id' => $cm->id]),
+        get_string($stringkey, 'mod_selfselectadvanced'),
+        ['class' => 'btn btn-outline-primary me-2 mb-2']
+    );
+}
+echo html_writer::div($linkhtml, 'selfselectadvanced-toollinks mb-3');
+
+// State filter (GET, read-only view change).
+$options = ['' => get_string('all')];
+foreach (\mod_selfselectadvanced\local\state::all() as $stateoption) {
+    $options[$stateoption] = get_string('state' . str_replace('_', '', $stateoption), 'mod_selfselectadvanced');
+}
+echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(), 'class' => 'mb-3']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+echo html_writer::label(get_string('state', 'mod_selfselectadvanced'), 'ssa-statefilter', true, ['class' => 'me-2']);
+echo html_writer::select($options, 'statefilter', $statefilter, false, ['id' => 'ssa-statefilter', 'class' => 'me-2']);
+echo html_writer::empty_tag('input', [
+    'type' => 'submit',
+    'value' => get_string('filter'),
+    'class' => 'btn btn-secondary btn-sm',
+]);
+echo html_writer::end_tag('form');
+
+$groupstable->out(50, true);
+
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/manage_queue', (object) [
     'queue' => $queue,
     'hasqueue' => !empty($queue),
