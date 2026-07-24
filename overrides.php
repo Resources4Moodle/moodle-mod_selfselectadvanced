@@ -120,8 +120,12 @@ if ($action === 'edit') {
                 continue;
             }
             $value = $data->$field;
-            if (in_array($field, ['quotaexempt', 'penaltywaived'], true)) {
+            if (in_array($field, ['quotaexempt', 'penaltywaived', 'guidehidden'], true)) {
                 $value = $value ? 1 : null;
+            } else if ($field === 'maxguided' && $mode === 'guide' && $value !== '' && $value !== null) {
+                // 1.5.0: an EXPLICIT zero is a real guide cap ("always
+                // full"), unlike every other limit where 0 means unset.
+                $value = (int) $value;
             } else if ($value === '' || $value === null || (int) $value === 0) {
                 $value = null;
             } else {

@@ -211,6 +211,18 @@ class resolver {
     }
 
     /**
+     * Is this user hidden from every guide picker (1.5.0)?
+     *
+     * @param int $guideid the user
+     * @return bool
+     */
+    public function is_guide_hidden(int $guideid): bool {
+        $override = $this->find_override('guide', $guideid);
+
+        return $override !== null && !empty($override->guidehidden);
+    }
+
+    /**
      * Resolve a group-scope numeric limit (L1, L2).
      *
      * @param string $field minsize or maxsize

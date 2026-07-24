@@ -59,6 +59,25 @@ class attributes_upload_form extends \moodleform {
         );
         $mform->setDefault('encoding', 'UTF-8');
 
+        $mform->addElement('select', 'updatemode', get_string('csvupdatemode', 'mod_selfselectadvanced'), [
+            'override' => get_string('csvmodeoverride', 'mod_selfselectadvanced'),
+            'fillmissing' => get_string('csvmodefillmissing', 'mod_selfselectadvanced'),
+        ]);
+        $mform->addHelpButton('updatemode', 'csvupdatemode', 'mod_selfselectadvanced');
+
+        // Default values applied wherever the file cell is empty
+        // (mirrors core user upload's defaults section).
+        $mform->addElement('header', 'csvdefaults', get_string('csvdefaults', 'mod_selfselectadvanced'));
+        foreach (['gender', 'department', 'subdepartment', 'program', 'seatlocation'] as $field) {
+            $mform->addElement(
+                'text',
+                'default' . $field,
+                get_string('attr' . $field, 'mod_selfselectadvanced'),
+                ['size' => 30]
+            );
+            $mform->setType('default' . $field, PARAM_TEXT);
+        }
+
         $this->add_action_buttons(false, get_string('csvpreview', 'mod_selfselectadvanced'));
     }
 }

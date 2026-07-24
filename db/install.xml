@@ -165,6 +165,7 @@
         <FIELD NAME="maxsize" TYPE="int" LENGTH="5" NOTNULL="false" SEQUENCE="false" COMMENT="L2 override, group scope"/>
         <FIELD NAME="quotaexempt" TYPE="int" LENGTH="1" NOTNULL="false" SEQUENCE="false" COMMENT="Group scope quota exemption"/>
         <FIELD NAME="penaltywaived" TYPE="int" LENGTH="1" NOTNULL="false" SEQUENCE="false" COMMENT="Group scope penalty waiver"/>
+        <FIELD NAME="guidehidden" TYPE="int" LENGTH="1" NOTNULL="false" SEQUENCE="false" COMMENT="Guide scope: 1 hides this user from every guide picker"/>
         <FIELD NAME="rulesbypassed" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="Move scope: comma-separated rule codes bypassed for that move"/>
         <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="active" SEQUENCE="false" COMMENT="active or pending (guarded reduction awaiting blocker clearance)"/>
         <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>

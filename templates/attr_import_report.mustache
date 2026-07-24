@@ -66,9 +66,12 @@
         {{/haswarnings}}
 
         {{#canconfirm}}
+            {{#modesummary}}<p class="selfselectadvanced-modesummary"><strong>{{modesummary}}</strong></p>{{/modesummary}}
             <form method="post" action="{{actionurl}}" class="mb-3">
                 <input type="hidden" name="action" value="confirmimport">
                 <input type="hidden" name="importid" value="{{importid}}">
+                <input type="hidden" name="updatemode" value="{{updatemode}}">
+                <input type="hidden" name="defaultsjson" value="{{defaultsjson}}">
                 <input type="hidden" name="sesskey" value="{{sesskey}}">
                 <button type="submit" class="btn btn-primary">
                     {{#str}} csvconfirm, mod_selfselectadvanced {{/str}}

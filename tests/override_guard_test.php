@@ -150,4 +150,39 @@ final class override_guard_test extends \advanced_testcase {
         $this->assertSame('pending', $record->status);
         $this->assertStringContainsString('occupies 3 seats', $record->blockers[0]->description);
     }
+    /**
+     * 1.5.0 guide overrides: an explicit maxguided 0 resolves as a
+     * real always-full cap, and guidehidden removes the guide from
+     * the load list entirely.
+     */
+    public function test_guide_zero_and_hidden(): void {
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'maxguided' => 5,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+        $guide1 = $generator->create_user();
+        $guide2 = $generator->create_user();
+        foreach ([$guide1, $guide2] as $guide) {
+            $generator->enrol_user($guide->id, $course->id, 'teacher');
+        }
+
+        store::save($activity, 'guide', (int) $guide1->id, ['maxguided' => 0], 2);
+        store::save($activity, 'guide', (int) $guide2->id, ['guidehidden' => 1], 2);
+
+        $resolver = new resolver($activity);
+        $this->assertSame(0, $resolver->effective_maxguided((int) $guide1->id)->value);
+        $this->assertTrue($resolver->is_guide_hidden((int) $guide2->id));
+        $this->assertFalse($resolver->is_guide_hidden((int) $guide1->id));
+
+        $loads = \mod_selfselectadvanced\local\guides::with_load($activity, $resolver);
+        $this->assertArrayHasKey((int) $guide1->id, $loads);
+        $this->assertSame(0, $loads[(int) $guide1->id]->remaining);
+        $this->assertArrayNotHasKey((int) $guide2->id, $loads);
+    }
+
 }

@@ -37,7 +37,7 @@ class store {
     public const FIELDS = [
         'user' => ['timeopen', 'timedue', 'timecutoff', 'maxlead', 'maxmembership'],
         'group' => ['timeopen', 'timedue', 'timecutoff', 'minsize', 'maxsize', 'quotaexempt', 'penaltywaived'],
-        'guide' => ['maxguided'],
+        'guide' => ['maxguided', 'guidehidden'],
         'move' => ['rulesbypassed'],
     ];
 
@@ -121,6 +121,7 @@ class store {
             'maxsize' => null,
             'quotaexempt' => null,
             'penaltywaived' => null,
+            'guidehidden' => null,
             'rulesbypassed' => null,
             'timecreated' => $now,
         ], self::target_field($scope, $targetid));

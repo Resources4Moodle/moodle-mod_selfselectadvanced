@@ -358,5 +358,21 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072419, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072420) {
+        // 1.5.0: guide visibility override.
+        $table = new xmldb_table('selfselectadvanced_override');
+        $field = new xmldb_field('guidehidden', XMLDB_TYPE_INTEGER, '1', null, null, null, null, 'penaltywaived');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 2026072420, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026072421) {
+        // 1.5.0 release marker: import modes, code only.
+        upgrade_mod_savepoint(true, 2026072421, 'selfselectadvanced');
+    }
+
     return true;
 }

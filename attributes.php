@@ -124,8 +124,12 @@ if ($action === 'edit') {
 // Commit of a previously previewed import.
 if ($action === 'confirmimport' && data_submitted() && confirm_sesskey()) {
     $importid = required_param('importid', PARAM_INT);
+    $options = (object) [
+        'mode' => optional_param('updatemode', 'override', PARAM_ALPHA),
+        'defaults' => (array) json_decode(optional_param('defaultsjson', '{}', PARAM_RAW), true),
+    ];
     $reader = new csv_import_reader($importid, 'mod_selfselectadvanced_attr');
-    $report = \mod_selfselectadvanced\local\attributes\csv_importer::run($reader, (int) $USER->id, true);
+    $report = \mod_selfselectadvanced\local\attributes\csv_importer::run($reader, (int) $USER->id, true, $options);
     $reader->cleanup();
 
     echo $OUTPUT->header();
@@ -149,12 +153,31 @@ if ($data = $uploadform->get_data()) {
     $importid = csv_import_reader::get_new_iid('mod_selfselectadvanced_attr');
     $reader = new csv_import_reader($importid, 'mod_selfselectadvanced_attr');
     $reader->load_csv_content($content, $data->encoding, $data->delimiter);
-    $report = \mod_selfselectadvanced\local\attributes\csv_importer::run($reader, (int) $USER->id, false);
+    $defaults = [];
+    foreach (['gender', 'department', 'subdepartment', 'program', 'seatlocation'] as $dfield) {
+        $dvalue = trim((string) ($data->{'default' . $dfield} ?? ''));
+        if ($dvalue !== '') {
+            $defaults[$dfield] = $dvalue;
+        }
+    }
+    $options = (object) ['mode' => $data->updatemode, 'defaults' => $defaults];
+    $report = \mod_selfselectadvanced\local\attributes\csv_importer::run($reader, (int) $USER->id, false, $options);
 
     echo $OUTPUT->header();
     echo $OUTPUT->heading(get_string('participantattributes', 'mod_selfselectadvanced'));
     echo $OUTPUT->render_from_template('mod_selfselectadvanced/attr_import_report', (object) [
         'committed' => false,
+        'updatemode' => $options->mode,
+        'defaultsjson' => s(json_encode($options->defaults)),
+        'modesummary' => get_string('csvmode' . $options->mode, 'mod_selfselectadvanced')
+            . ($options->defaults
+                ? ' + ' . get_string('csvdefaults', 'mod_selfselectadvanced') . ': '
+                    . s(implode(', ', array_map(
+                        static fn($k, $v) => $k . '=' . $v,
+                        array_keys($options->defaults),
+                        $options->defaults
+                    )))
+                : ''),
         'report' => $report,
         'haswarnings' => !empty($report->warnings),
         'hasrejected' => !empty($report->rejected),

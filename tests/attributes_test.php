@@ -194,4 +194,43 @@ final class attributes_test extends \advanced_testcase {
         $this->assertFalse($report->ok);
         $this->assertStringContainsString('mobile', $report->headererror);
     }
+    /**
+     * 1.5.0 import modes: override applies defaults to empty cells;
+     * fillmissing never touches existing values.
+     */
+    public function test_importer_modes_and_defaults(): void {
+        $this->resetAfterTest();
+
+        $gen = $this->getDataGenerator();
+        $gen->create_user(['username' => 'modey']);
+        $header = "Username,First name,Last Name,Gender,Department,Sub-Department,Mobile Number\n";
+
+        // Override mode with a default gender filling the empty cell.
+        $report = csv_importer::run(
+            $this->reader($header . "modey,,,,Engineering,Mechanical,\n"),
+            2,
+            true,
+            (object) ['mode' => 'override', 'defaults' => ['gender' => 'Female']]
+        );
+        $this->assertSame(1, $report->created);
+        $user = \core_user::get_user_by_username('modey');
+        $record = manager::get((int) $user->id);
+        $this->assertSame('Female', $record->gender);
+        $this->assertSame('Engineering', $record->department);
+
+        // Fillmissing: existing values survive, only gaps are filled.
+        $report = csv_importer::run(
+            $this->reader($header . "modey,,,Male,Science,Physics,12345\n"),
+            2,
+            true,
+            (object) ['mode' => 'fillmissing', 'defaults' => []]
+        );
+        $this->assertSame(1, $report->updated);
+        $record = manager::get((int) $user->id);
+        $this->assertSame('Female', $record->gender);
+        $this->assertSame('Engineering', $record->department);
+        $this->assertSame('Mechanical', $record->subdepartment);
+        $this->assertSame('12345', $record->mobile);
+    }
+
 }

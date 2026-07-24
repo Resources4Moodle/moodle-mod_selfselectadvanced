@@ -56,8 +56,15 @@ class csv_importer {
      * @param bool $commit false = dry-run report only, true = write inside a transaction
      * @return stdClass report: ok, headererror, created, updated, warnings[], rejected[], total
      */
-    public static function run(csv_import_reader $reader, int $actorid, bool $commit): stdClass {
+    public static function run(csv_import_reader $reader, int $actorid, bool $commit, ?\stdClass $options = null): stdClass {
         global $DB;
+
+        // 1.5.0 modes, mirroring core user upload: 'override' (file
+        // wins; admin defaults fill EMPTY cells) or 'fillmissing'
+        // (only attributes currently empty are written; existing
+        // values are never touched).
+        $mode = $options->mode ?? 'override';
+        $defaults = (array) ($options->defaults ?? []);
 
         $report = (object) [
             'ok' => false,
@@ -156,8 +163,8 @@ class csv_importer {
             // sub-departments and programmes are CREATED, not
             // rejected — the ingest is how admins drill the tree.
             // Each auto-creation is reported as a warning.
-            $dept = $get('department');
-            $sub = $get('subdepartment');
+            $dept = $get('department') !== '' ? $get('department') : trim((string) ($defaults['department'] ?? ''));
+            $sub = $get('subdepartment') !== '' ? $get('subdepartment') : trim((string) ($defaults['subdepartment'] ?? ''));
             if ($dept !== '' && depts::validate_pair($dept, $sub) !== null) {
                 $report->warnings[] = get_string('csvvocabcreated', 'mod_selfselectadvanced', (object) [
                     'line' => $line,
@@ -208,19 +215,36 @@ class csv_importer {
 
             $exists = $DB->record_exists('selfselectadvanced_userattr', ['userid' => $user->id]);
             if ($commit) {
-                $set = [
+                $current = manager::get((int) $user->id);
+                $cells = [
                     'gender' => $get('gender'),
                     'department' => $get('department'),
                     'subdepartment' => $get('subdepartment'),
                     'mobile' => $mobile,
                 ];
                 if (isset($map['seat'])) {
-                    $set['seatlocation'] = $get('seat');
+                    $cells['seatlocation'] = $get('seat');
                 }
                 if (isset($map['program'])) {
-                    $set['program'] = $get('program');
+                    $cells['program'] = $get('program');
                 }
-                manager::set((int) $user->id, $set, $actorid);
+                $set = [];
+                foreach ($cells as $field => $cell) {
+                    $value = $cell !== '' ? $cell : trim((string) ($defaults[$field] ?? ''));
+                    if ($mode === 'fillmissing') {
+                        $existingvalue = trim((string) ($current->$field ?? ''));
+                        if ($existingvalue !== '') {
+                            continue;
+                        }
+                        if ($value === '') {
+                            continue;
+                        }
+                    }
+                    $set[$field] = $value;
+                }
+                if ($set) {
+                    manager::set((int) $user->id, $set, $actorid);
+                }
             }
             if ($exists) {
                 $report->updated++;

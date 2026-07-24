@@ -52,6 +52,10 @@ class guides {
 
         $result = [];
         foreach ($users as $user) {
+            if ($resolver->is_guide_hidden((int) $user->id)) {
+                // 1.5.0: overridden out of every guide picker.
+                continue;
+            }
             $used = groups::count_guiding($activity, (int) $user->id);
             $max = $resolver->effective_maxguided((int) $user->id)->value;
             $entry = (object) [

@@ -97,6 +97,13 @@ class override_form extends \moodleform {
         }
         if ($mode === 'guide') {
             $this->optional_int('maxguided', 'maxguided');
+            $mform = $this->_form;
+            $mform->addElement(
+                'advcheckbox',
+                'guidehidden',
+                get_string('guidehidden', 'mod_selfselectadvanced')
+            );
+            $mform->addHelpButton('guidehidden', 'guidehidden', 'mod_selfselectadvanced');
         }
 
         $this->add_action_buttons();
