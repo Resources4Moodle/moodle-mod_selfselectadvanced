@@ -171,6 +171,16 @@ foreach ($rules as $i => $rule) {
 }
 
 echo $OUTPUT->header();
+// Composition clashes (item 01): infeasible rule/slot combinations
+// highlighted for deliberate admin resolution.
+$clashes = \mod_selfselectadvanced\local\quota\conflicts::detect($activity);
+if ($clashes) {
+    echo $OUTPUT->notification(
+        get_string('clashintro', 'mod_selfselectadvanced') . html_writer::alist($clashes),
+        'error',
+        false
+    );
+}
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/quota_rules', (object) [
     'rules' => $rows,
     'hasrules' => !empty($rows),

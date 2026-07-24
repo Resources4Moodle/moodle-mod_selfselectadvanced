@@ -353,5 +353,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072418, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072419) {
+        // 1.4.3: flagged tabs/CSVs, clash detector, code only.
+        upgrade_mod_savepoint(true, 2026072419, 'selfselectadvanced');
+    }
+
     return true;
 }

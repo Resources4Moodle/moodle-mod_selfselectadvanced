@@ -175,6 +175,22 @@ review page, and it travels with course backups. Guides keep private
 **rich-text notes** on the review page before accepting a group;
 students never see them.
 
+## The flagged report: anomalies and grandfathered groups
+
+The flagged report is the manager's worklist, in tabs (each
+downloadable as CSV): students in no group, individual defaulters
+(below the minimum memberships), guides with pending decisions
+(deadline and overdue marker when a decision window is set), groups
+failing the composition requirements, and **group anomalies**. An
+anomaly is a group in an impossible or unowned position: *leaderless*
+groups (e.g. after a privacy deletion removed the leader) and
+**grandfathered** groups — groups approved or frozen under earlier
+limits that a later settings change has left outside the current
+minimum/maximum. Grandfathering means the plugin never reshapes or
+punishes such groups automatically: they keep the position they
+legitimately earned, and the report exists so a manager resolves each
+one deliberately — unfreeze it, stage moves, or grant an override.
+
 ## Changing limits mid-course
 
 Changing sizes or caps later never reshapes existing groups: approved
