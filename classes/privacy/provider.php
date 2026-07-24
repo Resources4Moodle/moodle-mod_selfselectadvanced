@@ -42,10 +42,9 @@ use core_privacy\local\request\writer;
  */
 class provider implements
     \core_privacy\local\metadata\provider,
-    \core_privacy\local\request\plugin\provider,
     \core_privacy\local\request\core_userlist_provider,
+    \core_privacy\local\request\plugin\provider,
     \core_privacy\local\request\user_preference_provider {
-
     /**
      * Describe every store holding personal data.
      *
@@ -88,8 +87,10 @@ class provider implements
         $collection->add_database_table('selfselectadvanced_agrun', [
             'log' => 'privacy:metadata:agrun:log',
         ], 'privacy:metadata:agrun');
-        $collection->add_user_preference('mod_selfselectadvanced_reminded_',
-            'privacy:metadata:preference:reminded');
+        $collection->add_user_preference(
+            'mod_selfselectadvanced_reminded_',
+            'privacy:metadata:preference:reminded'
+        );
 
         return $collection;
     }
@@ -151,15 +152,21 @@ class provider implements
             return;
         }
         $params = ['cmid' => $context->instanceid];
-        $userlist->add_from_sql('userid',
+        $userlist->add_from_sql(
+            'userid',
             "SELECT m.userid
                FROM {selfselectadvanced_member} m
                JOIN {selfselectadvanced_group} g ON g.id = m.groupid
-               JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid", $params);
-        $userlist->add_from_sql('leaderid',
+               JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid",
+            $params
+        );
+        $userlist->add_from_sql(
+            'leaderid',
             "SELECT g.leaderid AS leaderid
                FROM {selfselectadvanced_group} g
-               JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid", $params);
+               JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid",
+            $params
+        );
     }
 
     /**
@@ -222,9 +229,11 @@ class provider implements
                 'activityid' => $cm->instance,
                 'userid' => $userid,
             ]);
-            $moves = $DB->get_records_select('selfselectadvanced_move',
+            $moves = $DB->get_records_select(
+                'selfselectadvanced_move',
                 'activityid = :activityid AND (userid = :u1 OR successorid = :u2)',
-                ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid]);
+                ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid]
+            );
             writer::with_context($context)->export_data(
                 [get_string('pluginname', 'mod_selfselectadvanced')],
                 (object) [
@@ -296,8 +305,11 @@ class provider implements
             $DB->delete_records_select('selfselectadvanced_snapshot', "groupid $insql", $params);
         }
         $DB->delete_records('selfselectadvanced_move', ['activityid' => $cm->instance]);
-        $DB->delete_records_select('selfselectadvanced_override',
-            "activityid = ? AND scope IN ('user', 'guide')", [$cm->instance]);
+        $DB->delete_records_select(
+            'selfselectadvanced_override',
+            "activityid = ? AND scope IN ('user', 'guide')",
+            [$cm->instance]
+        );
         $DB->set_field('selfselectadvanced_group', 'leaderid', 0, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'guideid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'successorid', null, ['activityid' => $cm->instance]);
@@ -363,16 +375,23 @@ class provider implements
         if ($groupids) {
             [$insql, $params] = $DB->get_in_or_equal($groupids, SQL_PARAMS_NAMED);
             $params['userid'] = $userid;
-            $DB->delete_records_select('selfselectadvanced_member',
-                "groupid $insql AND userid = :userid", $params);
+            $DB->delete_records_select(
+                'selfselectadvanced_member',
+                "groupid $insql AND userid = :userid",
+                $params
+            );
 
             // Scrub snapshots of the user.
             foreach ($DB->get_records_select('selfselectadvanced_snapshot', "groupid $insql", $params) as $snapshot) {
                 $roster = json_decode($snapshot->roster, true) ?: [];
                 $filtered = array_values(array_filter($roster, static fn($e) => (int) $e['userid'] !== $userid));
                 if (count($filtered) !== count($roster)) {
-                    $DB->set_field('selfselectadvanced_snapshot', 'roster', json_encode($filtered),
-                        ['id' => $snapshot->id]);
+                    $DB->set_field(
+                        'selfselectadvanced_snapshot',
+                        'roster',
+                        json_encode($filtered),
+                        ['id' => $snapshot->id]
+                    );
                 }
                 if ((int) $snapshot->takenby === $userid) {
                     $DB->set_field('selfselectadvanced_snapshot', 'takenby', 0, ['id' => $snapshot->id]);
@@ -380,18 +399,34 @@ class provider implements
             }
         }
         // M1: a blanked leader leaves the group leaderless -> flagged report.
-        $DB->set_field('selfselectadvanced_group', 'leaderid', 0,
-            ['activityid' => $activityid, 'leaderid' => $userid]);
-        $DB->set_field('selfselectadvanced_group', 'guideid', null,
-            ['activityid' => $activityid, 'guideid' => $userid]);
-        $DB->set_field('selfselectadvanced_group', 'successorid', null,
-            ['activityid' => $activityid, 'successorid' => $userid]);
-        $DB->delete_records_select('selfselectadvanced_move',
+        $DB->set_field(
+            'selfselectadvanced_group',
+            'leaderid',
+            0,
+            ['activityid' => $activityid, 'leaderid' => $userid]
+        );
+        $DB->set_field(
+            'selfselectadvanced_group',
+            'guideid',
+            null,
+            ['activityid' => $activityid, 'guideid' => $userid]
+        );
+        $DB->set_field(
+            'selfselectadvanced_group',
+            'successorid',
+            null,
+            ['activityid' => $activityid, 'successorid' => $userid]
+        );
+        $DB->delete_records_select(
+            'selfselectadvanced_move',
             'activityid = :activityid AND (userid = :u1 OR successorid = :u2)',
-            ['activityid' => $activityid, 'u1' => $userid, 'u2' => $userid]);
-        $DB->delete_records_select('selfselectadvanced_override',
+            ['activityid' => $activityid, 'u1' => $userid, 'u2' => $userid]
+        );
+        $DB->delete_records_select(
+            'selfselectadvanced_override',
             "activityid = :activityid AND scope IN ('user', 'guide') AND userid = :userid",
-            ['activityid' => $activityid, 'userid' => $userid]);
+            ['activityid' => $activityid, 'userid' => $userid]
+        );
 
         // Pseudonymise agrun logs.
         foreach ($DB->get_records('selfselectadvanced_agrun', ['activityid' => $activityid]) as $agrun) {

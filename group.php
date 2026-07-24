@@ -243,8 +243,12 @@ if ($action === 'requestleave' && data_submitted() && confirm_sesskey()) {
         || !$membership
         || $membership->status !== \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED
     ) {
-        redirect($baseurl, get_string('refusalwrongstate', 'mod_selfselectadvanced'), null,
-            \core\output\notification::NOTIFY_ERROR);
+        redirect(
+            $baseurl,
+            get_string('refusalwrongstate', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     $DB->set_field('selfselectadvanced_member', 'leaverequested', time(), ['id' => $membership->id]);
     \mod_selfselectadvanced\local\notifier::send(
@@ -257,8 +261,12 @@ if ($action === 'requestleave' && data_submitted() && confirm_sesskey()) {
         $baseurl,
         format_string($group->name)
     );
-    redirect($baseurl, get_string('leaverequested', 'mod_selfselectadvanced'), null,
-        \core\output\notification::NOTIFY_SUCCESS);
+    redirect(
+        $baseurl,
+        get_string('leaverequested', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
 }
 
 if ($action === 'confirmleave' && data_submitted() && confirm_sesskey()) {
@@ -287,8 +295,12 @@ if ($action === 'confirmleave' && data_submitted() && confirm_sesskey()) {
         $viewurl,
         $activity->name()
     );
-    redirect($baseurl, get_string('leaveconfirmed', 'mod_selfselectadvanced'), null,
-        \core\output\notification::NOTIFY_SUCCESS);
+    redirect(
+        $baseurl,
+        get_string('leaveconfirmed', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
 }
 
 if ($action === 'freeze') {

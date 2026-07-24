@@ -157,7 +157,7 @@ class group_page implements renderable, templatable {
         $leaverequests = [];
         if ($isleader && $isforming) {
             $namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
-            $sql = "SELECT m.id AS memberid, m.userid $namefields
+            $sql = "SELECT m.id AS memberid, m.userid, $namefields
                       FROM {selfselectadvanced_member} m
                       JOIN {user} u ON u.id = m.userid
                      WHERE m.groupid = :groupid AND m.status = :status AND m.leaverequested IS NOT NULL";

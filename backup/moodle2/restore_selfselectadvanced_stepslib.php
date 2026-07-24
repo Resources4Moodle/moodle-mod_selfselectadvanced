@@ -24,7 +24,6 @@
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
 
 /**
  * The single restore structure step.
@@ -44,14 +43,22 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         ];
         if ($userinfo) {
             $paths[] = new restore_path_element('ssagroup', '/activity/selfselectadvanced/groups/group');
-            $paths[] = new restore_path_element('ssamember',
-                '/activity/selfselectadvanced/groups/group/members/member');
-            $paths[] = new restore_path_element('ssasnapshot',
-                '/activity/selfselectadvanced/groups/group/snapshots/snapshot');
-            $paths[] = new restore_path_element('ssapenalty',
-                '/activity/selfselectadvanced/groups/group/penalty');
-            $paths[] = new restore_path_element('ssaoverride',
-                '/activity/selfselectadvanced/overrides/override');
+            $paths[] = new restore_path_element(
+                'ssamember',
+                '/activity/selfselectadvanced/groups/group/members/member'
+            );
+            $paths[] = new restore_path_element(
+                'ssasnapshot',
+                '/activity/selfselectadvanced/groups/group/snapshots/snapshot'
+            );
+            $paths[] = new restore_path_element(
+                'ssapenalty',
+                '/activity/selfselectadvanced/groups/group/penalty'
+            );
+            $paths[] = new restore_path_element(
+                'ssaoverride',
+                '/activity/selfselectadvanced/overrides/override'
+            );
         }
 
         return $this->prepare_activity_structure($paths);
@@ -104,7 +111,24 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         $data->coregroupid = $data->coregroupid
             ? ($this->get_mappingid('group', $data->coregroupid) ?: null)
             : null;
+        $data->usermodified = 0;
+        // The plugin uid is unique plugin-wide: a same-site restore
+        // would collide with the original, so regenerate on collision
+        // from the new row id (decision D3: the uid's uniqueness rides
+        // on the database id).
+        if ($DB->record_exists('selfselectadvanced_group', ['pluginuid' => $data->pluginuid])) {
+            $data->pluginuid = '';
+        }
         $newid = $DB->insert_record('selfselectadvanced_group', $data);
+        if ($data->pluginuid === '') {
+            $activity = \mod_selfselectadvanced\activity::from_instance((int) $data->activityid);
+            $DB->set_field(
+                'selfselectadvanced_group',
+                'pluginuid',
+                \mod_selfselectadvanced\local\groups::build_pluginuid($activity, (int) $newid),
+                ['id' => $newid]
+            );
+        }
         $this->set_mapping('ssagroup', $oldid, $newid);
     }
 
@@ -182,6 +206,7 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         if ($data->scope === 'group' && !$data->groupid) {
             return;
         }
+        $data->usermodified = 0;
         $DB->insert_record('selfselectadvanced_override', $data);
     }
 
