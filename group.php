@@ -182,8 +182,12 @@ if ($action === 'cancelnomination' && data_submitted() && confirm_sesskey()) {
 if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
     $picked = array_filter(array_map('intval', (array) ($data->invitees ?? [])));
     if (count($picked) !== count((array) ($data->invitees ?? []))) {
-        redirect($baseurl, get_string('errineligiblepick', 'mod_selfselectadvanced'), null,
-            \core\output\notification::NOTIFY_ERROR);
+        redirect(
+            $baseurl,
+            get_string('errineligiblepick', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     $sent = 0;
     $problems = [];
