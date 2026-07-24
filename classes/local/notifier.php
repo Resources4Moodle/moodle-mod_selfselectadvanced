@@ -64,8 +64,16 @@ class notifier {
         }
         $a->url = $a->url ?? $contexturl->out(false);
 
-        $subject = get_string($subjectkey, 'mod_selfselectadvanced', $a);
-        $body = get_string($bodykey, 'mod_selfselectadvanced', $a);
+        // Per-activity template override (editing teachers) wins over
+        // the language string; both use {$a->name} placeholders.
+        $custom = templates::get($activity, $bodykey);
+        if ($custom) {
+            $subject = templates::render($custom->subject, $a);
+            $body = templates::render($custom->body, $a);
+        } else {
+            $subject = get_string($subjectkey, 'mod_selfselectadvanced', $a);
+            $body = get_string($bodykey, 'mod_selfselectadvanced', $a);
+        }
 
         $message = new message();
         $message->component = 'mod_selfselectadvanced';

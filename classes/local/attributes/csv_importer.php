@@ -96,6 +96,7 @@ class csv_importer {
         }
 
         $transaction = $commit ? $DB->start_delegated_transaction() : null;
+        $deptsconfigured = depts::is_configured();
 
         $reader->init();
         $line = 1;
@@ -135,6 +136,21 @@ class csv_importer {
                     'csvname' => trim($first . ' ' . $last),
                     'accountname' => $user->firstname . ' ' . $user->lastname,
                 ]);
+            }
+
+            // Pre-defined department vocabulary: once the tree is
+            // configured, rows with values outside it are rejected —
+            // free text invites typos (spec change 2026-07-24).
+            if ($deptsconfigured) {
+                $bad = depts::validate_pair($get('department'), $get('subdepartment'));
+                if ($bad !== null) {
+                    $report->rejected[] = get_string('csvrejectedbaddept', 'mod_selfselectadvanced', (object) [
+                        'line' => $line,
+                        'username' => $user->username,
+                        'value' => $get($bad) !== '' ? $get($bad) : get_string('none'),
+                    ]);
+                    continue;
+                }
             }
 
             $mobile = $get('mobile');

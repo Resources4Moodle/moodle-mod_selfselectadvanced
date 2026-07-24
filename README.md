@@ -81,8 +81,9 @@ Every action checks the capability, never the role name.
 
 ## Admin walkthrough (one full lifecycle)
 
-1. *Site administration → Plugins → Activity modules → Group
-   self-selection (Advanced) → Participant attributes*: upload the CSV
+1. *Site administration → … → Group self-selection (Advanced) →
+   Departments and sub-departments*: define the department tree, then
+   under *Participant attributes* upload the CSV
    (`Username, First name, Last Name, Gender, Department,
    Sub-Department, Mobile Number`, optional `Email` fallback key).
    Unknown users are rejected — create accounts through standard
@@ -105,11 +106,20 @@ Every action checks the capability, never the role name.
 
 ## Customising notification texts
 
-Every notification subject and body is a language string, so a site
-administrator can rewrite any of them without code changes via *Site
-administration → Language → Language customisation* (component
-`mod_selfselectadvanced`, keys `msg…subject` / `msg…body`). Besides
-each message's own placeholders (such as `{$a->group}`,
+Two layers, both using the same `{$a->name}` placeholder syntax:
+
+- **Per activity (editing teachers):** the activity's *Notification
+  templates* page (activity settings menu, or the manager dashboard)
+  lists every message kind the activity sends; anyone with
+  `mod/selfselectadvanced:manage` can replace its subject and body for
+  that activity, and reset back to the default at any time. These
+  overrides travel with course backups.
+- **Site-wide (administrators):** every default is a language string,
+  rewritable without code via *Site administration → Language →
+  Language customisation* (component `mod_selfselectadvanced`, keys
+  `msg…subject` / `msg…body`).
+
+Besides each message's own placeholders (such as `{$a->group}`,
 `{$a->activity}`, `{$a->pluginuid}`), **every** template may use the
 standard recipient placeholders `{$a->firstname}`, `{$a->lastname}`,
 `{$a->fullname}` and `{$a->url}` (deep link to the relevant page).
@@ -117,6 +127,18 @@ Invitation messages additionally get `{$a->expirynote}` — an
 "expires on …" sentence when the activity sets an invitation expiry,
 empty otherwise (the sentence itself is the customisable string
 `msginvitationexpirynote`).
+
+## Pre-defined departments
+
+*Site administration → Plugins → Activity modules → Group
+self-selection (Advanced) → Departments and sub-departments* holds the
+allowed vocabulary for the department attributes, organised exactly
+like course categories (a tree; multiple levels are possible, the
+attribute fields use the first two). While the tree is empty,
+department and sub-department stay free text; once the first category
+exists, the attribute editor switches to drop-down lists and the CSV
+importer rejects rows whose values are not in the tree. Upgrading
+sites get the tree seeded automatically from already-ingested values.
 
 ## Privacy
 

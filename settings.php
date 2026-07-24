@@ -37,6 +37,12 @@ if ($hassiteconfig) {
         new moodle_url('/mod/selfselectadvanced/attributes.php'),
         'mod/selfselectadvanced:ingestattributes'
     ));
+    $ADMIN->add('modselfselectadvancedcat', new admin_externalpage(
+        'modselfselectadvanceddepartments',
+        new lang_string('departments', 'mod_selfselectadvanced'),
+        new moodle_url('/mod/selfselectadvanced/departments.php'),
+        'mod/selfselectadvanced:ingestattributes'
+    ));
 }
 
 // No traditional settings page: all configuration is per activity

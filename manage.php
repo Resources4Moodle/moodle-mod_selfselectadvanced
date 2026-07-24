@@ -124,6 +124,7 @@ $links = [
     ['overrides.php', 'overrides'],
     ['ledger.php', 'penaltyledger'],
     ['flagged.php', 'flaggedreport'],
+    ['templates.php', 'notificationtemplates'],
 ];
 $linkhtml = '';
 foreach ($links as [$file, $stringkey]) {

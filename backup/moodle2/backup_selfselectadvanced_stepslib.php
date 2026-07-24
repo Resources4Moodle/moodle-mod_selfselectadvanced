@@ -71,6 +71,10 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $penalty = new backup_nested_element('penalty', ['id'], [
             'dayslate', 'penaltyvalue', 'waived', 'waivereason', 'basis', 'timecomputed',
         ]);
+        $tpls = new backup_nested_element('templates');
+        $tpl = new backup_nested_element('template', ['id'], [
+            'msgkey', 'subject', 'body', 'timecreated', 'timemodified',
+        ]);
         $overrides = new backup_nested_element('overrides');
         $override = new backup_nested_element('override', ['id'], [
             'scope', 'userid', 'groupid', 'timeopen', 'timedue', 'timecutoff', 'maxlead',
@@ -80,6 +84,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
 
         $activity->add_child($quotas);
         $quotas->add_child($quota);
+        $activity->add_child($tpls);
+        $tpls->add_child($tpl);
         $activity->add_child($groups);
         $groups->add_child($group);
         $group->add_child($members);
@@ -92,6 +98,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
 
         $activity->set_source_table('selfselectadvanced', ['id' => backup::VAR_ACTIVITYID]);
         $quota->set_source_table('selfselectadvanced_quota', ['activityid' => backup::VAR_PARENTID]);
+        $tpl->set_source_table('selfselectadvanced_template', ['activityid' => backup::VAR_PARENTID]);
         if ($userinfo) {
             $group->set_source_table('selfselectadvanced_group', ['activityid' => backup::VAR_PARENTID]);
             $member->set_source_table('selfselectadvanced_member', ['groupid' => backup::VAR_PARENTID]);

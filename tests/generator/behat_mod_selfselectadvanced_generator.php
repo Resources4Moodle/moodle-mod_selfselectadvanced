@@ -76,6 +76,11 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                 'required' => ['selfselectadvanced', 'scope', 'target'],
                 'switchids' => ['selfselectadvanced' => 'activityid', 'target' => 'targetid'],
             ],
+            'departments' => [
+                'singular' => 'department',
+                'datagenerator' => 'department',
+                'required' => ['name'],
+            ],
             'attributes' => [
                 'singular' => 'attribute',
                 'datagenerator' => 'userattr',

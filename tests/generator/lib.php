@@ -162,6 +162,29 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
     }
 
     /**
+     * Create a department category.
+     *
+     * Required: name. Optional: parent (name of an existing category).
+     *
+     * @param array|stdClass $record fields
+     * @return stdClass the category row
+     */
+    public function create_department($record): stdClass {
+        global $DB;
+
+        $record = (object) (array) $record;
+        if (empty($record->name)) {
+            throw new coding_exception('create_department requires name');
+        }
+        $parentid = 0;
+        if (!empty($record->parent)) {
+            $parentid = (int) $DB->get_field('selfselectadvanced_dept', 'id', ['name' => $record->parent], MUST_EXIST);
+        }
+
+        return \mod_selfselectadvanced\local\attributes\depts::create($record->name, $parentid);
+    }
+
+    /**
      * Create a quota rule.
      *
      * Required: activityid, dimension. Optional: rtype (default value),

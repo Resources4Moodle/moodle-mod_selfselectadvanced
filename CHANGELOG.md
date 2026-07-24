@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0 (2026-07-24)
+
+- Pre-defined departments: a site-wide category tree in the
+  course-categories format (multiple levels) now backs the department
+  and sub-department attributes; drop-down selection in the editor,
+  strict validation in the CSV importer, automatic seeding from
+  existing data on upgrade, and a new admin page to curate the tree.
+- Notification templates: a per-activity *Notification templates* page
+  lets editing teachers customise the subject and body of every
+  message kind, with reset-to-default; overrides are included in
+  course backups.
+- Wording: numeric ranges are written in words ("2 to 4") instead of
+  an en dash.
+
 ## 1.0.1 (2026-07-24)
 
 - Notification templates: every message now receives the recipient

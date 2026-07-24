@@ -40,6 +40,7 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         $paths = [
             new restore_path_element('selfselectadvanced', '/activity/selfselectadvanced'),
             new restore_path_element('ssaquota', '/activity/selfselectadvanced/quotas/quota'),
+            new restore_path_element('ssatemplate', '/activity/selfselectadvanced/templates/template'),
         ];
         if ($userinfo) {
             $paths[] = new restore_path_element('ssagroup', '/activity/selfselectadvanced/groups/group');
@@ -89,6 +90,19 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         $data = (object) $data;
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
         $DB->insert_record('selfselectadvanced_quota', $data);
+    }
+
+    /**
+     * Restore a notification template override.
+     *
+     * @param array $data the row
+     */
+    protected function process_ssatemplate($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $data->activityid = $this->get_new_parentid('selfselectadvanced');
+        $DB->insert_record('selfselectadvanced_template', $data);
     }
 
     /**

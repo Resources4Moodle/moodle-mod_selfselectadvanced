@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\form;
 
 use mod_selfselectadvanced\local\attributes\csv_importer;
+use mod_selfselectadvanced\local\attributes\depts;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -57,14 +58,41 @@ class attredit_form extends \moodleform {
 
         $mform->addElement('text', 'gender', get_string('attrgender', 'mod_selfselectadvanced'), ['size' => 24]);
         $mform->setType('gender', PARAM_TEXT);
-        $mform->addElement('text', 'department', get_string('attrdepartment', 'mod_selfselectadvanced'), ['size' => 40]);
+        if (depts::is_configured()) {
+            // Pre-defined vocabulary (spec change 2026-07-24): selects
+            // fed from the department tree, no free text.
+            $mform->addElement(
+                'select',
+                'department',
+                get_string('attrdepartment', 'mod_selfselectadvanced'),
+                ['' => get_string('none')] + depts::departments_menu()
+            );
+            $subgroups = [];
+            $subgroups[get_string('none')] = ['' => get_string('none')];
+            foreach (depts::subdepartments_grouped() as $department => $children) {
+                $subgroups[$department] = $children;
+            }
+            $mform->addElement(
+                'selectgroups',
+                'subdepartment',
+                get_string('attrsubdepartment', 'mod_selfselectadvanced'),
+                $subgroups
+            );
+        } else {
+            $mform->addElement(
+                'text',
+                'department',
+                get_string('attrdepartment', 'mod_selfselectadvanced'),
+                ['size' => 40]
+            );
+            $mform->addElement(
+                'text',
+                'subdepartment',
+                get_string('attrsubdepartment', 'mod_selfselectadvanced'),
+                ['size' => 40]
+            );
+        }
         $mform->setType('department', PARAM_TEXT);
-        $mform->addElement(
-            'text',
-            'subdepartment',
-            get_string('attrsubdepartment', 'mod_selfselectadvanced'),
-            ['size' => 40]
-        );
         $mform->setType('subdepartment', PARAM_TEXT);
         $mform->addElement('text', 'mobile', get_string('attrmobile', 'mod_selfselectadvanced'), ['size' => 20]);
         $mform->setType('mobile', PARAM_TEXT);
@@ -90,6 +118,12 @@ class attredit_form extends \moodleform {
         $mobile = trim($data['mobile'] ?? '');
         if ($mobile !== '' && !preg_match('/^[0-9+\-\s()]{1,' . csv_importer::MOBILE_MAX . '}$/', $mobile)) {
             $errors['mobile'] = get_string('errbadmobile', 'mod_selfselectadvanced');
+        }
+        if (depts::is_configured()) {
+            $bad = depts::validate_pair(trim($data['department'] ?? ''), trim($data['subdepartment'] ?? ''));
+            if ($bad !== null) {
+                $errors[$bad] = get_string('errdeptunknown', 'mod_selfselectadvanced');
+            }
         }
 
         return $errors;

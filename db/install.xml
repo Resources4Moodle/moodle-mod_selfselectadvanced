@@ -256,5 +256,42 @@
         <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
       </KEYS>
     </TABLE>
+    <TABLE NAME="selfselectadvanced_dept" COMMENT="Pre-defined department/sub-department vocabulary, course-category format (parent/depth/path/sortorder), site-wide">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="name" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="parent" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="depth" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="path" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="parent" UNIQUE="false" FIELDS="parent"/>
+        <INDEX NAME="parentname" UNIQUE="true" FIELDS="parent, name"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_template" COMMENT="Per-activity notification template overrides, editable via the manage capability">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="msgkey" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false" COMMENT="Body lang key of the message kind"/>
+        <FIELD NAME="subject" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="body" TYPE="text" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="activitymsgkey" UNIQUE="true" FIELDS="activityid, msgkey"/>
+      </INDEXES>
+    </TABLE>
   </TABLES>
 </XMLDB>
