@@ -140,6 +140,54 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setDefault('proposalrequired', 0);
         $mform->addHelpButton('proposalrequired', 'proposalrequired', 'mod_selfselectadvanced');
 
+        $mform->addElement(
+            'duration',
+            'guidewindow',
+            get_string('guidewindow', 'mod_selfselectadvanced'),
+            ['optional' => true, 'defaultunit' => DAYSECS]
+        );
+        $mform->setDefault('guidewindow', 0);
+        $mform->addHelpButton('guidewindow', 'guidewindow', 'mod_selfselectadvanced');
+        $mform->addElement(
+            'advcheckbox',
+            'guideautoapprove',
+            get_string('guideautoapprove', 'mod_selfselectadvanced')
+        );
+        $mform->setDefault('guideautoapprove', 0);
+        $mform->addHelpButton('guideautoapprove', 'guideautoapprove', 'mod_selfselectadvanced');
+        $mform->disabledIf('guideautoapprove', 'guidewindow[enabled]', 'notchecked');
+
+        $mform->addElement('text', 'minmembership', get_string('minmembership', 'mod_selfselectadvanced'), ['size' => 4]);
+        $mform->setType('minmembership', PARAM_INT);
+        $mform->setDefault('minmembership', 0);
+        $mform->addHelpButton('minmembership', 'minmembership', 'mod_selfselectadvanced');
+        $mform->addElement(
+            'text',
+            'defaulterpenalty',
+            get_string('defaulterpenalty', 'mod_selfselectadvanced'),
+            ['size' => 6]
+        );
+        $mform->setType('defaulterpenalty', PARAM_FLOAT);
+        $mform->setDefault('defaulterpenalty', 0);
+        $mform->addHelpButton('defaulterpenalty', 'defaulterpenalty', 'mod_selfselectadvanced');
+
+        $mform->addElement(
+            'text',
+            'incompletepenalty',
+            get_string('incompletepenalty', 'mod_selfselectadvanced'),
+            ['size' => 6]
+        );
+        $mform->setType('incompletepenalty', PARAM_FLOAT);
+        $mform->setDefault('incompletepenalty', 0);
+        $mform->addHelpButton('incompletepenalty', 'incompletepenalty', 'mod_selfselectadvanced');
+        $shareoptions = [];
+        for ($pct = 50; $pct <= 90; $pct += 10) {
+            $shareoptions[$pct] = $pct . '%';
+        }
+        $mform->addElement('select', 'leadershare', get_string('leadershare', 'mod_selfselectadvanced'), $shareoptions);
+        $mform->setDefault('leadershare', 60);
+        $mform->addHelpButton('leadershare', 'leadershare', 'mod_selfselectadvanced');
+
         $this->standard_coursemodule_elements();
         $this->add_action_buttons();
     }

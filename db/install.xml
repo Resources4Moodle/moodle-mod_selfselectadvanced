@@ -26,6 +26,12 @@
         <FIELD NAME="inviteexpiry" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Invitation expiry in days, 0 = never"/>
         <FIELD NAME="autogroup" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Auto-grouping of groupless students enabled"/>
         <FIELD NAME="proposalrequired" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 optional, 1 proposal upload mandatory before submission"/>
+        <FIELD NAME="guidewindow" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Seconds a guide has to decide after submission; 0 = unlimited"/>
+        <FIELD NAME="guideautoapprove" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: groups undecided past the window auto-approve"/>
+        <FIELD NAME="minmembership" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Minimum groups each student must belong to; below = defaulter"/>
+        <FIELD NAME="defaulterpenalty" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Mark penalty per missing membership"/>
+        <FIELD NAME="incompletepenalty" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Mark penalty when a group is below its minimum size"/>
+        <FIELD NAME="leadershare" TYPE="int" LENGTH="3" NOTNULL="true" DEFAULT="60" SEQUENCE="false" COMMENT="Percent of the incomplete penalty the leader carries"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
       </FIELDS>
@@ -231,6 +237,7 @@
         <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="dayslate" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Days between effective timedue and timeapproved, bounded by effective timecutoff"/>
         <FIELD NAME="penaltyvalue" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Resolved points deduction"/>
+        <FIELD NAME="award" TYPE="number" LENGTH="10" NOTNULL="false" SEQUENCE="false" DECIMALS="5" COMMENT="Guide-awarded group mark, null until set"/>
         <FIELD NAME="waived" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="waivereason" TYPE="char" LENGTH="20" NOTNULL="false" SEQUENCE="false" COMMENT="dateoverride or waiver"/>
         <FIELD NAME="basis" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON audit record: effective dates, rate, type and arithmetic"/>

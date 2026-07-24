@@ -116,6 +116,27 @@ class ledger {
      * @param activity $activity the activity
      * @param int $userid one user, or 0 for all
      */
+    /**
+     * Set or clear the guide-awarded group mark and republish grades.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the group
+     * @param float|null $award the mark, null clears
+     */
+    public static function set_award(activity $activity, stdClass $group, ?float $award): void {
+        global $DB;
+
+        $row = $DB->get_record('selfselectadvanced_penalty', [
+            'activityid' => $activity->id(),
+            'groupid' => (int) $group->id,
+        ]);
+        if (!$row) {
+            $row = self::upsert_for_group($activity, $group);
+        }
+        $DB->set_field('selfselectadvanced_penalty', 'award', $award, ['id' => $row->id]);
+        self::push_grades($activity);
+    }
+
     public static function push_grades(activity $activity, int $userid = 0): void {
         global $CFG, $DB;
         require_once($CFG->libdir . '/gradelib.php');
@@ -133,22 +154,25 @@ class ledger {
             $usersql = ' AND m.userid = :userid';
             $params['userid'] = $userid;
         }
-        $sql = "SELECT m.userid, COALESCE(SUM(p.penaltyvalue), 0) AS totalpenalty
+        $sql = "SELECT DISTINCT m.userid
                   FROM {selfselectadvanced_member} m
                   JOIN {selfselectadvanced_group} g ON g.id = m.groupid
-             LEFT JOIN {selfselectadvanced_penalty} p ON p.groupid = g.id
                  WHERE g.activityid = :activityid
                    AND m.status = :confirmed
                    AND g.state IN (:firm, :frozen)
-                   $usersql
-              GROUP BY m.userid";
-        $totals = $DB->get_records_sql($sql, $params);
+                   $usersql";
+        $userids = $DB->get_fieldset_sql($sql, $params);
 
+        // 1.4.0: sequence-of-joining decomposition; the per-step
+        // breakdown travels as gradebook feedback.
         $grades = [];
-        foreach ($totals as $total) {
-            $grades[(int) $total->userid] = (object) [
-                'userid' => (int) $total->userid,
-                'rawgrade' => max(0.0, (float) $settings->grade - (float) $total->totalpenalty),
+        foreach ($userids as $graded) {
+            $computed = gradebook::compute_user($activity, (int) $graded);
+            $grades[(int) $graded] = (object) [
+                'userid' => (int) $graded,
+                'rawgrade' => $computed->grade,
+                'feedback' => \html_writer::alist($computed->steps, ['class' => 'selfselectadvanced-gradesteps']),
+                'feedbackformat' => FORMAT_HTML,
             ];
         }
 

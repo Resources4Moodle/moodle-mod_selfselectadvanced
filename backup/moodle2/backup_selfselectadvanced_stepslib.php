@@ -46,6 +46,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'name', 'intro', 'introformat', 'grade', 'minsize', 'maxsize', 'maxlead',
             'maxmembership', 'maxguided', 'timeopen', 'timedue', 'timecutoff',
             'penaltytype', 'penaltyperday', 'guidemode', 'inviteexpiry', 'autogroup', 'proposalrequired',
+            'guidewindow', 'guideautoapprove', 'minmembership', 'defaulterpenalty', 'incompletepenalty', 'leadershare',
             'timecreated', 'timemodified',
         ]);
         $quotas = new backup_nested_element('quotas');
@@ -69,7 +70,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'coregroupid', 'roster', 'takenby', 'timecreated',
         ]);
         $penalty = new backup_nested_element('penalty', ['id'], [
-            'dayslate', 'penaltyvalue', 'waived', 'waivereason', 'basis', 'timecomputed',
+            'dayslate', 'penaltyvalue', 'award', 'waived', 'waivereason', 'basis', 'timecomputed',
         ]);
         $qslots = new backup_nested_element('qslots');
         $qslot = new backup_nested_element('qslot', ['id'], [

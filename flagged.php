@@ -116,4 +116,43 @@ echo $OUTPUT->render_from_template('mod_selfselectadvanced/flagged_report', (obj
     'hasanomalies' => !empty($anomalies),
     'backurl' => (new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]))->out(false),
 ]);
+// Defaulters (1.4.0): students below the minimum memberships.
+$minmembership = (int) $activity->settings()->minmembership;
+if ($minmembership > 0) {
+    echo $OUTPUT->heading(get_string('defaulters', 'mod_selfselectadvanced'), 3);
+    $counts = $DB->get_records_sql_menu(
+        "SELECT m.userid, COUNT(1)
+           FROM {selfselectadvanced_member} m
+           JOIN {selfselectadvanced_group} g ON g.id = m.groupid
+          WHERE g.activityid = ? AND m.status = ?
+       GROUP BY m.userid",
+        [$activity->id(), \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED]
+    );
+    $rows = [];
+    foreach (get_enrolled_users($context, 'mod/selfselectadvanced:respond', 0, 'u.*', 'lastname, firstname') as $student) {
+        $have = (int) ($counts[$student->id] ?? 0);
+        if ($have < $minmembership) {
+            $rows[] = [
+                fullname($student),
+                $have,
+                $minmembership - $have,
+            ];
+        }
+    }
+    if ($rows) {
+        $dtable = new html_table();
+        $dtable->head = [
+            get_string('member', 'mod_selfselectadvanced'),
+            get_string('defaultershas', 'mod_selfselectadvanced'),
+            get_string('defaultersmissing', 'mod_selfselectadvanced'),
+        ];
+        $dtable->data = $rows;
+        $dtable->attributes['class'] = 'generaltable selfselectadvanced-defaulters';
+        echo html_writer::table($dtable);
+        echo $OUTPUT->notification(get_string('defaultersintro', 'mod_selfselectadvanced'), 'info', false);
+    } else {
+        echo $OUTPUT->notification(get_string('defaultersnone', 'mod_selfselectadvanced'), 'success', false);
+    }
+}
+
 echo $OUTPUT->footer();

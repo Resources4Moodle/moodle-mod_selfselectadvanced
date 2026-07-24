@@ -310,5 +310,38 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072415, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072416) {
+        // 1.4.0: guide decision window, defaulters, incomplete-group
+        // penalty with leader share, per-group awards.
+        $table = new xmldb_table('selfselectadvanced');
+        $adds = [
+            ['guidewindow', XMLDB_TYPE_INTEGER, '10', '0', 'proposalrequired'],
+            ['guideautoapprove', XMLDB_TYPE_INTEGER, '1', '0', 'guidewindow'],
+            ['minmembership', XMLDB_TYPE_INTEGER, '10', '0', 'guideautoapprove'],
+            ['leadershare', XMLDB_TYPE_INTEGER, '3', '60', 'minmembership'],
+        ];
+        foreach ($adds as [$name, $type, $len, $default, $after]) {
+            $field = new xmldb_field($name, $type, $len, null, XMLDB_NOTNULL, null, $default, $after);
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
+        $field = new xmldb_field('defaulterpenalty', XMLDB_TYPE_NUMBER, '10, 5', null, XMLDB_NOTNULL, null, '0', 'minmembership');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('incompletepenalty', XMLDB_TYPE_NUMBER, '10, 5', null, XMLDB_NOTNULL, null, '0', 'defaulterpenalty');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $table = new xmldb_table('selfselectadvanced_penalty');
+        $field = new xmldb_field('award', XMLDB_TYPE_NUMBER, '10, 5', null, null, null, null, 'penaltyvalue');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 2026072416, 'selfselectadvanced');
+    }
+
     return true;
 }

@@ -94,6 +94,17 @@ if ($action === 'savenotes' && data_submitted() && confirm_sesskey()) {
     );
 }
 
+if ($action === 'saveaward' && data_submitted() && confirm_sesskey()) {
+    $award = optional_param('award', '', PARAM_RAW_TRIMMED);
+    \mod_selfselectadvanced\local\penalty\ledger::set_award(
+        $activity,
+        $group,
+        $award === '' ? null : unformat_float($award)
+    );
+    redirect($baseurl, get_string('awardsaved', 'mod_selfselectadvanced'), null,
+        \core\output\notification::NOTIFY_SUCCESS);
+}
+
 if ($action === 'returngroup' && data_submitted() && confirm_sesskey()) {
     $comment = required_param('comment', PARAM_TEXT);
     $api->lifecycle()->return_group($group, $comment, (int) $USER->id);
@@ -130,6 +141,28 @@ echo html_writer::div(
     . ($proposalhtml ?: html_writer::div(get_string('proposalmissing', 'mod_selfselectadvanced'))),
     'selfselectadvanced-proposal mt-3'
 );
+
+// Group mark (award): linked to this group in every member's
+// sequence-of-joining grade breakdown.
+if (in_array($group->state, [\mod_selfselectadvanced\local\state::FIRM,
+        \mod_selfselectadvanced\local\state::FROZEN], true)) {
+    $currentaward = $DB->get_field('selfselectadvanced_penalty', 'award', [
+        'activityid' => $activity->id(),
+        'groupid' => $group->id,
+    ]);
+    echo $OUTPUT->heading(get_string('award', 'mod_selfselectadvanced'), 4);
+    echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false), 'class' => 'd-flex gap-2 mb-3']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $group->id]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'saveaward']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    echo html_writer::empty_tag('input', ['type' => 'text', 'name' => 'award', 'class' => 'form-control w-auto',
+        'value' => $currentaward !== null && $currentaward !== false ? format_float((float) $currentaward, 2, true, true) : '',
+        'placeholder' => get_string('awardhint', 'mod_selfselectadvanced'), ]);
+    echo html_writer::empty_tag('input', ['type' => 'submit',
+        'value' => get_string('awardsave', 'mod_selfselectadvanced'), 'class' => 'btn btn-secondary', ]);
+    echo html_writer::end_tag('form');
+}
 
 echo $OUTPUT->heading(get_string('guidenotes', 'mod_selfselectadvanced'), 4);
 echo $OUTPUT->notification(get_string('guidenotesintro', 'mod_selfselectadvanced'), 'info', false);

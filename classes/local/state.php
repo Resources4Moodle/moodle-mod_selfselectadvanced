@@ -255,10 +255,13 @@ final class state {
      *
      * @param stdClass $group group row
      * @param int $actorid the acting guide
+     * @param bool $auto true for the window auto-approval sweep: the
+     *        guide-identity gate is skipped, the state precondition is
+     *        still enforced
      * @return stdClass the updated group row
      * @throws \moodle_exception when a gate refuses
      */
-    public function approve(stdClass $group, int $actorid): stdClass {
+    public function approve(stdClass $group, int $actorid, bool $auto = false): stdClass {
         global $DB;
 
         $lock = locks::acquire('group:' . $group->id);
@@ -266,7 +269,11 @@ final class state {
             $transaction = $DB->start_delegated_transaction();
 
             $fresh = groups::get($this->activity, (int) $group->id);
-            if ($refusal = $this->gatekeeper->can_approve($fresh, $actorid)) {
+            if ($auto) {
+                if ($fresh->state !== self::PENDING_GUIDE) {
+                    throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                }
+            } else if ($refusal = $this->gatekeeper->can_approve($fresh, $actorid)) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
