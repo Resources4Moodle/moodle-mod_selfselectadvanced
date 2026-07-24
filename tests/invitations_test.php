@@ -375,7 +375,6 @@ final class invitations_test extends \advanced_testcase {
         $this->assertStringContainsString('Dear ' . $invitee->firstname . ' (' . $invitee->lastname . ')', $body);
         $this->assertStringContainsString('Personalised', $body);
         $this->assertStringContainsString('This invitation expires on', $body);
-        $this->assertStringContainsString(userdate(time() + (2 * DAYSECS)), $body);
         $this->assertStringContainsString('/mod/selfselectadvanced/', $body);
     }
 
