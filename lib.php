@@ -252,8 +252,11 @@ function selfselectadvanced_update_grades(stdClass $instance, int $userid = 0, b
  */
 function selfselectadvanced_reset_course_form_definition($mform): void {
     $mform->addElement('header', 'selfselectadvancedheader', get_string('modulenameplural', 'mod_selfselectadvanced'));
-    $mform->addElement('advcheckbox', 'reset_selfselectadvanced_groups',
-        get_string('resetgroups', 'mod_selfselectadvanced'));
+    $mform->addElement(
+        'advcheckbox',
+        'reset_selfselectadvanced_groups',
+        get_string('resetgroups', 'mod_selfselectadvanced')
+    );
 }
 
 /**

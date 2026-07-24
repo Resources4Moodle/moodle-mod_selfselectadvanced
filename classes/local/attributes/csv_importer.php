@@ -181,8 +181,10 @@ class csv_importer {
             // Per-field length caps: one oversized cell rejects the
             // row, never aborts the whole commit (audit item 22).
             $overlong = false;
-            foreach (['gender' => 50, 'department' => 100, 'subdepartment' => 100,
-                    'seat' => 100, 'program' => 100] as $col => $cap) {
+            foreach (
+                ['gender' => 50, 'department' => 100, 'subdepartment' => 100,
+                    'seat' => 100, 'program' => 100] as $col => $cap
+            ) {
                 if (isset($map[$col]) && \core_text::strlen($get($col)) > $cap) {
                     $overlong = true;
                 }
