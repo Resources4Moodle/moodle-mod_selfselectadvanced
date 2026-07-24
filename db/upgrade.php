@@ -74,5 +74,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072407, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072408) {
+        // Slice 12: run_autogrouping scheduled task.
+        upgrade_mod_savepoint(true, 2026072408, 'selfselectadvanced');
+    }
+
     return true;
 }

@@ -59,6 +59,16 @@ if ($action === 'assignguide' && data_submitted() && confirm_sesskey()) {
     );
 }
 
+if ($action === 'runautogroup' && data_submitted() && confirm_sesskey()) {
+    $agrun = \mod_selfselectadvanced\local\autogroup\engine::run($activity, (int) $USER->id);
+    redirect(
+        $baseurl,
+        get_string('autogroupran', 'mod_selfselectadvanced', $agrun),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
 $statefilter = optional_param('statefilter', '', PARAM_ALPHAEXT);
 if (!in_array($statefilter, \mod_selfselectadvanced\local\state::all(), true)) {
     $statefilter = '';
@@ -124,6 +134,25 @@ foreach ($links as [$file, $stringkey]) {
     );
 }
 echo html_writer::div($linkhtml, 'selfselectadvanced-toollinks mb-3');
+
+// Manual auto-grouping trigger with the latest run summary (spec 9.1).
+$lastrun = $DB->get_records('selfselectadvanced_agrun', ['activityid' => $activity->id()], 'id DESC', '*', 0, 1);
+$runsummary = $lastrun
+    ? get_string('autogrouplastrun', 'mod_selfselectadvanced', reset($lastrun))
+    : get_string('autogroupnorun', 'mod_selfselectadvanced');
+echo html_writer::start_div('selfselectadvanced-autogroup mb-3');
+echo html_writer::span($runsummary, 'me-3');
+echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false), 'class' => 'd-inline']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'runautogroup']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+echo html_writer::empty_tag('input', [
+    'type' => 'submit',
+    'value' => get_string('autogrouprun', 'mod_selfselectadvanced'),
+    'class' => 'btn btn-outline-primary btn-sm',
+]);
+echo html_writer::end_tag('form');
+echo html_writer::end_div();
 
 // State filter (GET, read-only view change).
 $options = ['' => get_string('all')];
