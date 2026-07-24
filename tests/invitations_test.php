@@ -343,6 +343,43 @@ final class invitations_test extends \advanced_testcase {
     }
 
     /**
+     * 1.0.1 template placeholders: every notification carries the
+     * recipient's firstname/lastname/fullname and a url; invitation
+     * bodies additionally carry the expiry note when the activity sets
+     * an invitation expiry window.
+     */
+    public function test_notification_placeholders(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $users] = $this->setup_activity([
+            'maxsize' => 3,
+            'maxlead' => 1,
+            'maxmembership' => 2,
+            'inviteexpiry' => 2,
+        ]);
+        $leader = (int) $users[0]->id;
+        $invitee = $users[1];
+        $group = $api->create_group($leader, 'Personalised', 'T', '<p>b</p>', FORMAT_HTML);
+        $group = groups::get($activity, (int) $group->id);
+
+        $messagesink = $this->redirectMessages();
+        $api->invitations()->send($group, (int) $invitee->id, $leader);
+        $messages = array_values(array_filter(
+            $messagesink->get_messages(),
+            fn($m) => (int) $m->useridto === (int) $invitee->id
+        ));
+        $messagesink->close();
+
+        $this->assertCount(1, $messages);
+        $body = $messages[0]->fullmessage;
+        $this->assertStringContainsString('Dear ' . $invitee->firstname . ' (' . $invitee->lastname . ')', $body);
+        $this->assertStringContainsString('Personalised', $body);
+        $this->assertStringContainsString('This invitation expires on', $body);
+        $this->assertStringContainsString(userdate(time() + (2 * DAYSECS)), $body);
+        $this->assertStringContainsString('/mod/selfselectadvanced/', $body);
+    }
+
+    /**
      * Expiry: invitations older than the activity's expiry window
      * auto-decline via the scheduled task, release their seats and fire
      * events; younger invitations are untouched.

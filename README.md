@@ -103,6 +103,21 @@ Every action checks the capability, never the role name.
 7. At the cutoff, auto-grouping sweeps groupless students; residue
    appears on the flagged report for override-backed placement.
 
+## Customising notification texts
+
+Every notification subject and body is a language string, so a site
+administrator can rewrite any of them without code changes via *Site
+administration → Language → Language customisation* (component
+`mod_selfselectadvanced`, keys `msg…subject` / `msg…body`). Besides
+each message's own placeholders (such as `{$a->group}`,
+`{$a->activity}`, `{$a->pluginuid}`), **every** template may use the
+standard recipient placeholders `{$a->firstname}`, `{$a->lastname}`,
+`{$a->fullname}` and `{$a->url}` (deep link to the relevant page).
+Invitation messages additionally get `{$a->expirynote}` — an
+"expires on …" sentence when the activity sets an invitation expiry,
+empty otherwise (the sentence itself is the customisable string
+`msginvitationexpirynote`).
+
 ## Privacy
 
 The privacy provider exports and deletes memberships, briefs,

@@ -37,7 +37,8 @@ class notifier {
      * @param int $touserid recipient
      * @param string $subjectkey lang key for the subject
      * @param string $bodykey lang key for the body
-     * @param \stdClass|array|string|null $a string parameters
+     * @param \stdClass|array|null $a string parameters (never a scalar:
+     *        standard recipient placeholders are merged into the object)
      * @param \moodle_url $contexturl deep link target
      * @param string $contextname link label lang key rendered value
      */
@@ -51,6 +52,18 @@ class notifier {
         \moodle_url $contexturl,
         string $contextname
     ): void {
+        // Standard placeholders available to EVERY template (site
+        // admins can rewrite any message via Language customisation):
+        // firstname, lastname, fullname of the recipient, and url.
+        $a = $a === null ? new \stdClass() : (object) (array) $a;
+        $recipient = \core_user::get_user($touserid);
+        if ($recipient) {
+            $a->firstname = $a->firstname ?? $recipient->firstname;
+            $a->lastname = $a->lastname ?? $recipient->lastname;
+            $a->fullname = $a->fullname ?? fullname($recipient);
+        }
+        $a->url = $a->url ?? $contexturl->out(false);
+
         $subject = get_string($subjectkey, 'mod_selfselectadvanced', $a);
         $body = get_string($bodykey, 'mod_selfselectadvanced', $a);
 

@@ -90,5 +90,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072410, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072411) {
+        // 1.0.1: recipient placeholders in every notification template.
+        upgrade_mod_savepoint(true, 2026072411, 'selfselectadvanced');
+    }
+
     return true;
 }

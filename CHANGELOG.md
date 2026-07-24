@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 (2026-07-24)
+
+- Notification templates: every message now receives the recipient
+  placeholders `{$a->firstname}`, `{$a->lastname}`, `{$a->fullname}`
+  and `{$a->url}`, enabling full personalisation through Moodle's
+  Language customisation. Invitations additionally expose
+  `{$a->expirynote}` and the invitation body was rewritten to address
+  the invitee by name, state the expiry date and explain the
+  forming-vs-frozen change rules.
+
 ## 1.0.0 (2026-07-24)
 
 First stable release. Complete implementation of the binding

@@ -123,6 +123,11 @@ class invitations {
             $lock->release();
         }
 
+        $expirydays = (int) $this->activity->settings()->inviteexpiry;
+        $expirynote = $expirydays > 0
+            ? ' ' . get_string('msginvitationexpirynote', 'mod_selfselectadvanced',
+                userdate(time() + ($expirydays * DAYSECS)))
+            : '';
         notifier::send(
             $this->activity,
             'invitation',
@@ -133,6 +138,7 @@ class invitations {
                 'group' => format_string($group->name),
                 'pluginuid' => $group->pluginuid,
                 'activity' => $this->activity->name(),
+                'expirynote' => $expirynote,
             ],
             $this->group_url((int) $group->id),
             format_string($group->name)
