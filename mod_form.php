@@ -158,7 +158,6 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setDefault('proposalrequired', 0);
         $mform->addHelpButton('proposalrequired', 'proposalrequired', 'mod_selfselectadvanced');
 
-
         $mform->addElement('text', 'minmembership', get_string('minmembership', 'mod_selfselectadvanced'), ['size' => 4]);
         $mform->setType('minmembership', PARAM_INT);
         $mform->setDefault('minmembership', 0);
