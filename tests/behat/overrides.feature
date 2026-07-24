@@ -28,8 +28,7 @@ Feature: Overrides resolved through the single service
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     Then I should see "You lead 1 of 1 groups"
     And I should see "You already lead 1 of 1 groups."
-    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
-    And I follow "Overrides"
+    When I am on the "Lab groups" "mod_selfselectadvanced > overrides" page logged in as teacher1
     Then I should see "No overrides of this kind yet."
     When I follow "Add override"
     And I set the field "User" to "Sam One"
