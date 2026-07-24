@@ -51,6 +51,7 @@ class reconcile_penalties extends \core\task\scheduled_task {
                 continue;
             }
             $count = ledger::recompute_all($activity);
+            \mod_selfselectadvanced\local\override\store::recheck_pending($activity, get_admin()->id);
             if ($count) {
                 mtrace("mod_selfselectadvanced: reconciled $count penalty rows in activity {$row->id}");
             }

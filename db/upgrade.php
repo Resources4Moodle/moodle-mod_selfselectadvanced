@@ -343,5 +343,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072416, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072417) {
+        // 1.4.1: audit-fix release, no schema change.
+        upgrade_mod_savepoint(true, 2026072417, 'selfselectadvanced');
+    }
+
     return true;
 }

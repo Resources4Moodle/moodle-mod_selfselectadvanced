@@ -368,6 +368,9 @@ class moves {
             );
         }
 
+        // Cleared blockers activate parked overrides at once (item 19).
+        \mod_selfselectadvanced\local\override\store::recheck_pending($this->activity, $actorid);
+
         return count($moves);
     }
 

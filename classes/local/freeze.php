@@ -115,7 +115,7 @@ class freeze {
                 $prefix = trim((string) ($activity->cm()->idnumber ?: $activity->name()));
                 $coregroupid = groups_create_group((object) [
                     'courseid' => $activity->courseid(),
-                    'name' => '[' . $prefix . '] ' . $fresh->name,
+                    'name' => \core_text::substr('[' . $prefix . '] ' . $fresh->name, 0, 254),
                     'description' => get_string('coregroupdescription', 'mod_selfselectadvanced', $fresh->pluginuid),
                     'descriptionformat' => FORMAT_HTML,
                 ]);
@@ -135,7 +135,7 @@ class freeze {
             }
 
             // Ensure the activity grouping and the membership in it.
-            $groupingname = get_string('groupingname', 'mod_selfselectadvanced', $activity->name());
+            $groupingname = \core_text::substr(get_string('groupingname', 'mod_selfselectadvanced', $activity->name()), 0, 254);
             $grouping = groups_get_grouping_by_name($activity->courseid(), $groupingname);
             if (!$grouping) {
                 $grouping = groups_create_grouping((object) [
@@ -288,7 +288,12 @@ class freeze {
             $lock->release();
         }
 
-        foreach ($snapshotids as $userid) {
+        // Members AND the guide (db/messages.php documents both).
+        $recipients = $snapshotids;
+        if (!empty($fresh->guideid) && !in_array((int) $fresh->guideid, $recipients, true)) {
+            $recipients[] = (int) $fresh->guideid;
+        }
+        foreach ($recipients as $userid) {
             notifier::send(
                 $activity,
                 'groupunfrozen',

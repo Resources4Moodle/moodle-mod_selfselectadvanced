@@ -34,6 +34,11 @@ use stdClass;
  * attribute values consumed by earlier slots are excluded from it
  * ("must not match"); with `allowoverlap` they stay eligible.
  *
+ * The evaluation is a GREEDY HEURISTIC (documented, audit item 14):
+ * slots book in order and never backtrack, so a rare roster with a
+ * valid exotic assignment can still report a deficiency; managers can
+ * reorder slots to guide the booking.
+ *
  * Example — "two members from one department, and three each from
  * distinct other departments, computer students also permitted":
  *   slot 1: mincount 2, department, value "Computer"

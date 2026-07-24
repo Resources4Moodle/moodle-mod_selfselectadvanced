@@ -81,6 +81,15 @@ final class settings_validator {
             $errors['timecutoff'] = 'errdatesorder';
         }
 
+        if ((int) ($data['minmembership'] ?? 0) > (int) ($data['maxmembership'] ?? PHP_INT_MAX)) {
+            $errors['minmembership'] = get_string('errminmembership', 'mod_selfselectadvanced');
+        }
+        foreach (['defaulterpenalty', 'incompletepenalty'] as $pfield) {
+            if ((float) ($data[$pfield] ?? 0) < 0) {
+                $errors[$pfield] = get_string('errnegativepenalty', 'mod_selfselectadvanced');
+            }
+        }
+
         return $errors;
     }
 }

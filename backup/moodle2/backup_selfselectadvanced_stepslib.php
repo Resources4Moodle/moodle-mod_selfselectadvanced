@@ -84,7 +84,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $override = new backup_nested_element('override', ['id'], [
             'scope', 'userid', 'groupid', 'timeopen', 'timedue', 'timecutoff', 'maxlead',
             'maxmembership', 'maxguided', 'minsize', 'maxsize', 'quotaexempt',
-            'penaltywaived', 'timecreated', 'timemodified',
+            'penaltywaived', 'status', 'timecreated', 'timemodified',
         ]);
 
         $activity->add_child($quotas);

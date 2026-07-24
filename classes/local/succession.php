@@ -112,6 +112,8 @@ class succession {
     public function confirm(stdClass $group, int $userid): string {
         global $DB;
 
+        // L3 lead counts span groups: activity lock first (audit item 6).
+        $activitylock = locks::acquire('activity:' . $this->activity->id());
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -170,6 +172,7 @@ class succession {
             $transaction->allow_commit();
         } finally {
             $lock->release();
+            $activitylock->release();
         }
 
         notifier::send(

@@ -239,7 +239,7 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
     }
 
     /**
-     * Nothing file-based to add after execution.
+     * Bring the group-level file areas back after the id mappings exist.
      */
     protected function after_execute() {
         $this->add_related_files('mod_selfselectadvanced', 'proposal', 'ssagroup');

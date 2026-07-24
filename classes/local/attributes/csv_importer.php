@@ -118,7 +118,15 @@ class csv_importer {
             if ($username !== '') {
                 $user = $DB->get_record('user', ['username' => $username, 'deleted' => 0]);
             } else if ($email !== '') {
-                $user = $DB->get_record('user', ['email' => $email, 'deleted' => 0]);
+                $matches = $DB->get_records('user', ['email' => $email, 'deleted' => 0], 'id', 'id', 0, 2);
+                if (count($matches) > 1) {
+                    $report->rejected[] = get_string('csvrejectedambiguous', 'mod_selfselectadvanced', (object) [
+                        'line' => $line,
+                        'key' => $email,
+                    ]);
+                    continue;
+                }
+                $user = $matches ? \core_user::get_user((int) array_key_first($matches)) : null;
             }
             if (!$user) {
                 $report->rejected[] = get_string('csvrejectednouser', 'mod_selfselectadvanced', (object) [
@@ -168,6 +176,23 @@ class csv_importer {
                 if ($commit) {
                     depts::ensure_program($program);
                 }
+            }
+
+            // Per-field length caps: one oversized cell rejects the
+            // row, never aborts the whole commit (audit item 22).
+            $overlong = false;
+            foreach (['gender' => 50, 'department' => 100, 'subdepartment' => 100,
+                    'seat' => 100, 'program' => 100] as $col => $cap) {
+                if (isset($map[$col]) && \core_text::strlen($get($col)) > $cap) {
+                    $overlong = true;
+                }
+            }
+            if ($overlong) {
+                $report->rejected[] = get_string('csvrejectedtoolong', 'mod_selfselectadvanced', (object) [
+                    'line' => $line,
+                    'username' => $user->username,
+                ]);
+                continue;
             }
 
             $mobile = $get('mobile');

@@ -163,6 +163,9 @@ class invitations {
     public function accept(stdClass $group, int $userid): stdClass {
         global $DB;
 
+        // L4 counts across ALL groups; the group lock alone cannot
+        // serialise two accepts into different groups (audit item 6).
+        $activitylock = locks::acquire('activity:' . $this->activity->id());
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -201,6 +204,7 @@ class invitations {
             $transaction->allow_commit();
         } finally {
             $lock->release();
+            $activitylock->release();
         }
 
         // Notifications after commit: inviter, and each cascaded leader.

@@ -152,6 +152,8 @@ function selfselectadvanced_delete_instance($id): bool {
     $DB->delete_records('selfselectadvanced_agrun', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_group', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced', ['id' => $id]);
+    // Reminder markers die with the instance (audit item 23).
+    $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_reminded_' . $id]);
 
     selfselectadvanced_grade_item_delete($instance);
 
@@ -228,8 +230,14 @@ function selfselectadvanced_grade_item_delete(stdClass $instance): int {
  * @param bool $nullifnone insert null grade when the user has none
  */
 function selfselectadvanced_update_grades(stdClass $instance, int $userid = 0, bool $nullifnone = true): void {
-    selfselectadvanced_grade_item_update($instance);
+    // Rebuild from activity truth (audit item 8): the ledger recomputes
+    // the sequence-of-joining decomposition and republishes.
+    \mod_selfselectadvanced\local\penalty\ledger::push_grades(
+        \mod_selfselectadvanced\activity::from_instance((int) $instance->id),
+        $userid
+    );
 }
+
 
 /**
  * Add plugin tools to the activity's secondary/settings navigation.
@@ -237,6 +245,70 @@ function selfselectadvanced_update_grades(stdClass $instance, int $userid = 0, b
  * @param settings_navigation $settingsnav the settings navigation
  * @param navigation_node $node this activity's node
  */
+/**
+ * Course-reset form fragment (audit item 9).
+ *
+ * @param MoodleQuickForm $mform the reset form
+ */
+function selfselectadvanced_reset_course_form_definition($mform): void {
+    $mform->addElement('header', 'selfselectadvancedheader', get_string('modulenameplural', 'mod_selfselectadvanced'));
+    $mform->addElement('advcheckbox', 'reset_selfselectadvanced_groups',
+        get_string('resetgroups', 'mod_selfselectadvanced'));
+}
+
+/**
+ * Course-reset defaults.
+ *
+ * @param stdClass $course the course
+ * @return array default values
+ */
+function selfselectadvanced_reset_course_form_defaults($course): array {
+    return ['reset_selfselectadvanced_groups' => 1];
+}
+
+/**
+ * Purge per-user data on course reset: groups, memberships, moves,
+ * snapshots, penalties, overrides, auto-group runs and grades. The
+ * configuration (settings, quota rules, slots, templates) and the
+ * site-wide participant attributes remain.
+ *
+ * @param stdClass $data reset form data
+ * @return array status rows
+ */
+function selfselectadvanced_reset_userdata($data): array {
+    global $DB;
+
+    $status = [];
+    if (empty($data->reset_selfselectadvanced_groups)) {
+        return $status;
+    }
+    $component = get_string('modulenameplural', 'mod_selfselectadvanced');
+    foreach ($DB->get_records('selfselectadvanced', ['course' => $data->courseid]) as $instance) {
+        $groupids = $DB->get_fieldset_select('selfselectadvanced_group', 'id', 'activityid = ?', [$instance->id]);
+        if ($groupids) {
+            [$insql, $inparams] = $DB->get_in_or_equal($groupids);
+            $DB->delete_records_select('selfselectadvanced_member', "groupid $insql", $inparams);
+            $DB->delete_records_select('selfselectadvanced_snapshot', "groupid $insql", $inparams);
+        }
+        $DB->delete_records('selfselectadvanced_penalty', ['activityid' => $instance->id]);
+        $DB->delete_records('selfselectadvanced_move', ['activityid' => $instance->id]);
+        $DB->delete_records('selfselectadvanced_agrun', ['activityid' => $instance->id]);
+        $DB->delete_records('selfselectadvanced_override', ['activityid' => $instance->id]);
+        $DB->delete_records('selfselectadvanced_group', ['activityid' => $instance->id]);
+        $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_reminded_' . $instance->id]);
+        if (empty($data->reset_gradebook_grades)) {
+            selfselectadvanced_grade_item_update($instance, 'reset');
+        }
+        $status[] = [
+            'component' => $component,
+            'item' => get_string('resetgroupsdone', 'mod_selfselectadvanced', format_string($instance->name)),
+            'error' => false,
+        ];
+    }
+
+    return $status;
+}
+
 /**
  * Serve files from the proposal filearea (itemid = plugin group id).
  * Visible to confirmed members of that group and to staff with
@@ -268,6 +340,9 @@ function selfselectadvanced_pluginfile(
     require_login($course, false, $cm);
     $groupid = (int) array_shift($args);
     $group = $DB->get_record('selfselectadvanced_group', ['id' => $groupid], '*', MUST_EXIST);
+    if ((int) $group->activityid !== (int) $cm->instance) {
+        return false;
+    }
     if (!has_capability('mod/selfselectadvanced:viewall', $context)) {
         $ismember = $DB->record_exists('selfselectadvanced_member', [
             'groupid' => $groupid,

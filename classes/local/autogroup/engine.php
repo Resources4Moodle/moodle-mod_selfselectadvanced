@@ -254,10 +254,17 @@ class engine {
                         break;
                     }
                 }
+                if (!$leaderid && $members) {
+                    // Nobody has a free L3 slot: designate the first
+                    // member anyway rather than insert a leaderless
+                    // group; the excess is grandfathered and the group
+                    // shows on the flagged report (audit item 15).
+                    $leaderid = (int) reset($members);
+                }
                 $group = (object) [
                     'activityid' => $activity->id(),
                     'pluginuid' => '',
-                    'name' => get_string('autogroupname', 'mod_selfselectadvanced', $index + 1) . ' ' . $now,
+                    'name' => get_string('autogroupname', 'mod_selfselectadvanced', $index + 1) . ' (' . date('d M H.i.s', $now) . ')',
                     'title' => get_string('autogrouptitle', 'mod_selfselectadvanced'),
                     'brief' => get_string('autogroupbrief', 'mod_selfselectadvanced'),
                     'briefformat' => FORMAT_HTML,

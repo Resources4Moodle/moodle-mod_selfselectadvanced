@@ -61,7 +61,7 @@ class calculator {
         );
         $days = self::days_late(
             (int) $group->timeapproved,
-            $dates->timeopen ? $dates->timedue : $dates->timedue,
+            $dates->timedue,
             $dates->timecutoff
         );
 

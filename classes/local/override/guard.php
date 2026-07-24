@@ -34,6 +34,11 @@ use stdClass;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class guard {
+    // Deliberate asymmetry (audit item 30): only cap REDUCTIONS are
+    // guarded. A minsize increase leaves groups under-minimum, which
+    // blocks their progression rather than violating a held position,
+    // and surfaces on the flagged report instead.
+
     /**
      * Blockers for one stored override row, computed live.
      *
