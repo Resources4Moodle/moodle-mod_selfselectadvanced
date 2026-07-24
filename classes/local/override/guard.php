@@ -55,8 +55,14 @@ class guard {
                     'leaderid' => $userid,
                 ]);
                 if ($current > (int) $row->maxlead) {
-                    $blockers[] = self::blocker($activity, 'maxlead', $current, (int) $row->maxlead, $userid,
-                        new moodle_url('/mod/selfselectadvanced/moveedit.php', ['id' => $cmid, 'student' => $userid]));
+                    $blockers[] = self::blocker(
+                        $activity,
+                        'maxlead',
+                        $current,
+                        (int) $row->maxlead,
+                        $userid,
+                        new moodle_url('/mod/selfselectadvanced/moveedit.php', ['id' => $cmid, 'student' => $userid])
+                    );
                 }
             }
             if ($row->scope === 'user' && $row->maxmembership !== null) {
@@ -68,9 +74,14 @@ class guard {
                     [$activity->id(), $userid, groups::STATUS_CONFIRMED]
                 );
                 if ($current > (int) $row->maxmembership) {
-                    $blockers[] = self::blocker($activity, 'maxmembership', $current, (int) $row->maxmembership,
+                    $blockers[] = self::blocker(
+                        $activity,
+                        'maxmembership',
+                        $current,
+                        (int) $row->maxmembership,
                         $userid,
-                        new moodle_url('/mod/selfselectadvanced/moveedit.php', ['id' => $cmid, 'student' => $userid]));
+                        new moodle_url('/mod/selfselectadvanced/moveedit.php', ['id' => $cmid, 'student' => $userid])
+                    );
                 }
             }
             if ($row->scope === 'guide' && $row->maxguided !== null) {
@@ -85,8 +96,14 @@ class guard {
                     array_merge([$userid, $activity->id()], $params)
                 );
                 if ($current > (int) $row->maxguided) {
-                    $blockers[] = self::blocker($activity, 'maxguided', $current, (int) $row->maxguided, $userid,
-                        new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cmid]));
+                    $blockers[] = self::blocker(
+                        $activity,
+                        'maxguided',
+                        $current,
+                        (int) $row->maxguided,
+                        $userid,
+                        new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cmid])
+                    );
                 }
             }
         }
@@ -99,8 +116,14 @@ class guard {
                 [$groupid, groups::STATUS_CONFIRMED, groups::STATUS_INVITED]
             );
             if ($seats > (int) $row->maxsize) {
-                $blockers[] = self::blocker($activity, 'maxsize', $seats, (int) $row->maxsize, $groupid,
-                    new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cmid, 'g' => $groupid]));
+                $blockers[] = self::blocker(
+                    $activity,
+                    'maxsize',
+                    $seats,
+                    (int) $row->maxsize,
+                    $groupid,
+                    new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cmid, 'g' => $groupid])
+                );
             }
         }
 

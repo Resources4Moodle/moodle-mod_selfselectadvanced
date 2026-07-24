@@ -202,8 +202,12 @@ foreach ($pending as $row) {
         $items[] = $OUTPUT->action_link(
             $blocker->fixurl,
             $blocker->description,
-            new popup_action('click', $blocker->fixurl, 'ssafix' . $row->id . $blocker->rule,
-                ['width' => 1100, 'height' => 750])
+            new popup_action(
+                'click',
+                $blocker->fixurl,
+                'ssafix' . $row->id . $blocker->rule,
+                ['width' => 1100, 'height' => 750]
+            )
         );
     }
     $pendingout[] = html_writer::div(

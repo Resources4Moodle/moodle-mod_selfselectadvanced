@@ -109,8 +109,14 @@ final class moves_test extends \advanced_testcase {
 
         // Successor must be a confirmed member of the source group.
         try {
-            $api->moves()->stage((int) $students[0]->id, (int) $a->id, (int) $b->id, false,
-                (int) $students[3]->id, 99);
+            $api->moves()->stage(
+                (int) $students[0]->id,
+                (int) $a->id,
+                (int) $b->id,
+                false,
+                (int) $students[3]->id,
+                99
+            );
             $this->fail('bad successor expected');
         } catch (\moodle_exception $e) {
             $this->assertStringContainsString('successor must be a confirmed member', $e->getMessage());
