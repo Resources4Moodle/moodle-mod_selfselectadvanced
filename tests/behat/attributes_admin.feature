@@ -69,7 +69,7 @@ Feature: Site administrators manage participant attributes
     When I click on "Delete" "link" in the "Civil" "table_row"
     Then I should see "Cannot delete"
 
-  @_file_upload
+  @javascript @_file_upload
   Scenario: An unknown department in the CSV is rejected once the tree is defined
     Given I log in as "admin"
     When I navigate to "Plugins > Activity modules > Group self-selection (Advanced) > Participant attributes" in site administration
