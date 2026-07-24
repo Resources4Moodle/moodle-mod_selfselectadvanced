@@ -85,5 +85,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072409, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072410) {
+        // 1.0.0 release: documentation and maturity only.
+        upgrade_mod_savepoint(true, 2026072410, 'selfselectadvanced');
+    }
+
     return true;
 }
