@@ -125,9 +125,11 @@ foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity
             'overdue' => $deadline && $deadline < time(),
         ];
     }
-    if (in_array($fgroup->state, [\mod_selfselectadvanced\local\state::FORMING,
+    if (
+        in_array($fgroup->state, [\mod_selfselectadvanced\local\state::FORMING,
             \mod_selfselectadvanced\local\state::PENDING_GUIDE], true)
-            && !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($activity, (int) $fgroup->id)) {
+            && !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($activity, (int) $fgroup->id)
+    ) {
         $quotafail[] = (object) [
             'name' => format_string($fgroup->name),
             'pluginuid' => $fgroup->pluginuid,
@@ -190,14 +192,26 @@ echo $OUTPUT->header();
 // (item 04: less scrolling, options visible).
 $tabbase = new moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $cm->id]);
 $tabs = [
-    new tabobject('students', new moodle_url($tabbase, ['tab' => 'students']),
-        get_string('flaggedtabstudents', 'mod_selfselectadvanced', count($groupless))),
-    new tabobject('defaulters', new moodle_url($tabbase, ['tab' => 'defaulters']),
-        get_string('flaggedtabdefaulters', 'mod_selfselectadvanced', count($defaulterrows))),
-    new tabobject('guides', new moodle_url($tabbase, ['tab' => 'guides']),
-        get_string('flaggedtabguides', 'mod_selfselectadvanced', count($guidespending))),
-    new tabobject('quota', new moodle_url($tabbase, ['tab' => 'quota']),
-        get_string('flaggedtabquota', 'mod_selfselectadvanced', count($quotafail))),
+    new tabobject(
+        'students',
+        new moodle_url($tabbase, ['tab' => 'students']),
+        get_string('flaggedtabstudents', 'mod_selfselectadvanced', count($groupless))
+    ),
+    new tabobject(
+        'defaulters',
+        new moodle_url($tabbase, ['tab' => 'defaulters']),
+        get_string('flaggedtabdefaulters', 'mod_selfselectadvanced', count($defaulterrows))
+    ),
+    new tabobject(
+        'guides',
+        new moodle_url($tabbase, ['tab' => 'guides']),
+        get_string('flaggedtabguides', 'mod_selfselectadvanced', count($guidespending))
+    ),
+    new tabobject(
+        'quota',
+        new moodle_url($tabbase, ['tab' => 'quota']),
+        get_string('flaggedtabquota', 'mod_selfselectadvanced', count($quotafail))
+    ),
 ];
 echo $OUTPUT->tabtree($tabs, $tab);
 echo $OUTPUT->notification(get_string('flaggedexplain', 'mod_selfselectadvanced'), 'info', false);
@@ -220,8 +234,12 @@ if ($tab === 'defaulters') {
         $dtable->data = $pageslice;
         $dtable->attributes['class'] = 'generaltable selfselectadvanced-defaulters';
         echo html_writer::table($dtable);
-        echo $OUTPUT->paging_bar(count($defaulterrows), $pagenum, $perpage,
-            new moodle_url($tabbase, ['tab' => $tab]));
+        echo $OUTPUT->paging_bar(
+            count($defaulterrows),
+            $pagenum,
+            $perpage,
+            new moodle_url($tabbase, ['tab' => $tab])
+        );
         echo $OUTPUT->notification(get_string('defaultersintro', 'mod_selfselectadvanced'), 'info', false);
     } else {
         echo $OUTPUT->notification(get_string('defaultersnone', 'mod_selfselectadvanced'), 'success', false);
@@ -256,8 +274,12 @@ if ($tab === 'guides') {
         }
         $gtable->attributes['class'] = 'generaltable selfselectadvanced-guidespending';
         echo html_writer::table($gtable);
-        echo $OUTPUT->paging_bar(count($guidespending), $pagenum, $perpage,
-            new moodle_url($tabbase, ['tab' => $tab]));
+        echo $OUTPUT->paging_bar(
+            count($guidespending),
+            $pagenum,
+            $perpage,
+            new moodle_url($tabbase, ['tab' => $tab])
+        );
     } else {
         echo $OUTPUT->notification(get_string('flaggedguidesnone', 'mod_selfselectadvanced'), 'success', false);
     }
@@ -280,8 +302,12 @@ if ($tab === 'quota') {
         }
         $qtable->attributes['class'] = 'generaltable selfselectadvanced-quotafail';
         echo html_writer::table($qtable);
-        echo $OUTPUT->paging_bar(count($quotafail), $pagenum, $perpage,
-            new moodle_url($tabbase, ['tab' => $tab]));
+        echo $OUTPUT->paging_bar(
+            count($quotafail),
+            $pagenum,
+            $perpage,
+            new moodle_url($tabbase, ['tab' => $tab])
+        );
     } else {
         echo $OUTPUT->notification(get_string('flaggedquotanone', 'mod_selfselectadvanced'), 'success', false);
     }

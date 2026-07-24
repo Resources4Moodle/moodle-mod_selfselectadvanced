@@ -71,8 +71,10 @@ class conflicts {
                 $minsums[$rule->dimension] = ($minsums[$rule->dimension] ?? 0) + (int) $rule->mincount;
             }
             // (c) A rule contradicting itself or the group size.
-            if ($rule->mincount !== null && $rule->maxcount !== null
-                    && (int) $rule->mincount > (int) $rule->maxcount) {
+            if (
+                $rule->mincount !== null && $rule->maxcount !== null
+                    && (int) $rule->mincount > (int) $rule->maxcount
+            ) {
                 $clashes[] = get_string('clashruleminmax', 'mod_selfselectadvanced', s((string) $rule->value));
             }
             if ($rule->mincount !== null && (int) $rule->mincount > $maxsize) {
@@ -98,9 +100,11 @@ class conflicts {
                 continue;
             }
             foreach ($rules as $rule) {
-                if ($rule->dimension === $slot->dimension && $rule->maxcount !== null
+                if (
+                    $rule->dimension === $slot->dimension && $rule->maxcount !== null
                         && \core_text::strtolower((string) $rule->value) === \core_text::strtolower($slot->value)
-                        && (int) $rule->maxcount < (int) $slot->mincount) {
+                        && (int) $rule->maxcount < (int) $slot->mincount
+                ) {
                     $clashes[] = get_string('clashslotvsrule', 'mod_selfselectadvanced', (object) [
                         'value' => s($slot->value),
                         'need' => (int) $slot->mincount,
