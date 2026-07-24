@@ -121,7 +121,15 @@ foreach ($mygroups as $group) {
         'pluginuid' => $group->pluginuid,
         'name' => format_string($group->name),
         'title' => format_string($group->title),
-        'statelabel' => get_string('state' . str_replace('_', '', $group->state), 'mod_selfselectadvanced'),
+        'statelabel' => get_string('state' . str_replace('_', '', $group->state), 'mod_selfselectadvanced')
+            . (($group->state === \mod_selfselectadvanced\local\state::PENDING_GUIDE
+                && (int) $activity->settings()->guidewindow > 0 && !empty($group->timesubmitted))
+                ? '; ' . get_string(
+                    ((int) $activity->settings()->guideautoapprove) ? 'decidebyauto' : 'decideby',
+                    'mod_selfselectadvanced',
+                    userdate((int) $group->timesubmitted + (int) $activity->settings()->guidewindow)
+                )
+                : ''),
         'size' => \mod_selfselectadvanced\local\groups::count_confirmed((int) $group->id),
         'reviewurl' => (new moodle_url('/mod/selfselectadvanced/review.php', [
             'id' => $cm->id,

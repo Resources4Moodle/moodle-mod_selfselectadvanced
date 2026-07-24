@@ -85,6 +85,22 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setType('maxguided', PARAM_INT);
         $mform->setDefault('maxguided', 10);
         $mform->addHelpButton('maxguided', 'maxguided', 'mod_selfselectadvanced');
+        $mform->addElement(
+            'duration',
+            'guidewindow',
+            get_string('guidewindow', 'mod_selfselectadvanced'),
+            ['optional' => true, 'defaultunit' => DAYSECS]
+        );
+        $mform->setDefault('guidewindow', 0);
+        $mform->addHelpButton('guidewindow', 'guidewindow', 'mod_selfselectadvanced');
+        $mform->addElement(
+            'advcheckbox',
+            'guideautoapprove',
+            get_string('guideautoapprove', 'mod_selfselectadvanced')
+        );
+        $mform->setDefault('guideautoapprove', 0);
+        $mform->addHelpButton('guideautoapprove', 'guideautoapprove', 'mod_selfselectadvanced');
+        $mform->disabledIf('guideautoapprove', 'guidewindow[enabled]', 'notchecked');
 
         // Formation window.
         $mform->addElement('header', 'formationwindow', get_string('formationwindow', 'mod_selfselectadvanced'));
@@ -142,22 +158,6 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setDefault('proposalrequired', 0);
         $mform->addHelpButton('proposalrequired', 'proposalrequired', 'mod_selfselectadvanced');
 
-        $mform->addElement(
-            'duration',
-            'guidewindow',
-            get_string('guidewindow', 'mod_selfselectadvanced'),
-            ['optional' => true, 'defaultunit' => DAYSECS]
-        );
-        $mform->setDefault('guidewindow', 0);
-        $mform->addHelpButton('guidewindow', 'guidewindow', 'mod_selfselectadvanced');
-        $mform->addElement(
-            'advcheckbox',
-            'guideautoapprove',
-            get_string('guideautoapprove', 'mod_selfselectadvanced')
-        );
-        $mform->setDefault('guideautoapprove', 0);
-        $mform->addHelpButton('guideautoapprove', 'guideautoapprove', 'mod_selfselectadvanced');
-        $mform->disabledIf('guideautoapprove', 'guidewindow[enabled]', 'notchecked');
 
         $mform->addElement('text', 'minmembership', get_string('minmembership', 'mod_selfselectadvanced'), ['size' => 4]);
         $mform->setType('minmembership', PARAM_INT);
