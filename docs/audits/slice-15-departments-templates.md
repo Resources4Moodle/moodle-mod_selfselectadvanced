@@ -55,5 +55,8 @@ editing teachers?").
   rejection scenario (fixture `attributes_baddept.csv`),
   `templates.feature` (customise + reset via the UI);
   `attributes_admin.feature` background now defines the vocabulary.
-- Full matrix on the CI box (`ci-run --reinit`): recorded below after
-  the run — pass criterion `### RESULT fail=0` unchanged.
+- Full matrix on the CI box: **`RESULT fail=0`** at 7273568 —
+  32 Behat scenarios / 445 steps on both DBs, PHPUnit 76 tests,
+  static checks clean. Two behat-infrastructure lessons: file-upload
+  steps need `@_file_upload` AND a real browser (`@javascript`);
+  BrowserKit cannot drive filepickers.
