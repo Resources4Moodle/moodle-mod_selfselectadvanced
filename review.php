@@ -101,8 +101,12 @@ if ($action === 'saveaward' && data_submitted() && confirm_sesskey()) {
         $group,
         $award === '' ? null : unformat_float($award)
     );
-    redirect($baseurl, get_string('awardsaved', 'mod_selfselectadvanced'), null,
-        \core\output\notification::NOTIFY_SUCCESS);
+    redirect(
+        $baseurl,
+        get_string('awardsaved', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
 }
 
 if ($action === 'returngroup' && data_submitted() && confirm_sesskey()) {
@@ -144,8 +148,10 @@ echo html_writer::div(
 
 // Group mark (award): linked to this group in every member's
 // sequence-of-joining grade breakdown.
-if (in_array($group->state, [\mod_selfselectadvanced\local\state::FIRM,
-        \mod_selfselectadvanced\local\state::FROZEN], true)) {
+if (
+    in_array($group->state, [\mod_selfselectadvanced\local\state::FIRM,
+        \mod_selfselectadvanced\local\state::FROZEN], true)
+) {
     $currentaward = $DB->get_field('selfselectadvanced_penalty', 'award', [
         'activityid' => $activity->id(),
         'groupid' => $group->id,

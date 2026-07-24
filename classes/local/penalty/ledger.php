@@ -137,6 +137,13 @@ class ledger {
         self::push_grades($activity);
     }
 
+    /**
+     * Publish every affected member's grade with its
+     * sequence-of-joining breakdown as feedback.
+     *
+     * @param activity $activity the activity
+     * @param int $userid one user, or 0 for everyone
+     */
     public static function push_grades(activity $activity, int $userid = 0): void {
         global $CFG, $DB;
         require_once($CFG->libdir . '/gradelib.php');
