@@ -230,5 +230,11 @@
         {{#candelete}}
             <a href="{{deleteurl}}" class="btn btn-danger ms-2">{{#str}} deletegroup, mod_selfselectadvanced {{/str}}</a>
         {{/candelete}}
+        {{#canfreeze}}
+            <a href="{{freezeurl}}" class="btn btn-primary ms-2">{{#str}} freeze, mod_selfselectadvanced {{/str}}</a>
+        {{/canfreeze}}
+        {{#canunfreeze}}
+            <a href="{{unfreezeurl}}" class="btn btn-warning ms-2">{{#str}} unfreeze, mod_selfselectadvanced {{/str}}</a>
+        {{/canunfreeze}}
     </div>
 </div>

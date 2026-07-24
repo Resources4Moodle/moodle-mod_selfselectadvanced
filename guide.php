@@ -71,6 +71,13 @@ foreach ($mygroups as $group) {
     if ($group->state === \mod_selfselectadvanced\local\state::PENDING_GUIDE) {
         $queue[] = $row;
     } else {
+        $row->canfreeze = $group->state === \mod_selfselectadvanced\local\state::FIRM
+            && has_capability('mod/selfselectadvanced:freeze', $context);
+        $row->freezeurl = (new moodle_url('/mod/selfselectadvanced/group.php', [
+            'id' => $cm->id,
+            'g' => $group->id,
+            'action' => 'freeze',
+        ]))->out(false);
         $guided[] = $row;
     }
 }

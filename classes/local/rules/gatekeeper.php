@@ -445,6 +445,43 @@ class gatekeeper {
     }
 
     /**
+     * May this group be frozen? (T5, spec 12 - defence in depth.)
+     *
+     * State precondition: firm (S2). Re-checks L1, L2 and quota
+     * compliance against effective values; the assigned-guide rule is
+     * enforced by the freeze service.
+     *
+     * @param \stdClass $group group row
+     * @return refusal|null null when allowed
+     */
+    public function can_freeze(stdClass $group): ?refusal {
+        if ($group->state !== state::FIRM) {
+            return new refusal('refusalwrongstate');
+        }
+
+        $minsize = $this->resolver->effective_minsize((int) $group->id);
+        $confirmed = groups::count_confirmed((int) $group->id);
+        if ($confirmed < $minsize->value) {
+            return new refusal('refusalbelowminsize', (object) [
+                'current' => $confirmed,
+                'min' => $minsize->value,
+            ]);
+        }
+        $maxsize = $this->resolver->effective_maxsize((int) $group->id);
+        if ($confirmed > $maxsize->value) {
+            return new refusal('refusalnoseats');
+        }
+        if (
+            !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($this->activity, (int) $group->id)
+            && !$this->resolver->is_quota_exempt((int) $group->id)->enabled
+        ) {
+            return new refusal('refusalquota');
+        }
+
+        return null;
+    }
+
+    /**
      * May this guide return the group to forming? (T3, spec 6.5.)
      *
      * State precondition: pending_guide (S2); the assigned guide only.

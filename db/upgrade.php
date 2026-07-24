@@ -69,5 +69,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072406, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072407) {
+        // Slice 10: groupfrozen and groupunfrozen message providers.
+        upgrade_mod_savepoint(true, 2026072407, 'selfselectadvanced');
+    }
+
     return true;
 }

@@ -96,7 +96,12 @@
                             <td>{{pluginuid}}</td>
                             <td>{{statelabel}}</td>
                             <td>{{size}}</td>
-                            <td><a class="btn btn-secondary btn-sm" href="{{reviewurl}}">{{#str}} review, mod_selfselectadvanced {{/str}}</a></td>
+                            <td>
+                                <a class="btn btn-secondary btn-sm" href="{{reviewurl}}">{{#str}} review, mod_selfselectadvanced {{/str}}</a>
+                                {{#canfreeze}}
+                                    <a class="btn btn-primary btn-sm" href="{{freezeurl}}">{{#str}} freeze, mod_selfselectadvanced {{/str}}</a>
+                                {{/canfreeze}}
+                            </td>
                         </tr>
                     {{/guided}}
                 </tbody>

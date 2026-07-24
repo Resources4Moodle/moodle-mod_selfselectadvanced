@@ -149,7 +149,25 @@ class group_page implements renderable, templatable {
 
         $quota = \mod_selfselectadvanced\local\quota\evaluator::evaluate($activity, (int) $this->group->id);
 
+        $canfreeze = $this->group->state === state::FIRM
+            && (int) ($this->group->guideid ?? 0) === $this->userid
+            && has_capability('mod/selfselectadvanced:freeze', $context, $this->userid);
+        $canunfreeze = $this->group->state === state::FROZEN
+            && has_capability('mod/selfselectadvanced:unfreeze', $context, $this->userid);
+
         return (object) [
+            'canfreeze' => $canfreeze,
+            'freezeurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $cmid,
+                'g' => $this->group->id,
+                'action' => 'freeze',
+            ]))->out(false),
+            'canunfreeze' => $canunfreeze,
+            'unfreezeurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $cmid,
+                'g' => $this->group->id,
+                'action' => 'unfreeze',
+            ]))->out(false),
             'quota' => $quota,
             'showsubmit' => $this->submitform !== null,
             'submitformhtml' => $this->submitform?->render() ?? '',

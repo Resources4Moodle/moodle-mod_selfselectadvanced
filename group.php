@@ -235,6 +235,78 @@ if ($action === 'decline' && data_submitted() && confirm_sesskey()) {
     );
 }
 
+if ($action === 'freeze') {
+    require_capability('mod/selfselectadvanced:freeze', $context);
+    if (data_submitted() && confirm_sesskey()) {
+        \mod_selfselectadvanced\local\freeze::freeze_group($activity, $group, (int) $USER->id);
+        redirect(
+            $baseurl,
+            get_string('groupfrozennotice', 'mod_selfselectadvanced', $group->pluginuid),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    }
+    echo $OUTPUT->header();
+    echo $OUTPUT->confirm(
+        get_string('freezeconfirm', 'mod_selfselectadvanced', format_string($group->name)),
+        new single_button(
+            new moodle_url($baseurl, ['action' => 'freeze']),
+            get_string('freeze', 'mod_selfselectadvanced'),
+            'post'
+        ),
+        $baseurl
+    );
+    echo $OUTPUT->footer();
+    die;
+}
+
+if ($action === 'unfreeze') {
+    require_capability('mod/selfselectadvanced:unfreeze', $context);
+    if (data_submitted() && confirm_sesskey()) {
+        $result = \mod_selfselectadvanced\local\freeze::unfreeze($activity, $group, (int) $USER->id);
+        $notice = get_string('groupunfrozennotice', 'mod_selfselectadvanced', $group->pluginuid);
+        if (!empty($result->drift['extra']) || !empty($result->drift['missing'])) {
+            $notice .= ' ' . get_string('driftdiscarded', 'mod_selfselectadvanced', (object) [
+                'extra' => count($result->drift['extra']),
+                'missing' => count($result->drift['missing']),
+            ]);
+        }
+        redirect($baseurl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
+    }
+    // Confirmation page: restriction references and drift are shown first.
+    $warnings = \mod_selfselectadvanced\local\freeze::check_restrictions($activity, $group);
+    $drift = \mod_selfselectadvanced\local\freeze::drift($group);
+    echo $OUTPUT->header();
+    foreach ($warnings as $warning) {
+        echo $OUTPUT->notification(
+            get_string('restrictionwarning', 'mod_selfselectadvanced', $warning),
+            'warning',
+            false
+        );
+    }
+    if (!empty($drift['extra']) || !empty($drift['missing'])) {
+        echo $OUTPUT->notification(
+            get_string('driftwarning', 'mod_selfselectadvanced', (object) [
+                'extra' => count($drift['extra']),
+                'missing' => count($drift['missing']),
+            ]),
+            'warning',
+            false
+        );
+    }
+    echo $OUTPUT->confirm(
+        get_string('unfreezeconfirm', 'mod_selfselectadvanced', format_string($group->name)),
+        new single_button(
+            new moodle_url($baseurl, ['action' => 'unfreeze']),
+            get_string('unfreeze', 'mod_selfselectadvanced'),
+            'post'
+        ),
+        $baseurl
+    );
+    echo $OUTPUT->footer();
+    die;
+}
+
 if ($action === 'delete') {
     // Leader-only, forming-only; the gatekeeper repeats this server-side on POST.
     if ($refusal = $api->gatekeeper()->can_delete_group($group, (int) $USER->id)) {
