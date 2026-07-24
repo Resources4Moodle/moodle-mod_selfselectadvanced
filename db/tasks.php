@@ -29,6 +29,15 @@ defined('MOODLE_INTERNAL') || die();
 
 $tasks = [
     [
+        'classname' => \mod_selfselectadvanced\task\deadline_reminder::class,
+        'blocking' => 0,
+        'minute' => '43',
+        'hour' => '*',
+        'day' => '*',
+        'month' => '*',
+        'dayofweek' => '*',
+    ],
+    [
         'classname' => \mod_selfselectadvanced\task\run_autogrouping::class,
         'blocking' => 0,
         'minute' => '*/5',

@@ -503,6 +503,34 @@ class gatekeeper {
     }
 
     /**
+     * May the leader confirm this member's leave request? (Spec 6.3,
+     * limit 4A.1: the source must keep its effective minimum.)
+     *
+     * @param \stdClass $group group row
+     * @param \stdClass $member the leaving member row
+     * @param int $actorid the acting user
+     * @return refusal|null null when allowed
+     */
+    public function can_confirm_leave(stdClass $group, stdClass $member, int $actorid): ?refusal {
+        if ($group->state !== state::FORMING) {
+            return new refusal('refusalwrongstate');
+        }
+        if ((int) $group->leaderid !== $actorid) {
+            return new refusal('refusalnotleader');
+        }
+        if ($member->status !== groups::STATUS_CONFIRMED || empty($member->leaverequested)) {
+            return new refusal('refusalnoleaverequest');
+        }
+        $min = $this->resolver->effective_minsize((int) $group->id);
+        $after = groups::count_confirmed((int) $group->id) - 1;
+        if ($after < $min->value) {
+            return new refusal('refusalbelowminsize', (object) ['current' => $after, 'min' => $min->value]);
+        }
+
+        return null;
+    }
+
+    /**
      * May the leader withdraw this pending invitation?
      *
      * State precondition: forming (S2); leader only; invited rows only.

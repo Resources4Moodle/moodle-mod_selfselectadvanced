@@ -149,6 +149,31 @@ class group_page implements renderable, templatable {
 
         $quota = \mod_selfselectadvanced\local\quota\evaluator::evaluate($activity, (int) $this->group->id);
 
+        $canrequestleave = $isforming
+            && !$isleader
+            && $ownrow
+            && $ownrow->status === groups::STATUS_CONFIRMED
+            && empty($ownrow->leaverequested);
+        $leaverequests = [];
+        if ($isleader && $isforming) {
+            $namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
+            $sql = "SELECT m.id AS memberid, m.userid $namefields
+                      FROM {selfselectadvanced_member} m
+                      JOIN {user} u ON u.id = m.userid
+                     WHERE m.groupid = :groupid AND m.status = :status AND m.leaverequested IS NOT NULL";
+            foreach (
+                $DB->get_records_sql($sql, [
+                    'groupid' => $this->group->id,
+                    'status' => groups::STATUS_CONFIRMED,
+                ]) as $request
+            ) {
+                $leaverequests[] = (object) [
+                    'memberid' => (int) $request->memberid,
+                    'fullname' => fullname($request),
+                ];
+            }
+        }
+
         $canfreeze = $this->group->state === state::FIRM
             && (int) ($this->group->guideid ?? 0) === $this->userid
             && has_capability('mod/selfselectadvanced:freeze', $context, $this->userid);
@@ -156,6 +181,9 @@ class group_page implements renderable, templatable {
             && has_capability('mod/selfselectadvanced:unfreeze', $context, $this->userid);
 
         return (object) [
+            'canrequestleave' => $canrequestleave,
+            'leaverequests' => $leaverequests,
+            'hasleaverequests' => !empty($leaverequests),
             'canfreeze' => $canfreeze,
             'freezeurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
                 'id' => $cmid,

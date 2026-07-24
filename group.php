@@ -235,6 +235,62 @@ if ($action === 'decline' && data_submitted() && confirm_sesskey()) {
     );
 }
 
+if ($action === 'requestleave' && data_submitted() && confirm_sesskey()) {
+    // Member files a leave request (forming only, not the leader).
+    if (
+        $group->state !== \mod_selfselectadvanced\local\state::FORMING
+        || (int) $group->leaderid === (int) $USER->id
+        || !$membership
+        || $membership->status !== \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED
+    ) {
+        redirect($baseurl, get_string('refusalwrongstate', 'mod_selfselectadvanced'), null,
+            \core\output\notification::NOTIFY_ERROR);
+    }
+    $DB->set_field('selfselectadvanced_member', 'leaverequested', time(), ['id' => $membership->id]);
+    \mod_selfselectadvanced\local\notifier::send(
+        $activity,
+        'leaverequest',
+        (int) $group->leaderid,
+        'msgleaverequestsubject',
+        'msgleaverequestbody',
+        (object) ['user' => fullname($USER), 'group' => format_string($group->name)],
+        $baseurl,
+        format_string($group->name)
+    );
+    redirect($baseurl, get_string('leaverequested', 'mod_selfselectadvanced'), null,
+        \core\output\notification::NOTIFY_SUCCESS);
+}
+
+if ($action === 'confirmleave' && data_submitted() && confirm_sesskey()) {
+    // Leader confirms a member's leave (L1-gated, spec 6.3/4A.1).
+    $memberid = required_param('m', PARAM_INT);
+    $leaving = $DB->get_record('selfselectadvanced_member', [
+        'id' => $memberid,
+        'groupid' => $group->id,
+    ], '*', MUST_EXIST);
+    if ($refusal = $api->gatekeeper()->can_confirm_leave($group, $leaving, (int) $USER->id)) {
+        redirect($baseurl, $refusal->get_message(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+    $DB->update_record('selfselectadvanced_member', (object) [
+        'id' => $leaving->id,
+        'status' => \mod_selfselectadvanced\local\groups::STATUS_REMOVED,
+        'leaverequested' => null,
+        'timemodified' => time(),
+    ]);
+    \mod_selfselectadvanced\local\notifier::send(
+        $activity,
+        'leaveresult',
+        (int) $leaving->userid,
+        'msgleaveconfirmedsubject',
+        'msgleaveconfirmedbody',
+        (object) ['group' => format_string($group->name)],
+        $viewurl,
+        $activity->name()
+    );
+    redirect($baseurl, get_string('leaveconfirmed', 'mod_selfselectadvanced'), null,
+        \core\output\notification::NOTIFY_SUCCESS);
+}
+
 if ($action === 'freeze') {
     require_capability('mod/selfselectadvanced:freeze', $context);
     if (data_submitted() && confirm_sesskey()) {

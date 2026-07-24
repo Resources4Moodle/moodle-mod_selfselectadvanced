@@ -79,5 +79,11 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072408, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072409) {
+        // Slice 13: leaverequest/leaveresult/deadlinereminder message
+        // providers and the deadline_reminder task.
+        upgrade_mod_savepoint(true, 2026072409, 'selfselectadvanced');
+    }
+
     return true;
 }
