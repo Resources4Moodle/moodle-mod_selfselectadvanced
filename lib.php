@@ -290,6 +290,12 @@ function selfselectadvanced_pluginfile(
     return true;
 }
 
+/**
+ * Add the manager/guide tool pages to the activity settings menu.
+ *
+ * @param settings_navigation $settingsnav the settings navigation
+ * @param navigation_node $node this activity's node
+ */
 function selfselectadvanced_extend_settings_navigation(settings_navigation $settingsnav, navigation_node $node): void {
     $cm = $settingsnav->get_page()->cm;
     if (!$cm) {
