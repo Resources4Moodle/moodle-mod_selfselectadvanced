@@ -397,10 +397,20 @@ if ($action === 'proposal') {
         redirect($baseurl);
     }
     if ($data = $form->get_data()) {
-        file_save_draft_area_files($data->proposal, $context->id, 'mod_selfselectadvanced', 'proposal',
-            (int) $group->id, $fileoptions);
-        redirect($baseurl, get_string('proposalsaved', 'mod_selfselectadvanced'), null,
-            \core\output\notification::NOTIFY_SUCCESS);
+        file_save_draft_area_files(
+            $data->proposal,
+            $context->id,
+            'mod_selfselectadvanced',
+            'proposal',
+            (int) $group->id,
+            $fileoptions
+        );
+        redirect(
+            $baseurl,
+            get_string('proposalsaved', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
     }
     echo $OUTPUT->header();
     echo $OUTPUT->heading(get_string('proposal', 'mod_selfselectadvanced'));
@@ -455,8 +465,15 @@ $fs = get_file_storage();
 $proposalfiles = $fs->get_area_files($context->id, 'mod_selfselectadvanced', 'proposal', (int) $group->id, 'id', false);
 $proposalhtml = '';
 foreach ($proposalfiles as $file) {
-    $url = moodle_url::make_pluginfile_url($context->id, 'mod_selfselectadvanced', 'proposal',
-        (int) $group->id, $file->get_filepath(), $file->get_filename(), true);
+    $url = moodle_url::make_pluginfile_url(
+        $context->id,
+        'mod_selfselectadvanced',
+        'proposal',
+        (int) $group->id,
+        $file->get_filepath(),
+        $file->get_filename(),
+        true
+    );
     $proposalhtml .= html_writer::div(html_writer::link($url, $file->get_filename()));
 }
 if (!$proposalhtml) {

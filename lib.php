@@ -251,8 +251,15 @@ function selfselectadvanced_update_grades(stdClass $instance, int $userid = 0, b
  * @param array $options stream options
  * @return bool false when not found
  */
-function selfselectadvanced_pluginfile($course, $cm, $context, string $filearea, array $args, bool $forcedownload,
-        array $options = []): bool {
+function selfselectadvanced_pluginfile(
+    $course,
+    $cm,
+    $context,
+    string $filearea,
+    array $args,
+    bool $forcedownload,
+    array $options = []
+): bool {
     global $DB, $USER;
 
     if ($context->contextlevel !== CONTEXT_MODULE || $filearea !== 'proposal') {

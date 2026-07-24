@@ -86,8 +86,12 @@ if ($action === 'savenotes' && data_submitted() && confirm_sesskey()) {
         'guidenotesformat' => $notesformat,
         'timemodified' => time(),
     ]);
-    redirect($baseurl, get_string('guidenotessaved', 'mod_selfselectadvanced'), null,
-        \core\output\notification::NOTIFY_SUCCESS);
+    redirect(
+        $baseurl,
+        get_string('guidenotessaved', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
 }
 
 if ($action === 'returngroup' && data_submitted() && confirm_sesskey()) {
@@ -110,8 +114,15 @@ echo $OUTPUT->render_from_template('mod_selfselectadvanced/review_page', $page->
 $fs = get_file_storage();
 $proposalhtml = '';
 foreach ($fs->get_area_files($context->id, 'mod_selfselectadvanced', 'proposal', (int) $group->id, 'id', false) as $file) {
-    $url = moodle_url::make_pluginfile_url($context->id, 'mod_selfselectadvanced', 'proposal',
-        (int) $group->id, $file->get_filepath(), $file->get_filename(), true);
+    $url = moodle_url::make_pluginfile_url(
+        $context->id,
+        'mod_selfselectadvanced',
+        'proposal',
+        (int) $group->id,
+        $file->get_filepath(),
+        $file->get_filename(),
+        true
+    );
     $proposalhtml .= html_writer::div(html_writer::link($url, $file->get_filename()));
 }
 echo html_writer::div(

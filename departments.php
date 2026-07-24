@@ -101,8 +101,12 @@ if ($action === 'progdelete' && confirm_sesskey()) {
         ['name' => $prog->name]
     );
     if ($inuse) {
-        redirect($baseurl, get_string('errdeptinuse', 'mod_selfselectadvanced', $prog->name), null,
-            \core\output\notification::NOTIFY_ERROR);
+        redirect(
+            $baseurl,
+            get_string('errdeptinuse', 'mod_selfselectadvanced', $prog->name),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     $DB->delete_records('selfselectadvanced_dept', ['id' => $pid]);
     redirect($baseurl);
