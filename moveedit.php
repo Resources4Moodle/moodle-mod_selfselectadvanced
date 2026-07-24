@@ -41,9 +41,11 @@ $PAGE->set_url('/mod/selfselectadvanced/moveedit.php', ['id' => $cm->id]);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
-$students = [];
-foreach (get_enrolled_users($context, 'mod/selfselectadvanced:respond', 0, 'u.*', 'lastname, firstname') as $user) {
-    $students[(int) $user->id] = fullname($user);
+// Optional prefill (used by the override blocker links).
+$prefill = optional_param('student', 0, PARAM_INT);
+$selectedstudent = [];
+if ($prefill && ($prefilluser = core_user::get_user($prefill))) {
+    $selectedstudent = [$prefill => fullname($prefilluser)];
 }
 $groupoptions = [];
 foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()], 'name ASC') as $group) {
@@ -54,10 +56,13 @@ $canbypass = has_capability('mod/selfselectadvanced:override', $context);
 
 $form = new \mod_selfselectadvanced\form\move_form(null, [
     'cmid' => $cm->id,
-    'students' => $students,
+    'selectedstudent' => $selectedstudent,
     'groups' => $groupoptions,
     'canbypass' => $canbypass,
 ]);
+if ($prefill) {
+    $form->set_data(['student' => $prefill]);
+}
 
 if ($form->is_cancelled()) {
     redirect($listurl);
@@ -69,7 +74,8 @@ if ($data = $form->get_data()) {
         (int) $data->target,
         !empty($data->makeleader),
         empty($data->successor) ? null : (int) $data->successor,
-        (int) $USER->id
+        (int) $USER->id,
+        !empty($data->replaceleader)
     );
     if ($canbypass && !empty($data->bypass)) {
         \mod_selfselectadvanced\local\override\store::save(

@@ -65,6 +65,7 @@ class moves {
      * @param bool $makeleader designate the student leader of the target
      * @param int|null $successorid new leader for the source when moving its leader out
      * @param int $actorid the acting manager
+     * @param bool $replaceleader explicit consent to demote the target group's current leader
      * @return stdClass the pending move row with validation results
      */
     public function stage(
@@ -73,7 +74,8 @@ class moves {
         int $targetgroupid,
         bool $makeleader,
         ?int $successorid,
-        int $actorid
+        int $actorid,
+        bool $replaceleader = false
     ): stdClass {
         global $DB;
 
@@ -93,6 +95,20 @@ class moves {
                 throw new \moodle_exception('errmovesuccessorrequired', 'mod_selfselectadvanced');
             }
         }
+        // A successor must be a confirmed member of the source group
+        // other than the student being moved (5000-user autocomplete
+        // means the value can be anyone; validate here, not in the UI).
+        if ($successorid) {
+            $issourcemember = $sourcegroupid !== null && $successorid !== $userid
+                && $DB->record_exists('selfselectadvanced_member', [
+                    'groupid' => $sourcegroupid,
+                    'userid' => $successorid,
+                    'status' => groups::STATUS_CONFIRMED,
+                ]);
+            if (!$issourcemember) {
+                throw new \moodle_exception('errmovebadsuccessor', 'mod_selfselectadvanced');
+            }
+        }
 
         $now = time();
         $move = (object) [
@@ -101,6 +117,7 @@ class moves {
             'sourcegroupid' => $sourcegroupid,
             'targetgroupid' => $targetgroupid,
             'makeleader' => $makeleader ? 1 : 0,
+            'replaceleader' => $replaceleader ? 1 : 0,
             'successorid' => $successorid,
             'status' => 'pending',
             'statusinfo' => null,
@@ -232,6 +249,28 @@ class moves {
             // L3 when the move designates a leader (target) or a successor (source).
             if ($move->makeleader) {
                 $verdicts['L3'] = $this->leadverdict((int) $move->userid, $moves, $bypasses);
+
+                // Deliberate leadership change (not code-bypassable):
+                // replacing an incumbent needs explicit consent unless
+                // that incumbent is leaving the target in this same
+                // set (a leader swap resolves itself).
+                $incumbent = (int) groups::get($this->activity, $targetid)->leaderid;
+                $incumbentleaves = false;
+                foreach ($moves as $other) {
+                    if ((int) $other->sourcegroupid === $targetid && (int) $other->userid === $incumbent) {
+                        $incumbentleaves = true;
+                    }
+                }
+                $consentok = !$incumbent
+                    || $incumbent === (int) $move->userid
+                    || $incumbentleaves
+                    || !empty($move->replaceleader);
+                $verdicts['LEADR'] = $this->verdict(
+                    $consentok,
+                    false,
+                    get_string('moveruleleadr', 'mod_selfselectadvanced', $incumbent
+                        ? fullname(\core_user::get_user($incumbent)) : '')
+                );
             }
             if ($move->successorid) {
                 $verdicts['L3S'] = $this->leadverdict((int) $move->successorid, $moves, $bypasses);
@@ -430,9 +469,10 @@ class moves {
             ]);
         }
         if ($move->makeleader) {
+            $demoted = (int) $target->leaderid;
             $DB->set_field('selfselectadvanced_member', 'isleader', 0, [
                 'groupid' => $target->id,
-                'userid' => (int) $target->leaderid,
+                'userid' => $demoted,
             ]);
             $DB->update_record('selfselectadvanced_group', (object) [
                 'id' => $target->id,
@@ -444,6 +484,25 @@ class moves {
                 'groupid' => $target->id,
                 'userid' => $userid,
             ]);
+            if ($demoted && $demoted !== $userid) {
+                notifier::send(
+                    $this->activity,
+                    'movecommitted',
+                    $demoted,
+                    'msgleaderreplacedsubject',
+                    'msgleaderreplacedbody',
+                    (object) [
+                        'group' => format_string($target->name),
+                        'pluginuid' => $target->pluginuid,
+                        'activity' => $this->activity->name(),
+                    ],
+                    new \moodle_url('/mod/selfselectadvanced/group.php', [
+                        'id' => $this->activity->cm()->id,
+                        'g' => (int) $target->id,
+                    ]),
+                    format_string($target->name)
+                );
+            }
         }
         freeze::sync_membership_change(
             $this->activity,

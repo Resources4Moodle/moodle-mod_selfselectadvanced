@@ -96,6 +96,14 @@ class attredit_form extends \moodleform {
         $mform->setType('subdepartment', PARAM_TEXT);
         $mform->addElement('text', 'mobile', get_string('attrmobile', 'mod_selfselectadvanced'), ['size' => 20]);
         $mform->setType('mobile', PARAM_TEXT);
+        $mform->addElement(
+            'text',
+            'seatlocation',
+            get_string('attrseatlocation', 'mod_selfselectadvanced'),
+            ['size' => 40]
+        );
+        $mform->setType('seatlocation', PARAM_TEXT);
+        $mform->addHelpButton('seatlocation', 'attrseatlocation', 'mod_selfselectadvanced');
 
         $this->add_action_buttons();
     }

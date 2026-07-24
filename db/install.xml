@@ -106,6 +106,7 @@
         <FIELD NAME="department" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="subdepartment" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="mobile" TYPE="char" LENGTH="32" NOTNULL="false" SEQUENCE="false" COMMENT="Contact number; shown only to holders of the viewall capability"/>
+        <FIELD NAME="seatlocation" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="faculty seat / office location shown to students"/>
         <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
@@ -155,6 +156,7 @@
         <FIELD NAME="quotaexempt" TYPE="int" LENGTH="1" NOTNULL="false" SEQUENCE="false" COMMENT="Group scope quota exemption"/>
         <FIELD NAME="penaltywaived" TYPE="int" LENGTH="1" NOTNULL="false" SEQUENCE="false" COMMENT="Group scope penalty waiver"/>
         <FIELD NAME="rulesbypassed" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="Move scope: comma-separated rule codes bypassed for that move"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="active" SEQUENCE="false" COMMENT="active or pending (guarded reduction awaiting blocker clearance)"/>
         <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
@@ -178,6 +180,7 @@
         <FIELD NAME="sourcegroupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Null when placing a groupless student"/>
         <FIELD NAME="targetgroupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="makeleader" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Designate the moved student leader of the target group"/>
+        <FIELD NAME="replaceleader" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="explicit consent to demote the target group leader"/>
         <FIELD NAME="successorid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="New leader for the source group when moving its leader out"/>
         <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="pending" SEQUENCE="false" COMMENT="pending, committed or cancelled"/>
         <FIELD NAME="statusinfo" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON per-rule validation results for the manager UI"/>

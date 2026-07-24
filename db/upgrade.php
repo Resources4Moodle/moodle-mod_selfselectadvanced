@@ -240,5 +240,27 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072413, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072414) {
+        // 1.2.0: guarded overrides (status), deliberate leader
+        // replacement on moves, faculty seat location attribute.
+        $table = new xmldb_table('selfselectadvanced_override');
+        $field = new xmldb_field('status', XMLDB_TYPE_CHAR, '10', null, XMLDB_NOTNULL, null, 'active', 'rulesbypassed');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $table = new xmldb_table('selfselectadvanced_move');
+        $field = new xmldb_field('replaceleader', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0', 'makeleader');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $table = new xmldb_table('selfselectadvanced_userattr');
+        $field = new xmldb_field('seatlocation', XMLDB_TYPE_CHAR, '100', null, null, null, null, 'mobile');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 2026072414, 'selfselectadvanced');
+    }
+
     return true;
 }

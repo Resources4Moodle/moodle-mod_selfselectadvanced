@@ -91,6 +91,62 @@ final class moves_test extends \advanced_testcase {
     }
 
     /**
+     * 1.2.0: leadership replacement is a deliberate act. Without the
+     * explicit flag the LEADR verdict blocks commit (and is not
+     * code-bypassable); with it, the incumbent is demoted to member
+     * and notified. A bad successor (non-member of the source) is
+     * refused at stage time.
+     */
+    public function test_leader_replacement_consent(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'maxsize' => 3,
+            'maxlead' => 2,
+            'maxmembership' => 2,
+        ]);
+
+        // Successor must be a confirmed member of the source group.
+        try {
+            $api->moves()->stage((int) $students[0]->id, (int) $a->id, (int) $b->id, false,
+                (int) $students[3]->id, 99);
+            $this->fail('bad successor expected');
+        } catch (\moodle_exception $e) {
+            $this->assertStringContainsString('successor must be a confirmed member', $e->getMessage());
+        }
+
+        // makeleader into a led group without consent: LEADR blocks.
+        $move = $api->moves()->stage((int) $students[4]->id, null, (int) $b->id, true, null, 99);
+        $verdicts = $api->moves()->validate_set([(int) $move->id]);
+        $this->assertFalse($verdicts->valid);
+        $this->assertFalse($verdicts->permove[(int) $move->id]['LEADR']['ok']);
+        $api->moves()->cancel((int) $move->id, 99);
+
+        // With replaceleader consent: valid, commits, demotes, notifies.
+        $move = $api->moves()->stage((int) $students[4]->id, null, (int) $b->id, true, null, 99, true);
+        $verdicts = $api->moves()->validate_set([(int) $move->id]);
+        $this->assertTrue($verdicts->permove[(int) $move->id]['LEADR']['ok']);
+        $sink = $this->redirectMessages();
+        $api->moves()->commit_set([(int) $move->id], 99);
+        $messages = $sink->get_messages();
+        $sink->close();
+
+        $fresh = groups::get($activity, (int) $b->id);
+        $this->assertSame((int) $students[4]->id, (int) $fresh->leaderid);
+        $this->assertSame(0, (int) $DB->get_field('selfselectadvanced_member', 'isleader', [
+            'groupid' => $b->id,
+            'userid' => (int) $students[2]->id,
+        ]));
+        $demotednote = array_filter(
+            $messages,
+            fn($m) => (int) $m->useridto === (int) $students[2]->id
+                && str_contains($m->fullmessage, 'appointed a new leader')
+        );
+        $this->assertNotEmpty($demotednote);
+    }
+
+    /**
      * A single move that would break the source minimum or the target
      * maximum is invalid alone, but a SWAP of two students commits as
      * a jointly-valid set (A4) - and nothing changes while pending.

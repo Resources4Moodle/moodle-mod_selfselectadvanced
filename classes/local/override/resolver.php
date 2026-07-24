@@ -269,7 +269,10 @@ class resolver {
         global $DB;
 
         $this->overrides = [];
-        $rows = $DB->get_records('selfselectadvanced_override', ['activityid' => $this->activity->id()], 'id ASC');
+        $rows = $DB->get_records('selfselectadvanced_override', [
+            'activityid' => $this->activity->id(),
+            'status' => 'active',
+        ], 'id ASC');
         foreach ($rows as $row) {
             $targetid = match ($row->scope) {
                 'user', 'guide' => (int) $row->userid,

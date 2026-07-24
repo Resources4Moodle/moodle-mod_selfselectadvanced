@@ -188,7 +188,41 @@ foreach (['user', 'group', 'guide'] as $tab) {
     ];
 }
 
+// Guarded reductions: re-check pending rows on every visit (and via
+// the explicit button) so cleared blockers activate immediately; the
+// remainder are listed with links to the page that resolves each one.
+$pending = \mod_selfselectadvanced\local\override\store::recheck_pending($activity, (int) $USER->id);
+$pendingout = [];
+foreach ($pending as $row) {
+    $target = in_array($row->scope, ['user', 'guide'], true)
+        ? fullname(\core_user::get_user((int) $row->userid))
+        : format_string($DB->get_field('selfselectadvanced_group', 'name', ['id' => (int) $row->groupid]));
+    $items = [];
+    foreach ($row->blockers as $blocker) {
+        $items[] = $OUTPUT->action_link(
+            $blocker->fixurl,
+            $blocker->description,
+            new popup_action('click', $blocker->fixurl, 'ssafix' . $row->id . $blocker->rule,
+                ['width' => 1100, 'height' => 750])
+        );
+    }
+    $pendingout[] = html_writer::div(
+        html_writer::span(get_string('overridescope' . $row->scope, 'mod_selfselectadvanced') . ': ' . $target, 'fw-bold')
+        . html_writer::alist($items),
+        'selfselectadvanced-pendingoverride mb-2'
+    );
+}
+
 echo $OUTPUT->header();
+if ($pendingout) {
+    echo $OUTPUT->notification(get_string('overridespendingintro', 'mod_selfselectadvanced'), 'warning', false);
+    echo html_writer::div(implode('', $pendingout), 'mb-3');
+    echo $OUTPUT->single_button(
+        new moodle_url('/mod/selfselectadvanced/overrides.php', ['id' => $cm->id]),
+        get_string('overridesrecheck', 'mod_selfselectadvanced'),
+        'get'
+    );
+}
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/overrides_list', (object) [
     'tabs' => $tabs,
     'rows' => $rows,

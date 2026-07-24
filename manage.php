@@ -125,6 +125,8 @@ $links = [
     ['ledger.php', 'penaltyledger'],
     ['flagged.php', 'flaggedreport'],
     ['templates.php', 'notificationtemplates'],
+    ['guidelist.php', 'guidelist'],
+    ['roster.php', 'roster'],
 ];
 $linkhtml = '';
 foreach ($links as [$file, $stringkey]) {
@@ -178,8 +180,8 @@ echo $OUTPUT->render_from_template('mod_selfselectadvanced/manage_queue', (objec
     'hasqueue' => !empty($queue),
     'guideoptions' => $guideoptions,
     'hasguideoptions' => !empty($guideoptions),
-    'guideloads' => array_values($guides),
-    'hasguideloads' => !empty($guides),
+    'guideloads' => [],
+    'hasguideloads' => false,
     'sesskey' => sesskey(),
     'cmid' => $cm->id,
     'actionurl' => $baseurl->out(false),

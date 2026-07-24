@@ -36,6 +36,29 @@ use mod_selfselectadvanced\local\attributes\depts;
 $action = optional_param('action', '', PARAM_ALPHA);
 $baseurl = new moodle_url('/mod/selfselectadvanced/departments.php');
 
+if ($action === 'bulk') {
+    $form = new \mod_selfselectadvanced\form\dept_bulk_form(new moodle_url($baseurl, ['action' => 'bulk']));
+    if ($form->is_cancelled()) {
+        redirect($baseurl);
+    }
+    if ($data = $form->get_data()) {
+        $report = \mod_selfselectadvanced\local\attributes\depts::bulk_add($data->tree);
+        redirect(
+            $baseurl,
+            get_string('deptbulkresult', 'mod_selfselectadvanced', $report),
+            null,
+            $report->errors
+                ? \core\output\notification::NOTIFY_WARNING
+                : \core\output\notification::NOTIFY_SUCCESS
+        );
+    }
+    echo $OUTPUT->header();
+    echo $OUTPUT->heading(get_string('departments', 'mod_selfselectadvanced'));
+    $form->display();
+    echo $OUTPUT->footer();
+    die;
+}
+
 if ($action === 'add' || $action === 'rename') {
     $id = optional_param('d', 0, PARAM_INT);
     $form = new \mod_selfselectadvanced\form\dept_form(new moodle_url($baseurl, [
@@ -126,9 +149,16 @@ if ($rows) {
     echo $OUTPUT->notification(get_string('departmentsnone', 'mod_selfselectadvanced'), 'warning', false);
 }
 
+echo html_writer::start_div('d-flex gap-2');
 echo $OUTPUT->single_button(
     new moodle_url($baseurl, ['action' => 'add']),
     get_string('deptadd', 'mod_selfselectadvanced'),
     'get'
 );
+echo $OUTPUT->single_button(
+    new moodle_url($baseurl, ['action' => 'bulk']),
+    get_string('deptbulk', 'mod_selfselectadvanced'),
+    'get'
+);
+echo html_writer::end_div();
 echo $OUTPUT->footer();

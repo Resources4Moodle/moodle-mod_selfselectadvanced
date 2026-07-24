@@ -143,7 +143,15 @@ class store {
         }
         $record->usermodified = $actorid;
         $record->timemodified = $now;
+        // Guarded reductions: a cap set below the target's current
+        // position parks the whole row as 'pending' until the excess
+        // is resolved (blockers listed on the overrides page); the
+        // resolver only ever sees 'active' rows.
+        $record->blockers = guard::blockers($activity, $record);
+        $record->status = $record->blockers ? 'pending' : 'active';
 
+        $blockers = $record->blockers;
+        unset($record->blockers);
         if ($existing) {
             $DB->update_record('selfselectadvanced_override', $record);
             $eventclass = \mod_selfselectadvanced\event\override_updated::class;
@@ -151,6 +159,7 @@ class store {
             $record->id = $DB->insert_record('selfselectadvanced_override', $record);
             $eventclass = \mod_selfselectadvanced\event\override_created::class;
         }
+        $record->blockers = $blockers;
 
         $eventclass::create([
             'objectid' => $record->id,
@@ -167,6 +176,52 @@ class store {
         $transaction->allow_commit();
 
         return $record;
+    }
+
+    /**
+     * Re-evaluate every pending override; rows whose blockers have all
+     * been cleared become active (and start resolving). Returns the
+     * still-pending rows with their live blockers attached.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the acting user
+     * @return stdClass[] still-pending rows, each with ->blockers
+     */
+    public static function recheck_pending(activity $activity, int $actorid): array {
+        global $DB;
+
+        $stillpending = [];
+        $rows = $DB->get_records('selfselectadvanced_override', [
+            'activityid' => $activity->id(),
+            'status' => 'pending',
+        ], 'id ASC');
+        foreach ($rows as $row) {
+            $blockers = guard::blockers($activity, $row);
+            if ($blockers) {
+                $row->blockers = $blockers;
+                $stillpending[] = $row;
+                continue;
+            }
+            $DB->update_record('selfselectadvanced_override', (object) [
+                'id' => $row->id,
+                'status' => 'active',
+                'usermodified' => $actorid,
+                'timemodified' => time(),
+            ]);
+            \mod_selfselectadvanced\event\override_updated::create([
+                'objectid' => (int) $row->id,
+                'context' => $activity->context(),
+                'relateduserid' => in_array($row->scope, ['user', 'guide'], true) ? (int) $row->userid : null,
+                'other' => [
+                    'scope' => $row->scope,
+                    'targetid' => (int) ($row->userid ?? $row->groupid),
+                    'oldvalues' => ['status' => 'pending'],
+                    'newvalues' => ['status' => 'active'],
+                ],
+            ])->trigger();
+        }
+
+        return $stillpending;
     }
 
     /**

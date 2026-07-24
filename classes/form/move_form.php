@@ -42,12 +42,18 @@ class move_form extends \moodleform {
         $mform->addElement('hidden', 'id', $this->_customdata['cmid']);
         $mform->setType('id', PARAM_INT);
 
+        // AJAX selector: with thousands of enrolled students a
+        // preloaded dropdown is not workable; membership and
+        // enrolment are re-validated server-side by the moves engine.
         $mform->addElement(
             'autocomplete',
             'student',
             get_string('movestudent', 'mod_selfselectadvanced'),
-            $this->_customdata['students'],
-            ['noselectionstring' => get_string('choosedots')]
+            $this->_customdata['selectedstudent'] ?? [],
+            [
+                'ajax' => 'core_user/form_user_selector',
+                'noselectionstring' => get_string('choosedots'),
+            ]
         );
         $mform->addRule('student', get_string('required'), 'required', null, 'client');
 
@@ -69,20 +75,49 @@ class move_form extends \moodleform {
 
         $mform->addElement('advcheckbox', 'makeleader', get_string('movemakeleader', 'mod_selfselectadvanced'));
 
+        // Deliberate leadership change: replacing an existing target
+        // leader must be an explicit decision, never a side effect —
+        // it shifts succession, penalty dates (P16) and gradebook
+        // attribution to a different person.
         $mform->addElement(
-            'select',
+            'advcheckbox',
+            'replaceleader',
+            get_string('movereplaceleader', 'mod_selfselectadvanced')
+        );
+        $mform->addHelpButton('replaceleader', 'movereplaceleader', 'mod_selfselectadvanced');
+        $mform->disabledIf('replaceleader', 'makeleader', 'notchecked');
+
+        $mform->addElement(
+            'autocomplete',
             'successor',
             get_string('movesuccessor', 'mod_selfselectadvanced'),
-            [0 => get_string('choosedots')] + $this->_customdata['students']
+            [],
+            [
+                'ajax' => 'core_user/form_user_selector',
+                'noselectionstring' => get_string('choosedots'),
+            ]
         );
         $mform->addHelpButton('successor', 'movesuccessor', 'mod_selfselectadvanced');
 
         if ($this->_customdata['canbypass']) {
+            // Each bypass is named in words so ticking one is a
+            // deliberate act, not a guess at a code.
             $bypass = [];
             foreach (['L1', 'L2', 'L3', 'L4', 'QUOTA'] as $code) {
-                $bypass[] = $mform->createElement('advcheckbox', $code, '', $code);
+                $bypass[] = $mform->createElement(
+                    'advcheckbox',
+                    $code,
+                    '',
+                    get_string('movebypass' . strtolower($code), 'mod_selfselectadvanced')
+                );
             }
-            $mform->addGroup($bypass, 'bypassgroup', get_string('movebypasslabel', 'mod_selfselectadvanced'), ' ', true);
+            $mform->addGroup(
+                $bypass,
+                'bypassgroup',
+                get_string('movebypasslabel', 'mod_selfselectadvanced'),
+                '<br>',
+                true
+            );
             $mform->addHelpButton('bypassgroup', 'movebypasslabel', 'mod_selfselectadvanced');
         }
 

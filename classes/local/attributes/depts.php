@@ -175,6 +175,56 @@ class depts {
     }
 
     /**
+     * Bulk-add categories from pasted text: one path per line, levels
+     * separated by "/" (e.g. "Engineering / Mechanical / Thermo").
+     * Existing nodes are reused, missing ones created; nothing is
+     * deleted. Returns counts and per-line errors.
+     *
+     * @param string $text the pasted tree
+     * @return stdClass report {created, existing, errors, errorlines[]}
+     */
+    public static function bulk_add(string $text): stdClass {
+        global $DB;
+
+        $report = (object) ['created' => 0, 'existing' => 0, 'errors' => 0, 'errorlines' => []];
+        $transaction = $DB->start_delegated_transaction();
+        foreach (preg_split('/\R/', $text) as $lineno => $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            $parts = array_map('trim', explode('/', $line));
+            $parentid = 0;
+            try {
+                foreach ($parts as $name) {
+                    if ($name === '' || \core_text::strlen($name) > 100) {
+                        throw new moodle_exception('errdeptname', 'mod_selfselectadvanced');
+                    }
+                    $existing = $DB->get_record('selfselectadvanced_dept', [
+                        'parent' => $parentid,
+                        'name' => $name,
+                    ]);
+                    if ($existing) {
+                        $report->existing++;
+                        $parentid = (int) $existing->id;
+                    } else {
+                        $created = self::create($name, $parentid);
+                        $report->created++;
+                        $parentid = (int) $created->id;
+                    }
+                }
+            } catch (moodle_exception $e) {
+                $report->errors++;
+                $report->errorlines[] = ($lineno + 1) . ': ' . $line;
+            }
+        }
+        $transaction->allow_commit();
+        $report->errordetail = implode('; ', $report->errorlines);
+
+        return $report;
+    }
+
+    /**
      * Menu of top-level department names.
      *
      * @return string[] name => name, display-ordered

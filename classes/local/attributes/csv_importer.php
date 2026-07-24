@@ -88,6 +88,9 @@ class csv_importer {
         if (isset($map['emailaddress']) && !isset($map['email'])) {
             $map['email'] = $map['emailaddress'];
         }
+        if (isset($map['seatlocation']) && !isset($map['seat'])) {
+            $map['seat'] = $map['seatlocation'];
+        }
         $missing = array_diff(self::REQUIRED, array_keys($map));
         if ($missing) {
             $report->headererror = get_string('csvmissingcolumns', 'mod_selfselectadvanced', implode(', ', $missing));
@@ -164,12 +167,16 @@ class csv_importer {
 
             $exists = $DB->record_exists('selfselectadvanced_userattr', ['userid' => $user->id]);
             if ($commit) {
-                manager::set((int) $user->id, [
+                $set = [
                     'gender' => $get('gender'),
                     'department' => $get('department'),
                     'subdepartment' => $get('subdepartment'),
                     'mobile' => $mobile,
-                ], $actorid);
+                ];
+                if (isset($map['seat'])) {
+                    $set['seatlocation'] = $get('seat');
+                }
+                manager::set((int) $user->id, $set, $actorid);
             }
             if ($exists) {
                 $report->updated++;
