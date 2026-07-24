@@ -96,6 +96,18 @@ class attredit_form extends \moodleform {
         $mform->setType('subdepartment', PARAM_TEXT);
         $mform->addElement('text', 'mobile', get_string('attrmobile', 'mod_selfselectadvanced'), ['size' => 20]);
         $mform->setType('mobile', PARAM_TEXT);
+        $programs = depts::programs_menu();
+        if ($programs) {
+            $mform->addElement(
+                'select',
+                'program',
+                get_string('attrprogram', 'mod_selfselectadvanced'),
+                ['' => get_string('none')] + $programs
+            );
+        } else {
+            $mform->addElement('text', 'program', get_string('attrprogram', 'mod_selfselectadvanced'), ['size' => 30]);
+        }
+        $mform->setType('program', PARAM_TEXT);
         $mform->addElement(
             'text',
             'seatlocation',

@@ -157,13 +157,20 @@ final class depts_test extends \advanced_testcase {
         $this->assertSame(1, $report->created);
         $this->assertSame([], $report->rejected);
 
-        // Configured: the same row is rejected, a valid row imports.
+        // 1.3.0 policy: the ingest runs at ADMIN level, so unknown
+        // vocabulary is CREATED (warned), never rejected.
         $eng = depts::create('Engineering');
         depts::create('Mechanical', (int) $eng->id);
-        $report = csv_importer::run($this->reader($header . "alpha,,,F,Astrology,Starlore,\n"), 2, true);
-        $this->assertCount(1, $report->rejected);
-        $this->assertStringContainsString('Astrology', $report->rejected[0]);
+        $report = csv_importer::run($this->reader($header . "alpha,,,F,Alchemy,Potions,\n"), 2, true);
+        $this->assertSame([], $report->rejected);
+        $this->assertNotEmpty(array_filter(
+            $report->warnings,
+            static fn($w) => str_contains($w, 'Alchemy / Potions') && str_contains($w, 'created')
+        ));
+        $this->assertNull(depts::validate_pair('Alchemy', 'Potions'));
+        $this->assertSame('Alchemy', manager::get((int) $u1->id)->department);
 
+        // A known pair imports silently.
         $report = csv_importer::run(
             $this->reader($header . "alpha,,,F,Engineering,Mechanical,\n"),
             2,
@@ -173,10 +180,13 @@ final class depts_test extends \advanced_testcase {
         $this->assertSame(1, $report->updated);
         $this->assertSame('Engineering', manager::get((int) $u1->id)->department);
 
-        // Sub-department under the wrong parent is rejected too.
+        // A sub-department under a different parent becomes a NEW
+        // child of that parent (same name may live under two parents).
         $sci = depts::create('Science');
         depts::create('Physics', (int) $sci->id);
         $report = csv_importer::run($this->reader($header . "alpha,,,F,Engineering,Physics,\n"), 2, true);
-        $this->assertCount(1, $report->rejected);
+        $this->assertSame([], $report->rejected);
+        $this->assertNull(depts::validate_pair('Engineering', 'Physics'));
+        $this->assertNull(depts::validate_pair('Science', 'Physics'));
     }
 }

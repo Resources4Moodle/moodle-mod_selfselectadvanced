@@ -174,8 +174,13 @@ final class attributes_test extends \advanced_testcase {
         // Unknown user rejected with the create-the-account guidance.
         $this->assertCount(1, $report->rejected);
         $this->assertStringContainsString('ghost', $report->rejected[0]);
-        // Name mismatch warned, row ingested; bad mobile warned, skipped.
-        $this->assertCount(2, $report->warnings);
+        // Name mismatch warned; bad mobile warned; unknown vocabulary
+        // auto-created with a warning (1.3.0 admin-level policy).
+        $this->assertCount(3, $report->warnings);
+        $this->assertNotEmpty(array_filter(
+            $report->warnings,
+            static fn($w) => str_contains($w, 'Civil / Structures')
+        ));
         $record = manager::get((int) \core_user::get_user_by_username('gamma')->id);
         $this->assertSame('Civil', $record->department);
         $this->assertNull($record->mobile);

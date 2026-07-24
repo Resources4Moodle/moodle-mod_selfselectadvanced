@@ -43,7 +43,7 @@ class depts {
     public static function get_all(): array {
         global $DB;
 
-        $records = $DB->get_records('selfselectadvanced_dept', null, 'sortorder, id');
+        $records = $DB->get_records('selfselectadvanced_dept', ['kind' => 'dept'], 'sortorder, id');
         // Depth-first order: sort by path of sortorders.
         $bypath = [];
         foreach ($records as $record) {
@@ -96,11 +96,95 @@ class depts {
             'timecreated' => $now,
             'timemodified' => $now,
         ];
+        $record->kind = 'dept';
         $record->id = $DB->insert_record('selfselectadvanced_dept', $record);
         $record->path = ($parentrecord ? $parentrecord->path : '') . '/' . $record->id;
         $DB->set_field('selfselectadvanced_dept', 'path', $record->path, ['id' => $record->id]);
 
         return $record;
+    }
+
+    /**
+     * Ensure a department (and optional sub-department) exist,
+     * creating missing nodes — the admin-level auto-create used by the
+     * CSV importer (2026-07-24 change: admins define by ingesting).
+     *
+     * @param string $department department name
+     * @param string $subdepartment sub-department name ('' = none)
+     */
+    public static function ensure(string $department, string $subdepartment = ''): void {
+        global $DB;
+
+        $department = trim($department);
+        if ($department === '') {
+            return;
+        }
+        $parent = $DB->get_record('selfselectadvanced_dept', [
+            'kind' => 'dept',
+            'parent' => 0,
+            'name' => $department,
+        ]);
+        if (!$parent) {
+            $parent = self::create($department, 0);
+        }
+        $subdepartment = trim($subdepartment);
+        if ($subdepartment === '') {
+            return;
+        }
+        $exists = $DB->record_exists('selfselectadvanced_dept', [
+            'kind' => 'dept',
+            'parent' => (int) $parent->id,
+            'name' => $subdepartment,
+        ]);
+        if (!$exists) {
+            self::create($subdepartment, (int) $parent->id);
+        }
+    }
+
+    /**
+     * The programme vocabulary (flat, kind=program rows).
+     *
+     * @return string[] name => name
+     */
+    public static function programs_menu(): array {
+        global $DB;
+
+        $menu = [];
+        foreach ($DB->get_records('selfselectadvanced_dept', ['kind' => 'program'], 'sortorder, name') as $row) {
+            $menu[$row->name] = $row->name;
+        }
+
+        return $menu;
+    }
+
+    /**
+     * Ensure a programme exists in the vocabulary (admin-level
+     * auto-create on ingest).
+     *
+     * @param string $program the programme name
+     */
+    public static function ensure_program(string $program): void {
+        global $DB;
+
+        $program = trim($program);
+        if ($program === '' || \core_text::strlen($program) > 100) {
+            return;
+        }
+        if ($DB->record_exists('selfselectadvanced_dept', ['kind' => 'program', 'parent' => 0, 'name' => $program])) {
+            return;
+        }
+        $now = time();
+        $id = $DB->insert_record('selfselectadvanced_dept', (object) [
+            'name' => $program,
+            'kind' => 'program',
+            'parent' => 0,
+            'depth' => 1,
+            'path' => '',
+            'sortorder' => 1 + (int) $DB->count_records('selfselectadvanced_dept', ['kind' => 'program']),
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        $DB->set_field('selfselectadvanced_dept', 'path', '/' . $id, ['id' => $id]);
     }
 
     /**
@@ -298,6 +382,6 @@ class depts {
     public static function is_configured(): bool {
         global $DB;
 
-        return $DB->record_exists('selfselectadvanced_dept', []);
+        return $DB->record_exists('selfselectadvanced_dept', ['kind' => 'dept']);
     }
 }

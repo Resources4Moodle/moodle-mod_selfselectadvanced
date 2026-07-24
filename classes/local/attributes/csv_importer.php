@@ -91,6 +91,9 @@ class csv_importer {
         if (isset($map['seatlocation']) && !isset($map['seat'])) {
             $map['seat'] = $map['seatlocation'];
         }
+        if (isset($map['typeofprogram']) && !isset($map['program'])) {
+            $map['program'] = $map['typeofprogram'];
+        }
         $missing = array_diff(self::REQUIRED, array_keys($map));
         if ($missing) {
             $report->headererror = get_string('csvmissingcolumns', 'mod_selfselectadvanced', implode(', ', $missing));
@@ -99,7 +102,6 @@ class csv_importer {
         }
 
         $transaction = $commit ? $DB->start_delegated_transaction() : null;
-        $deptsconfigured = depts::is_configured();
 
         $reader->init();
         $line = 1;
@@ -141,18 +143,30 @@ class csv_importer {
                 ]);
             }
 
-            // Pre-defined department vocabulary: once the tree is
-            // configured, rows with values outside it are rejected —
-            // free text invites typos (spec change 2026-07-24).
-            if ($deptsconfigured) {
-                $bad = depts::validate_pair($get('department'), $get('subdepartment'));
-                if ($bad !== null) {
-                    $report->rejected[] = get_string('csvrejectedbaddept', 'mod_selfselectadvanced', (object) [
-                        'line' => $line,
-                        'username' => $user->username,
-                        'value' => $get($bad) !== '' ? $get($bad) : get_string('none'),
-                    ]);
-                    continue;
+            // Vocabulary handling (2026-07-24 policy change): this
+            // importer runs at admin level, so unknown departments,
+            // sub-departments and programmes are CREATED, not
+            // rejected — the ingest is how admins drill the tree.
+            // Each auto-creation is reported as a warning.
+            $dept = $get('department');
+            $sub = $get('subdepartment');
+            if ($dept !== '' && depts::validate_pair($dept, $sub) !== null) {
+                $report->warnings[] = get_string('csvvocabcreated', 'mod_selfselectadvanced', (object) [
+                    'line' => $line,
+                    'value' => $sub !== '' ? $dept . ' / ' . $sub : $dept,
+                ]);
+                if ($commit) {
+                    depts::ensure($dept, $sub);
+                }
+            }
+            $program = isset($map['program']) ? $get('program') : '';
+            if ($program !== '' && !array_key_exists($program, depts::programs_menu())) {
+                $report->warnings[] = get_string('csvvocabcreated', 'mod_selfselectadvanced', (object) [
+                    'line' => $line,
+                    'value' => $program,
+                ]);
+                if ($commit) {
+                    depts::ensure_program($program);
                 }
             }
 
@@ -175,6 +189,9 @@ class csv_importer {
                 ];
                 if (isset($map['seat'])) {
                     $set['seatlocation'] = $get('seat');
+                }
+                if (isset($map['program'])) {
+                    $set['program'] = $get('program');
                 }
                 manager::set((int) $user->id, $set, $actorid);
             }

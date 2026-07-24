@@ -132,6 +132,14 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setDefault('autogroup', 0);
         $mform->addHelpButton('autogroup', 'autogroup', 'mod_selfselectadvanced');
 
+        $mform->addElement(
+            'advcheckbox',
+            'proposalrequired',
+            get_string('proposalrequired', 'mod_selfselectadvanced')
+        );
+        $mform->setDefault('proposalrequired', 0);
+        $mform->addHelpButton('proposalrequired', 'proposalrequired', 'mod_selfselectadvanced');
+
         $this->standard_coursemodule_elements();
         $this->add_action_buttons();
     }

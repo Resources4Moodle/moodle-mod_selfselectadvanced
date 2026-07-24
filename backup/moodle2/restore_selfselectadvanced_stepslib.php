@@ -41,6 +41,7 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
             new restore_path_element('selfselectadvanced', '/activity/selfselectadvanced'),
             new restore_path_element('ssaquota', '/activity/selfselectadvanced/quotas/quota'),
             new restore_path_element('ssatemplate', '/activity/selfselectadvanced/templates/template'),
+            new restore_path_element('ssaqslot', '/activity/selfselectadvanced/qslots/qslot'),
         ];
         if ($userinfo) {
             $paths[] = new restore_path_element('ssagroup', '/activity/selfselectadvanced/groups/group');
@@ -103,6 +104,19 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         $data = (object) $data;
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
         $DB->insert_record('selfselectadvanced_template', $data);
+    }
+
+    /**
+     * Restore a composition-template slot.
+     *
+     * @param array $data the row
+     */
+    protected function process_ssaqslot($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $data->activityid = $this->get_new_parentid('selfselectadvanced');
+        $DB->insert_record('selfselectadvanced_qslot', $data);
     }
 
     /**
@@ -228,6 +242,7 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
      * Nothing file-based to add after execution.
      */
     protected function after_execute() {
+        $this->add_related_files('mod_selfselectadvanced', 'proposal', 'ssagroup');
         $this->add_related_files('mod_selfselectadvanced', 'intro', null);
     }
 }

@@ -76,6 +76,20 @@ if ($action === 'approve') {
     die;
 }
 
+if ($action === 'savenotes' && data_submitted() && confirm_sesskey()) {
+    // Guide notes: rich text the guide keeps before accepting (1.3.0).
+    $notes = optional_param('guidenotes', '', PARAM_RAW);
+    $notesformat = optional_param('guidenotesformat', FORMAT_HTML, PARAM_INT);
+    $DB->update_record('selfselectadvanced_group', (object) [
+        'id' => $group->id,
+        'guidenotes' => $notes,
+        'guidenotesformat' => $notesformat,
+        'timemodified' => time(),
+    ]);
+    redirect($baseurl, get_string('guidenotessaved', 'mod_selfselectadvanced'), null,
+        \core\output\notification::NOTIFY_SUCCESS);
+}
+
 if ($action === 'returngroup' && data_submitted() && confirm_sesskey()) {
     $comment = required_param('comment', PARAM_TEXT);
     $api->lifecycle()->return_group($group, $comment, (int) $USER->id);
@@ -91,4 +105,46 @@ $page = new \mod_selfselectadvanced\output\review_page($api, $group, (int) $USER
 
 echo $OUTPUT->header();
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/review_page', $page->export_for_template($OUTPUT));
+
+// Proposal (read) + guide notes (rich text, guide/manager only).
+$fs = get_file_storage();
+$proposalhtml = '';
+foreach ($fs->get_area_files($context->id, 'mod_selfselectadvanced', 'proposal', (int) $group->id, 'id', false) as $file) {
+    $url = moodle_url::make_pluginfile_url($context->id, 'mod_selfselectadvanced', 'proposal',
+        (int) $group->id, $file->get_filepath(), $file->get_filename(), true);
+    $proposalhtml .= html_writer::div(html_writer::link($url, $file->get_filename()));
+}
+echo html_writer::div(
+    $OUTPUT->heading(get_string('proposal', 'mod_selfselectadvanced'), 4)
+    . ($proposalhtml ?: html_writer::div(get_string('proposalmissing', 'mod_selfselectadvanced'))),
+    'selfselectadvanced-proposal mt-3'
+);
+
+echo $OUTPUT->heading(get_string('guidenotes', 'mod_selfselectadvanced'), 4);
+echo $OUTPUT->notification(get_string('guidenotesintro', 'mod_selfselectadvanced'), 'info', false);
+if (trim((string) $group->guidenotes) !== '') {
+    echo html_writer::div(
+        format_text($group->guidenotes, $group->guidenotesformat, ['context' => $context]),
+        'selfselectadvanced-guidenotes border rounded p-3 mb-3'
+    );
+}
+$editorid = 'ssa-guidenotes-' . $group->id;
+echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $group->id]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'savenotes']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'guidenotesformat', 'value' => FORMAT_HTML]);
+echo html_writer::tag(
+    'textarea',
+    s($group->guidenotes ?? ''),
+    ['name' => 'guidenotes', 'id' => $editorid, 'rows' => 6, 'class' => 'form-control mb-2 w-100']
+);
+editors_head_setup();
+$editor = editors_get_preferred_editor(FORMAT_HTML);
+$editor->set_text($group->guidenotes ?? '');
+$editor->use_editor($editorid, ['context' => $context, 'autosave' => false]);
+echo html_writer::empty_tag('input', ['type' => 'submit',
+    'value' => get_string('guidenotessave', 'mod_selfselectadvanced'), 'class' => 'btn btn-secondary']);
+echo html_writer::end_tag('form');
 echo $OUTPUT->footer();

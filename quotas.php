@@ -50,6 +50,22 @@ if (($action === 'moveup' || $action === 'movedown') && data_submitted() && conf
     redirect($baseurl);
 }
 
+if ($action === 'slotadd' && data_submitted() && confirm_sesskey()) {
+    \mod_selfselectadvanced\local\quota\slots::create($activity, (object) [
+        'mincount' => required_param('mincount', PARAM_INT),
+        'dimension' => required_param('dimension', PARAM_ALPHA),
+        'matchtype' => required_param('matchtype', PARAM_ALPHA),
+        'value' => optional_param('value', '', PARAM_TEXT),
+        'allowoverlap' => optional_param('allowoverlap', 0, PARAM_INT),
+    ]);
+    redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
+}
+
+if ($action === 'slotdelete' && data_submitted() && confirm_sesskey()) {
+    \mod_selfselectadvanced\local\quota\slots::delete($activity, required_param('slot', PARAM_INT));
+    redirect($baseurl);
+}
+
 if ($action === 'delete' && data_submitted() && confirm_sesskey()) {
     $ruleid = required_param('rule', PARAM_INT);
     \mod_selfselectadvanced\local\quota\store::delete($activity, $ruleid);
@@ -159,4 +175,70 @@ echo $OUTPUT->render_from_template('mod_selfselectadvanced/quota_rules', (object
     'sesskey' => sesskey(),
     'backurl' => (new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]))->out(false),
 ]);
+// Composition template (slot) section.
+echo $OUTPUT->heading(get_string('slottemplate', 'mod_selfselectadvanced'), 3);
+echo $OUTPUT->notification(get_string('slottemplateintro', 'mod_selfselectadvanced'), 'info', false);
+$slotrows = [];
+foreach (\mod_selfselectadvanced\local\quota\slots::get_all($activity) as $slot) {
+    $delform = html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => $baseurl->out(false),
+        'class' => 'd-inline',
+    ])
+        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id])
+        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'slotdelete'])
+        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'slot', 'value' => $slot->id])
+        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
+        . html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('delete'),
+            'class' => 'btn btn-outline-danger btn-sm', ])
+        . html_writer::end_tag('form');
+    $slotrows[] = [
+        (int) $slot->slotno,
+        \mod_selfselectadvanced\local\quota\slots::label($slot),
+        $delform,
+    ];
+}
+if ($slotrows) {
+    $slottable = new html_table();
+    $slottable->head = ['#', get_string('slotrule', 'mod_selfselectadvanced'), get_string('actions')];
+    $slottable->data = $slotrows;
+    $slottable->attributes['class'] = 'generaltable selfselectadvanced-slots';
+    echo html_writer::table($slottable);
+}
+$dimoptions = '';
+foreach (\mod_selfselectadvanced\local\quota\slots::DIMENSIONS as $dim) {
+    $dimoptions .= html_writer::tag('option', get_string('attr' . $dim, 'mod_selfselectadvanced'), ['value' => $dim]);
+}
+echo html_writer::start_tag('form', [
+    'method' => 'post',
+    'action' => $baseurl->out(false),
+    'class' => 'form-inline d-flex flex-wrap align-items-center gap-2 mb-3',
+]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'slotadd']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+echo html_writer::label(get_string('slotmincount', 'mod_selfselectadvanced'), 'slot-mincount');
+echo html_writer::empty_tag('input', ['type' => 'number', 'name' => 'mincount', 'id' => 'slot-mincount',
+    'value' => 1, 'min' => 1, 'max' => 50, 'class' => 'form-control', 'style' => 'width:5em', ]);
+echo html_writer::label(get_string('quotadimension', 'mod_selfselectadvanced'), 'slot-dimension');
+echo html_writer::tag('select', $dimoptions, [
+    'name' => 'dimension',
+    'id' => 'slot-dimension',
+    'class' => 'form-select w-auto',
+]);
+echo html_writer::label(get_string('slotmatchtype', 'mod_selfselectadvanced'), 'slot-matchtype');
+echo html_writer::tag(
+    'select',
+    html_writer::tag('option', get_string('slotmatchvalue', 'mod_selfselectadvanced'), ['value' => 'value'])
+    . html_writer::tag('option', get_string('slotmatchdistinct', 'mod_selfselectadvanced'), ['value' => 'distinct']),
+    ['name' => 'matchtype', 'id' => 'slot-matchtype', 'class' => 'form-select w-auto']
+);
+echo html_writer::label(get_string('slotvalue', 'mod_selfselectadvanced'), 'slot-value');
+echo html_writer::empty_tag('input', ['type' => 'text', 'name' => 'value', 'id' => 'slot-value',
+    'class' => 'form-control', 'placeholder' => get_string('slotvaluehint', 'mod_selfselectadvanced'), ]);
+echo html_writer::checkbox('allowoverlap', 1, false, get_string('slotallowoverlap', 'mod_selfselectadvanced'));
+echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('slotadd', 'mod_selfselectadvanced'),
+    'class' => 'btn btn-secondary', ]);
+echo html_writer::end_tag('form');
+
 echo $OUTPUT->footer();

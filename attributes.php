@@ -35,6 +35,46 @@ require_once($CFG->libdir . '/csvlib.class.php');
 admin_externalpage_setup('modselfselectadvancedattributes');
 
 $action = optional_param('action', '', PARAM_ALPHA);
+
+// Blank CSV templates: the exact header plus one scaffold row per
+// department / sub-department pair of the drilled vocabulary, stamped
+// with the chosen programme - so every campus office fills the same
+// shape (2026-07-24 request).
+if ($action === 'template') {
+    $program = optional_param('program', '', PARAM_TEXT);
+    $rows = [['Username', 'First name', 'Last Name', 'Gender', 'Department', 'Sub-Department',
+        'Mobile Number', 'Seat Location', 'Type of Program', 'Email']];
+    $tree = \mod_selfselectadvanced\local\attributes\depts::get_all();
+    $pairs = [];
+    foreach ($tree as $node) {
+        if ((int) $node->depth === 1) {
+            $haschild = false;
+            foreach ($tree as $child) {
+                if ((int) $child->parent === (int) $node->id) {
+                    $haschild = true;
+                    $pairs[] = [$node->name, $child->name];
+                }
+            }
+            if (!$haschild) {
+                $pairs[] = [$node->name, ''];
+            }
+        }
+    }
+    if (!$pairs) {
+        $pairs[] = ['', ''];
+    }
+    foreach ($pairs as [$dept, $sub]) {
+        $rows[] = ['', '', '', '', $dept, $sub, '', '', $program, ''];
+    }
+    $filename = 'attributes-template' . ($program !== '' ? '-' . clean_filename($program) : '');
+    $writer = new \csv_export_writer('comma');
+    $writer->set_filename($filename);
+    foreach ($rows as $row) {
+        $writer->add_data($row);
+    }
+    $writer->download_file();
+    die;
+}
 $baseurl = new moodle_url('/mod/selfselectadvanced/attributes.php');
 $download = optional_param('download', '', PARAM_ALPHA);
 
@@ -150,4 +190,20 @@ echo html_writer::div(
     'mb-3'
 );
 $table->out(50, true);
+// Blank template downloads (generic + one per programme).
+$tplbuttons = html_writer::div(get_string('templatedownloadintro', 'mod_selfselectadvanced'), 'mt-3 mb-1');
+$tplbuttons .= $OUTPUT->single_button(
+    new moodle_url($baseurl, ['action' => 'template']),
+    get_string('templatedownload', 'mod_selfselectadvanced'),
+    'get'
+);
+foreach (\mod_selfselectadvanced\local\attributes\depts::programs_menu() as $programname) {
+    $tplbuttons .= $OUTPUT->single_button(
+        new moodle_url($baseurl, ['action' => 'template', 'program' => $programname]),
+        get_string('templatedownloadfor', 'mod_selfselectadvanced', $programname),
+        'get'
+    );
+}
+echo html_writer::div($tplbuttons, 'd-flex flex-wrap gap-2 align-items-center');
+
 echo $OUTPUT->footer();

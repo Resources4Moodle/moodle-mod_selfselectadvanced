@@ -25,6 +25,7 @@
         <FIELD NAME="guidemode" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Guide selection mode: 0 = leader selects, 1 = manager assigns"/>
         <FIELD NAME="inviteexpiry" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Invitation expiry in days, 0 = never"/>
         <FIELD NAME="autogroup" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Auto-grouping of groupless students enabled"/>
+        <FIELD NAME="proposalrequired" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 optional, 1 proposal upload mandatory before submission"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
       </FIELDS>
@@ -50,6 +51,8 @@
         <FIELD NAME="successortype" TYPE="char" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="transfer or stepout"/>
         <FIELD NAME="timenominated" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="returncomment" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Latest guide return comment; history lives in events"/>
+        <FIELD NAME="guidenotes" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Guide private rich-text notes taken before accepting"/>
+        <FIELD NAME="guidenotesformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
         <FIELD NAME="timesubmitted" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="timeapproved" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Drives the penalty ledger"/>
         <FIELD NAME="timefrozen" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
@@ -107,6 +110,7 @@
         <FIELD NAME="subdepartment" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="mobile" TYPE="char" LENGTH="32" NOTNULL="false" SEQUENCE="false" COMMENT="Contact number; shown only to holders of the viewall capability"/>
         <FIELD NAME="seatlocation" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="faculty seat / office location shown to students"/>
+        <FIELD NAME="program" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="Type of programme (e.g. BTech, MSc); vocabulary-backed"/>
         <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
@@ -263,6 +267,7 @@
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="name" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="kind" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="dept" SEQUENCE="false" COMMENT="dept or program vocabulary entry"/>
         <FIELD NAME="parent" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="depth" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
         <FIELD NAME="path" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
@@ -294,6 +299,27 @@
       </KEYS>
       <INDEXES>
         <INDEX NAME="activitymsgkey" UNIQUE="true" FIELDS="activityid, msgkey"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_qslot" COMMENT="Slot-based composition template: ordered slots each demanding mincount members matching a dimension value or distinct values; members are booked to one slot only">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="slotno" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="mincount" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="dimension" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="matchtype" TYPE="char" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="value: all match value; distinct: pairwise different values"/>
+        <FIELD NAME="value" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="allowoverlap" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: values already used by earlier slots stay eligible"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="activityslot" UNIQUE="true" FIELDS="activityid, slotno"/>
       </INDEXES>
     </TABLE>
   </TABLES>

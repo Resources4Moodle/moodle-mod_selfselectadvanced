@@ -366,6 +366,23 @@ class gatekeeper {
             ]);
         }
 
+        // Proposal mandate (1.3.0): when the activity requires a
+        // written proposal, submission waits for the upload.
+        if (!empty($this->activity->settings()->proposalrequired)) {
+            $fs = get_file_storage();
+            $hasproposal = !empty($fs->get_area_files(
+                $this->activity->context()->id,
+                'mod_selfselectadvanced',
+                'proposal',
+                (int) $group->id,
+                'id',
+                false
+            ));
+            if (!$hasproposal) {
+                return new refusal('refusalproposalrequired');
+            }
+        }
+
         if (
             !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($this->activity, (int) $group->id)
             && !$this->resolver->is_quota_exempt((int) $group->id)->enabled

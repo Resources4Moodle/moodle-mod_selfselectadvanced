@@ -375,6 +375,40 @@ if ($action === 'unfreeze') {
     die;
 }
 
+if ($action === 'proposal') {
+    // Leader (or manager) uploads the written proposal for the group.
+    $ismanager = has_capability('mod/selfselectadvanced:manage', $context);
+    if ((int) $group->leaderid !== (int) $USER->id && !$ismanager) {
+        throw new moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+    }
+    $fileoptions = [
+        'maxfiles' => 1,
+        'subdirs' => 0,
+        'accepted_types' => ['document', '.pdf'],
+    ];
+    $form = new \mod_selfselectadvanced\form\proposal_form(
+        new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $group->id, 'action' => 'proposal']),
+        ['fileoptions' => $fileoptions]
+    );
+    $draftid = file_get_submitted_draft_itemid('proposal');
+    file_prepare_draft_area($draftid, $context->id, 'mod_selfselectadvanced', 'proposal', (int) $group->id, $fileoptions);
+    $form->set_data(['proposal' => $draftid]);
+    if ($form->is_cancelled()) {
+        redirect($baseurl);
+    }
+    if ($data = $form->get_data()) {
+        file_save_draft_area_files($data->proposal, $context->id, 'mod_selfselectadvanced', 'proposal',
+            (int) $group->id, $fileoptions);
+        redirect($baseurl, get_string('proposalsaved', 'mod_selfselectadvanced'), null,
+            \core\output\notification::NOTIFY_SUCCESS);
+    }
+    echo $OUTPUT->header();
+    echo $OUTPUT->heading(get_string('proposal', 'mod_selfselectadvanced'));
+    $form->display();
+    echo $OUTPUT->footer();
+    die;
+}
+
 if ($action === 'delete') {
     // Leader-only, forming-only; the gatekeeper repeats this server-side on POST.
     if ($refusal = $api->gatekeeper()->can_delete_group($group, (int) $USER->id)) {
@@ -415,4 +449,30 @@ $page = new \mod_selfselectadvanced\output\group_page(
 
 echo $OUTPUT->header();
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/group_page', $page->export_for_template($OUTPUT));
+
+// Proposal section (1.3.0): current file + upload control.
+$fs = get_file_storage();
+$proposalfiles = $fs->get_area_files($context->id, 'mod_selfselectadvanced', 'proposal', (int) $group->id, 'id', false);
+$proposalhtml = '';
+foreach ($proposalfiles as $file) {
+    $url = moodle_url::make_pluginfile_url($context->id, 'mod_selfselectadvanced', 'proposal',
+        (int) $group->id, $file->get_filepath(), $file->get_filename(), true);
+    $proposalhtml .= html_writer::div(html_writer::link($url, $file->get_filename()));
+}
+if (!$proposalhtml) {
+    $proposalhtml = html_writer::div(!empty($activity->settings()->proposalrequired)
+        ? get_string('proposalmissingrequired', 'mod_selfselectadvanced')
+        : get_string('proposalmissing', 'mod_selfselectadvanced'));
+}
+if ((int) $group->leaderid === (int) $USER->id || has_capability('mod/selfselectadvanced:manage', $context)) {
+    $proposalhtml .= $OUTPUT->single_button(
+        new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $group->id, 'action' => 'proposal']),
+        get_string('proposalupload', 'mod_selfselectadvanced'),
+        'get'
+    );
+}
+echo html_writer::div(
+    $OUTPUT->heading(get_string('proposal', 'mod_selfselectadvanced'), 4) . $proposalhtml,
+    'selfselectadvanced-proposal mt-3'
+);
 echo $OUTPUT->footer();

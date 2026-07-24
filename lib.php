@@ -147,6 +147,8 @@ function selfselectadvanced_delete_instance($id): bool {
     $DB->delete_records('selfselectadvanced_override', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_move', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_quota', ['activityid' => $id]);
+    $DB->delete_records('selfselectadvanced_qslot', ['activityid' => $id]);
+    $DB->delete_records('selfselectadvanced_template', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_agrun', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_group', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced', ['id' => $id]);
@@ -235,6 +237,52 @@ function selfselectadvanced_update_grades(stdClass $instance, int $userid = 0, b
  * @param settings_navigation $settingsnav the settings navigation
  * @param navigation_node $node this activity's node
  */
+/**
+ * Serve files from the proposal filearea (itemid = plugin group id).
+ * Visible to confirmed members of that group and to staff with
+ * viewall.
+ *
+ * @param stdClass $course the course
+ * @param stdClass $cm the course module
+ * @param context $context module context
+ * @param string $filearea file area name
+ * @param array $args itemid + path
+ * @param bool $forcedownload force download flag
+ * @param array $options stream options
+ * @return bool false when not found
+ */
+function selfselectadvanced_pluginfile($course, $cm, $context, string $filearea, array $args, bool $forcedownload,
+        array $options = []): bool {
+    global $DB, $USER;
+
+    if ($context->contextlevel !== CONTEXT_MODULE || $filearea !== 'proposal') {
+        return false;
+    }
+    require_login($course, false, $cm);
+    $groupid = (int) array_shift($args);
+    $group = $DB->get_record('selfselectadvanced_group', ['id' => $groupid], '*', MUST_EXIST);
+    if (!has_capability('mod/selfselectadvanced:viewall', $context)) {
+        $ismember = $DB->record_exists('selfselectadvanced_member', [
+            'groupid' => $groupid,
+            'userid' => $USER->id,
+            'status' => 'confirmed',
+        ]);
+        if (!$ismember) {
+            return false;
+        }
+    }
+    $fs = get_file_storage();
+    $filename = array_pop($args);
+    $filepath = '/' . ($args ? implode('/', $args) . '/' : '');
+    $file = $fs->get_file($context->id, 'mod_selfselectadvanced', 'proposal', $groupid, $filepath, $filename);
+    if (!$file || $file->is_directory()) {
+        return false;
+    }
+    send_stored_file($file, 0, 0, $forcedownload, $options);
+
+    return true;
+}
+
 function selfselectadvanced_extend_settings_navigation(settings_navigation $settingsnav, navigation_node $node): void {
     $cm = $settingsnav->get_page()->cm;
     if (!$cm) {

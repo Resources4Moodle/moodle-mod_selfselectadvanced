@@ -45,7 +45,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $activity = new backup_nested_element('selfselectadvanced', ['id'], [
             'name', 'intro', 'introformat', 'grade', 'minsize', 'maxsize', 'maxlead',
             'maxmembership', 'maxguided', 'timeopen', 'timedue', 'timecutoff',
-            'penaltytype', 'penaltyperday', 'guidemode', 'inviteexpiry', 'autogroup',
+            'penaltytype', 'penaltyperday', 'guidemode', 'inviteexpiry', 'autogroup', 'proposalrequired',
             'timecreated', 'timemodified',
         ]);
         $quotas = new backup_nested_element('quotas');
@@ -56,7 +56,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $group = new backup_nested_element('group', ['id'], [
             'pluginuid', 'name', 'title', 'brief', 'briefformat', 'leaderid', 'guideid',
             'state', 'autoformed', 'successorid', 'successortype', 'timenominated',
-            'returncomment', 'timesubmitted', 'timeapproved', 'timefrozen', 'coregroupid',
+            'returncomment', 'guidenotes', 'guidenotesformat', 'timesubmitted', 'timeapproved', 'timefrozen', 'coregroupid',
             'timecreated', 'timemodified',
         ]);
         $members = new backup_nested_element('members');
@@ -71,6 +71,10 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $penalty = new backup_nested_element('penalty', ['id'], [
             'dayslate', 'penaltyvalue', 'waived', 'waivereason', 'basis', 'timecomputed',
         ]);
+        $qslots = new backup_nested_element('qslots');
+        $qslot = new backup_nested_element('qslot', ['id'], [
+            'slotno', 'mincount', 'dimension', 'matchtype', 'value', 'allowoverlap', 'timecreated', 'timemodified',
+        ]);
         $tpls = new backup_nested_element('templates');
         $tpl = new backup_nested_element('template', ['id'], [
             'msgkey', 'subject', 'body', 'timecreated', 'timemodified',
@@ -84,6 +88,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
 
         $activity->add_child($quotas);
         $quotas->add_child($quota);
+        $activity->add_child($qslots);
+        $qslots->add_child($qslot);
         $activity->add_child($tpls);
         $tpls->add_child($tpl);
         $activity->add_child($groups);
@@ -99,6 +105,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $activity->set_source_table('selfselectadvanced', ['id' => backup::VAR_ACTIVITYID]);
         $quota->set_source_table('selfselectadvanced_quota', ['activityid' => backup::VAR_PARENTID]);
         $tpl->set_source_table('selfselectadvanced_template', ['activityid' => backup::VAR_PARENTID]);
+        $qslot->set_source_table('selfselectadvanced_qslot', ['activityid' => backup::VAR_PARENTID]);
         if ($userinfo) {
             $group->set_source_table('selfselectadvanced_group', ['activityid' => backup::VAR_PARENTID]);
             $member->set_source_table('selfselectadvanced_member', ['groupid' => backup::VAR_PARENTID]);
@@ -121,6 +128,9 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $snapshot->annotate_ids('group', 'coregroupid');
         $snapshot->annotate_ids('user', 'takenby');
         $override->annotate_ids('user', 'userid');
+
+        // Proposal documents travel with their group (itemid = group id).
+        $group->annotate_files('mod_selfselectadvanced', 'proposal', 'id');
 
         return $this->prepare_activity_structure($activity);
     }

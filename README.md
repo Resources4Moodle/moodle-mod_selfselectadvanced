@@ -140,6 +140,50 @@ exists, the attribute editor switches to drop-down lists and the CSV
 importer rejects rows whose values are not in the tree. Upgrading
 sites get the tree seeded automatically from already-ingested values.
 
+## Composition templates (slots)
+
+Beyond the classic per-value quota rules, the quota page defines an
+ordered **slot template**: each slot books `n` members whose
+department, sub-department, gender or programme either share a value
+("2 members with department Computer", or "2 from any ONE department")
+or are pairwise distinct ("3 members each from a distinct
+department"). A member is booked into at most one slot, so
+requirements adjust as people are booked; values consumed by earlier
+slots are excluded from later ones unless the slot allows overlap —
+giving must-match and must-not-match in one mechanism. Compliance
+gates submission, approval and freezing together with the classic
+rules.
+
+## Attributes vocabulary and templates
+
+Departments/sub-departments (a course-category-style tree, any depth)
+and programmes are managed on the admin pages — or **created
+automatically by the CSV ingest**, which runs at admin level: unknown
+values are added to the vocabulary with a warning, never rejected.
+Blank CSV templates (one per programme) pre-filled with the drilled
+tree are downloadable from the Participant attributes page, so every
+office fills the same shape. Attributes live centrally (site-wide):
+enrolling a student in any course makes them readable there
+immediately — no re-ingest.
+
+## Proposals and guide notes
+
+Each activity decides (settings checkbox) whether a written **project
+proposal** must be uploaded before a group can be submitted; the
+leader uploads one document on the group page, guides read it from the
+review page, and it travels with course backups. Guides keep private
+**rich-text notes** on the review page before accepting a group;
+students never see them.
+
+## Changing limits mid-course
+
+Changing sizes or caps later never reshapes existing groups: approved
+and frozen groups are **grandfathered** exactly as they stand, and any
+group left outside the new limits is listed on the flagged report for
+a manager to resolve deliberately (unfreeze, moves or overrides).
+Reduced caps interact with the guarded-override mechanism the same
+way: nothing is enforced retroactively.
+
 ## Privacy
 
 The privacy provider exports and deletes memberships, briefs,

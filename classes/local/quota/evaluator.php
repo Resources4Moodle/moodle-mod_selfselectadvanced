@@ -86,6 +86,24 @@ class evaluator {
             }
         }
 
+        // Slot-based composition template (1.3.0): booked-member
+        // evaluation; entries share the panel's rule shape.
+        $slotresult = slots::evaluate($activity, $groupid);
+        foreach ($slotresult->slots as $slotentry) {
+            $report->rules[] = (object) [
+                'id' => 'slot' . $slotentry->slot->slotno,
+                'priority' => 1000 + (int) $slotentry->slot->slotno,
+                'satisfied' => $slotentry->missing === 0,
+                'label' => $slotentry->label,
+                'current' => $slotentry->filled,
+                'deficiency' => $slotentry->deficiency,
+            ];
+        }
+        $report->hasrules = $report->hasrules || !empty($slotresult->slots);
+        if (!$slotresult->ok) {
+            $report->compliant = false;
+        }
+
         return $report;
     }
 

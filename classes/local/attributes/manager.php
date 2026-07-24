@@ -98,10 +98,11 @@ class manager {
                 'subdepartment' => null,
                 'mobile' => null,
                 'seatlocation' => null,
+                'program' => null,
                 'timecreated' => $now,
             ];
         }
-        foreach (['gender', 'department', 'subdepartment', 'mobile', 'seatlocation'] as $field) {
+        foreach (['gender', 'department', 'subdepartment', 'mobile', 'seatlocation', 'program'] as $field) {
             if (array_key_exists($field, $values)) {
                 $value = trim((string) $values[$field]);
                 $record->$field = $value === '' ? null : $value;

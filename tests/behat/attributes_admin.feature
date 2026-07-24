@@ -70,9 +70,9 @@ Feature: Site administrators manage participant attributes
     Then I should see "Cannot delete"
 
   @javascript @_file_upload
-  Scenario: An unknown department in the CSV is rejected once the tree is defined
+  Scenario: An unknown department in the CSV is auto-created at admin level
     Given I log in as "admin"
     When I navigate to "Plugins > Activity modules > Group self-selection (Advanced) > Participant attributes" in site administration
     And I upload "mod/selfselectadvanced/tests/fixtures/attributes_baddept.csv" file to "CSV file" filemanager
     And I press "Preview import"
-    Then I should see "is not in the pre-defined department list"
+    Then I should see "will be created"

@@ -87,6 +87,27 @@ if ($action === 'add' || $action === 'rename') {
     die;
 }
 
+if ($action === 'progadd' && data_submitted() && confirm_sesskey()) {
+    \mod_selfselectadvanced\local\attributes\depts::ensure_program(required_param('progname', PARAM_TEXT));
+    redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
+}
+
+if ($action === 'progdelete' && confirm_sesskey()) {
+    $pid = required_param('d', PARAM_INT);
+    $prog = $DB->get_record('selfselectadvanced_dept', ['id' => $pid, 'kind' => 'program'], '*', MUST_EXIST);
+    $inuse = $DB->record_exists_select(
+        'selfselectadvanced_userattr',
+        $DB->sql_equal('program', ':name', false),
+        ['name' => $prog->name]
+    );
+    if ($inuse) {
+        redirect($baseurl, get_string('errdeptinuse', 'mod_selfselectadvanced', $prog->name), null,
+            \core\output\notification::NOTIFY_ERROR);
+    }
+    $DB->delete_records('selfselectadvanced_dept', ['id' => $pid]);
+    redirect($baseurl);
+}
+
 if (($action === 'delete' || $action === 'up' || $action === 'down') && confirm_sesskey()) {
     $id = required_param('d', PARAM_INT);
     if ($action === 'delete') {
@@ -161,4 +182,35 @@ echo $OUTPUT->single_button(
     'get'
 );
 echo html_writer::end_div();
+// Programmes (flat vocabulary; auto-grown by admin CSV ingest).
+echo $OUTPUT->heading(get_string('programs', 'mod_selfselectadvanced'), 3);
+$progrows = [];
+foreach (\mod_selfselectadvanced\local\attributes\depts::programs_menu() as $progname) {
+    $pid = $DB->get_field('selfselectadvanced_dept', 'id', ['kind' => 'program', 'name' => $progname]);
+    $progrows[] = [
+        format_string($progname),
+        html_writer::link(
+            new moodle_url($baseurl, ['action' => 'progdelete', 'd' => $pid, 'sesskey' => sesskey()]),
+            get_string('delete')
+        ),
+    ];
+}
+if ($progrows) {
+    $progtable = new html_table();
+    $progtable->head = [get_string('name'), get_string('actions')];
+    $progtable->data = $progrows;
+    $progtable->attributes['class'] = 'generaltable selfselectadvanced-programs';
+    echo html_writer::table($progtable);
+} else {
+    echo $OUTPUT->notification(get_string('programsnone', 'mod_selfselectadvanced'), 'info', false);
+}
+echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false), 'class' => 'd-flex gap-2 mb-3']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'progadd']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+echo html_writer::empty_tag('input', ['type' => 'text', 'name' => 'progname', 'class' => 'form-control w-auto',
+    'placeholder' => get_string('programname', 'mod_selfselectadvanced'), ]);
+echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('programadd', 'mod_selfselectadvanced'),
+    'class' => 'btn btn-secondary', ]);
+echo html_writer::end_tag('form');
+
 echo $OUTPUT->footer();
