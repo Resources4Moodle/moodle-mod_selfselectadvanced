@@ -44,10 +44,12 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->addRule('name', get_string('maximumchars', '', 255), 'maxlength', 255, 'client');
         $this->standard_intro_elements();
 
-        $mform->addElement('text', 'grade', get_string('grade', 'mod_selfselectadvanced'), ['size' => 6]);
-        $mform->setType('grade', PARAM_INT);
+        // Audit item 28: the core grading section (grade element,
+        // category, grade-to-pass) instead of a bare text field. The
+        // penalty/award model is arithmetic on points, so scales are
+        // refused in validation.
+        $this->standard_grading_coursemodule_elements();
         $mform->setDefault('grade', 100);
-        $mform->addHelpButton('grade', 'grade', 'mod_selfselectadvanced');
 
         // Group size (L1, L2).
         $mform->addElement('header', 'groupsizeheading', get_string('groupsizeheading', 'mod_selfselectadvanced'));
@@ -206,6 +208,10 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $rules = \mod_selfselectadvanced\local\rules\settings_validator::validate($data);
         foreach ($rules as $field => $stringkey) {
             $errors[$field] = get_string($stringkey, 'mod_selfselectadvanced');
+        }
+
+        if ((int) ($data['grade'] ?? 0) < 0) {
+            $errors['grade'] = get_string('errpointsonly', 'mod_selfselectadvanced');
         }
 
         return $errors;

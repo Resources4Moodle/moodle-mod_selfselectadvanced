@@ -42,21 +42,57 @@ $PAGE->set_heading(format_string($course->fullname));
 
 $viewurl = new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]);
 
-// Refusals surface before the form: quota exhausted or window closed.
-if ($refusal = $api->gatekeeper()->can_create_group((int) $USER->id)) {
+// Edit mode (audit item 21): leader revises title/brief while forming.
+$gid = optional_param('g', 0, PARAM_INT);
+$editgroup = null;
+if ($gid) {
+    $editgroup = \mod_selfselectadvanced\local\groups::get($activity, $gid);
+    $ismanager = has_capability('mod/selfselectadvanced:manage', $context);
+    if ((int) $editgroup->leaderid !== (int) $USER->id && !$ismanager) {
+        throw new moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+    }
+    if ($editgroup->state !== \mod_selfselectadvanced\local\state::FORMING) {
+        throw new moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+    }
+} else if ($refusal = $api->gatekeeper()->can_create_group((int) $USER->id)) {
+    // Refusals surface before the form: quota exhausted or window closed.
     redirect($viewurl, $refusal->get_message(), null, \core\output\notification::NOTIFY_ERROR);
 }
 
 $form = new \mod_selfselectadvanced\form\group_form(null, [
     'cmid' => $cm->id,
     'activity' => $activity,
+    'editgroup' => $editgroup,
 ]);
+if ($editgroup) {
+    $form->set_data([
+        'title' => $editgroup->title,
+        'brief' => ['text' => $editgroup->brief, 'format' => (int) $editgroup->briefformat],
+    ]);
+}
 
 if ($form->is_cancelled()) {
     redirect($viewurl);
 }
 
 if ($data = $form->get_data()) {
+    if ($editgroup) {
+        global $DB;
+        $DB->update_record('selfselectadvanced_group', (object) [
+            'id' => $editgroup->id,
+            'title' => $data->title,
+            'brief' => $data->brief['text'],
+            'briefformat' => (int) $data->brief['format'],
+            'usermodified' => (int) $USER->id,
+            'timemodified' => time(),
+        ]);
+        redirect(
+            new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $editgroup->id]),
+            get_string('groupupdated', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    }
     $group = $api->create_group(
         (int) $USER->id,
         $data->name,
@@ -73,6 +109,6 @@ if ($data = $form->get_data()) {
 }
 
 echo $OUTPUT->header();
-echo $OUTPUT->heading(get_string('creategroup', 'mod_selfselectadvanced'));
+echo $OUTPUT->heading(get_string($editgroup ? 'editgroup' : 'creategroup', 'mod_selfselectadvanced'));
 $form->display();
 echo $OUTPUT->footer();

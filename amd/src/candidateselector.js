@@ -56,7 +56,7 @@ export const transport = (selector, query, callback, failure) => {
             value: candidate.eligible ? candidate.id : 0,
             label: candidate.eligible
                 ? candidate.label
-                : candidate.label + ' — ' + candidate.reason,
+                : candidate.label + ' (' + candidate.reason + ')',
         }))))
         .catch(failure);
 };
@@ -64,8 +64,13 @@ export const transport = (selector, query, callback, failure) => {
 /**
  * Process the results for the autocomplete.
  *
+ * Ineligible candidates stay in the list carrying their refusal
+ * reason in the label (audit item 3 - the whole point of the custom
+ * transport); they use value 0, which the server refuses with the
+ * same reason should anyone select one.
+ *
  * @param {String} selector The autocomplete element selector.
  * @param {Array} results The results returned by transport.
- * @return {Array} Value/label pairs; ineligible entries are filtered out.
+ * @return {Array} Value/label pairs including ineligible entries.
  */
-export const processResults = (selector, results) => results.filter((r) => r.value !== 0);
+export const processResults = (selector, results) => results;

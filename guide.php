@@ -71,7 +71,15 @@ $fquota = optional_param('fquota', '', PARAM_ALPHA);
 $fdept = optional_param('fdept', '', PARAM_TEXT);
 $fapprovedop = optional_param('fapprovedop', '', PARAM_ALPHA);
 $fapproved = optional_param('fapproved', '', PARAM_RAW_TRIMMED);
-$fapprovedts = $fapproved !== '' ? (strtotime($fapproved) ?: 0) : 0;
+$fapprovedts = 0;
+if ($fapproved !== '') {
+    // Parse in the GUIDE's timezone, not the server's (audit item 27).
+    try {
+        $fapprovedts = (new DateTime($fapproved, core_date::get_user_timezone_object()))->getTimestamp();
+    } catch (Exception $e) {
+        $fapprovedts = 0;
+    }
+}
 
 $PAGE->set_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]);
 $PAGE->set_title($activity->name());
@@ -92,6 +100,22 @@ $load = (object) [
 
 $queue = [];
 $guided = [];
+// Department filter: ONE query for every roster's departments
+// instead of a per-group roster+attribute fetch (audit item 27).
+$deptmap = [];
+if ($fdept !== '' && $mygroups) {
+    [$gsql, $gparams] = $DB->get_in_or_equal(array_keys($mygroups));
+    $rows = $DB->get_records_sql(
+        "SELECT m.id, m.groupid, a.department
+           FROM {selfselectadvanced_member} m
+           JOIN {selfselectadvanced_userattr} a ON a.userid = m.userid
+          WHERE m.groupid $gsql AND m.status = 'confirmed'",
+        $gparams
+    );
+    foreach ($rows as $row) {
+        $deptmap[(int) $row->groupid][] = \core_text::strtolower((string) $row->department);
+    }
+}
 foreach ($mygroups as $group) {
     $row = (object) [
         'pluginuid' => $group->pluginuid,
@@ -125,21 +149,7 @@ foreach ($mygroups as $group) {
             }
         }
         if ($matchesfilters && $fdept !== '') {
-            $rosterids = array_map(
-                static fn($m) => (int) $m->userid,
-                \mod_selfselectadvanced\local\groups::get_roster((int) $group->id)
-            );
-            $rosterattrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users($rosterids);
-            $hasdept = false;
-            foreach ($rosterattrs as $attr) {
-                if (\core_text::strtolower((string) $attr->department) === \core_text::strtolower($fdept)) {
-                    $hasdept = true;
-                    break;
-                }
-            }
-            if (!$hasdept) {
-                $matchesfilters = false;
-            }
+            $matchesfilters = in_array(\core_text::strtolower($fdept), $deptmap[(int) $group->id] ?? [], true);
         }
     }
 
@@ -156,6 +166,26 @@ foreach ($mygroups as $group) {
         ]))->out(false);
         $guided[] = $row;
     }
+}
+
+// Native download of the filtered list (audit item 27); the
+// bulk-freeze SELECTION FORM itself stays a template - a table_sql
+// cannot host form controls, a position recorded since C12.
+if (optional_param('download', '', PARAM_ALPHA) === 'csv') {
+    require_once($CFG->libdir . '/csvlib.class.php');
+    $writer = new csv_export_writer('comma');
+    $writer->set_filename('guide-groups');
+    $writer->add_data([
+        get_string('groupname', 'mod_selfselectadvanced'),
+        get_string('pluginid', 'mod_selfselectadvanced'),
+        get_string('state', 'mod_selfselectadvanced'),
+        get_string('size', 'mod_selfselectadvanced'),
+    ]);
+    foreach (array_merge($queue, $guided) as $card) {
+        $writer->add_data([$card->name, $card->pluginuid, $card->statelabel, $card->size]);
+    }
+    $writer->download_file();
+    die;
 }
 
 echo $OUTPUT->header();

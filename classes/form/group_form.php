@@ -42,11 +42,26 @@ class group_form extends \moodleform {
         $mform->addElement('hidden', 'id', $this->_customdata['cmid']);
         $mform->setType('id', PARAM_INT);
 
-        $mform->addElement('text', 'name', get_string('groupname', 'mod_selfselectadvanced'), ['size' => 48]);
-        $mform->setType('name', PARAM_TEXT);
-        $mform->addRule('name', get_string('required'), 'required', null, 'client');
-        $mform->addRule('name', get_string('maximumchars', '', 255), 'maxlength', 255, 'client');
-        $mform->addHelpButton('name', 'groupname', 'mod_selfselectadvanced');
+        $editing = !empty($this->_customdata['editgroup']);
+        if ($editing) {
+            // Audit item 21: the guide return/rework loop needs the
+            // leader to revise title and brief; the NAME stays fixed
+            // for life (spec) and shows read-only.
+            $mform->addElement('hidden', 'g', (int) $this->_customdata['editgroup']->id);
+            $mform->setType('g', PARAM_INT);
+            $mform->addElement(
+                'static',
+                'namedisplay',
+                get_string('groupname', 'mod_selfselectadvanced'),
+                format_string($this->_customdata['editgroup']->name)
+            );
+        } else {
+            $mform->addElement('text', 'name', get_string('groupname', 'mod_selfselectadvanced'), ['size' => 48]);
+            $mform->setType('name', PARAM_TEXT);
+            $mform->addRule('name', get_string('required'), 'required', null, 'client');
+            $mform->addRule('name', get_string('maximumchars', '', 255), 'maxlength', 255, 'client');
+            $mform->addHelpButton('name', 'groupname', 'mod_selfselectadvanced');
+        }
 
         $mform->addElement('text', 'title', get_string('worktitle', 'mod_selfselectadvanced'), ['size' => 64]);
         $mform->setType('title', PARAM_TEXT);
@@ -57,7 +72,9 @@ class group_form extends \moodleform {
         $mform->setType('brief', PARAM_RAW);
         $mform->addRule('brief', get_string('required'), 'required', null, 'client');
 
-        $this->add_action_buttons(true, get_string('creategroup', 'mod_selfselectadvanced'));
+        $this->add_action_buttons(true, $editing
+            ? get_string('savechanges')
+            : get_string('creategroup', 'mod_selfselectadvanced'));
     }
 
     /**
@@ -73,10 +90,12 @@ class group_form extends \moodleform {
         /** @var activity $activity */
         $activity = $this->_customdata['activity'];
 
-        if (trim($data['name'] ?? '') === '') {
-            $errors['name'] = get_string('required');
-        } else if (groups::name_taken($activity, $data['name'])) {
-            $errors['name'] = get_string('errnametaken', 'mod_selfselectadvanced');
+        if (empty($this->_customdata['editgroup'])) {
+            if (trim($data['name'] ?? '') === '') {
+                $errors['name'] = get_string('required');
+            } else if (groups::name_taken($activity, $data['name'])) {
+                $errors['name'] = get_string('errnametaken', 'mod_selfselectadvanced');
+            }
         }
         if (trim($data['title'] ?? '') === '') {
             $errors['title'] = get_string('required');

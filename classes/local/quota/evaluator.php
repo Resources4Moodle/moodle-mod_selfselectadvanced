@@ -55,13 +55,23 @@ class evaluator {
         // case-insensitive matching against rule values.
         $values = [];
         $unknown = 0;
+        // A member is "unknown" when missing a dimension a RULE or
+        // SLOT of this activity actually uses (programme joined the
+        // vocabulary in 1.4.2 but must not retro-flag rosters in
+        // activities that never reference it).
+        $useddims = array_unique(array_merge(
+            array_map(static fn($rule) => $rule->dimension, $rules),
+            array_map(static fn($slot) => $slot->dimension, slots::get_all($activity))
+        )) ?: ['gender', 'department', 'subdepartment'];
         foreach ($roster as $member) {
             $record = $attrs[(int) $member->userid] ?? null;
             $missingany = false;
             foreach (manager::DIMENSIONS as $dimension) {
                 $value = $record->$dimension ?? null;
                 if ($value === null || $value === '') {
-                    $missingany = true;
+                    if (in_array($dimension, $useddims, true)) {
+                        $missingany = true;
+                    }
                     continue;
                 }
                 $values[$dimension][] = \core_text::strtolower($value);

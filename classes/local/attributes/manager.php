@@ -33,7 +33,7 @@ use stdClass;
  */
 class manager {
     /** @var string[] The quota dimensions (mobile is contact info, not a dimension). */
-    public const DIMENSIONS = ['gender', 'department', 'subdepartment'];
+    public const DIMENSIONS = ['gender', 'department', 'subdepartment', 'program'];
 
     /**
      * Attribute records for a set of users, keyed by userid.

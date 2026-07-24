@@ -180,6 +180,11 @@ if ($action === 'cancelnomination' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
+    $picked = array_filter(array_map('intval', (array) ($data->invitees ?? [])));
+    if (count($picked) !== count((array) ($data->invitees ?? []))) {
+        redirect($baseurl, get_string('errineligiblepick', 'mod_selfselectadvanced'), null,
+            \core\output\notification::NOTIFY_ERROR);
+    }
     $sent = 0;
     $problems = [];
     foreach (array_filter(array_map('intval', (array) $data->invitees)) as $inviteeid) {
@@ -482,6 +487,13 @@ if (!$proposalhtml) {
         : get_string('proposalmissing', 'mod_selfselectadvanced'));
 }
 if ((int) $group->leaderid === (int) $USER->id || has_capability('mod/selfselectadvanced:manage', $context)) {
+    if ($group->state === \mod_selfselectadvanced\local\state::FORMING) {
+        $proposalhtml .= $OUTPUT->single_button(
+            new moodle_url('/mod/selfselectadvanced/groupedit.php', ['id' => $cm->id, 'g' => $group->id]),
+            get_string('editgroup', 'mod_selfselectadvanced'),
+            'get'
+        );
+    }
     $proposalhtml .= $OUTPUT->single_button(
         new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $group->id, 'action' => 'proposal']),
         get_string('proposalupload', 'mod_selfselectadvanced'),
