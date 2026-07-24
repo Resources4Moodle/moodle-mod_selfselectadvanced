@@ -124,10 +124,11 @@ class invitations {
         }
 
         $expirydays = (int) $this->activity->settings()->inviteexpiry;
-        $expirynote = $expirydays > 0
-            ? ' ' . get_string('msginvitationexpirynote', 'mod_selfselectadvanced',
-                userdate(time() + ($expirydays * DAYSECS)))
-            : '';
+        $expirynote = '';
+        if ($expirydays > 0) {
+            $expiresat = userdate(time() + ($expirydays * DAYSECS));
+            $expirynote = ' ' . get_string('msginvitationexpirynote', 'mod_selfselectadvanced', $expiresat);
+        }
         notifier::send(
             $this->activity,
             'invitation',
