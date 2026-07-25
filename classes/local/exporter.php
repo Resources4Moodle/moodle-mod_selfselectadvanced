@@ -106,10 +106,19 @@ class exporter {
         if ($selectedtab !== '') {
             $html .= \html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'tab', 'value' => $selectedtab]);
         }
-        $html .= \html_writer::label(get_string('exportas', 'mod_selfselectadvanced'), 'ssa-exportformat', true,
-            ['class' => 'me-1']);
-        $html .= \html_writer::select($options, 'download', self::default_format(), false,
-            ['id' => 'ssa-exportformat', 'class' => 'form-select w-auto d-inline-block me-1']);
+        $html .= \html_writer::label(
+            get_string('exportas', 'mod_selfselectadvanced'),
+            'ssa-exportformat',
+            true,
+            ['class' => 'me-1']
+        );
+        $html .= \html_writer::select(
+            $options,
+            'download',
+            self::default_format(),
+            false,
+            ['id' => 'ssa-exportformat', 'class' => 'form-select w-auto d-inline-block me-1']
+        );
         $html .= \html_writer::empty_tag('input', ['type' => 'submit',
             'value' => get_string('download'), 'class' => 'btn btn-secondary']);
         $html .= \html_writer::end_tag('form');
