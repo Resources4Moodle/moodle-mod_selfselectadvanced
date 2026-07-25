@@ -15,18 +15,24 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Version metadata for mod_selfselectadvanced.
+ * Uninstall hook for mod_selfselectadvanced.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
+/**
+ * Surface the good-neighbour notice (spec section 14.5): frozen core
+ * course groups are deliberately retained as course data.
+ *
+ * @return bool always true
+ */
+function xmldb_selfselectadvanced_uninstall(): bool {
+    \core\notification::add(
+        get_string('uninstallnotice', 'mod_selfselectadvanced'),
+        \core\output\notification::NOTIFY_INFO
+    );
 
-$plugin->component = 'mod_selfselectadvanced';
-$plugin->version = 2026072423;
-$plugin->requires = 2024100700; // Moodle 4.5 LTS.
-$plugin->supported = [405, 502];
-$plugin->maturity = MATURITY_STABLE;
-$plugin->release = '1.5.2';
+    return true;
+}

@@ -382,5 +382,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072422, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072423) {
+        // 1.5.2: autogroupresult message provider (round-4 fixes).
+        upgrade_mod_savepoint(true, 2026072423, 'selfselectadvanced');
+    }
+
     return true;
 }

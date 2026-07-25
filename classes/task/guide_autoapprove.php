@@ -80,13 +80,21 @@ class guide_autoapprove extends \core\task\scheduled_task {
                         $relief['quotaexempt'] = 1;
                     }
                     if ($relief) {
-                        \mod_selfselectadvanced\local\override\store::save(
+                        $reliefrow = \mod_selfselectadvanced\local\override\store::save(
                             $activity,
                             'group',
                             (int) $group->id,
                             $relief,
                             (int) get_admin()->id
                         );
+                        if ($reliefrow->status !== 'active') {
+                            // A pre-existing guarded reduction keeps
+                            // the merged row pending; approving now
+                            // would be unexplained (round 4 item 3).
+                            mtrace("selfselectadvanced: auto-approve deferred for {$group->pluginuid}: "
+                                . 'relief override is pending on unresolved blockers');
+                            continue;
+                        }
                         mtrace("selfselectadvanced: auto-approve recorded relief for {$group->pluginuid}: "
                             . implode(',', array_keys($relief)));
                     }

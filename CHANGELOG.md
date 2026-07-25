@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.2 (2026-07-25)
+
+- Auto-grouped students are notified of their placement and managers
+  receive the run summary (new autogroupresult provider).
+- Guide reminder markers reset when a fresh review cycle starts, so
+  resubmitted groups get their 50%/90% reminders again.
+- The auto-approval sweep defers (with a log) when its recorded relief
+  lands on a pending guarded override instead of approving unexplained.
+- Auto-formed group names use a monotonic sequence and a localised
+  date; an uninstall notice states that frozen core groups remain.
+
 ## 1.5.1 (2026-07-25)
 
 - Auto-approval past the guide window now records any size or quota

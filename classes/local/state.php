@@ -95,6 +95,7 @@ final class state {
                 'other' => ['pluginuid' => $fresh->pluginuid],
             ])->trigger();
 
+            $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_gremind_' . $fresh->id]);
             $transaction->allow_commit();
         } finally {
             $lock->release();
@@ -165,6 +166,7 @@ final class state {
             $fresh->timemodified = time();
             $DB->update_record('selfselectadvanced_group', $fresh);
 
+            $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_gremind_' . $fresh->id]);
             $transaction->allow_commit();
         } finally {
             $lock->release();
@@ -230,6 +232,7 @@ final class state {
                 'other' => ['pluginuid' => $fresh->pluginuid, 'comment' => trim($comment)],
             ])->trigger();
 
+            $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_gremind_' . $fresh->id]);
             $transaction->allow_commit();
         } finally {
             $lock->release();

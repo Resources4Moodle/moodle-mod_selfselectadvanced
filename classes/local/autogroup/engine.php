@@ -244,10 +244,12 @@ class engine {
             $placed = 0;
             // Names stay unique across runs via a running sequence
             // (the date alone collides when two sweeps share a second).
-            $sequence = (int) $DB->count_records('selfselectadvanced_group', [
-                'activityid' => $activity->id(),
-                'autoformed' => 1,
-            ]);
+            // MAX(id) never decreases, so deleted auto-groups can
+            // no longer resurrect a taken name (audit round 4 item 4).
+            $sequence = (int) $DB->get_field_sql(
+                'SELECT COALESCE(MAX(id), 0) FROM {selfselectadvanced_group} WHERE activityid = ?',
+                [$activity->id()]
+            );
             foreach ($plan->groups as $index => $members) {
                 // System-designated leader: first member with a free L3 slot.
                 $leaderid = 0;
@@ -271,7 +273,7 @@ class engine {
                     'activityid' => $activity->id(),
                     'pluginuid' => '',
                     'name' => get_string('autogroupname', 'mod_selfselectadvanced', $sequence + $index + 1)
-                        . ' (' . date('d M', $now) . ')',
+                        . ' (' . userdate($now, get_string('strftimedateshort', 'langconfig')) . ')',
                     'title' => get_string('autogrouptitle', 'mod_selfselectadvanced'),
                     'brief' => get_string('autogroupbrief', 'mod_selfselectadvanced'),
                     'briefformat' => FORMAT_HTML,
@@ -324,6 +326,43 @@ class engine {
                     'unplaced' => (int) $agrun->unplaced,
                 ],
             ])->trigger();
+
+        // Audit round 4 item 1: every placed student is told where
+        // they landed; managers get the run summary.
+        foreach ($log['groups'] as $planned) {
+            foreach ($planned['members'] as $placeduser) {
+                \mod_selfselectadvanced\local\notifier::send(
+                    $activity,
+                    'autogroupresult',
+                    (int) $placeduser,
+                    'msgautogroupedsubject',
+                    'msgautogroupedbody',
+                    (object) [
+                        'group' => $planned['pluginuid'],
+                        'activity' => $activity->name(),
+                    ],
+                    new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]),
+                    $activity->name()
+                );
+            }
+        }
+        foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $mgr) {
+            \mod_selfselectadvanced\local\notifier::send(
+                $activity,
+                'autogroupresult',
+                (int) $mgr->id,
+                'msgautogroupransubject',
+                'msgautogroupranbody',
+                (object) [
+                    'activity' => $activity->name(),
+                    'placed' => (int) $agrun->placed,
+                    'unplaced' => (int) $agrun->unplaced,
+                    'groups' => (int) $agrun->groupsformed,
+                ],
+                new \moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $activity->cm()->id]),
+                $activity->name()
+            );
+        }
 
             $transaction->allow_commit();
         } finally {
