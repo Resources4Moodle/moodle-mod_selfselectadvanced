@@ -232,5 +232,4 @@ final class attributes_test extends \advanced_testcase {
         $this->assertSame('Mechanical', $record->subdepartment);
         $this->assertSame('12345', $record->mobile);
     }
-
 }

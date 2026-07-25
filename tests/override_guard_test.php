@@ -184,5 +184,4 @@ final class override_guard_test extends \advanced_testcase {
         $this->assertSame(0, $loads[(int) $guide1->id]->remaining);
         $this->assertArrayNotHasKey((int) $guide2->id, $loads);
     }
-
 }
