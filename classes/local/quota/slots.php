@@ -178,7 +178,7 @@ class slots {
             if ($slot->matchtype === 'value') {
                 $target = $slot->value !== null ? \core_text::strtolower($slot->value) : null;
                 if ($target === null) {
-                    // "n from ONE value": pick the largest value-group.
+                    // Null value = "n from ONE value": pick the largest value-group.
                     $best = null;
                     foreach ($eligible as $value => $ids) {
                         if ($best === null || count($ids) > count($eligible[$best])) {

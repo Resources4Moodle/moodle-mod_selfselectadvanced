@@ -52,7 +52,7 @@ class conflicts {
         ], 'priority'));
         $slotlist = slots::get_all($activity);
 
-        // (a) Slot demand vs the group maximum.
+        // Check a: slot demand vs the group maximum.
         $demand = 0;
         foreach ($slotlist as $slot) {
             $demand += (int) $slot->mincount;
@@ -64,13 +64,13 @@ class conflicts {
             ]);
         }
 
-        // (b) Sum of per-dimension rule minimums vs the maximum.
+        // Check b: sum of per-dimension rule minimums vs the maximum.
         $minsums = [];
         foreach ($rules as $rule) {
             if ($rule->mincount !== null) {
                 $minsums[$rule->dimension] = ($minsums[$rule->dimension] ?? 0) + (int) $rule->mincount;
             }
-            // (c) A rule contradicting itself or the group size.
+            // Check c: a rule contradicting itself or the group size.
             if (
                 $rule->mincount !== null && $rule->maxcount !== null
                     && (int) $rule->mincount > (int) $rule->maxcount
@@ -94,7 +94,7 @@ class conflicts {
             }
         }
 
-        // (d) Slot demands a value a rule caps below the slot's need.
+        // Check d: slot demands a value a rule caps below the slot's need.
         foreach ($slotlist as $slot) {
             if ($slot->matchtype !== 'value' || $slot->value === null) {
                 continue;

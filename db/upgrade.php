@@ -330,7 +330,16 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         if (!$dbman->field_exists($table, $field)) {
             $dbman->add_field($table, $field);
         }
-        $field = new xmldb_field('incompletepenalty', XMLDB_TYPE_NUMBER, '10, 5', null, XMLDB_NOTNULL, null, '0', 'defaulterpenalty');
+        $field = new xmldb_field(
+            'incompletepenalty',
+            XMLDB_TYPE_NUMBER,
+            '10, 5',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            '0',
+            'defaulterpenalty'
+        );
         if (!$dbman->field_exists($table, $field)) {
             $dbman->add_field($table, $field);
         }

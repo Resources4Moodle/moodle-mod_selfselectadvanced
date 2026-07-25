@@ -54,6 +54,7 @@ class csv_importer {
      * @param csv_import_reader $reader an initialised reader (load_csv_content done)
      * @param int $actorid the acting administrator
      * @param bool $commit false = dry-run report only, true = write inside a transaction
+     * @param \stdClass|null $options mode ('override'|'fillmissing') and defaults array
      * @return stdClass report: ok, headererror, created, updated, warnings[], rejected[], total
      */
     public static function run(csv_import_reader $reader, int $actorid, bool $commit, ?\stdClass $options = null): stdClass {

@@ -52,6 +52,7 @@ export const transport = (selector, query, callback, failure) => {
     };
 
     Ajax.call([request])[0]
+        // eslint-disable-next-line promise/no-callback-in-promise
         .then((results) => callback(results.map((candidate) => ({
             value: candidate.eligible ? candidate.id : 0,
             label: candidate.eligible
