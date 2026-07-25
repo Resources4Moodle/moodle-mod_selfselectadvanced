@@ -50,19 +50,41 @@ if (($action === 'moveup' || $action === 'movedown') && data_submitted() && conf
     redirect($baseurl);
 }
 
-$slotform = new \mod_selfselectadvanced\form\slot_form($baseurl, ['cmid' => $cm->id]);
+$editslotid = optional_param('editslot', 0, PARAM_INT);
+$editslot = $editslotid
+    ? $DB->get_record('selfselectadvanced_qslot', ['id' => $editslotid, 'activityid' => $activity->id()], '*', MUST_EXIST)
+    : null;
+$slotform = new \mod_selfselectadvanced\form\slot_form(
+    $editslot ? new moodle_url($baseurl, ['editslot' => $editslotid]) : $baseurl,
+    ['cmid' => $cm->id, 'editing' => (bool) $editslot]
+);
+if ($editslot) {
+    $slotform->set_data([
+        'slotid' => $editslot->id,
+        'mincount' => $editslot->mincount,
+        'dimension' => $editslot->dimension,
+        'matchtype' => $editslot->matchtype,
+        'valuepick' => $editslot->value !== null ? $editslot->dimension . '|' . $editslot->value : '',
+        'allowoverlap' => $editslot->allowoverlap,
+    ]);
+}
 if ($slotdata = $slotform->get_data()) {
     $value = '';
     if (($slotdata->matchtype ?? '') === 'value' && ($slotdata->valuepick ?? '') !== '') {
         [, $value] = explode('|', $slotdata->valuepick, 2);
     }
-    \mod_selfselectadvanced\local\quota\slots::create($activity, (object) [
+    $slotpayload = (object) [
         'mincount' => (int) $slotdata->mincount,
         'dimension' => $slotdata->dimension,
         'matchtype' => $slotdata->matchtype,
         'value' => $value,
         'allowoverlap' => (int) $slotdata->allowoverlap,
-    ]);
+    ];
+    if (!empty($slotdata->slotid)) {
+        \mod_selfselectadvanced\local\quota\slots::update($activity, (int) $slotdata->slotid, $slotpayload);
+    } else {
+        \mod_selfselectadvanced\local\quota\slots::create($activity, $slotpayload);
+    }
     redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
@@ -207,10 +229,15 @@ foreach (\mod_selfselectadvanced\local\quota\slots::get_all($activity) as $slot)
         . html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('delete'),
             'class' => 'btn btn-outline-danger btn-sm', ])
         . html_writer::end_tag('form');
+    $editlink = html_writer::link(
+        new moodle_url($baseurl, ['editslot' => $slot->id]),
+        get_string('edit'),
+        ['class' => 'btn btn-secondary btn-sm me-1']
+    );
     $slotrows[] = [
         (int) $slot->slotno,
         \mod_selfselectadvanced\local\quota\slots::label($slot),
-        $delform,
+        $editlink . $delform,
     ];
 }
 if ($slotrows) {

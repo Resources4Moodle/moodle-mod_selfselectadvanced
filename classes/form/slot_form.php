@@ -45,6 +45,8 @@ class slot_form extends \moodleform {
         $mform->setType('id', PARAM_INT);
         $mform->addElement('hidden', 'action', 'slotadd');
         $mform->setType('action', PARAM_ALPHA);
+        $mform->addElement('hidden', 'slotid', 0);
+        $mform->setType('slotid', PARAM_INT);
 
         $mform->addElement(
             'text',
@@ -80,7 +82,9 @@ class slot_form extends \moodleform {
 
         $mform->addElement('advcheckbox', 'allowoverlap', get_string('slotallowoverlap', 'mod_selfselectadvanced'));
 
-        $this->add_action_buttons(false, get_string('slotadd', 'mod_selfselectadvanced'));
+        $this->add_action_buttons(false, empty($this->_customdata['editing'])
+            ? get_string('slotadd', 'mod_selfselectadvanced')
+            : get_string('savechanges'));
     }
 
     /**

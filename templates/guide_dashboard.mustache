@@ -112,8 +112,8 @@
             </select>
         </label>
         <label>{{#str}} filterdate, mod_selfselectadvanced {{/str}}
-            <input type="text" name="fapproved" value="{{filters.fapproved}}" size="12"
-                placeholder="YYYY-MM-DD" class="form-control form-control-sm">
+            <input type="date" name="fapproved" value="{{filters.fapproved}}"
+                max="9999-12-31" class="form-control form-control-sm">
         </label>
         <button type="submit" class="btn btn-secondary btn-sm">{{#str}} filter {{/str}}</button>
     </form>

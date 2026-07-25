@@ -396,5 +396,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072423, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072424) {
+        // 1.6.0: report export overhaul + slot editing, code only.
+        upgrade_mod_savepoint(true, 2026072424, 'selfselectadvanced');
+    }
+
     return true;
 }

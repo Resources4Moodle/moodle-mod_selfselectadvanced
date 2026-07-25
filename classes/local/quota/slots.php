@@ -104,6 +104,40 @@ class slots {
     }
 
     /**
+     * Update an existing slot in place (2026-07-25 request: rows are
+     * editable, not just add/delete).
+     *
+     * @param activity $activity the activity
+     * @param int $slotid the row id
+     * @param stdClass $data mincount, dimension, matchtype, value, allowoverlap
+     * @return stdClass the updated row
+     */
+    public static function update(activity $activity, int $slotid, stdClass $data): stdClass {
+        global $DB;
+
+        $slot = $DB->get_record('selfselectadvanced_qslot', [
+            'id' => $slotid,
+            'activityid' => $activity->id(),
+        ], '*', MUST_EXIST);
+        if (!in_array($data->dimension, self::DIMENSIONS, true)) {
+            throw new \coding_exception('Bad slot dimension');
+        }
+        if (!in_array($data->matchtype, ['value', 'distinct'], true)) {
+            throw new \coding_exception('Bad slot matchtype');
+        }
+        $slot->mincount = max(1, (int) $data->mincount);
+        $slot->dimension = $data->dimension;
+        $slot->matchtype = $data->matchtype;
+        $slot->value = $data->matchtype === 'value' && trim((string) ($data->value ?? '')) !== ''
+            ? trim((string) $data->value) : null;
+        $slot->allowoverlap = empty($data->allowoverlap) ? 0 : 1;
+        $slot->timemodified = time();
+        $DB->update_record('selfselectadvanced_qslot', $slot);
+
+        return $slot;
+    }
+
+    /**
      * Delete a slot and renumber.
      *
      * @param activity $activity the activity
