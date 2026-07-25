@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.0 (2026-07-25)
+
+- Composition-template slots can be edited in place, not just added
+  and deleted.
+- Report downloads (flagged tabs, guide dashboard) moved to Moodle's
+  dataformat writers and now offer OpenDocument, Excel, CSV and
+  tab-separated TXT, with the default format chosen by the site
+  administrator in the new plugin settings page; the earlier CSV
+  encoding problem in Excel is gone.
+- The flagged report's tabs gained a name filter and sortable column
+  headers alongside the existing pagination.
+- The guide dashboard's approved-since filter uses a native calendar
+  date input and the server validates the date before applying it.
+- The quota-rules and composition-template introductions now explain
+  the difference between counting rules and the seat plan.
+
 ## 1.5.2 (2026-07-25)
 
 - Auto-grouped students are notified of their placement and managers
