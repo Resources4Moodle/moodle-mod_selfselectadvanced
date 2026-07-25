@@ -72,6 +72,9 @@ $fdept = optional_param('fdept', '', PARAM_TEXT);
 $fapprovedop = optional_param('fapprovedop', '', PARAM_ALPHA);
 $fapproved = optional_param('fapproved', '', PARAM_RAW_TRIMMED);
 $fapprovedts = 0;
+if ($fapproved !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $fapproved)) {
+    $fapproved = '';
+}
 if ($fapproved !== '') {
     // Parse in the GUIDE's timezone, not the server's (audit item 27).
     try {
@@ -179,21 +182,20 @@ foreach ($mygroups as $group) {
 // Native download of the filtered list (audit item 27); the
 // bulk-freeze SELECTION FORM itself stays a template - a table_sql
 // cannot host form controls, a position recorded since C12.
-if (optional_param('download', '', PARAM_ALPHA) === 'csv') {
-    require_once($CFG->libdir . '/csvlib.class.php');
-    $writer = new csv_export_writer('comma');
-    $writer->set_filename('guide-groups');
-    $writer->add_data([
-        get_string('groupname', 'mod_selfselectadvanced'),
-        get_string('pluginid', 'mod_selfselectadvanced'),
-        get_string('state', 'mod_selfselectadvanced'),
-        get_string('size', 'mod_selfselectadvanced'),
-    ]);
-    foreach (array_merge($queue, $guided) as $card) {
-        $writer->add_data([$card->name, $card->pluginuid, $card->statelabel, $card->size]);
-    }
-    $writer->download_file();
-    die;
+$guidedownload = optional_param('download', '', PARAM_ALPHA);
+if ($guidedownload !== '') {
+    \mod_selfselectadvanced\local\exporter::download(
+        'guide-groups',
+        [
+            get_string('groupname', 'mod_selfselectadvanced'),
+            get_string('pluginid', 'mod_selfselectadvanced'),
+            get_string('state', 'mod_selfselectadvanced'),
+            get_string('size', 'mod_selfselectadvanced'),
+        ],
+        array_map(static fn($card) => [$card->name, $card->pluginuid, $card->statelabel, $card->size],
+            array_merge($queue, $guided)),
+        $guidedownload
+    );
 }
 
 echo $OUTPUT->header();

@@ -45,6 +45,28 @@ if ($hassiteconfig) {
     ));
 }
 
-// No traditional settings page: all configuration is per activity
-// instance; the category above hosts the admin tools.
-$settings = null;
+// One site-wide preference (everything else is per instance): the
+// default report export format (2026-07-25 request).
+if ($hassiteconfig) {
+    $settings = new admin_settingpage(
+        'modsettingselfselectadvanced',
+        new lang_string('pluginsettings', 'mod_selfselectadvanced'),
+        'moodle/site:config'
+    );
+    $settings->add(new admin_setting_configselect(
+        'mod_selfselectadvanced/exportformat',
+        new lang_string('exportformat', 'mod_selfselectadvanced'),
+        new lang_string('exportformat_desc', 'mod_selfselectadvanced'),
+        'excel',
+        [
+            'ods' => new lang_string('exportods', 'mod_selfselectadvanced'),
+            'excel' => new lang_string('exportexcel', 'mod_selfselectadvanced'),
+            'csv' => new lang_string('exportcsv', 'mod_selfselectadvanced'),
+            'txt' => new lang_string('exporttxt', 'mod_selfselectadvanced'),
+        ]
+    ));
+    $ADMIN->add('modselfselectadvancedcat', $settings);
+    $settings = null;
+} else {
+    $settings = null;
+}

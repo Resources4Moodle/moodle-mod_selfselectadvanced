@@ -42,6 +42,9 @@ $resolver = $api->gatekeeper()->resolver();
 $tab = optional_param('tab', 'students', PARAM_ALPHA);
 $pagenum = optional_param('page', 0, PARAM_INT);
 $download = optional_param('download', '', PARAM_ALPHA);
+$q = optional_param('q', '', PARAM_RAW_TRIMMED);
+$tsort = optional_param('tsort', '', PARAM_ALPHANUMEXT);
+$tdir = optional_param('tdir', 0, PARAM_INT);
 $perpage = 20;
 $PAGE->set_url('/mod/selfselectadvanced/flagged.php', ['id' => $cm->id, 'tab' => $tab]);
 $PAGE->set_title($activity->name());
@@ -121,6 +124,8 @@ foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity
             'pluginuid' => $fgroup->pluginuid,
             'guidename' => $fgroup->guideid ? fullname(\core_user::get_user((int) $fgroup->guideid)) : '-',
             'since' => userdate((int) $fgroup->timesubmitted),
+            'sincets' => (int) $fgroup->timesubmitted,
+            'sincets' => (int) $fgroup->timesubmitted,
             'deadline' => $deadline ? userdate($deadline) : '-',
             'overdue' => $deadline && $deadline < time(),
         ];
@@ -156,35 +161,61 @@ if ($minmembership > 0) {
     }
 }
 
-// Per-tab CSV downloads (item 02): every defaulter class exportable.
-if ($download === 'csv') {
-    require_once($CFG->libdir . '/csvlib.class.php');
-    $writer = new csv_export_writer('comma');
-    $writer->set_filename('flagged-' . $tab);
-    if ($tab === 'defaulters') {
-        $writer->add_data(['Student', 'Groups joined', 'Missing']);
-        foreach ($defaulterrows as $row) {
-            $writer->add_data($row);
-        }
-    } else if ($tab === 'guides') {
-        $writer->add_data(['Group', 'ID', 'Guide', 'Submitted', 'Decide by', 'Overdue']);
-        foreach ($guidespending as $row) {
-            $writer->add_data([$row->name, $row->pluginuid, $row->guidename, $row->since,
-                $row->deadline, $row->overdue ? 'yes' : 'no']);
-        }
-    } else if ($tab === 'quota') {
-        $writer->add_data(['Group', 'ID', 'State']);
-        foreach ($quotafail as $row) {
-            $writer->add_data([$row->name, $row->pluginuid, $row->statelabel]);
-        }
-    } else {
-        $writer->add_data(['Student', 'Attributes']);
-        foreach ($groupless as $row) {
-            $writer->add_data([$row->fullname, $row->attrline]);
-        }
+// Name filter (2026-07-25: usable at hundreds of rows).
+if ($q !== '') {
+    $needle = \core_text::strtolower($q);
+    $match = static fn(string $hay) => \core_text::strpos(\core_text::strtolower($hay), $needle) !== false;
+    $groupless = array_values(array_filter($groupless, static fn($r) => $match($r->fullname)));
+    $defaulterrows = array_values(array_filter($defaulterrows, static fn($r) => $match($r[0])));
+    $guidespending = array_values(array_filter($guidespending,
+        static fn($r) => $match($r->name) || $match($r->guidename)));
+    $quotafail = array_values(array_filter($quotafail, static fn($r) => $match($r->name)));
+}
+
+// Sorting (column header links on each tab).
+$sorter = static function (array $rows, array $keys) use ($tsort, $tdir): array {
+    if ($tsort === '' || !isset($keys[$tsort])) {
+        return $rows;
     }
-    $writer->download_file();
-    die;
+    $key = $keys[$tsort];
+    usort($rows, static function ($a, $b) use ($key) {
+        $va = is_object($a) ? $a->$key : $a[$key];
+        $vb = is_object($b) ? $b->$key : $b[$key];
+        return is_numeric($va) && is_numeric($vb) ? $va <=> $vb
+            : strcasecmp((string) $va, (string) $vb);
+    });
+    return $tdir ? array_reverse($rows) : $rows;
+};
+$defaulterrows = $sorter($defaulterrows, ['member' => 0, 'has' => 1, 'missing' => 2]);
+$guidespending = $sorter($guidespending, ['name' => 'name', 'guidename' => 'guidename', 'since' => 'sincets']);
+$quotafail = $sorter($quotafail, ['name' => 'name', 'state' => 'statelabel']);
+$groupless = $sorter($groupless, ['fullname' => 'fullname']);
+
+// Multi-format export (ODS / Excel / CSV / TXT, admin default).
+if ($download !== '') {
+    if ($tab === 'defaulters') {
+        \mod_selfselectadvanced\local\exporter::download('flagged-defaulters',
+            [get_string('member', 'mod_selfselectadvanced'),
+                get_string('defaultershas', 'mod_selfselectadvanced'),
+                get_string('defaultersmissing', 'mod_selfselectadvanced')],
+            $defaulterrows, $download);
+    } else if ($tab === 'guides') {
+        \mod_selfselectadvanced\local\exporter::download('flagged-guides-pending',
+            [get_string('groupname', 'mod_selfselectadvanced'), get_string('pluginid', 'mod_selfselectadvanced'),
+                get_string('guide', 'mod_selfselectadvanced'), get_string('flaggedsubmitted', 'mod_selfselectadvanced'),
+                get_string('flaggeddecideby', 'mod_selfselectadvanced'), get_string('flaggedoverdue', 'mod_selfselectadvanced')],
+            array_map(static fn($r) => [$r->name, $r->pluginuid, $r->guidename, $r->since,
+                $r->deadline, $r->overdue ? get_string('yes') : get_string('no')], $guidespending), $download);
+    } else if ($tab === 'quota') {
+        \mod_selfselectadvanced\local\exporter::download('flagged-quota-failing',
+            [get_string('groupname', 'mod_selfselectadvanced'), get_string('pluginid', 'mod_selfselectadvanced'),
+                get_string('state', 'mod_selfselectadvanced')],
+            array_map(static fn($r) => [$r->name, $r->pluginuid, $r->statelabel], $quotafail), $download);
+    } else {
+        \mod_selfselectadvanced\local\exporter::download('flagged-students',
+            [get_string('member', 'mod_selfselectadvanced'), get_string('participantattributes', 'mod_selfselectadvanced')],
+            array_map(static fn($r) => [$r->fullname, str_replace(' \u{b7} ', ' | ', $r->attrline)], $groupless), $download);
+    }
 }
 
 echo $OUTPUT->header();
@@ -215,10 +246,19 @@ $tabs = [
 ];
 echo $OUTPUT->tabtree($tabs, $tab);
 echo $OUTPUT->notification(get_string('flaggedexplain', 'mod_selfselectadvanced'), 'info', false);
-$downloadbtn = $OUTPUT->single_button(
-    new moodle_url($tabbase, ['tab' => $tab, 'download' => 'csv']),
-    get_string('downloadtext'),
-    'get'
+$filterform = html_writer::start_tag('form', ['method' => 'get',
+        'action' => $tabbase->out_omit_querystring(), 'class' => 'd-inline-flex gap-2 me-3 mb-2'])
+    . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id])
+    . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'tab', 'value' => $tab])
+    . html_writer::empty_tag('input', ['type' => 'text', 'name' => 'q', 'value' => $q,
+        'class' => 'form-control w-auto', 'placeholder' => get_string('flaggedfilter', 'mod_selfselectadvanced')])
+    . html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('filter'),
+        'class' => 'btn btn-secondary'])
+    . html_writer::end_tag('form');
+$downloadbtn = html_writer::div(
+    $filterform . \mod_selfselectadvanced\local\exporter::controls(
+        new moodle_url($tabbase, ['id' => $cm->id] + ($q !== '' ? ['q' => $q] : [])), $tab),
+    'd-flex flex-wrap align-items-center mb-2'
 );
 
 if ($tab === 'defaulters') {
@@ -226,10 +266,16 @@ if ($tab === 'defaulters') {
     $pageslice = array_slice($defaulterrows, $pagenum * $perpage, $perpage);
     if ($pageslice) {
         $dtable = new html_table();
+        $sortlink = static function (string $col, string $label) use ($tabbase, $tab, $q, $tsort, $tdir) {
+            $url = new moodle_url($tabbase, ['tab' => $tab, 'tsort' => $col,
+                'tdir' => ($tsort === $col && !$tdir) ? 1 : 0] + ($q !== '' ? ['q' => $q] : []));
+            $arrow = $tsort === $col ? ($tdir ? ' &#9660;' : ' &#9650;') : '';
+            return html_writer::link($url, $label) . $arrow;
+        };
         $dtable->head = [
-            get_string('member', 'mod_selfselectadvanced'),
-            get_string('defaultershas', 'mod_selfselectadvanced'),
-            get_string('defaultersmissing', 'mod_selfselectadvanced'),
+            $sortlink('member', get_string('member', 'mod_selfselectadvanced')),
+            $sortlink('has', get_string('defaultershas', 'mod_selfselectadvanced')),
+            $sortlink('missing', get_string('defaultersmissing', 'mod_selfselectadvanced')),
         ];
         $dtable->data = $pageslice;
         $dtable->attributes['class'] = 'generaltable selfselectadvanced-defaulters';
