@@ -1,5 +1,7 @@
 # Group self-selection (Advanced) — `mod_selfselectadvanced`
 
+[![Moodle Plugin CI](https://github.com/Resources4Moodle/moodle-mod_selfselectadvanced/actions/workflows/moodle-ci.yml/badge.svg)](https://github.com/Resources4Moodle/moodle-mod_selfselectadvanced/actions)
+
 A Moodle activity module for constraint-governed lab-group formation.
 Students self-organise into groups under teacher-defined limits and
 composition quotas; a project guide reviews, approves and freezes each
