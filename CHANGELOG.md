@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.1 (2026-07-25)
+
+- Auto-approval past the guide window now records any size or quota
+  relief as a group-scope override before approving, stamps the event
+  as automatic and notifies managers; guides receive escalating
+  reminders at 50% and 90% of their decision window.
+- The privacy provider exports and deletes proposal documents.
+- Auto-grouping is a three-state mode (off, manual only, manual and
+  automatic at the cutoff); previously enabled activities migrate to
+  the full mode. Auto-formed group names are sequence-unique.
+
 ## 1.5.0 (2026-07-24)
 
 - Attribute CSV import gains update modes (override with file, or fill
