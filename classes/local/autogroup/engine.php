@@ -327,42 +327,42 @@ class engine {
                 ],
             ])->trigger();
 
-        // Audit round 4 item 1: every placed student is told where
-        // they landed; managers get the run summary.
-        foreach ($log['groups'] as $planned) {
-            foreach ($planned['members'] as $placeduser) {
+            // Audit round 4 item 1: every placed student is told where
+            // they landed; managers get the run summary.
+            foreach ($log['groups'] as $planned) {
+                foreach ($planned['members'] as $placeduser) {
+                    \mod_selfselectadvanced\local\notifier::send(
+                        $activity,
+                        'autogroupresult',
+                        (int) $placeduser,
+                        'msgautogroupedsubject',
+                        'msgautogroupedbody',
+                        (object) [
+                        'group' => $planned['pluginuid'],
+                        'activity' => $activity->name(),
+                        ],
+                        new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]),
+                        $activity->name()
+                    );
+                }
+            }
+            foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $mgr) {
                 \mod_selfselectadvanced\local\notifier::send(
                     $activity,
                     'autogroupresult',
-                    (int) $placeduser,
-                    'msgautogroupedsubject',
-                    'msgautogroupedbody',
+                    (int) $mgr->id,
+                    'msgautogroupransubject',
+                    'msgautogroupranbody',
                     (object) [
-                        'group' => $planned['pluginuid'],
-                        'activity' => $activity->name(),
-                    ],
-                    new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]),
-                    $activity->name()
-                );
-            }
-        }
-        foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $mgr) {
-            \mod_selfselectadvanced\local\notifier::send(
-                $activity,
-                'autogroupresult',
-                (int) $mgr->id,
-                'msgautogroupransubject',
-                'msgautogroupranbody',
-                (object) [
                     'activity' => $activity->name(),
                     'placed' => (int) $agrun->placed,
                     'unplaced' => (int) $agrun->unplaced,
                     'groups' => (int) $agrun->groupsformed,
-                ],
-                new \moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $activity->cm()->id]),
-                $activity->name()
-            );
-        }
+                    ],
+                    new \moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $activity->cm()->id]),
+                    $activity->name()
+                );
+            }
 
             $transaction->allow_commit();
         } finally {

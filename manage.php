@@ -61,8 +61,12 @@ if ($action === 'assignguide' && data_submitted() && confirm_sesskey()) {
 
 if ($action === 'runautogroup' && data_submitted() && confirm_sesskey()) {
     if ((int) $activity->settings()->autogroup < 1) {
-        redirect($baseurl, get_string('autogroupdisabled', 'mod_selfselectadvanced'), null,
-            \core\output\notification::NOTIFY_ERROR);
+        redirect(
+            $baseurl,
+            get_string('autogroupdisabled', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     $agrun = \mod_selfselectadvanced\local\autogroup\engine::run($activity, (int) $USER->id);
     redirect(
