@@ -122,7 +122,7 @@ final class moves_test extends \advanced_testcase {
             $this->assertStringContainsString('successor must be a confirmed member', $e->getMessage());
         }
 
-        // makeleader into a led group without consent: LEADR blocks.
+        // Making leader in a led group without consent: LEADR blocks.
         $move = $api->moves()->stage((int) $students[4]->id, null, (int) $b->id, true, null, 99);
         $verdicts = $api->moves()->validate_set([(int) $move->id]);
         $this->assertFalse($verdicts->valid);

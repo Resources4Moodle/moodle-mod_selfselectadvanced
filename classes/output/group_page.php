@@ -39,6 +39,8 @@ class group_page implements renderable, templatable {
      * @param \stdClass $group the group row
      * @param int $userid the viewing user
      * @param \mod_selfselectadvanced\form\invite_form|null $inviteform leader's invite form, when applicable
+     * @param \mod_selfselectadvanced\form\nominate_form|null $nominateform leader's succession form
+     * @param \mod_selfselectadvanced\form\submit_form|null $submitform leader's submit-to-guide form
      */
     public function __construct(
         /** @var api The application facade. */

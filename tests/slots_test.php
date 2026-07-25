@@ -159,7 +159,7 @@ final class slots_test extends \advanced_testcase {
         slots::delete($activity, (int) slots::get_all($activity)[0]->id);
         $this->assertTrue(evaluator::is_compliant($activity, $groupid));
 
-        // "n from any ONE value" (blank value): 2 share Computer? No -
+        // Blank value means "n from any ONE value": 2 share Computer? No -
         // one each, so a 2-same slot is deficient; adding a second
         // Computer member satisfies it.
         slots::create($activity, (object) [
