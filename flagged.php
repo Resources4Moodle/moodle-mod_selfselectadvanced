@@ -125,7 +125,6 @@ foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity
             'guidename' => $fgroup->guideid ? fullname(\core_user::get_user((int) $fgroup->guideid)) : '-',
             'since' => userdate((int) $fgroup->timesubmitted),
             'sincets' => (int) $fgroup->timesubmitted,
-            'sincets' => (int) $fgroup->timesubmitted,
             'deadline' => $deadline ? userdate($deadline) : '-',
             'overdue' => $deadline && $deadline < time(),
         ];
