@@ -166,8 +166,10 @@ if ($q !== '') {
     $match = static fn(string $hay) => \core_text::strpos(\core_text::strtolower($hay), $needle) !== false;
     $groupless = array_values(array_filter($groupless, static fn($r) => $match($r->fullname)));
     $defaulterrows = array_values(array_filter($defaulterrows, static fn($r) => $match($r[0])));
-    $guidespending = array_values(array_filter($guidespending,
-        static fn($r) => $match($r->name) || $match($r->guidename)));
+    $guidespending = array_values(array_filter(
+        $guidespending,
+        static fn($r) => $match($r->name) || $match($r->guidename)
+    ));
     $quotafail = array_values(array_filter($quotafail, static fn($r) => $match($r->name)));
 }
 
@@ -193,27 +195,43 @@ $groupless = $sorter($groupless, ['fullname' => 'fullname']);
 // Multi-format export (ODS / Excel / CSV / TXT, admin default).
 if ($download !== '') {
     if ($tab === 'defaulters') {
-        \mod_selfselectadvanced\local\exporter::download('flagged-defaulters',
+        \mod_selfselectadvanced\local\exporter::download(
+            'flagged-defaulters',
             [get_string('member', 'mod_selfselectadvanced'),
                 get_string('defaultershas', 'mod_selfselectadvanced'),
                 get_string('defaultersmissing', 'mod_selfselectadvanced')],
-            $defaulterrows, $download);
+            $defaulterrows,
+            $download
+        );
     } else if ($tab === 'guides') {
-        \mod_selfselectadvanced\local\exporter::download('flagged-guides-pending',
+        \mod_selfselectadvanced\local\exporter::download(
+            'flagged-guides-pending',
             [get_string('groupname', 'mod_selfselectadvanced'), get_string('pluginid', 'mod_selfselectadvanced'),
                 get_string('guide', 'mod_selfselectadvanced'), get_string('flaggedsubmitted', 'mod_selfselectadvanced'),
                 get_string('flaggeddecideby', 'mod_selfselectadvanced'), get_string('flaggedoverdue', 'mod_selfselectadvanced')],
-            array_map(static fn($r) => [$r->name, $r->pluginuid, $r->guidename, $r->since,
-                $r->deadline, $r->overdue ? get_string('yes') : get_string('no')], $guidespending), $download);
+            array_map(
+                static fn($r) => [$r->name, $r->pluginuid, $r->guidename, $r->since,
+                $r->deadline,
+                $r->overdue ? get_string('yes') : get_string('no')],
+                $guidespending
+            ),
+            $download
+        );
     } else if ($tab === 'quota') {
-        \mod_selfselectadvanced\local\exporter::download('flagged-quota-failing',
+        \mod_selfselectadvanced\local\exporter::download(
+            'flagged-quota-failing',
             [get_string('groupname', 'mod_selfselectadvanced'), get_string('pluginid', 'mod_selfselectadvanced'),
                 get_string('state', 'mod_selfselectadvanced')],
-            array_map(static fn($r) => [$r->name, $r->pluginuid, $r->statelabel], $quotafail), $download);
+            array_map(static fn($r) => [$r->name, $r->pluginuid, $r->statelabel], $quotafail),
+            $download
+        );
     } else {
-        \mod_selfselectadvanced\local\exporter::download('flagged-students',
+        \mod_selfselectadvanced\local\exporter::download(
+            'flagged-students',
             [get_string('member', 'mod_selfselectadvanced'), get_string('participantattributes', 'mod_selfselectadvanced')],
-            array_map(static fn($r) => [$r->fullname, str_replace(' \u{b7} ', ' | ', $r->attrline)], $groupless), $download);
+            array_map(static fn($r) => [$r->fullname, str_replace(' \u{b7} ', ' | ', $r->attrline)], $groupless),
+            $download
+        );
     }
 }
 
@@ -256,7 +274,9 @@ $filterform = html_writer::start_tag('form', ['method' => 'get',
     . html_writer::end_tag('form');
 $downloadbtn = html_writer::div(
     $filterform . \mod_selfselectadvanced\local\exporter::controls(
-        new moodle_url($tabbase, ['id' => $cm->id] + ($q !== '' ? ['q' => $q] : [])), $tab),
+        new moodle_url($tabbase, ['id' => $cm->id] + ($q !== '' ? ['q' => $q] : [])),
+        $tab
+    ),
     'd-flex flex-wrap align-items-center mb-2'
 );
 

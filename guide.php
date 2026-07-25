@@ -192,8 +192,10 @@ if ($guidedownload !== '') {
             get_string('state', 'mod_selfselectadvanced'),
             get_string('size', 'mod_selfselectadvanced'),
         ],
-        array_map(static fn($card) => [$card->name, $card->pluginuid, $card->statelabel, $card->size],
-            array_merge($queue, $guided)),
+        array_map(
+            static fn($card) => [$card->name, $card->pluginuid, $card->statelabel, $card->size],
+            array_merge($queue, $guided)
+        ),
         $guidedownload
     );
 }
