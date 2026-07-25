@@ -374,5 +374,13 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072421, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072422) {
+        // 1.5.1: three-state auto-grouping mode; the old enabled flag
+        // meant manual + automatic, so 1 migrates to 2.
+        $DB->set_field('selfselectadvanced', 'autogroup', 2, ['autogroup' => 1]);
+
+        upgrade_mod_savepoint(true, 2026072422, 'selfselectadvanced');
+    }
+
     return true;
 }

@@ -151,7 +151,7 @@ final class gradebook_sequence_test extends \advanced_testcase {
             'course' => $course->id,
             'guidewindow' => DAYSECS,
             'guideautoapprove' => 1,
-            'minsize' => 1,
+            'minsize' => 3,
         ]);
         $activity = activity::from_instance((int) $instance->id);
         $leader = $generator->create_user();
@@ -177,6 +177,14 @@ final class gradebook_sequence_test extends \advanced_testcase {
         $task->execute();
 
         $this->assertSame(state::FIRM, $DB->get_field('selfselectadvanced_group', 'state', ['id' => $overdue->id]));
+        // Audit round 3 item 1: the forced approval of a below-minimum
+        // group is EXPLAINED by a recorded group-scope override.
+        $relief = $DB->get_record('selfselectadvanced_override', [
+            'activityid' => $activity->id(),
+            'scope' => 'group',
+            'groupid' => $overdue->id,
+        ], '*', MUST_EXIST);
+        $this->assertSame(1, (int) $relief->minsize);
         $this->assertSame(
             state::PENDING_GUIDE,
             $DB->get_field('selfselectadvanced_group', 'state', ['id' => $fresh->id])

@@ -288,7 +288,7 @@ final class state {
                 'objectid' => $fresh->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => (int) $fresh->leaderid,
-                'other' => ['pluginuid' => $fresh->pluginuid],
+                'other' => ['pluginuid' => $fresh->pluginuid, 'auto' => $auto ? 1 : 0],
             ])->trigger();
 
             $transaction->allow_commit();

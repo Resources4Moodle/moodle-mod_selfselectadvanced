@@ -198,6 +198,25 @@ class provider implements
             if (!$context instanceof \context_module) {
                 continue;
             }
+            $cmrec = get_coursemodule_from_id('selfselectadvanced', $context->instanceid);
+            if ($cmrec) {
+                $membergroups = $DB->get_fieldset_sql(
+                    "SELECT m.groupid
+                       FROM {selfselectadvanced_member} m
+                       JOIN {selfselectadvanced_group} g ON g.id = m.groupid
+                      WHERE g.activityid = ? AND m.userid = ? AND m.status = 'confirmed'",
+                    [$cmrec->instance, $userid]
+                );
+                foreach ($membergroups as $membergroupid) {
+                    writer::with_context($context)->export_area_files(
+                        [get_string('pluginname', 'mod_selfselectadvanced'),
+                            get_string('proposal', 'mod_selfselectadvanced')],
+                        'mod_selfselectadvanced',
+                        'proposal',
+                        (int) $membergroupid
+                    );
+                }
+            }
             $cm = get_coursemodule_from_id('selfselectadvanced', $context->instanceid);
             if (!$cm) {
                 continue;
@@ -303,6 +322,10 @@ class provider implements
             [$insql, $params] = $DB->get_in_or_equal($groupids);
             $DB->delete_records_select('selfselectadvanced_member', "groupid $insql", $params);
             $DB->delete_records_select('selfselectadvanced_snapshot', "groupid $insql", $params);
+            $fs = get_file_storage();
+            foreach ($groupids as $proposalgroupid) {
+                $fs->delete_area_files($context->id, 'mod_selfselectadvanced', 'proposal', (int) $proposalgroupid);
+            }
         }
         $DB->delete_records('selfselectadvanced_move', ['activityid' => $cm->instance]);
         $DB->delete_records_select(
@@ -370,6 +393,26 @@ class provider implements
      */
     private static function scrub_user_in_activity(int $activityid, int $userid): void {
         global $DB;
+
+        // Audit round 3 item 2: the proposal document of a group this
+        // user led is their uploaded content - remove it. Groups they
+        // merely belonged to keep theirs (shared group data).
+        $ledgroups = $DB->get_records('selfselectadvanced_group', [
+            'activityid' => $activityid,
+            'leaderid' => $userid,
+        ], '', 'id');
+        if ($ledgroups) {
+            [, $cmled] = get_course_and_cm_from_instance($activityid, 'selfselectadvanced');
+            $fs = get_file_storage();
+            foreach (array_keys($ledgroups) as $ledgroupid) {
+                $fs->delete_area_files(
+                    \context_module::instance($cmled->id)->id,
+                    'mod_selfselectadvanced',
+                    'proposal',
+                    (int) $ledgroupid
+                );
+            }
+        }
 
         $groupids = $DB->get_fieldset_select('selfselectadvanced_group', 'id', 'activityid = ?', [$activityid]);
         if ($groupids) {

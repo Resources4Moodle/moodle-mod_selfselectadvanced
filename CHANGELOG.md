@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.5.0 (2026-07-24)
+
+- Attribute CSV import gains update modes (override with file, or fill
+  missing only) plus admin default values for empty cells, both shown
+  in and surviving the mandatory preview.
+- Guide picker overrides: hide a capability holder from every guide
+  picker, or set an explicit guiding cap of 0 (visible, always full).
+
+## 1.4.3 (2026-07-24)
+
+- Flagged report reorganised into paginated tabs (students/anomalies,
+  defaulters, guides pending with overdue deadlines, quota-failing
+  groups), each downloadable as CSV; composition clash detector on
+  the quota page.
+
+## 1.4.2 (2026-07-24)
+
+- Ineligible invitation candidates stay listed with their refusal
+  reason; leaders edit title and brief while forming; slot template
+  form uses the vocabulary picker; guide dashboard date filter is
+  timezone-safe with a CSV download; core grading section (category,
+  grade to pass) replaces the bare grade field.
+
+## 1.4.1 (2026-07-24)
+
+- External audit fixes: cross-group cap checks race-safe under the
+  activity lock, guarded-override rechecks fire on move commits and
+  nightly, course reset support, per-row CSV length guards, defaulter
+  penalties honour date overrides, core group names clamped, and more.
+
 ## 1.4.0 (2026-07-24)
 
 - Guide decision window with an auto-approve switch: submitted groups
@@ -30,28 +60,6 @@
   leader-replacement consent on moves, AJAX user selectors at scale,
   guides and roster tables, seat location attribute, bulk department
   updates.
-
-## 1.2.0 (2026-07-24)
-
-- Guarded reductions: an override that reduces a cap below the
-  target's current position parks as *pending* with a blocker list
-  (each linking to the page that resolves it) and activates
-  automatically once cleared and re-checked; pending overrides never
-  affect the resolver.
-- Deliberate leadership changes: staging a move that makes someone
-  leader of an already-led group requires an explicit "Replace the
-  current leader" consent (LEADR verdict, not code-bypassable; leader
-  swaps in one set exempt themselves); the demoted leader is notified.
-- Move form at scale: student and successor use the AJAX user search
-  (five-thousand-student courses), the successor is validated
-  server-side as a confirmed member of the source group, and the
-  bypass checkboxes are labelled in words.
-- Manager dashboard split: new sortable/filterable/downloadable
-  Guides table (department, sub-department, seat location, live load)
-  and leader/member Roster table; guide loads left the dashboard.
-- Faculty seat location: new participant attribute (editor + optional
-  "Seat Location" CSV column), shown on the guides table.
-- Departments: bulk update by pasting "/"-separated paths.
 
 ## 1.1.0 (2026-07-24)
 

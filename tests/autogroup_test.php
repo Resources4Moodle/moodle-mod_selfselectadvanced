@@ -123,7 +123,7 @@ final class autogroup_test extends \advanced_testcase {
             'maxsize' => 3,
             'maxlead' => 1,
             'maxmembership' => 1,
-            'autogroup' => 1,
+            'autogroup' => 2,
             'timecutoff' => $now - 100,
         ]);
         $students = [];

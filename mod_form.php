@@ -146,7 +146,11 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->addHelpButton('inviteexpiry', 'inviteexpiry', 'mod_selfselectadvanced');
 
         // Auto-grouping.
-        $mform->addElement('advcheckbox', 'autogroup', get_string('autogroup', 'mod_selfselectadvanced'));
+        $mform->addElement('select', 'autogroup', get_string('autogroup', 'mod_selfselectadvanced'), [
+            0 => get_string('autogroupoff', 'mod_selfselectadvanced'),
+            1 => get_string('autogroupmanual', 'mod_selfselectadvanced'),
+            2 => get_string('autogroupauto', 'mod_selfselectadvanced'),
+        ]);
         $mform->setDefault('autogroup', 0);
         $mform->addHelpButton('autogroup', 'autogroup', 'mod_selfselectadvanced');
 

@@ -154,6 +154,12 @@ function selfselectadvanced_delete_instance($id): bool {
     $DB->delete_records('selfselectadvanced', ['id' => $id]);
     // Reminder markers die with the instance (audit item 23).
     $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_reminded_' . $id]);
+    if ($groupids) {
+        [$gsql, $gparams] = $DB->get_in_or_equal(
+            array_map(static fn($gid) => 'mod_selfselectadvanced_gremind_' . $gid, $groupids)
+        );
+        $DB->delete_records_select('user_preferences', "name $gsql", $gparams);
+    }
 
     selfselectadvanced_grade_item_delete($instance);
 

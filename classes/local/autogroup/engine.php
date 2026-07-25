@@ -242,6 +242,12 @@ class engine {
                 'groups' => [],
             ];
             $placed = 0;
+            // Names stay unique across runs via a running sequence
+            // (the date alone collides when two sweeps share a second).
+            $sequence = (int) $DB->count_records('selfselectadvanced_group', [
+                'activityid' => $activity->id(),
+                'autoformed' => 1,
+            ]);
             foreach ($plan->groups as $index => $members) {
                 // System-designated leader: first member with a free L3 slot.
                 $leaderid = 0;
@@ -264,7 +270,8 @@ class engine {
                 $group = (object) [
                     'activityid' => $activity->id(),
                     'pluginuid' => '',
-                    'name' => get_string('autogroupname', 'mod_selfselectadvanced', $index + 1) . ' (' . date('d M H.i.s', $now) . ')',
+                    'name' => get_string('autogroupname', 'mod_selfselectadvanced', $sequence + $index + 1)
+                        . ' (' . date('d M', $now) . ')',
                     'title' => get_string('autogrouptitle', 'mod_selfselectadvanced'),
                     'brief' => get_string('autogroupbrief', 'mod_selfselectadvanced'),
                     'briefformat' => FORMAT_HTML,
@@ -337,7 +344,9 @@ class engine {
     public static function sweep_due(activity $activity): bool {
         global $DB;
 
-        if (!(int) $activity->settings()->autogroup) {
+        // Three-state mode (audit round 3 item 3): 0 off, 1 manual
+        // trigger only, 2 manual + automatic at the effective cutoff.
+        if ((int) $activity->settings()->autogroup < 2) {
             return false;
         }
         $pool = self::pool($activity, new resolver($activity));

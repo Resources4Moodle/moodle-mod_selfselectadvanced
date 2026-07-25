@@ -44,7 +44,7 @@ class run_autogrouping extends \core\task\scheduled_task {
     public function execute(): void {
         global $DB;
 
-        foreach ($DB->get_records('selfselectadvanced', ['autogroup' => 1], 'id ASC', 'id') as $row) {
+        foreach ($DB->get_records('selfselectadvanced', ['autogroup' => 2], 'id ASC', 'id') as $row) {
             try {
                 $activity = activity::from_instance((int) $row->id);
             } catch (\moodle_exception $e) {
