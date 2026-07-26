@@ -93,6 +93,37 @@ class roster_table extends \table_sql {
     }
 
     /**
+     * Query the database for this table's rows.
+     *
+     * On-screen paging delegates entirely to the parent implementation,
+     * unchanged. A download instead streams the result via a recordset
+     * rather than materialising every membership row of the activity in
+     * memory at once (SCALE fix), the same treatment as attributes_table.
+     *
+     * @param int $pagesize page size for the on-screen table
+     * @param bool $useinitialsbar whether to show the initials bar
+     * @return void
+     */
+    public function query_db($pagesize, $useinitialsbar = true) {
+        global $DB;
+
+        if (!$this->is_downloading()) {
+            parent::query_db($pagesize, $useinitialsbar);
+            return;
+        }
+
+        $sort = $this->get_sql_sort();
+        if ($sort) {
+            $sort = "ORDER BY $sort";
+        }
+        $sql = "SELECT {$this->sql->fields}
+                  FROM {$this->sql->from}
+                 WHERE {$this->sql->where}
+                       $sort";
+        $this->rawdata = $DB->get_recordset_sql($sql, $this->sql->params);
+    }
+
+    /**
      * Group name cell.
      *
      * @param \stdClass $row table row

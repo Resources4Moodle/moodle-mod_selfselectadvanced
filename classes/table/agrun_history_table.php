@@ -178,7 +178,13 @@ class agrun_history_table extends \table_sql {
     public static function export_log_rows(activity $activity): array {
         global $DB;
 
-        $records = $DB->get_records(
+        // The outer fetch streams (SCALE): a recordset instead of
+        // get_records() so an activity's whole run history is never
+        // all materialised in memory at once. It can only be read
+        // once, so each run's small, already-decoded essentials are
+        // buffered here rather than re-reading the recordset for the
+        // second pass a per-group row build needs.
+        $runs = $DB->get_recordset(
             'selfselectadvanced_agrun',
             ['activityid' => $activity->id()],
             'timestarted DESC',
@@ -187,22 +193,34 @@ class agrun_history_table extends \table_sql {
 
         // One batched lookup for every leader named across every log,
         // instead of a get_user() call per formed group.
-        $decoded = [];
+        $rundata = [];
         $leaderids = [];
-        foreach ($records as $record) {
+        foreach ($runs as $record) {
             $log = json_decode((string) $record->log, true) ?: [];
-            $decoded[$record->id] = $log;
+            $rundata[] = (object) [
+                'id' => (int) $record->id,
+                'timestarted' => (int) $record->timestarted,
+                'unplaced' => (int) $record->unplaced,
+                'log' => $log,
+            ];
             foreach ($log['groups'] ?? [] as $formed) {
                 if (!empty($formed['leaderid'])) {
                     $leaderids[(int) $formed['leaderid']] = true;
                 }
             }
         }
-        $leaders = $leaderids ? $DB->get_records_list('user', 'id', array_keys($leaderids)) : [];
+        $runs->close();
+
+        // Chunked defensively (SCALE): the leader set accumulates
+        // across every historical run of the activity.
+        $leaders = [];
+        foreach (array_chunk(array_keys($leaderids), 1000) as $leaderidchunk) {
+            $leaders += $DB->get_records_list('user', 'id', $leaderidchunk);
+        }
 
         $rows = [];
-        foreach ($records as $record) {
-            $log = $decoded[$record->id];
+        foreach ($rundata as $run) {
+            $log = $run->log;
             // Raw values only (audit round 6 item 1): a comma list of
             // bypassed rule ids, or a dash placeholder (the same
             // convention as every other blank cell in this plugin's
@@ -213,13 +231,13 @@ class agrun_history_table extends \table_sql {
             foreach ($log['groups'] ?? [] as $formed) {
                 $leaderid = (int) ($formed['leaderid'] ?? 0);
                 $rows[] = (object) [
-                    'runid' => (int) $record->id,
-                    'timestarted' => userdate((int) $record->timestarted),
+                    'runid' => $run->id,
+                    'timestarted' => userdate($run->timestarted),
                     'pluginuid' => $formed['pluginuid'] ?? '',
                     'leader' => ($leaderid && isset($leaders[$leaderid])) ? fullname($leaders[$leaderid]) : '-',
                     'membercount' => count($formed['members'] ?? []),
                     'bypassed' => $bypassedsummary,
-                    'residue' => (int) $record->unplaced,
+                    'residue' => $run->unplaced,
                 ];
             }
         }
