@@ -48,6 +48,7 @@ $run = optional_param('run', 0, PARAM_INT);
 $download = optional_param('download', '', PARAM_ALPHA);
 
 $baseurl = new moodle_url('/mod/selfselectadvanced/autogrouphistory.php', ['id' => $cm->id]);
+$perpage = \mod_selfselectadvanced\local\perpage::current(50);
 
 $PAGE->set_url($run ? new moodle_url($baseurl, ['run' => $run]) : $baseurl);
 $PAGE->set_title($activity->name());
@@ -101,8 +102,12 @@ if ($download !== '') {
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('agrunhistory', 'mod_selfselectadvanced'));
 
-$table = new \mod_selfselectadvanced\table\agrun_history_table('ssaagrunhistory', $activity, $baseurl);
-$table->out(50, true);
+$table = new \mod_selfselectadvanced\table\agrun_history_table(
+    'ssaagrunhistory',
+    $activity,
+    new moodle_url($baseurl, ['perpage' => $perpage])
+);
+$table->out($perpage, true);
 
 echo html_writer::start_div('d-flex flex-wrap gap-4 mb-3');
 echo html_writer::div(
@@ -112,6 +117,10 @@ echo html_writer::div(
 echo html_writer::div(
     html_writer::tag('div', get_string('agrunexportlog', 'mod_selfselectadvanced'), ['class' => 'fw-bold mb-1'])
     . \mod_selfselectadvanced\local\exporter::controls($baseurl, 'log')
+);
+echo html_writer::div(
+    html_writer::tag('div', get_string('perpage', 'mod_selfselectadvanced'), ['class' => 'fw-bold mb-1'])
+    . \mod_selfselectadvanced\local\perpage::controls($baseurl)
 );
 echo html_writer::end_div();
 

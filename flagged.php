@@ -52,7 +52,7 @@ $q = optional_param('q', '', PARAM_RAW_TRIMMED);
 $tsort = optional_param('tsort', '', PARAM_ALPHANUMEXT);
 $tdir = optional_param('tdir', 0, PARAM_INT);
 $action = optional_param('action', '', PARAM_ALPHA);
-$perpage = 20;
+$perpage = \mod_selfselectadvanced\local\perpage::current(20);
 $canmanage = has_capability('mod/selfselectadvanced:manage', $context);
 $PAGE->set_url('/mod/selfselectadvanced/flagged.php', ['id' => $cm->id, 'tab' => $tab]);
 $PAGE->set_title($activity->name());
@@ -359,6 +359,8 @@ $downloadbtn = html_writer::div(
     $filterform . \mod_selfselectadvanced\local\exporter::controls(
         new moodle_url($tabbase, ['id' => $cm->id] + ($q !== '' ? ['q' => $q] : [])),
         $tab
+    ) . \mod_selfselectadvanced\local\perpage::controls(
+        new moodle_url($tabbase, ['tab' => $tab] + ($q !== '' ? ['q' => $q] : []))
     ),
     'd-flex flex-wrap align-items-center mb-2'
 );
@@ -366,7 +368,7 @@ $downloadbtn = html_writer::div(
 if ($tab === 'defaulters') {
     echo $OUTPUT->heading(get_string('defaulters', 'mod_selfselectadvanced'), 3);
     if ($defaulterscount > 0) {
-        $tableurl = new moodle_url($tabbase, ['tab' => $tab] + ($q !== '' ? ['q' => $q] : []));
+        $tableurl = new moodle_url($tabbase, ['tab' => $tab, 'perpage' => $perpage] + ($q !== '' ? ['q' => $q] : []));
         $table = new \mod_selfselectadvanced\table\flagged_defaulters_table(
             'ssaflaggeddefaulters',
             $activity,
@@ -394,7 +396,7 @@ if ($tab === 'defaulters') {
 if ($tab === 'guides') {
     echo $OUTPUT->heading(get_string('flaggedguidesheading', 'mod_selfselectadvanced'), 3);
     if ($guidescount > 0) {
-        $tableurl = new moodle_url($tabbase, ['tab' => $tab] + ($q !== '' ? ['q' => $q] : []));
+        $tableurl = new moodle_url($tabbase, ['tab' => $tab, 'perpage' => $perpage] + ($q !== '' ? ['q' => $q] : []));
         $table = new \mod_selfselectadvanced\table\flagged_guides_table(
             'ssaflaggedguides',
             $activity,
@@ -422,7 +424,7 @@ if ($tab === 'guides') {
 if ($tab === 'quota') {
     echo $OUTPUT->heading(get_string('flaggedtabquotaheading', 'mod_selfselectadvanced'), 3);
     if ($quotafail) {
-        $tableurl = new moodle_url($tabbase, ['tab' => $tab] + ($q !== '' ? ['q' => $q] : []));
+        $tableurl = new moodle_url($tabbase, ['tab' => $tab, 'perpage' => $perpage] + ($q !== '' ? ['q' => $q] : []));
         $table = new \mod_selfselectadvanced\table\flagged_quota_table('ssaflaggedquota', $tableurl);
         $table->display_rows($quotafail, $perpage);
     } else {
@@ -445,6 +447,11 @@ echo $OUTPUT->render_from_template('mod_selfselectadvanced/flagged_report', (obj
     'hasanomalies' => !empty($anomalies),
     'backurl' => (new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]))->out(false),
 ]);
-echo $OUTPUT->paging_bar(count($groupless), $pagenum, $perpage, new moodle_url($tabbase, ['tab' => 'students']));
+echo $OUTPUT->paging_bar(
+    count($groupless),
+    $pagenum,
+    $perpage,
+    new moodle_url($tabbase, ['tab' => 'students', 'perpage' => $perpage])
+);
 echo $downloadbtn;
 echo $OUTPUT->footer();

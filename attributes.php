@@ -193,9 +193,15 @@ if ($data = $uploadform->get_data()) {
 }
 
 // Default view: upload form, add link, listing table.
-$table = new \mod_selfselectadvanced\table\attributes_table('ssaattributes', $baseurl, $download !== '');
+$perpage = \mod_selfselectadvanced\local\perpage::current(50);
+$table = new \mod_selfselectadvanced\table\attributes_table(
+    'ssaattributes',
+    new moodle_url($baseurl, ['perpage' => $perpage]),
+    $download !== ''
+);
 if ($download !== '') {
     $table->is_downloading($download, 'participant-attributes');
+    // Download ignores paging and dumps the full recordset; left unchanged.
     $table->out(50, false);
     die;
 }
@@ -212,7 +218,8 @@ echo html_writer::div(
     ),
     'mb-3'
 );
-$table->out(50, true);
+echo html_writer::div(\mod_selfselectadvanced\local\perpage::controls($baseurl), 'mb-3');
+$table->out($perpage, true);
 // Blank template downloads (generic + one per programme).
 $tplbuttons = html_writer::div(get_string('templatedownloadintro', 'mod_selfselectadvanced'), 'mt-3 mb-1');
 $tplbuttons .= $OUTPUT->single_button(

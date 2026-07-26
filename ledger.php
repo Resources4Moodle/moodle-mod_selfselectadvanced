@@ -41,16 +41,24 @@ $PAGE->set_url($baseurl);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
-$table = new \mod_selfselectadvanced\table\ledger_table('ssaledger', $activity->id(), $baseurl, $download !== '');
+$perpage = \mod_selfselectadvanced\local\perpage::current(50);
+$table = new \mod_selfselectadvanced\table\ledger_table(
+    'ssaledger',
+    $activity->id(),
+    new moodle_url($baseurl, ['perpage' => $perpage]),
+    $download !== ''
+);
 if ($download !== '') {
     $table->is_downloading($download, 'penalty-ledger');
+    // Download ignores paging and dumps the full recordset; left unchanged.
     $table->out(50, false);
     die;
 }
 
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('penaltyledger', 'mod_selfselectadvanced'));
-$table->out(50, true);
+echo html_writer::div(\mod_selfselectadvanced\local\perpage::controls($baseurl), 'mb-3');
+$table->out($perpage, true);
 echo html_writer::div(
     html_writer::link(
         new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]),

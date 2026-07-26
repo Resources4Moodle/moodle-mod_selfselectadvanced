@@ -51,6 +51,7 @@ $load = (object) [
 ];
 
 $baseurl = new moodle_url('/mod/selfselectadvanced/guideload.php', ['id' => $cm->id, 'guide' => $guideid]);
+$perpage = \mod_selfselectadvanced\local\perpage::current(50);
 $PAGE->set_url($baseurl);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
@@ -78,14 +79,21 @@ echo $OUTPUT->heading(get_string('guideloadfor', 'mod_selfselectadvanced', fulln
 echo $OUTPUT->notification(get_string('guideload', 'mod_selfselectadvanced', $load), 'info', false);
 
 if ($rowcount > 0) {
-    $table = new \mod_selfselectadvanced\table\guideload_table('ssaguideload', $activity, $guideid, $baseurl, $guidewindow);
-    $table->out(50, false);
+    $table = new \mod_selfselectadvanced\table\guideload_table(
+        'ssaguideload',
+        $activity,
+        $guideid,
+        new moodle_url($baseurl, ['perpage' => $perpage]),
+        $guidewindow
+    );
+    $table->out($perpage, false);
 } else {
     echo $OUTPUT->notification(get_string('guideloadnone', 'mod_selfselectadvanced', fullname($guide)), 'info', false);
 }
 
 echo html_writer::div(
     \mod_selfselectadvanced\local\exporter::controls($baseurl)
+    . \mod_selfselectadvanced\local\perpage::controls($baseurl)
     . html_writer::link($backurl, get_string('back'), ['class' => 'btn btn-secondary ms-2']),
     'd-flex flex-wrap align-items-center gap-2 mt-2'
 );
