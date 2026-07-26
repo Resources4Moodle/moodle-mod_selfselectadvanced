@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.2 (2026-07-26)
+
+- The flagged report's defaulters, guides and quota tabs are rebuilt
+  on Moodle's flexible_table/table_sql instead of hand-rolled sort
+  links and PHP array sorting, giving them the native table look and
+  SQL-side sorting and paging.
+- The guides-pending tab joins the guide's name in the same query
+  instead of one core_user::get_user() call per row.
+- The students tab, its mustache template and the multi-format export
+  flow (ODS/Excel/CSV/TXT, admin default, raw values) are unchanged.
+
 ## 1.6.1 (2026-07-26)
 
 - Exports feed raw values to the dataformat writers, so names such as

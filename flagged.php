@@ -20,12 +20,18 @@
  * leaderless groups, and grandfathered out-of-limit groups.
  * Read-only GET; placement happens via staged moves.
  *
+ * The defaulters, guides and quota tabs (audit round 6 item 6) are
+ * table_sql/flexible_table so sorting and paging are native; the
+ * students tab keeps its own mustache template unchanged, as Behat
+ * asserts its exact strings and css class.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 require(__DIR__ . '/../../config.php');
+require_once($CFG->libdir . '/tablelib.php');
 
 $id = required_param('id', PARAM_INT);
 
@@ -49,6 +55,9 @@ $perpage = 20;
 $PAGE->set_url('/mod/selfselectadvanced/flagged.php', ['id' => $cm->id, 'tab' => $tab]);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
+
+$minmembership = (int) $activity->settings()->minmembership;
+$windowsecs = (int) $activity->settings()->guidewindow;
 
 // Groupless students: enrolled respond-holders with no confirmed row.
 $enrolled = get_enrolled_users($context, 'mod/selfselectadvanced:respond', 0, 'u.*', 'lastname, firstname');
@@ -116,24 +125,10 @@ foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity
     }
 }
 
-// Guides with pending decisions (tab), quota-failing groups (tab).
-$guidespending = [];
+// Quota-failing groups (tab): the compliance check is PHP-only over
+// each group's confirmed roster, so the array is still built here.
 $quotafail = [];
-$windowsecs = (int) $activity->settings()->guidewindow;
 foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()]) as $fgroup) {
-    if ($fgroup->state === \mod_selfselectadvanced\local\state::PENDING_GUIDE) {
-        $deadline = $windowsecs > 0 && $fgroup->timesubmitted ? (int) $fgroup->timesubmitted + $windowsecs : 0;
-        $guidespending[] = (object) [
-            'name' => format_string($fgroup->name),
-            'rawname' => $fgroup->name,
-            'pluginuid' => $fgroup->pluginuid,
-            'guidename' => $fgroup->guideid ? fullname(\core_user::get_user((int) $fgroup->guideid)) : '-',
-            'since' => userdate((int) $fgroup->timesubmitted),
-            'sincets' => (int) $fgroup->timesubmitted,
-            'deadline' => $deadline ? userdate($deadline) : '-',
-            'overdue' => $deadline && $deadline < time(),
-        ];
-    }
     if (
         in_array($fgroup->state, [\mod_selfselectadvanced\local\state::FORMING,
             \mod_selfselectadvanced\local\state::PENDING_GUIDE], true)
@@ -147,58 +142,30 @@ foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity
         ];
     }
 }
-$minmembership = (int) $activity->settings()->minmembership;
-$defaulterrows = [];
-if ($minmembership > 0) {
-    $counts = $DB->get_records_sql_menu(
-        "SELECT m.userid, COUNT(1)
-           FROM {selfselectadvanced_member} m
-           JOIN {selfselectadvanced_group} g ON g.id = m.groupid
-          WHERE g.activityid = ? AND m.status = ?
-       GROUP BY m.userid",
-        [$activity->id(), \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED]
-    );
-    foreach ($enrolled as $student) {
-        $have = (int) ($counts[$student->id] ?? 0);
-        if ($have < $minmembership) {
-            $defaulterrows[] = [fullname($student), $have, $minmembership - $have];
-        }
-    }
-}
 
-// Name filter (2026-07-25: usable at hundreds of rows).
+// Name filter (2026-07-25: usable at hundreds of rows). Defaulters and
+// guides filter in SQL (their own table classes); only the students
+// tab's groupless list and the PHP-built quota list filter here.
 if ($q !== '') {
     $needle = \core_text::strtolower($q);
     $match = static fn(string $hay) => \core_text::strpos(\core_text::strtolower($hay), $needle) !== false;
     $groupless = array_values(array_filter($groupless, static fn($r) => $match($r->fullname)));
-    $defaulterrows = array_values(array_filter($defaulterrows, static fn($r) => $match($r[0])));
-    $guidespending = array_values(array_filter(
-        $guidespending,
-        static fn($r) => $match($r->name) || $match($r->guidename)
-    ));
     $quotafail = array_values(array_filter($quotafail, static fn($r) => $match($r->name)));
 }
 
-// Sorting (column header links on each tab).
-$sorter = static function (array $rows, array $keys) use ($tsort, $tdir): array {
-    if ($tsort === '' || !isset($keys[$tsort])) {
-        return $rows;
+// Sorting: only the students tab's groupless list is still hand-sorted
+// here. The defaulters/guides/quota tabs use flexible_table's native
+// tsort/tdir handling instead (see their respective table classes).
+if ($tsort === 'fullname') {
+    usort($groupless, static fn($a, $b) => strcasecmp($a->fullname, $b->fullname));
+    if ($tdir) {
+        $groupless = array_reverse($groupless);
     }
-    $key = $keys[$tsort];
-    usort($rows, static function ($a, $b) use ($key) {
-        $va = is_object($a) ? $a->$key : $a[$key];
-        $vb = is_object($b) ? $b->$key : $b[$key];
-        return is_numeric($va) && is_numeric($vb) ? $va <=> $vb
-            : strcasecmp((string) $va, (string) $vb);
-    });
-    return $tdir ? array_reverse($rows) : $rows;
-};
-$defaulterrows = $sorter($defaulterrows, ['member' => 0, 'has' => 1, 'missing' => 2]);
-$guidespending = $sorter($guidespending, ['name' => 'name', 'guidename' => 'guidename', 'since' => 'sincets']);
-$quotafail = $sorter($quotafail, ['name' => 'name', 'state' => 'statelabel']);
-$groupless = $sorter($groupless, ['fullname' => 'fullname']);
+}
 
-// Multi-format export (ODS / Excel / CSV / TXT, admin default).
+// Multi-format export (ODS / Excel / CSV / TXT, admin default). Every
+// tab exports the full filtered dataset, built from raw values
+// independently of the paginated display tables.
 if ($download !== '') {
     if ($tab === 'defaulters') {
         \mod_selfselectadvanced\local\exporter::download(
@@ -206,7 +173,7 @@ if ($download !== '') {
             [get_string('member', 'mod_selfselectadvanced'),
                 get_string('defaultershas', 'mod_selfselectadvanced'),
                 get_string('defaultersmissing', 'mod_selfselectadvanced')],
-            $defaulterrows,
+            \mod_selfselectadvanced\table\flagged_defaulters_table::export_rows($activity, $minmembership, $q),
             $download
         );
     } else if ($tab === 'guides') {
@@ -219,7 +186,7 @@ if ($download !== '') {
                 static fn($r) => [$r->rawname, $r->pluginuid, $r->guidename, $r->since,
                 $r->deadline,
                 $r->overdue ? get_string('yes') : get_string('no')],
-                $guidespending
+                \mod_selfselectadvanced\table\flagged_guides_table::export_rows($activity, $windowsecs, $q)
             ),
             $download
         );
@@ -241,10 +208,16 @@ if ($download !== '') {
     }
 }
 
+// Cheap counts for the tab labels: defaulters and guides run a plain
+// COUNT(*) over the same FROM/WHERE as their display tables; quota
+// reuses the array already built above (its check is PHP-only).
+$tabbase = new moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $cm->id]);
+$defaulterscount = \mod_selfselectadvanced\table\flagged_defaulters_table::count_rows($activity, $minmembership, $q);
+$guidescount = \mod_selfselectadvanced\table\flagged_guides_table::count_rows($activity, $q);
+
 echo $OUTPUT->header();
 // Tabs keep each list on its own page with fixed-size pagination
 // (item 04: less scrolling, options visible).
-$tabbase = new moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $cm->id]);
 $tabs = [
     new tabobject(
         'students',
@@ -254,12 +227,12 @@ $tabs = [
     new tabobject(
         'defaulters',
         new moodle_url($tabbase, ['tab' => 'defaulters']),
-        get_string('flaggedtabdefaulters', 'mod_selfselectadvanced', count($defaulterrows))
+        get_string('flaggedtabdefaulters', 'mod_selfselectadvanced', $defaulterscount)
     ),
     new tabobject(
         'guides',
         new moodle_url($tabbase, ['tab' => 'guides']),
-        get_string('flaggedtabguides', 'mod_selfselectadvanced', count($guidespending))
+        get_string('flaggedtabguides', 'mod_selfselectadvanced', $guidescount)
     ),
     new tabobject(
         'quota',
@@ -288,29 +261,16 @@ $downloadbtn = html_writer::div(
 
 if ($tab === 'defaulters') {
     echo $OUTPUT->heading(get_string('defaulters', 'mod_selfselectadvanced'), 3);
-    $pageslice = array_slice($defaulterrows, $pagenum * $perpage, $perpage);
-    if ($pageslice) {
-        $dtable = new html_table();
-        $sortlink = static function (string $col, string $label) use ($tabbase, $tab, $q, $tsort, $tdir) {
-            $url = new moodle_url($tabbase, ['tab' => $tab, 'tsort' => $col,
-                'tdir' => ($tsort === $col && !$tdir) ? 1 : 0] + ($q !== '' ? ['q' => $q] : []));
-            $arrow = $tsort === $col ? ($tdir ? ' &#9660;' : ' &#9650;') : '';
-            return html_writer::link($url, $label) . $arrow;
-        };
-        $dtable->head = [
-            $sortlink('member', get_string('member', 'mod_selfselectadvanced')),
-            $sortlink('has', get_string('defaultershas', 'mod_selfselectadvanced')),
-            $sortlink('missing', get_string('defaultersmissing', 'mod_selfselectadvanced')),
-        ];
-        $dtable->data = $pageslice;
-        $dtable->attributes['class'] = 'generaltable selfselectadvanced-defaulters';
-        echo html_writer::table($dtable);
-        echo $OUTPUT->paging_bar(
-            count($defaulterrows),
-            $pagenum,
-            $perpage,
-            new moodle_url($tabbase, ['tab' => $tab])
+    if ($defaulterscount > 0) {
+        $tableurl = new moodle_url($tabbase, ['tab' => $tab] + ($q !== '' ? ['q' => $q] : []));
+        $table = new \mod_selfselectadvanced\table\flagged_defaulters_table(
+            'ssaflaggeddefaulters',
+            $activity,
+            $tableurl,
+            $minmembership,
+            $q
         );
+        $table->out($perpage, false);
         echo $OUTPUT->notification(get_string('defaultersintro', 'mod_selfselectadvanced'), 'info', false);
     } else {
         echo $OUTPUT->notification(get_string('defaultersnone', 'mod_selfselectadvanced'), 'success', false);
@@ -321,36 +281,16 @@ if ($tab === 'defaulters') {
 }
 if ($tab === 'guides') {
     echo $OUTPUT->heading(get_string('flaggedguidesheading', 'mod_selfselectadvanced'), 3);
-    $pageslice = array_slice($guidespending, $pagenum * $perpage, $perpage);
-    if ($pageslice) {
-        $gtable = new html_table();
-        $gtable->head = [
-            get_string('groupname', 'mod_selfselectadvanced'),
-            get_string('pluginid', 'mod_selfselectadvanced'),
-            get_string('guide', 'mod_selfselectadvanced'),
-            get_string('flaggedsubmitted', 'mod_selfselectadvanced'),
-            get_string('flaggeddecideby', 'mod_selfselectadvanced'),
-        ];
-        foreach ($pageslice as $row) {
-            $gtable->data[] = [
-                $row->name,
-                $row->pluginuid,
-                $row->guidename,
-                $row->since,
-                $row->overdue
-                    ? html_writer::span($row->deadline . ' ' .
-                        get_string('flaggedoverdue', 'mod_selfselectadvanced'), 'text-danger fw-bold')
-                    : $row->deadline,
-            ];
-        }
-        $gtable->attributes['class'] = 'generaltable selfselectadvanced-guidespending';
-        echo html_writer::table($gtable);
-        echo $OUTPUT->paging_bar(
-            count($guidespending),
-            $pagenum,
-            $perpage,
-            new moodle_url($tabbase, ['tab' => $tab])
+    if ($guidescount > 0) {
+        $tableurl = new moodle_url($tabbase, ['tab' => $tab] + ($q !== '' ? ['q' => $q] : []));
+        $table = new \mod_selfselectadvanced\table\flagged_guides_table(
+            'ssaflaggedguides',
+            $activity,
+            $tableurl,
+            $windowsecs,
+            $q
         );
+        $table->out($perpage, false);
     } else {
         echo $OUTPUT->notification(get_string('flaggedguidesnone', 'mod_selfselectadvanced'), 'success', false);
     }
@@ -360,25 +300,10 @@ if ($tab === 'guides') {
 }
 if ($tab === 'quota') {
     echo $OUTPUT->heading(get_string('flaggedtabquotaheading', 'mod_selfselectadvanced'), 3);
-    $pageslice = array_slice($quotafail, $pagenum * $perpage, $perpage);
-    if ($pageslice) {
-        $qtable = new html_table();
-        $qtable->head = [
-            get_string('groupname', 'mod_selfselectadvanced'),
-            get_string('pluginid', 'mod_selfselectadvanced'),
-            get_string('state', 'mod_selfselectadvanced'),
-        ];
-        foreach ($pageslice as $row) {
-            $qtable->data[] = [$row->name, $row->pluginuid, $row->statelabel];
-        }
-        $qtable->attributes['class'] = 'generaltable selfselectadvanced-quotafail';
-        echo html_writer::table($qtable);
-        echo $OUTPUT->paging_bar(
-            count($quotafail),
-            $pagenum,
-            $perpage,
-            new moodle_url($tabbase, ['tab' => $tab])
-        );
+    if ($quotafail) {
+        $tableurl = new moodle_url($tabbase, ['tab' => $tab] + ($q !== '' ? ['q' => $q] : []));
+        $table = new \mod_selfselectadvanced\table\flagged_quota_table('ssaflaggedquota', $tableurl);
+        $table->display_rows($quotafail, $perpage);
     } else {
         echo $OUTPUT->notification(get_string('flaggedquotanone', 'mod_selfselectadvanced'), 'success', false);
     }
