@@ -301,6 +301,7 @@ $string['maxmembership_help'] = 'How many groups one student may belong to in th
 $string['maxsize'] = 'Maximum group size';
 $string['maxsize_help'] = 'The largest permitted group; pending invitations reserve seats. If you change this after groups are approved or frozen, existing groups are grandfathered and any now out of limits appear on the flagged report.';
 $string['member'] = 'Member';
+$string['messageprovider:autogroupresult'] = 'Automatic grouping placements and run summaries';
 $string['messageprovider:deadlinereminder'] = 'Deadline reminder for students without a group';
 $string['messageprovider:groupapproved'] = 'Group approved by its guide';
 $string['messageprovider:groupfrozen'] = 'Group frozen into a course group';

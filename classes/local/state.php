@@ -95,7 +95,13 @@ final class state {
                 'other' => ['pluginuid' => $fresh->pluginuid],
             ])->trigger();
 
-            $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_gremind_' . $fresh->id]);
+            // Reset via the preferences API, not raw deletes - a
+            // direct table delete leaves each guide's preference
+            // cache holding the stale marker (audit round 6).
+            $marker = 'mod_selfselectadvanced_gremind_' . $fresh->id;
+            foreach ($DB->get_fieldset_select('user_preferences', 'userid', 'name = ?', [$marker]) as $markeduser) {
+                unset_user_preference($marker, (int) $markeduser);
+            }
             $transaction->allow_commit();
         } finally {
             $lock->release();
@@ -166,7 +172,13 @@ final class state {
             $fresh->timemodified = time();
             $DB->update_record('selfselectadvanced_group', $fresh);
 
-            $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_gremind_' . $fresh->id]);
+            // Reset via the preferences API, not raw deletes - a
+            // direct table delete leaves each guide's preference
+            // cache holding the stale marker (audit round 6).
+            $marker = 'mod_selfselectadvanced_gremind_' . $fresh->id;
+            foreach ($DB->get_fieldset_select('user_preferences', 'userid', 'name = ?', [$marker]) as $markeduser) {
+                unset_user_preference($marker, (int) $markeduser);
+            }
             $transaction->allow_commit();
         } finally {
             $lock->release();
@@ -232,7 +244,13 @@ final class state {
                 'other' => ['pluginuid' => $fresh->pluginuid, 'comment' => trim($comment)],
             ])->trigger();
 
-            $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_gremind_' . $fresh->id]);
+            // Reset via the preferences API, not raw deletes - a
+            // direct table delete leaves each guide's preference
+            // cache holding the stale marker (audit round 6).
+            $marker = 'mod_selfselectadvanced_gremind_' . $fresh->id;
+            foreach ($DB->get_fieldset_select('user_preferences', 'userid', 'name = ?', [$marker]) as $markeduser) {
+                unset_user_preference($marker, (int) $markeduser);
+            }
             $transaction->allow_commit();
         } finally {
             $lock->release();

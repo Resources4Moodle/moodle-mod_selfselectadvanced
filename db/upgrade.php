@@ -401,5 +401,11 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072424, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072425) {
+        // 1.6.1: audit round 6 fixes (raw export values, provider
+        // string, post-commit notifications), code only.
+        upgrade_mod_savepoint(true, 2026072425, 'selfselectadvanced');
+    }
+
     return true;
 }

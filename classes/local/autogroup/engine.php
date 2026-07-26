@@ -327,8 +327,13 @@ class engine {
                 ],
             ])->trigger();
 
+            $transaction->allow_commit();
+
             // Audit round 4 item 1: every placed student is told where
-            // they landed; managers get the run summary.
+            // they landed; managers get the run summary. Sends happen
+            // only after the commit above - messages are not
+            // transactional, and a rollback must never follow a
+            // "you have been placed" notification (audit round 6).
             foreach ($log['groups'] as $planned) {
                 foreach ($planned['members'] as $placeduser) {
                     \mod_selfselectadvanced\local\notifier::send(
@@ -363,8 +368,6 @@ class engine {
                     $activity->name()
                 );
             }
-
-            $transaction->allow_commit();
         } finally {
             $lock->release();
         }

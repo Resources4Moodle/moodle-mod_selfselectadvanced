@@ -76,6 +76,14 @@ if ($fapproved !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $fapproved)) {
     $fapproved = '';
 }
 if ($fapproved !== '') {
+    // Reject calendar rollovers (a typed 2026-02-31 must not silently
+    // become the 3rd of March).
+    [$fy, $fm, $fd] = array_map('intval', explode('-', $fapproved));
+    if (!checkdate($fm, $fd, $fy)) {
+        $fapproved = '';
+    }
+}
+if ($fapproved !== '') {
     // Parse in the GUIDE's timezone, not the server's (audit item 27).
     try {
         $fapprovedts = (new DateTime($fapproved, core_date::get_user_timezone_object()))->getTimestamp();
@@ -122,6 +130,7 @@ if ($fdept !== '' && $mygroups) {
 foreach ($mygroups as $group) {
     $row = (object) [
         'pluginuid' => $group->pluginuid,
+        'rawname' => $group->name,
         'name' => format_string($group->name),
         'title' => format_string($group->title),
         'statelabel' => get_string('state' . str_replace('_', '', $group->state), 'mod_selfselectadvanced')
@@ -193,7 +202,7 @@ if ($guidedownload !== '') {
             get_string('size', 'mod_selfselectadvanced'),
         ],
         array_map(
-            static fn($card) => [$card->name, $card->pluginuid, $card->statelabel, $card->size],
+            static fn($card) => [$card->rawname, $card->pluginuid, $card->statelabel, $card->size],
             array_merge($queue, $guided)
         ),
         $guidedownload

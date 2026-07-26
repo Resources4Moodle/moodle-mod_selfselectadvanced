@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.1 (2026-07-26)
+
+- Exports feed raw values to the dataformat writers, so names such as
+  O'Brien or R&D no longer arrive double-encoded in spreadsheets.
+- The notification-preferences page names the automatic-grouping
+  message provider instead of showing a placeholder.
+- Automatic-grouping notifications are sent only after the database
+  transaction commits.
+- Guide reminder markers are reset through the preferences API so no
+  stale cached marker survives.
+- Export file names pass through clean_filename() and the guide
+  dashboard's date filter rejects impossible calendar dates.
+
 ## 1.6.0 (2026-07-25)
 
 - Composition-template slots can be edited in place, not just added

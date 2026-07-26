@@ -202,4 +202,30 @@ class manager {
 
         return $parts ? implode(' · ', $parts) : get_string('attrsmissing', 'mod_selfselectadvanced');
     }
+
+    /**
+     * The same summary with raw values for exports: dataformat
+     * writers escape per format themselves, so feeding them the
+     * s()-wrapped display line double-encodes entities.
+     *
+     * @param stdClass|null $record the attribute record
+     * @param bool $includemobile whether the viewer may see the mobile number
+     * @return string plain-text summary, or the missing-attributes flag
+     */
+    public static function plain_line(?stdClass $record, bool $includemobile): string {
+        if (!$record) {
+            return get_string('attrsmissing', 'mod_selfselectadvanced');
+        }
+        $parts = [];
+        foreach (self::DIMENSIONS as $field) {
+            if (!empty($record->$field)) {
+                $parts[] = (string) $record->$field;
+            }
+        }
+        if ($includemobile && !empty($record->mobile)) {
+            $parts[] = (string) $record->mobile;
+        }
+
+        return $parts ? implode(' | ', $parts) : get_string('attrsmissing', 'mod_selfselectadvanced');
+    }
 }
