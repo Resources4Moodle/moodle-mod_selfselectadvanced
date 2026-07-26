@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.2 (2026-07-26)
+
+- Each form on a group page now renders its own action button id. All
+  three previously used id_submitbutton, which is invalid HTML and made
+  scripts and assistive technology address the wrong form.
+
 ## 1.8.1 (2026-07-26)
 
 - The flagged report's explanation names all four download formats
