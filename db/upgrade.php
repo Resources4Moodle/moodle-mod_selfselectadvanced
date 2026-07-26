@@ -407,5 +407,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072425, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072426) {
+        // 1.6.2: flagged tabs rebuilt on flexible_table, code only.
+        upgrade_mod_savepoint(true, 2026072426, 'selfselectadvanced');
+    }
+
     return true;
 }
