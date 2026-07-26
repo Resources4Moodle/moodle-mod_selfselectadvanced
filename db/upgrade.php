@@ -520,5 +520,11 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072434, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072435) {
+        // 1.10.0: performance batching, internationalisation fixes and
+        // report usability, no schema change.
+        upgrade_mod_savepoint(true, 2026072435, 'selfselectadvanced');
+    }
+
     return true;
 }
