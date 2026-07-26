@@ -450,16 +450,24 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
     }
 
     if ($oldversion < 2026072428) {
-        // 1.7.1: a site installed fresh at 1.7.0 carries a redundant
-        // userid index that its foreign key already provides. Drop it
-        // so installed and upgraded schemas match exactly.
+        // 1.7.1: volunteer table schema alignment, superseded by the
+        // repair step below.
+        upgrade_mod_savepoint(true, 2026072428, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026072429) {
+        // 1.7.1: the userid foreign key of the volunteer table carries
+        // its own index, exactly as every other table here. Restore it
+        // where an interim step removed it; index_exists() matches on
+        // FIELDS rather than name, so this is the only safe test.
         $table = new xmldb_table('selfselectadvanced_volunteer');
         $index = new xmldb_index('userid', XMLDB_INDEX_NOTUNIQUE, ['userid']);
-        if ($dbman->table_exists($table) && $dbman->index_exists($table, $index)) {
-            $dbman->drop_index($table, $index);
+        if ($dbman->table_exists($table) && !$dbman->index_exists($table, $index)) {
+            $key = new xmldb_key('fk_userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+            $dbman->add_key($table, $key);
         }
 
-        upgrade_mod_savepoint(true, 2026072428, 'selfselectadvanced');
+        upgrade_mod_savepoint(true, 2026072429, 'selfselectadvanced');
     }
 
     return true;
