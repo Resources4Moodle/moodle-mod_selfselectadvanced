@@ -22,8 +22,11 @@
  *
  * The defaulters, guides and quota tabs (audit round 6 item 6) are
  * table_sql/flexible_table so sorting and paging are native; the
- * students tab keeps its own mustache template unchanged, as Behat
- * asserts its exact strings and css class.
+ * students tab keeps its own mustache template and div wrapper (Behat
+ * asserts its exact strings and css class), but its missing-attributes
+ * and anomalies sections are now flexible_table HTML rendered into
+ * that template (audit round 8 item 3), alongside the groupless list,
+ * which stays hand-paginated.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -62,7 +65,16 @@ $minmembership = (int) $activity->settings()->minmembership;
 $windowsecs = (int) $activity->settings()->guidewindow;
 
 // Groupless students: enrolled respond-holders with no confirmed row.
-$enrolled = get_enrolled_users($context, 'mod/selfselectadvanced:respond', 0, 'u.*', 'lastname, firstname');
+// Only the id and the name fields fullname() needs are selected: u.*
+// was measured at 76MB for 10,000 students.
+$namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
+$enrolled = get_enrolled_users(
+    $context,
+    'mod/selfselectadvanced:respond',
+    0,
+    "u.id, $namefields",
+    'lastname, firstname'
+);
 $confirmedids = $DB->get_fieldset_sql(
     "SELECT DISTINCT m.userid
        FROM {selfselectadvanced_member} m
@@ -149,12 +161,15 @@ foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity
 }
 
 // Name filter (2026-07-25: usable at hundreds of rows). Defaulters and
-// guides filter in SQL (their own table classes); only the students
-// tab's groupless list and the PHP-built quota list filter here.
+// guides filter in SQL (their own table classes); the students tab's
+// groupless, missing-attributes and anomalies lists and the PHP-built
+// quota list filter here.
 if ($q !== '') {
     $needle = \core_text::strtolower($q);
     $match = static fn(string $hay) => \core_text::strpos(\core_text::strtolower($hay), $needle) !== false;
     $groupless = array_values(array_filter($groupless, static fn($r) => $match($r->fullname)));
+    $missingattrs = array_values(array_filter($missingattrs, static fn($r) => $match($r->fullname)));
+    $anomalies = array_values(array_filter($anomalies, static fn($r) => $match($r->name)));
     $quotafail = array_values(array_filter($quotafail, static fn($r) => $match($r->name)));
 }
 
@@ -240,24 +255,32 @@ if ($tab === 'defaulters' && $action === 'nudgedefaulters') {
     $recipients = \mod_selfselectadvanced\table\flagged_defaulters_table::recipient_ids($activity, $minmembership, $q);
     if (data_submitted()) {
         require_sesskey();
-        $sent = 0;
+        // Each recipient's due date can differ (an override resolves per
+        // user), so recipients are bucketed by that value: one adhoc
+        // task is queued per distinct due date, each carrying a single
+        // shared $a for every recipient in its bucket. This moves the
+        // send out of the request entirely (SCALE); nothing is sent
+        // synchronously here any more.
+        $buckets = [];
         foreach ($recipients as $userid) {
-            $due = $resolver->effective_dates($userid)->timedue;
-            \mod_selfselectadvanced\local\notifier::send(
-                $activity,
-                'deadlinereminder',
-                $userid,
-                'msgremindersubject',
-                'msgreminderbody',
-                (object) ['activity' => $activity->name(), 'due' => userdate($due)],
-                new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]),
-                $activity->name()
-            );
-            $sent++;
+            $due = (int) $resolver->effective_dates($userid)->timedue;
+            $buckets[$due][] = $userid;
+        }
+        foreach ($buckets as $due => $bucketids) {
+            $task = new \mod_selfselectadvanced\task\send_nudges();
+            $task->set_custom_data([
+                'activityid' => $activity->id(),
+                'provider' => 'deadlinereminder',
+                'subjectkey' => 'msgremindersubject',
+                'bodykey' => 'msgreminderbody',
+                'userids' => $bucketids,
+                'a' => ['activity' => $activity->name(), 'due' => userdate($due)],
+            ]);
+            \core\task\manager::queue_adhoc_task($task);
         }
         redirect(
             $backurl,
-            get_string('nudgedefaulterssent', 'mod_selfselectadvanced', $sent),
+            get_string('nudgedefaultersqueued', 'mod_selfselectadvanced', count($recipients)),
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
@@ -286,23 +309,36 @@ if ($tab === 'guides' && $action === 'nudgeguides') {
     $overduecounts = \mod_selfselectadvanced\table\flagged_guides_table::overdue_guide_counts($activity, $windowsecs, $q);
     if (data_submitted()) {
         require_sesskey();
-        $sent = 0;
+        // Each guide's overdue count can differ, so guides are bucketed
+        // by that value: one adhoc task is queued per distinct count,
+        // each carrying a single shared $a for every guide in its
+        // bucket. This moves the send out of the request entirely
+        // (SCALE); nothing is sent synchronously here any more. The
+        // deep link still points at the guide review queue, not the
+        // generic activity view, so send_nudges is given an explicit
+        // contexturl/contextname.
+        $buckets = [];
         foreach ($overduecounts as $guideid => $overduecount) {
-            \mod_selfselectadvanced\local\notifier::send(
-                $activity,
-                'guidequeue',
-                $guideid,
-                'msgnudgeguidesubject',
-                'msgnudgeguidebody',
-                (object) ['activity' => $activity->name(), 'count' => $overduecount],
-                new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
-                $activity->name()
-            );
-            $sent++;
+            $buckets[$overduecount][] = $guideid;
+        }
+        $guidecontexturl = new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]);
+        foreach ($buckets as $overduecount => $guideids) {
+            $task = new \mod_selfselectadvanced\task\send_nudges();
+            $task->set_custom_data([
+                'activityid' => $activity->id(),
+                'provider' => 'guidequeue',
+                'subjectkey' => 'msgnudgeguidesubject',
+                'bodykey' => 'msgnudgeguidebody',
+                'userids' => $guideids,
+                'a' => ['activity' => $activity->name(), 'count' => $overduecount],
+                'contexturl' => $guidecontexturl->out(false),
+                'contextname' => $activity->name(),
+            ]);
+            \core\task\manager::queue_adhoc_task($task);
         }
         redirect(
             $backurl,
-            get_string('nudgeguidessent', 'mod_selfselectadvanced', $sent),
+            get_string('nudgeguidesqueued', 'mod_selfselectadvanced', count($overduecounts)),
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
@@ -377,7 +413,8 @@ if ($tab === 'defaulters') {
             $activity,
             $tableurl,
             $minmembership,
-            $q
+            $q,
+            $canmanage
         );
         $table->out($perpage, false);
         echo $OUTPUT->notification(get_string('defaultersintro', 'mod_selfselectadvanced'), 'info', false);
@@ -438,16 +475,39 @@ if ($tab === 'quota') {
     die;
 }
 
-// Default tab: groupless (paginated), missing attributes, anomalies.
+// Default tab: groupless (paginated), missing attributes and anomalies
+// (both flexible_table, item 3), each with its own remapped sort/page
+// GET params so the three lists sharing this page never collide.
+$studentsurl = new moodle_url($tabbase, ['tab' => 'students', 'perpage' => $perpage] + ($q !== '' ? ['q' => $q] : []));
+
+$missingattrshtml = '';
+if ($missingattrs) {
+    $missingattrstable = new \mod_selfselectadvanced\table\flagged_missingattrs_table(
+        'ssaflaggedmissingattrs',
+        $studentsurl
+    );
+    ob_start();
+    $missingattrstable->display_rows($missingattrs, $perpage);
+    $missingattrshtml = ob_get_clean();
+}
+
+$anomalieshtml = '';
+if ($anomalies) {
+    $anomaliestable = new \mod_selfselectadvanced\table\flagged_anomalies_table('ssaflaggedanomalies', $studentsurl);
+    ob_start();
+    $anomaliestable->display_rows($anomalies, $perpage);
+    $anomalieshtml = ob_get_clean();
+}
+
 $grouplesspage = array_slice($groupless, $pagenum * $perpage, $perpage);
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/flagged_report', (object) [
     'groupless' => $grouplesspage,
     'hasgroupless' => !empty($groupless),
     'grouplesscount' => count($groupless),
-    'missingattrs' => $missingattrs,
     'hasmissingattrs' => !empty($missingattrs),
-    'anomalies' => $anomalies,
+    'missingattrstable' => $missingattrshtml,
     'hasanomalies' => !empty($anomalies),
+    'anomaliestable' => $anomalieshtml,
     'backurl' => (new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]))->out(false),
 ]);
 echo $OUTPUT->paging_bar(

@@ -37,6 +37,9 @@ class flagged_defaulters_table extends \table_sql {
     /** @var int Minimum memberships required, used to derive the shortfall column. */
     protected int $minmembership = 0;
 
+    /** @var int Course module id, used to build the per-row staged-move action link. */
+    protected int $cmid = 0;
+
     /**
      * Constructor.
      *
@@ -45,26 +48,40 @@ class flagged_defaulters_table extends \table_sql {
      * @param \moodle_url $baseurl page url (with active filters)
      * @param int $minmembership minimum confirmed memberships a student must hold
      * @param string $q name filter, '' = none
+     * @param bool $canmanage whether the viewer holds mod/selfselectadvanced:manage
+     *        (the table itself is visible to viewall holders, who may not be able to act,
+     *        so the per-row action column only renders for managers)
      */
     public function __construct(
         string $uniqueid,
         activity $activity,
         \moodle_url $baseurl,
         int $minmembership,
-        string $q
+        string $q,
+        bool $canmanage = false
     ) {
         parent::__construct($uniqueid);
 
-        $this->define_columns(['fullname', 'has', 'missing']);
-        $this->define_headers([
+        $columns = ['fullname', 'has', 'missing'];
+        $headers = [
             get_string('member', 'mod_selfselectadvanced'),
             get_string('defaultershas', 'mod_selfselectadvanced'),
             get_string('defaultersmissing', 'mod_selfselectadvanced'),
-        ]);
+        ];
+        if ($canmanage) {
+            $columns[] = 'action';
+            $headers[] = get_string('actions');
+        }
+        $this->define_columns($columns);
+        $this->define_headers($headers);
         $this->define_baseurl($baseurl);
         $this->sortable(true, 'lastname');
+        if ($canmanage) {
+            $this->no_sorting('action');
+        }
         $this->is_downloadable(false);
         $this->set_attribute('class', 'generaltable selfselectadvanced-defaulters');
+        $this->cmid = $activity->cm()->id;
 
         [$from, $where, $params] = self::sql_parts($activity, $minmembership, $q);
         $namefields = implode(', ', array_map(
@@ -91,6 +108,25 @@ class flagged_defaulters_table extends \table_sql {
      */
     public function col_missing($row): int {
         return max(0, $this->minmembership - (int) $row->has);
+    }
+
+    /**
+     * Per-row staged-move action cell, manager-only: a link to
+     * moveedit.php pre-filled with this student, the same staged-move
+     * page the students tab's groupless list already links to.
+     *
+     * @param \stdClass $row the fetched row
+     * @return string
+     */
+    public function col_action($row): string {
+        $url = new \moodle_url('/mod/selfselectadvanced/moveedit.php', [
+            'id' => $this->cmid,
+            'student' => (int) $row->id,
+        ]);
+
+        return \html_writer::link($url, get_string('flagplace', 'mod_selfselectadvanced'), [
+            'class' => 'btn btn-primary btn-sm',
+        ]);
     }
 
     /**

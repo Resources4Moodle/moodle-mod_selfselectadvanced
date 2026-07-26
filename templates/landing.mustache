@@ -48,7 +48,10 @@
         "myinvitations": [],
         "isstaff": false,
         "hasallgroups": false,
-        "allgroups": []
+        "allgroups": [],
+        "allgroupstruncated": false,
+        "allgroupsshowingtext": "",
+        "manageallurl": "https://example.com/mod/selfselectadvanced/manage.php?id=1"
     }
 }}
 <div class="selfselectadvanced-landing">
@@ -186,6 +189,12 @@
                 </tbody>
             </table>
         </div>
+        {{#allgroupstruncated}}
+            <p class="text-muted">
+                {{allgroupsshowingtext}}
+                <a href="{{manageallurl}}">{{#str}} allgroupsseeall, mod_selfselectadvanced {{/str}}</a>
+            </p>
+        {{/allgroupstruncated}}
     {{/hasallgroups}}
     {{^hasallgroups}}
         <p class="text-muted">{{#str}} nogroupsyet, mod_selfselectadvanced {{/str}}</p>
