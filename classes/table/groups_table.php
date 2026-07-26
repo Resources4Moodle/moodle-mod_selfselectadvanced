@@ -87,10 +87,20 @@ class groups_table extends \table_sql {
             $where .= ' AND g.state = :statefilter';
             $params['statefilter'] = $statefilter;
         }
-        $leaderfields = 'l.firstname AS leaderfirst, l.lastname AS leaderlast';
+        // Every name field is selected and aliased, because fullname()
+        // needs the complete set to honour the site's name format.
+        $namefields = \core_user\fields::get_name_fields();
+        $leaderfields = implode(', ', array_map(
+            static fn(string $f) => "l.$f AS leader$f",
+            $namefields
+        ));
+        $guidefields = implode(', ', array_map(
+            static fn(string $f) => "gu.$f AS guide$f",
+            $namefields
+        ));
         $this->set_sql(
             "g.id, g.name, g.pluginuid, g.state, g.leaderid, g.guideid, p.penaltyvalue,
-             $leaderfields, gu.firstname AS guidefirst, gu.lastname AS guidelast",
+             $leaderfields, $guidefields",
             '{selfselectadvanced_group} g
              JOIN {user} l ON l.id = g.leaderid
              LEFT JOIN {user} gu ON gu.id = g.guideid
@@ -127,7 +137,7 @@ class groups_table extends \table_sql {
      * @return string
      */
     public function col_leadername($row) {
-        return fullname((object) ['firstname' => $row->leaderfirst, 'lastname' => $row->leaderlast]);
+        return fullname(self::name_object($row, 'leader'));
     }
 
     /**
@@ -137,9 +147,7 @@ class groups_table extends \table_sql {
      * @return string
      */
     public function col_guidename($row) {
-        return $row->guideid
-            ? fullname((object) ['firstname' => $row->guidefirst, 'lastname' => $row->guidelast])
-            : '';
+        return $row->guideid ? fullname(self::name_object($row, 'guide')) : '';
     }
 
     /**
@@ -192,5 +200,23 @@ class groups_table extends \table_sql {
         }
 
         return $out;
+    }
+
+    /**
+     * Rebuild a user-shaped object from the aliased name columns so
+     * fullname() sees every field it expects.
+     *
+     * @param \stdClass $row the fetched row
+     * @param string $prefix column alias prefix, leader or guide
+     * @return \stdClass
+     */
+    private static function name_object(\stdClass $row, string $prefix): \stdClass {
+        $user = new \stdClass();
+        foreach (\core_user\fields::get_name_fields() as $field) {
+            $alias = $prefix . $field;
+            $user->$field = $row->$alias ?? '';
+        }
+
+        return $user;
     }
 }
