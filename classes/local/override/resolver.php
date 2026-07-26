@@ -31,6 +31,11 @@ use mod_selfselectadvanced\activity;
  * setting. Group-level assessments (the penalty ledger) resolve with the
  * group's leader as the user context (precedence row P16).
  *
+ * Guide volunteering (1.7.0): when enabled, a guide's effective L5 cap
+ * additionally consults their own volunteered capacity - but only when
+ * no active manager guide-scope override exists; the manager override
+ * always wins (see effective_maxguided()).
+ *
  * Slices 1-6 run against this API with no override rows in existence;
  * slice 7 supplies the store that find_overrides() reads, which changes
  * no caller.
@@ -147,10 +152,46 @@ class resolver {
     /**
      * Effective maximum groups guided (L5) for a guide.
      *
+     * Guide volunteering (1.7.0): when the activity has
+     * guidevolunteer enabled and no active manager guide-scope
+     * override applies, the effective cap is the guide's own
+     * volunteered capacity, itself never exceeding the ceiling
+     * (guide_capacity_ceiling()) - a guide with no volunteer row, or
+     * one volunteered for zero groups, has an effective cap of 0 and
+     * is unavailable for new assignments. An active manager override
+     * always wins over the volunteered number, per every other guide
+     * cap behaviour in this method.
+     *
      * @param int $guideid the guide
      * @return effective_value
      */
     public function effective_maxguided(int $guideid): effective_value {
+        $ceiling = $this->guide_capacity_ceiling($guideid);
+        if ($ceiling->source === effective_value::SOURCE_GUIDE) {
+            return $ceiling;
+        }
+        if (empty($this->activity->settings()->guidevolunteer)) {
+            return $ceiling;
+        }
+
+        $volunteered = \mod_selfselectadvanced\local\volunteering::get($this->activity, $guideid);
+        $n = $volunteered !== null ? (int) $volunteered->capacity : 0;
+
+        return new effective_value(min($n, $ceiling->value), effective_value::SOURCE_VOLUNTEER);
+    }
+
+    /**
+     * The guide's manager-override-aware ceiling (N) for volunteered
+     * capacity: an active guide-scope maxguided override, else the
+     * activity's own maxguided setting - deliberately ignoring the
+     * volunteered number itself, so both effective_maxguided() and
+     * volunteering::set()'s write-time validation share one
+     * non-circular source of truth for N.
+     *
+     * @param int $guideid the guide
+     * @return effective_value
+     */
+    public function guide_capacity_ceiling(int $guideid): effective_value {
         $override = $this->find_override('guide', $guideid);
         if ($override !== null && $override->maxguided !== null) {
             return new effective_value((int) $override->maxguided, effective_value::SOURCE_GUIDE, (int) $override->id);

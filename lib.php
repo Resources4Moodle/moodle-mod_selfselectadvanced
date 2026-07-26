@@ -145,6 +145,7 @@ function selfselectadvanced_delete_instance($id): bool {
     }
     $DB->delete_records('selfselectadvanced_penalty', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_override', ['activityid' => $id]);
+    $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_move', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_quota', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_qslot', ['activityid' => $id]);

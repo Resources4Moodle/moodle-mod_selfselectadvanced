@@ -22,11 +22,25 @@
     Context variables required for this template:
     * loadline - "You are guiding 3 of 10 groups"
     * hasqueue - whether the queue has entries
+    * showvolunteer - whether guide volunteering is enabled for this activity
+    * volunteer - hasvolunteered, statusline, callline, showgrandfathered, grandfatherline, options[]
 
     Example context (json):
     {
         "loadline": "You are guiding 3 of 10 groups",
         "hasqueue": true,
+        "showvolunteer": true,
+        "volunteer": {
+            "hasvolunteered": true,
+            "statusline": "You have volunteered to guide up to 3 of 10 groups.",
+            "callline": "You have not volunteered to guide any groups yet.",
+            "showgrandfathered": false,
+            "grandfatherline": "",
+            "options": [
+                {"value": 0, "label": "0 (withdraw)", "selected": false},
+                {"value": 3, "label": "3", "selected": true}
+            ]
+        },
         "queue": [
             {
                 "pluginuid": "SSA-C101-0001",
@@ -45,6 +59,34 @@
 }}
 <div class="selfselectadvanced-guidedashboard">
     <p><span class="badge bg-secondary text-light">{{loadline}}</span></p>
+
+    {{#showvolunteer}}
+        <div class="selfselectadvanced-volunteer mb-3">
+            <h3>{{#str}} volunteerheading, mod_selfselectadvanced {{/str}}</h3>
+            <p>
+                {{#volunteer.hasvolunteered}}{{volunteer.statusline}}{{/volunteer.hasvolunteered}}
+                {{^volunteer.hasvolunteered}}{{volunteer.callline}}{{/volunteer.hasvolunteered}}
+            </p>
+            {{#volunteer.showgrandfathered}}
+                <p class="text-muted">{{volunteer.grandfatherline}}</p>
+            {{/volunteer.showgrandfathered}}
+            <form method="post" action="{{actionurl}}" class="d-flex flex-wrap gap-2 align-items-end">
+                <input type="hidden" name="id" value="{{cmid}}">
+                <input type="hidden" name="action" value="volunteer">
+                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <label>{{#str}} volunteerlabel, mod_selfselectadvanced {{/str}}
+                    <select name="capacity" class="form-select form-select-sm">
+                        {{#volunteer.options}}
+                            <option value="{{value}}" {{#selected}}selected{{/selected}}>{{label}}</option>
+                        {{/volunteer.options}}
+                    </select>
+                </label>
+                <button type="submit" class="btn btn-primary btn-sm">
+                    {{#str}} volunteersave, mod_selfselectadvanced {{/str}}
+                </button>
+            </form>
+        </div>
+    {{/showvolunteer}}
 
     <h3>{{#str}} reviewqueue, mod_selfselectadvanced {{/str}}</h3>
     {{#hasqueue}}
