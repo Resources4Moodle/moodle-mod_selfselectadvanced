@@ -59,6 +59,7 @@ class exporter {
      */
     public static function download(string $filename, array $columns, array $rows, ?string $format = null): void {
         $format = $format !== null && isset(self::FORMATS[$format]) ? $format : self::default_format();
+        $filename = clean_filename($filename);
 
         if ($format === 'txt') {
             // Tab-separated plain text (the gradebook's TXT flavour).

@@ -71,6 +71,10 @@ foreach ($enrolled as $user) {
         $groupless[] = (object) [
             'fullname' => fullname($user),
             'attrline' => $attrline,
+            'attrplain' => \mod_selfselectadvanced\local\attributes\manager::plain_line(
+                $attrs[(int) $user->id] ?? null,
+                true
+            ),
             'placeurl' => (new moodle_url('/mod/selfselectadvanced/moveedit.php', ['id' => $cm->id]))->out(false),
         ];
     }
@@ -121,6 +125,7 @@ foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity
         $deadline = $windowsecs > 0 && $fgroup->timesubmitted ? (int) $fgroup->timesubmitted + $windowsecs : 0;
         $guidespending[] = (object) [
             'name' => format_string($fgroup->name),
+            'rawname' => $fgroup->name,
             'pluginuid' => $fgroup->pluginuid,
             'guidename' => $fgroup->guideid ? fullname(\core_user::get_user((int) $fgroup->guideid)) : '-',
             'since' => userdate((int) $fgroup->timesubmitted),
@@ -136,6 +141,7 @@ foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity
     ) {
         $quotafail[] = (object) [
             'name' => format_string($fgroup->name),
+            'rawname' => $fgroup->name,
             'pluginuid' => $fgroup->pluginuid,
             'statelabel' => get_string('state' . str_replace('_', '', $fgroup->state), 'mod_selfselectadvanced'),
         ];
@@ -210,7 +216,7 @@ if ($download !== '') {
                 get_string('guide', 'mod_selfselectadvanced'), get_string('flaggedsubmitted', 'mod_selfselectadvanced'),
                 get_string('flaggeddecideby', 'mod_selfselectadvanced'), get_string('flaggedoverdue', 'mod_selfselectadvanced')],
             array_map(
-                static fn($r) => [$r->name, $r->pluginuid, $r->guidename, $r->since,
+                static fn($r) => [$r->rawname, $r->pluginuid, $r->guidename, $r->since,
                 $r->deadline,
                 $r->overdue ? get_string('yes') : get_string('no')],
                 $guidespending
@@ -222,14 +228,14 @@ if ($download !== '') {
             'flagged-quota-failing',
             [get_string('groupname', 'mod_selfselectadvanced'), get_string('pluginid', 'mod_selfselectadvanced'),
                 get_string('state', 'mod_selfselectadvanced')],
-            array_map(static fn($r) => [$r->name, $r->pluginuid, $r->statelabel], $quotafail),
+            array_map(static fn($r) => [$r->rawname, $r->pluginuid, $r->statelabel], $quotafail),
             $download
         );
     } else {
         \mod_selfselectadvanced\local\exporter::download(
             'flagged-students',
             [get_string('member', 'mod_selfselectadvanced'), get_string('participantattributes', 'mod_selfselectadvanced')],
-            array_map(static fn($r) => [$r->fullname, str_replace(' \u{b7} ', ' | ', $r->attrline)], $groupless),
+            array_map(static fn($r) => [$r->fullname, $r->attrplain], $groupless),
             $download
         );
     }
