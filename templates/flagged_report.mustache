@@ -22,6 +22,8 @@
     Context variables required for this template:
     * hasgroupless - whether groupless students exist
     * grouplesscount - their number
+    * missingattrstable - pre-rendered flexible_table HTML (flagged_missingattrs_table)
+    * anomaliestable - pre-rendered flexible_table HTML (flagged_anomalies_table)
 
     Example context (json):
     {
@@ -29,10 +31,10 @@
         "grouplesscount": 1,
         "groupless": [{"fullname": "Sam One", "attrline": "Female · Civil",
                        "placeurl": "https://example.com/moveedit"}],
-        "hasmissingattrs": false,
-        "missingattrs": [],
+        "hasmissingattrs": true,
+        "missingattrstable": "<table></table>",
         "hasanomalies": false,
-        "anomalies": [],
+        "anomaliestable": "",
         "backurl": "https://example.com/back"
     }
 }}
@@ -61,11 +63,7 @@
 
     <h4>{{#str}} flagmissingattrs, mod_selfselectadvanced {{/str}}</h4>
     {{#hasmissingattrs}}
-        <ul class="list-group mb-4">
-            {{#missingattrs}}
-                <li class="list-group-item">{{fullname}}</li>
-            {{/missingattrs}}
-        </ul>
+        {{{missingattrstable}}}
     {{/hasmissingattrs}}
     {{^hasmissingattrs}}
         <p class="text-muted">{{#str}} flagnonemissing, mod_selfselectadvanced {{/str}}</p>
@@ -73,17 +71,7 @@
 
     <h4>{{#str}} flaganomalies, mod_selfselectadvanced {{/str}}</h4>
     {{#hasanomalies}}
-        <ul class="list-group mb-4">
-            {{#anomalies}}
-                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap">
-                    <span>
-                        <a href="{{url}}">{{name}}</a>
-                        <span class="text-muted small ms-2">{{pluginuid}} · {{statelabel}}</span>
-                        <span class="d-block small fw-bold">{{issues}}</span>
-                    </span>
-                </li>
-            {{/anomalies}}
-        </ul>
+        {{{anomaliestable}}}
     {{/hasanomalies}}
     {{^hasanomalies}}
         <p class="text-muted">{{#str}} flagnoneanomalies, mod_selfselectadvanced {{/str}}</p>

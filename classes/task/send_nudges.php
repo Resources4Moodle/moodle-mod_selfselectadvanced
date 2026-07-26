@@ -25,9 +25,8 @@ use moodle_url;
  * Adhoc task: deliver one bulk nudge notification to many recipients
  * outside the request that queued it (SCALE).
  *
- * Intended call pattern (this task is not queued anywhere yet - that is
- * left to the page that owns the bulk-nudge action, so it can decide
- * confirmation and messaging wording on its own terms):
+ * Intended call pattern (queued by the flagged report's two bulk-nudge
+ * confirmation POSTs, once per distinct $a value):
  *
  *   $task = new \mod_selfselectadvanced\task\send_nudges();
  *   $task->set_custom_data([
@@ -49,6 +48,12 @@ use moodle_url;
  * recipient (a per-user due date, a per-guide overdue count) needs one
  * queued instance of this task per distinct value, not one instance
  * for the whole list.
+ *
+ * Two custom data keys are optional and default to the groupless
+ * students deep link when absent: 'contexturl' (a plain string, not a
+ * moodle_url, since custom data is JSON-encoded) and 'contextname'.
+ * The guide-facing nudge sets both, since a guide's overdue queue is
+ * reviewed from guide.php, not view.php.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -80,8 +85,10 @@ class send_nudges extends adhoc_task {
         $userids = array_map('intval', (array) $data->userids);
         $a = $data->a ?? null;
 
-        $contexturl = new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]);
-        $contextname = $activity->name();
+        $contexturl = isset($data->contexturl)
+            ? new moodle_url((string) $data->contexturl)
+            : new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]);
+        $contextname = isset($data->contextname) ? (string) $data->contextname : $activity->name();
 
         $sent = 0;
         foreach (array_chunk($userids, self::CHUNK_SIZE) as $chunk) {

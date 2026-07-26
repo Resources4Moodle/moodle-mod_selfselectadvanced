@@ -28,13 +28,23 @@ use templatable;
  *
  * Student area: limit counters (section 4A.6), create-group control with
  * its refusal reason when disabled, my groups, my pending invitations.
- * Staff area (viewall): read-only list of all groups with state and size.
+ * Staff area (viewall): read-only list of groups with state and size,
+ * capped at ALLGROUPS_LIMIT with a link through to manage.php's own
+ * sortable, filterable, paginated table for the rest (audit round 8
+ * item 5: an uncapped list ran to thousands of rows on a large course).
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class landing implements renderable, templatable {
+    /**
+     * Maximum groups shown in the staff "All groups" panel before
+     * linking through to manage.php's own sortable, filterable,
+     * paginated table instead.
+     */
+    private const ALLGROUPS_LIMIT = 20;
+
     /**
      * Constructor.
      *
@@ -135,12 +145,28 @@ class landing implements renderable, templatable {
 
         if (has_capability('mod/selfselectadvanced:viewall', $context, $this->userid, false)) {
             $data->isstaff = true;
+            $totalgroups = $DB->count_records('selfselectadvanced_group', ['activityid' => $activity->id()]);
+            $groups = $DB->get_records(
+                'selfselectadvanced_group',
+                ['activityid' => $activity->id()],
+                'timecreated ASC',
+                '*',
+                0,
+                self::ALLGROUPS_LIMIT
+            );
             $data->allgroups = [];
-            $groups = $DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()], 'timecreated ASC');
             foreach ($groups as $group) {
                 $data->allgroups[] = $this->export_group_row($group, $cmid);
             }
             $data->hasallgroups = !empty($data->allgroups);
+            $data->allgroupstruncated = $totalgroups > self::ALLGROUPS_LIMIT;
+            $data->allgroupsshowingtext = $data->allgroupstruncated
+                ? get_string('allgroupsshowing', 'mod_selfselectadvanced', (object) [
+                    'shown' => count($data->allgroups),
+                    'total' => $totalgroups,
+                ])
+                : '';
+            $data->manageallurl = (new \moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cmid]))->out(false);
         }
 
         return $data;
