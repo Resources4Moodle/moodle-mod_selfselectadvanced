@@ -504,5 +504,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072431, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072432) {
+        // 1.8.2: unique action button ids on the group page, code only.
+        upgrade_mod_savepoint(true, 2026072432, 'selfselectadvanced');
+    }
+
     return true;
 }
