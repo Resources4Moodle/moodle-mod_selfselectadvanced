@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.8.0 (2026-07-26)
+
+- The flagged report's guides tab shows each guide's current load beside
+  their pending group, so managers can see which guide is the
+  bottleneck, and the guide's name opens their full workload for the
+  activity with its own multi-format export.
+- Managers can message every listed defaulter, or every guide holding an
+  overdue decision, in one confirmed action. Recipients are
+  de-duplicated, so a guide with several overdue groups receives a
+  single message naming the count.
+- Guides can switch their notifications to a daily or weekly digest
+  instead of one message per group. The preference is per person and
+  off by default; queued items are covered by the privacy provider and
+  by backup and restore.
+- New manager page listing every auto-grouping run with its outcome and
+  decision log, exportable both as run summaries and as one row per
+  formed group.
+
 ## 1.7.1 (2026-07-26)
 
 - Fixed the 1.7.0 upgrade: the new volunteer table declared an index on
