@@ -79,7 +79,7 @@ class send_digests extends \core\task\scheduled_task {
      *
      * @param int $userid the recipient
      * @param \stdClass[] $rows queued rows for this user, oldest first
-     * @param array<int, activity> $activities activityid-keyed cache, filled in as needed
+     * @param activity[] $activities activityid-keyed cache, filled in as needed
      */
     private function send_one_digest(int $userid, array $rows, array &$activities): void {
         $items = [];
