@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.3 (2026-07-26)
+
+- The invite, nominate and submit forms on a group page each name their
+  own action button, so every button id is both unique and the same on
+  every visit. Previously the ids depended on which other forms the
+  page happened to render.
+
 ## 1.8.2 (2026-07-26)
 
 - Each form on a group page now renders its own action button id. All

@@ -71,15 +71,12 @@ $isleaderforming = (int) $group->leaderid === (int) $USER->id
 
 $inviteform = null;
 if ($isleaderforming) {
-    // Three forms can share this page, so each action button needs its
-    // own element id. Core suffixes every button after the first when
-    // the form asks for it; without this they would all render as
-    // id_submitbutton, which is invalid HTML and makes scripts and
-    // assistive technology target the wrong form.
+    // Each of the forms that can share this page names its own action
+    // button, so the ids stay unique and stable whichever forms the
+    // page happens to show.
     $inviteform = new \mod_selfselectadvanced\form\invite_form($baseurl->out(false), [
         'cmid' => $cm->id,
         'groupid' => (int) $group->id,
-        'forceuniqueid' => true,
     ]);
 }
 
@@ -109,7 +106,6 @@ if ($isleaderforming && empty($group->successorid)) {
             'groupid' => (int) $group->id,
             'eligible' => $eligible,
             'excluded' => $excluded,
-            'forceuniqueid' => true,
         ]);
     }
 }
@@ -134,7 +130,6 @@ if ($isleaderforming && $api->gatekeeper()->can_submit($group, (int) $USER->id) 
             'groupid' => (int) $group->id,
             'leaderselects' => $leaderselects,
             'guides' => $guideoptions,
-            'forceuniqueid' => true,
         ]);
     }
 }

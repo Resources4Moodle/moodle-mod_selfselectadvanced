@@ -59,6 +59,10 @@ class submit_form extends \moodleform {
             $mform->addElement('static', 'guidenote', '', get_string('submitmanagerassigns', 'mod_selfselectadvanced'));
         }
 
-        $this->add_action_buttons(false, get_string('submittoguide', 'mod_selfselectadvanced'));
+        // Named button rather than add_action_buttons(): several forms
+        // share the group page, and a fixed name keeps this button's id
+        // the same no matter which of the others are on the page.
+        $mform->addElement('submit', 'submitguide', get_string('submittoguide', 'mod_selfselectadvanced'));
+        $mform->closeHeaderBefore('submitguide');
     }
 }
