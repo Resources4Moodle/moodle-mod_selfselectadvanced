@@ -34,6 +34,9 @@ use mod_selfselectadvanced\local\groups;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class flagged_defaulters_table extends \table_sql {
+    /** @var int Minimum memberships required, used to derive the shortfall column. */
+    protected int $minmembership = 0;
+
     /**
      * Constructor.
      *
@@ -68,13 +71,26 @@ class flagged_defaulters_table extends \table_sql {
             static fn(string $field) => 'u.' . $field,
             \core_user\fields::for_name()->get_required_fields()
         ));
+        // The shortfall is derived in PHP from the confirmed count. A
+        // second :minmembership placeholder here would be counted twice
+        // while the value is supplied once, which the database rejects.
+        $this->minmembership = $minmembership;
         $this->set_sql(
-            "u.id, $namefields, COALESCE(mc.confirmedcount, 0) AS has,
-             (:minmembership - COALESCE(mc.confirmedcount, 0)) AS missing",
+            "u.id, $namefields, COALESCE(mc.confirmedcount, 0) AS has",
             $from,
             $where,
             $params
         );
+    }
+
+    /**
+     * Groups still to join, derived rather than queried.
+     *
+     * @param \stdClass $row the fetched row
+     * @return int
+     */
+    public function col_missing($row): int {
+        return max(0, $this->minmembership - (int) $row->has);
     }
 
     /**
@@ -112,8 +128,7 @@ class flagged_defaulters_table extends \table_sql {
             \core_user\fields::for_name()->get_required_fields()
         ));
         $records = $DB->get_records_sql(
-            "SELECT u.id, $namefields, COALESCE(mc.confirmedcount, 0) AS has,
-                    (:minmembership - COALESCE(mc.confirmedcount, 0)) AS missing
+            "SELECT u.id, $namefields, COALESCE(mc.confirmedcount, 0) AS has
                FROM $from
               WHERE $where
            ORDER BY u.lastname, u.firstname",
@@ -121,7 +136,11 @@ class flagged_defaulters_table extends \table_sql {
         );
 
         return array_map(
-            static fn($record) => [fullname($record), (int) $record->has, (int) $record->missing],
+            static fn($record) => [
+                fullname($record),
+                (int) $record->has,
+                max(0, $minmembership - (int) $record->has),
+            ],
             array_values($records)
         );
     }
