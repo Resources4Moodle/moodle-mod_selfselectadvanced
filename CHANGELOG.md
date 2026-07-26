@@ -5,6 +5,8 @@
 - Fixed the 1.7.0 upgrade: the new volunteer table declared an index on
   userid that its own foreign key already provides, which stopped the
   upgrade on existing sites. Fresh installations were unaffected.
+- Restores the userid index on sites upgraded through the interim
+  build, so installed and upgraded schemas match exactly.
 
 ## 1.7.0 (2026-07-26)
 
