@@ -127,7 +127,7 @@ class groups_table extends \table_sql {
      * @return string
      */
     public function col_leadername($row) {
-        return $row->leaderfirst . ' ' . $row->leaderlast;
+        return fullname((object) ['firstname' => $row->leaderfirst, 'lastname' => $row->leaderlast]);
     }
 
     /**
@@ -137,7 +137,9 @@ class groups_table extends \table_sql {
      * @return string
      */
     public function col_guidename($row) {
-        return $row->guideid ? ($row->guidefirst . ' ' . $row->guidelast) : '';
+        return $row->guideid
+            ? fullname((object) ['firstname' => $row->guidefirst, 'lastname' => $row->guidelast])
+            : '';
     }
 
     /**

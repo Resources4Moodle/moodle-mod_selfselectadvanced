@@ -301,6 +301,7 @@ $string['guidenotes'] = 'Guide notes';
 $string['guidenotesintro'] = 'Private notes for guides and managers, kept before accepting the group; students never see them.';
 $string['guidenotessave'] = 'Save notes';
 $string['guidenotessaved'] = 'Guide notes saved.';
+$string['guidepickerlabel'] = '{$a->fullname} — {$a->label}';
 $string['guidesheading'] = 'Guides';
 $string['guidevolunteer'] = 'Guides volunteer their own capacity';
 $string['guidevolunteer_help'] = 'When enabled, a guide only becomes available for new assignments after declaring how many groups they will take on, up to the maximum groups per guide set above. A guide who has never volunteered, or who has volunteered for zero groups, is unavailable for new assignments; an active override for that guide always takes precedence over their volunteered number. Reducing a volunteered number never unassigns existing groups - it only blocks new ones until the guide\'s load drops below it.';

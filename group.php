@@ -121,7 +121,11 @@ if ($isleaderforming && $api->gatekeeper()->can_submit($group, (int) $USER->id) 
                 $api->gatekeeper()->resolver()
             ) as $guide
         ) {
-            $guideoptions[$guide->id] = $guide->fullname . ' — ' . $guide->label;
+            $guideoptions[$guide->id] = get_string(
+                'guidepickerlabel',
+                'mod_selfselectadvanced',
+                (object) ['fullname' => $guide->fullname, 'label' => $guide->label]
+            );
         }
     }
     if (!$leaderselects || $guideoptions) {

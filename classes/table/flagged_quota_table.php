@@ -69,7 +69,7 @@ class flagged_quota_table extends \flexible_table {
             usort($rows, static function ($a, $b) use ($sort) {
                 foreach ($sort as $column => $direction) {
                     $key = $column === 'state' ? 'statelabel' : $column;
-                    $result = strcasecmp((string) $a->$key, (string) $b->$key);
+                    $result = \core_collator::compare((string) $a->$key, (string) $b->$key);
                     if ($result !== 0) {
                         return $direction === SORT_DESC ? -$result : $result;
                     }

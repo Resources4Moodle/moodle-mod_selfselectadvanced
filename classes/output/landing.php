@@ -166,7 +166,14 @@ class landing implements renderable, templatable {
                     'total' => $totalgroups,
                 ])
                 : '';
-            $data->manageallurl = (new \moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cmid]))->out(false);
+            // The full listing lives on the manage page, which needs the
+            // manage capability. A viewall holder without it is told the
+            // panel is truncated but is not sent to a page they cannot
+            // open.
+            $data->canseeallgroups = $data->ismanager;
+            $data->manageallurl = $data->ismanager
+                ? (new \moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cmid]))->out(false)
+                : '';
         }
 
         return $data;

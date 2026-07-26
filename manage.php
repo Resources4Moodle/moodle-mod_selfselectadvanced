@@ -103,7 +103,14 @@ $guides = \mod_selfselectadvanced\local\guides::with_load($activity, $api->gatek
 $guideoptions = [];
 foreach ($guides as $guide) {
     if ($guide->remaining > 0) {
-        $guideoptions[] = (object) ['id' => $guide->id, 'label' => $guide->fullname . ' — ' . $guide->label];
+        $guideoptions[] = (object) [
+            'id' => $guide->id,
+            'label' => get_string(
+                'guidepickerlabel',
+                'mod_selfselectadvanced',
+                (object) ['fullname' => $guide->fullname, 'label' => $guide->label]
+            ),
+        ];
     }
 }
 
