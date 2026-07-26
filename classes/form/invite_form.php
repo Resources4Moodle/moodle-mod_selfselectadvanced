@@ -66,6 +66,10 @@ class invite_form extends \moodleform {
         );
         $mform->setType('invitees', PARAM_INT);
 
-        $this->add_action_buttons(false, get_string('sendinvitations', 'mod_selfselectadvanced'));
+        // Named button rather than add_action_buttons(): several forms
+        // share the group page, and a fixed name keeps this button's id
+        // the same no matter which of the others are on the page.
+        $mform->addElement('submit', 'submitinvite', get_string('sendinvitations', 'mod_selfselectadvanced'));
+        $mform->closeHeaderBefore('submitinvite');
     }
 }

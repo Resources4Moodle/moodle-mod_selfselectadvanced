@@ -71,6 +71,10 @@ class nominate_form extends \moodleform {
             );
         }
 
-        $this->add_action_buttons(false, get_string('nominate', 'mod_selfselectadvanced'));
+        // Named button rather than add_action_buttons(): several forms
+        // share the group page, and a fixed name keeps this button's id
+        // the same no matter which of the others are on the page.
+        $mform->addElement('submit', 'submitnominate', get_string('nominate', 'mod_selfselectadvanced'));
+        $mform->closeHeaderBefore('submitnominate');
     }
 }
