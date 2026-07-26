@@ -48,9 +48,99 @@ class evaluator {
         global $DB;
 
         $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $activity->id()], 'priority ASC');
+        $template = slots::get_all($activity);
         $roster = groups::get_roster($groupid);
-        $attrs = manager::get_for_users(array_map(static fn($m) => (int) $m->userid, $roster));
+        $memberids = array_map(static fn($member) => (int) $member->userid, $roster);
+        $attrs = manager::get_for_users($memberids);
 
+        return self::build_report($rules, $template, $memberids, $attrs);
+    }
+
+    /**
+     * Whether a group currently satisfies every quota rule of its
+     * activity (the gate consumed by submission, approval and freeze).
+     *
+     * @param activity $activity the activity
+     * @param int $groupid the group
+     * @return bool true when compliant (vacuously true with no rules)
+     */
+    public static function is_compliant(activity $activity, int $groupid): bool {
+        return self::evaluate($activity, $groupid)->compliant;
+    }
+
+    /**
+     * Compliance verdict for every listed group of an activity in one
+     * pass (the flagged report's quota tab): the quota rules, the slot
+     * template, every confirmed member of the requested groups and
+     * their participant attributes are each loaded ONCE for the whole
+     * set, then every group is evaluated in PHP from that shared data
+     * through build_report(), the SAME private evaluator is_compliant()
+     * consults per group, so the two paths can never drift apart.
+     *
+     * @param activity $activity the activity
+     * @param int[] $groupids the groups to evaluate
+     * @return bool[] compliant flag keyed by groupid; every requested
+     *                groupid is present in the result
+     */
+    public static function compliance_for_activity(activity $activity, array $groupids): array {
+        global $DB;
+
+        $groupids = array_values(array_unique(array_map('intval', $groupids)));
+        $verdicts = array_fill_keys($groupids, true);
+        if (!$groupids) {
+            return $verdicts;
+        }
+
+        $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $activity->id()], 'priority ASC');
+        $template = slots::get_all($activity);
+
+        // Every requested group's confirmed roster, one query per 1000
+        // ids so a huge activity cannot approach a bind-parameter limit.
+        $memberidsbygroup = array_fill_keys($groupids, []);
+        $useridset = [];
+        foreach (array_chunk($groupids, 1000) as $chunk) {
+            [$groupinsql, $params] = $DB->get_in_or_equal($chunk, SQL_PARAMS_NAMED, 'gc');
+            $params['status'] = groups::STATUS_CONFIRMED;
+            $rows = $DB->get_records_sql(
+                "SELECT m.id, m.groupid, m.userid
+                   FROM {selfselectadvanced_member} m
+                  WHERE m.groupid $groupinsql AND m.status = :status",
+                $params
+            );
+            foreach ($rows as $row) {
+                $memberidsbygroup[(int) $row->groupid][] = (int) $row->userid;
+                $useridset[(int) $row->userid] = true;
+            }
+        }
+        $attrs = manager::get_for_users(array_keys($useridset));
+
+        foreach ($groupids as $groupid) {
+            $entry = self::build_report($rules, $template, $memberidsbygroup[$groupid], $attrs);
+            $verdicts[$groupid] = $entry->compliant;
+        }
+
+        return $verdicts;
+    }
+
+    /**
+     * Build one group's quota report from data already loaded for the
+     * whole activity, or just for its own group.
+     *
+     * The single evaluator behind evaluate() and
+     * compliance_for_activity(): both the per-group path and the batch
+     * path funnel through here, using the same rule logic, the same
+     * slot booking logic (slots::evaluate_from_data(), including
+     * matchtype value or distinct and allowoverlap) and the same
+     * unknown-attribute handling, so their verdicts can never drift
+     * apart.
+     *
+     * @param stdClass[] $rules quota rule rows, priority order
+     * @param stdClass[] $template slot rows in slot order
+     * @param int[] $memberids the group's confirmed member ids
+     * @param stdClass[] $attrs participant attribute records keyed by userid
+     * @return stdClass report: rules[], compliant, unknowncount, hasrules
+     */
+    private static function build_report(array $rules, array $template, array $memberids, array $attrs): stdClass {
         // Attribute value multiset per dimension, lower-cased for
         // case-insensitive matching against rule values.
         $values = [];
@@ -61,10 +151,10 @@ class evaluator {
         // activities that never reference it).
         $useddims = array_unique(array_merge(
             array_map(static fn($rule) => $rule->dimension, $rules),
-            array_map(static fn($slot) => $slot->dimension, slots::get_all($activity))
+            array_map(static fn($slot) => $slot->dimension, $template)
         )) ?: ['gender', 'department', 'subdepartment'];
-        foreach ($roster as $member) {
-            $record = $attrs[(int) $member->userid] ?? null;
+        foreach ($memberids as $userid) {
+            $record = $attrs[$userid] ?? null;
             $missingany = false;
             foreach (manager::DIMENSIONS as $dimension) {
                 $value = $record->$dimension ?? null;
@@ -98,7 +188,7 @@ class evaluator {
 
         // Slot-based composition template (1.3.0): booked-member
         // evaluation; entries share the panel's rule shape.
-        $slotresult = slots::evaluate($activity, $groupid);
+        $slotresult = slots::evaluate_from_data($template, $memberids, $attrs);
         foreach ($slotresult->slots as $slotentry) {
             $report->rules[] = (object) [
                 'id' => 'slot' . $slotentry->slot->slotno,
@@ -115,18 +205,6 @@ class evaluator {
         }
 
         return $report;
-    }
-
-    /**
-     * Whether a group currently satisfies every quota rule of its
-     * activity (the gate consumed by submission, approval and freeze).
-     *
-     * @param activity $activity the activity
-     * @param int $groupid the group
-     * @return bool true when compliant (vacuously true with no rules)
-     */
-    public static function is_compliant(activity $activity, int $groupid): bool {
-        return self::evaluate($activity, $groupid)->compliant;
     }
 
     /**
