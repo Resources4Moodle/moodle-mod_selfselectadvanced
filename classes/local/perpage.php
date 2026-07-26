@@ -44,7 +44,7 @@ class perpage {
             return $requested;
         }
 
-        $stored = (int) get_user_preference('mod_selfselectadvanced_perpage', $default);
+        $stored = (int) get_user_preferences('mod_selfselectadvanced_perpage', $default);
         return in_array($stored, self::OPTIONS, true) ? $stored : $default;
     }
 
