@@ -51,7 +51,9 @@ $download = optional_param('download', '', PARAM_ALPHA);
 $q = optional_param('q', '', PARAM_RAW_TRIMMED);
 $tsort = optional_param('tsort', '', PARAM_ALPHANUMEXT);
 $tdir = optional_param('tdir', 0, PARAM_INT);
+$action = optional_param('action', '', PARAM_ALPHA);
 $perpage = 20;
+$canmanage = has_capability('mod/selfselectadvanced:manage', $context);
 $PAGE->set_url('/mod/selfselectadvanced/flagged.php', ['id' => $cm->id, 'tab' => $tab]);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
@@ -181,12 +183,15 @@ if ($download !== '') {
             'flagged-guides-pending',
             [get_string('groupname', 'mod_selfselectadvanced'), get_string('pluginid', 'mod_selfselectadvanced'),
                 get_string('guide', 'mod_selfselectadvanced'), get_string('flaggedsubmitted', 'mod_selfselectadvanced'),
-                get_string('flaggeddecideby', 'mod_selfselectadvanced'), get_string('flaggedoverdue', 'mod_selfselectadvanced')],
+                get_string('flaggeddecideby', 'mod_selfselectadvanced'), get_string('flaggedoverdue', 'mod_selfselectadvanced'),
+                get_string('flaggedguideloadused', 'mod_selfselectadvanced'),
+                get_string('flaggedguideloadmax', 'mod_selfselectadvanced')],
             array_map(
                 static fn($r) => [$r->rawname, $r->pluginuid, $r->guidename, $r->since,
                 $r->deadline,
-                $r->overdue ? get_string('yes') : get_string('no')],
-                \mod_selfselectadvanced\table\flagged_guides_table::export_rows($activity, $windowsecs, $q)
+                $r->overdue ? get_string('yes') : get_string('no'),
+                $r->guideloadused, $r->guideloadmax],
+                \mod_selfselectadvanced\table\flagged_guides_table::export_rows($activity, $resolver, $windowsecs, $q)
             ),
             $download
         );
@@ -214,6 +219,105 @@ if ($download !== '') {
 $tabbase = new moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $cm->id]);
 $defaulterscount = \mod_selfselectadvanced\table\flagged_defaulters_table::count_rows($activity, $minmembership, $q);
 $guidescount = \mod_selfselectadvanced\table\flagged_guides_table::count_rows($activity, $q);
+
+// Bulk nudge actions (manager-only): message every currently listed
+// defaulter, or nudge the guide of every currently listed overdue
+// group, one message per guide even when they hold several overdue
+// groups. POST + sesskey + confirmation step; messages are sent after
+// all reads, never inside a transaction (audit round 6 item 4), and
+// only ever from a GET confirmation page or its own POST (never a
+// bare GET with a leaked sesskey).
+if ($tab === 'defaulters' && $action === 'nudgedefaulters') {
+    require_capability('mod/selfselectadvanced:manage', $context);
+    $backurl = new moodle_url($tabbase, ['tab' => 'defaulters'] + ($q !== '' ? ['q' => $q] : []));
+    $confirmurl = new moodle_url(
+        $tabbase,
+        ['tab' => 'defaulters', 'action' => 'nudgedefaulters'] + ($q !== '' ? ['q' => $q] : [])
+    );
+    $recipients = \mod_selfselectadvanced\table\flagged_defaulters_table::recipient_ids($activity, $minmembership, $q);
+    if (data_submitted()) {
+        require_sesskey();
+        $sent = 0;
+        foreach ($recipients as $userid) {
+            $due = $resolver->effective_dates($userid)->timedue;
+            \mod_selfselectadvanced\local\notifier::send(
+                $activity,
+                'deadlinereminder',
+                $userid,
+                'msgremindersubject',
+                'msgreminderbody',
+                (object) ['activity' => $activity->name(), 'due' => userdate($due)],
+                new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]),
+                $activity->name()
+            );
+            $sent++;
+        }
+        redirect(
+            $backurl,
+            get_string('nudgedefaulterssent', 'mod_selfselectadvanced', $sent),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    }
+    echo $OUTPUT->header();
+    if (!$recipients) {
+        echo $OUTPUT->notification(get_string('nudgenonetosend', 'mod_selfselectadvanced'), 'info', false);
+        echo $OUTPUT->continue_button($backurl);
+    } else {
+        echo $OUTPUT->confirm(
+            get_string('nudgedefaultersconfirm', 'mod_selfselectadvanced', count($recipients)),
+            new single_button($confirmurl, get_string('nudgedefaulters', 'mod_selfselectadvanced'), 'post'),
+            $backurl
+        );
+    }
+    echo $OUTPUT->footer();
+    die;
+}
+if ($tab === 'guides' && $action === 'nudgeguides') {
+    require_capability('mod/selfselectadvanced:manage', $context);
+    $backurl = new moodle_url($tabbase, ['tab' => 'guides'] + ($q !== '' ? ['q' => $q] : []));
+    $confirmurl = new moodle_url(
+        $tabbase,
+        ['tab' => 'guides', 'action' => 'nudgeguides'] + ($q !== '' ? ['q' => $q] : [])
+    );
+    $overduecounts = \mod_selfselectadvanced\table\flagged_guides_table::overdue_guide_counts($activity, $windowsecs, $q);
+    if (data_submitted()) {
+        require_sesskey();
+        $sent = 0;
+        foreach ($overduecounts as $guideid => $overduecount) {
+            \mod_selfselectadvanced\local\notifier::send(
+                $activity,
+                'guidequeue',
+                $guideid,
+                'msgnudgeguidesubject',
+                'msgnudgeguidebody',
+                (object) ['activity' => $activity->name(), 'count' => $overduecount],
+                new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
+                $activity->name()
+            );
+            $sent++;
+        }
+        redirect(
+            $backurl,
+            get_string('nudgeguidessent', 'mod_selfselectadvanced', $sent),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    }
+    echo $OUTPUT->header();
+    if (!$overduecounts) {
+        echo $OUTPUT->notification(get_string('nudgenonetosend', 'mod_selfselectadvanced'), 'info', false);
+        echo $OUTPUT->continue_button($backurl);
+    } else {
+        echo $OUTPUT->confirm(
+            get_string('nudgeguidesconfirm', 'mod_selfselectadvanced', count($overduecounts)),
+            new single_button($confirmurl, get_string('nudgeguides', 'mod_selfselectadvanced'), 'post'),
+            $backurl
+        );
+    }
+    echo $OUTPUT->footer();
+    die;
+}
 
 echo $OUTPUT->header();
 // Tabs keep each list on its own page with fixed-size pagination
@@ -272,6 +376,14 @@ if ($tab === 'defaulters') {
         );
         $table->out($perpage, false);
         echo $OUTPUT->notification(get_string('defaultersintro', 'mod_selfselectadvanced'), 'info', false);
+        if ($canmanage) {
+            echo $OUTPUT->single_button(
+                new moodle_url($tabbase, ['tab' => 'defaulters', 'action' => 'nudgedefaulters']
+                    + ($q !== '' ? ['q' => $q] : [])),
+                get_string('nudgedefaulters', 'mod_selfselectadvanced'),
+                'get'
+            );
+        }
     } else {
         echo $OUTPUT->notification(get_string('defaultersnone', 'mod_selfselectadvanced'), 'success', false);
     }
@@ -286,11 +398,20 @@ if ($tab === 'guides') {
         $table = new \mod_selfselectadvanced\table\flagged_guides_table(
             'ssaflaggedguides',
             $activity,
+            $resolver,
             $tableurl,
             $windowsecs,
             $q
         );
         $table->out($perpage, false);
+        if ($canmanage) {
+            echo $OUTPUT->single_button(
+                new moodle_url($tabbase, ['tab' => 'guides', 'action' => 'nudgeguides']
+                    + ($q !== '' ? ['q' => $q] : [])),
+                get_string('nudgeguides', 'mod_selfselectadvanced'),
+                'get'
+            );
+        }
     } else {
         echo $OUTPUT->notification(get_string('flaggedguidesnone', 'mod_selfselectadvanced'), 'success', false);
     }
