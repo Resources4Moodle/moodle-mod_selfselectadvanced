@@ -59,7 +59,11 @@ if ($mode === 'group') {
         $targets[(int) $group->id] = format_string($group->name) . ' (' . $group->pluginuid . ')';
     }
 } else if ($mode === 'guide') {
-    foreach (\mod_selfselectadvanced\local\guides::with_load($activity, $api->gatekeeper()->resolver()) as $guide) {
+    // Managers must reach every guide, including one who has not
+    // volunteered - granting an override is exactly how a manager
+    // gives such a guide capacity (1.7.0).
+    $allguides = \mod_selfselectadvanced\local\guides::with_load($activity, $api->gatekeeper()->resolver(), true);
+    foreach ($allguides as $guide) {
         $targets[$guide->id] = $guide->fullname . ' — ' . $guide->label;
     }
 } else {
