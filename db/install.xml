@@ -347,7 +347,6 @@
       </KEYS>
       <INDEXES>
         <INDEX NAME="activityid_userid" UNIQUE="true" FIELDS="activityid, userid"/>
-        <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
       </INDEXES>
     </TABLE>
   </TABLES>

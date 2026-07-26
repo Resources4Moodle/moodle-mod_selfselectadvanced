@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.1 (2026-07-26)
+
+- Fixed the 1.7.0 upgrade: the new volunteer table declared an index on
+  userid that its own foreign key already provides, which stopped the
+  upgrade on existing sites. Fresh installations were unaffected.
+
 ## 1.7.0 (2026-07-26)
 
 - New optional setting, guide volunteering: when enabled, a guide only
