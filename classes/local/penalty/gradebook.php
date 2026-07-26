@@ -56,35 +56,124 @@ class gradebook {
     /**
      * Compute one student's grade and its per-group breakdown.
      *
+     * A thin single-user wrapper over compute_activity(): grade_item
+     * updates and individual recalculation still issue only the tiny
+     * one-student query, they just share its implementation with the
+     * batched path.
+     *
      * @param activity $activity the activity
      * @param int $userid the student
      * @return stdClass {grade: float|null, steps: string[], hasmembership: bool}
      */
     public static function compute_user(activity $activity, int $userid): stdClass {
+        $results = self::compute_activity($activity, [$userid]);
+
+        return $results[$userid] ?? (object) ['grade' => null, 'steps' => [], 'hasmembership' => false];
+    }
+
+    /**
+     * Compute the grade and breakdown of every listed student in one pass.
+     *
+     * This is the batched counterpart of compute_user(), used by
+     * push_grades() so that grading a whole activity issues a handful
+     * of queries instead of one gradebook query per student. The
+     * member/group/penalty rows behind every listed student's
+     * decomposition are loaded in a single query ordered by userid, one
+     * override resolver is shared for the whole batch instead of built
+     * per student, and the confirmed-member counts incomplete_share()
+     * needs are precomputed in bulk. Each student's steps are then built
+     * from that in-memory data with exactly the arithmetic compute_user()
+     * has always used: the sequence-of-joining decomposition, clamped to
+     * [0, grademax] after every step, defaulter steps appended after the
+     * real groups.
+     *
+     * @param activity $activity the activity
+     * @param int[] $userids the students to compute, in any order
+     * @return stdClass[] {grade, steps, hasmembership} keyed by userid;
+     *                    every listed userid is present in the result
+     */
+    public static function compute_activity(activity $activity, array $userids): array {
         global $DB;
+
+        if (!$userids) {
+            return [];
+        }
 
         $settings = $activity->settings();
         $resolver = new resolver($activity);
         $grademax = (float) $settings->grade;
 
-        [$insql, $inparams] = $DB->get_in_or_equal([state::FIRM, state::FROZEN], SQL_PARAMS_NAMED, 'st');
+        [$useridsql, $useridparams] = $DB->get_in_or_equal(array_map('intval', $userids), SQL_PARAMS_NAMED, 'gu');
+        [$statesql, $stateparams] = $DB->get_in_or_equal([state::FIRM, state::FROZEN], SQL_PARAMS_NAMED, 'st');
         $rows = $DB->get_records_sql(
-            "SELECT m.id AS memberid, m.timeresponded, m.timecreated, m.isleader,
+            "SELECT m.id AS memberid, m.userid, m.timeresponded, m.timecreated, m.isleader,
                     g.id AS groupid, g.name, g.leaderid, g.state,
                     p.penaltyvalue, p.award
                FROM {selfselectadvanced_member} m
                JOIN {selfselectadvanced_group} g ON g.id = m.groupid
           LEFT JOIN {selfselectadvanced_penalty} p ON p.groupid = g.id
-              WHERE g.activityid = :activityid AND m.userid = :userid
-                AND m.status = :confirmed AND g.state $insql
-           ORDER BY COALESCE(NULLIF(m.timeresponded, 0), m.timecreated), m.id",
-            $inparams + [
+              WHERE g.activityid = :activityid AND m.userid $useridsql
+                AND m.status = :confirmed AND g.state $statesql
+           ORDER BY m.userid, COALESCE(NULLIF(m.timeresponded, 0), m.timecreated), m.id",
+            $useridparams + $stateparams + [
                 'activityid' => $activity->id(),
-                'userid' => $userid,
                 'confirmed' => groups::STATUS_CONFIRMED,
             ]
         );
 
+        $byuser = [];
+        $groupids = [];
+        foreach ($rows as $row) {
+            $byuser[(int) $row->userid][] = $row;
+            $groupids[(int) $row->groupid] = true;
+        }
+
+        // Incomplete_share() short-circuits before touching the count
+        // when there is no incomplete penalty, so only bulk-fetch it
+        // when it will actually be used, exactly like the per-row query
+        // it replaces.
+        $confirmedcounts = (float) $settings->incompletepenalty > 0
+            ? self::count_confirmed_bulk(array_keys($groupids))
+            : [];
+
+        $results = [];
+        foreach ($userids as $userid) {
+            $userid = (int) $userid;
+            $results[$userid] = self::compute_for_user(
+                $activity,
+                $resolver,
+                $settings,
+                $grademax,
+                $userid,
+                $byuser[$userid] ?? [],
+                $confirmedcounts
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Build one student's grade and breakdown from already-loaded rows.
+     *
+     * @param activity $activity the activity
+     * @param resolver $resolver the override resolver shared for the whole batch
+     * @param stdClass $settings the activity settings
+     * @param float $grademax the activity's maximum grade
+     * @param int $userid the student
+     * @param stdClass[] $rows this student's confirmed membership rows, in join order
+     * @param int[] $confirmedcounts confirmed member counts keyed by groupid
+     * @return stdClass {grade: float|null, steps: string[], hasmembership: bool}
+     */
+    private static function compute_for_user(
+        activity $activity,
+        resolver $resolver,
+        stdClass $settings,
+        float $grademax,
+        int $userid,
+        array $rows,
+        array $confirmedcounts
+    ): stdClass {
         $result = (object) ['grade' => null, 'steps' => [], 'hasmembership' => !empty($rows)];
         if (!$rows) {
             return $result;
@@ -116,7 +205,7 @@ class gradebook {
                 $delta -= $late;
                 $parts[] = get_string('gradesteplate', 'mod_selfselectadvanced', format_float($late, 2, true, true));
             }
-            $share = self::incomplete_share($activity, $resolver, $row, $userid);
+            $share = self::incomplete_share($activity, $resolver, $row, $userid, $confirmedcounts);
             if ($share > 0) {
                 $delta -= $share;
                 $parts[] = get_string(
@@ -163,15 +252,25 @@ class gradebook {
      * @param resolver $resolver effective values
      * @param stdClass $row membership row (groupid, leaderid)
      * @param int $userid the student
+     * @param int[] $confirmedcounts confirmed member counts keyed by groupid, from
+     *                               count_confirmed_bulk(); falls back to a direct
+     *                               count when a groupid is not present
      * @return float
      */
-    private static function incomplete_share(activity $activity, resolver $resolver, stdClass $row, int $userid): float {
+    private static function incomplete_share(
+        activity $activity,
+        resolver $resolver,
+        stdClass $row,
+        int $userid,
+        array $confirmedcounts = []
+    ): float {
         $penalty = (float) $activity->settings()->incompletepenalty;
         if ($penalty <= 0) {
             return 0.0;
         }
-        $confirmed = groups::count_confirmed((int) $row->groupid);
-        if ($confirmed >= $resolver->effective_minsize((int) $row->groupid)->value) {
+        $groupid = (int) $row->groupid;
+        $confirmed = $confirmedcounts[$groupid] ?? groups::count_confirmed($groupid);
+        if ($confirmed >= $resolver->effective_minsize($groupid)->value) {
             return 0.0;
         }
         $sharepct = max(0, min(100, (int) $activity->settings()->leadershare));
@@ -184,5 +283,40 @@ class gradebook {
         }
 
         return ($penalty - $leaderpart) / ($confirmed - 1);
+    }
+
+    /**
+     * Confirmed member counts for a set of groups in one query per
+     * chunk, the bulk counterpart of groups::count_confirmed() used so
+     * incomplete_share() does not issue one count query per membership
+     * row when grading a whole activity.
+     *
+     * @param int[] $groupids the groups to count, deduplicated by the caller
+     * @return int[] confirmed member count keyed by groupid
+     */
+    private static function count_confirmed_bulk(array $groupids): array {
+        global $DB;
+
+        $counts = [];
+        if (!$groupids) {
+            return $counts;
+        }
+
+        foreach (array_chunk($groupids, 1000) as $chunk) {
+            [$insql, $params] = $DB->get_in_or_equal($chunk, SQL_PARAMS_NAMED, 'gc');
+            $params['status'] = groups::STATUS_CONFIRMED;
+            $chunkrows = $DB->get_records_sql(
+                "SELECT groupid, COUNT(*) AS cnt
+                   FROM {selfselectadvanced_member}
+                  WHERE groupid $insql AND status = :status
+               GROUP BY groupid",
+                $params
+            );
+            foreach ($chunkrows as $chunkrow) {
+                $counts[(int) $chunkrow->groupid] = (int) $chunkrow->cnt;
+            }
+        }
+
+        return $counts;
     }
 }

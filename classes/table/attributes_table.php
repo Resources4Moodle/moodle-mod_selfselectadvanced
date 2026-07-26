@@ -77,6 +77,39 @@ class attributes_table extends \table_sql {
     }
 
     /**
+     * Query the database for this table's rows.
+     *
+     * On-screen paging delegates entirely to the parent implementation,
+     * unchanged. A download instead streams the result via a recordset:
+     * this listing has no course or activity scope, so on a large site
+     * a download can match every ingested attribute row site-wide, and
+     * table_sql's default download path would materialise all of them
+     * into memory at once (SCALE fix).
+     *
+     * @param int $pagesize page size for the on-screen table
+     * @param bool $useinitialsbar whether to show the initials bar
+     * @return void
+     */
+    public function query_db($pagesize, $useinitialsbar = true) {
+        global $DB;
+
+        if (!$this->is_downloading()) {
+            parent::query_db($pagesize, $useinitialsbar);
+            return;
+        }
+
+        $sort = $this->get_sql_sort();
+        if ($sort) {
+            $sort = "ORDER BY $sort";
+        }
+        $sql = "SELECT {$this->sql->fields}
+                  FROM {$this->sql->from}
+                 WHERE {$this->sql->where}
+                       $sort";
+        $this->rawdata = $DB->get_recordset_sql($sql, $this->sql->params);
+    }
+
+    /**
      * Render the full name from the user name fields.
      *
      * @param \stdClass $row table row

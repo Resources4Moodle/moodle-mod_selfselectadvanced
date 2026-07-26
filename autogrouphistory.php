@@ -138,7 +138,12 @@ if ($run) {
                 $userids[(int) $memberid] = true;
             }
         }
-        $users = $userids ? $DB->get_records_list('user', 'id', array_keys($userids)) : [];
+        // Chunked defensively (SCALE): the member set of one run can
+        // approach the size of the whole course roster.
+        $users = [];
+        foreach (array_chunk(array_keys($userids), 1000) as $useridchunk) {
+            $users += $DB->get_records_list('user', 'id', $useridchunk);
+        }
 
         echo $OUTPUT->heading(get_string('agrunlogheading', 'mod_selfselectadvanced', $agrun->id), 3);
         echo html_writer::tag('p', get_string('agrunbypassed', 'mod_selfselectadvanced') . ': '

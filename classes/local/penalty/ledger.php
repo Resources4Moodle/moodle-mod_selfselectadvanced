@@ -168,15 +168,20 @@ class ledger {
                    AND m.status = :confirmed
                    AND g.state IN (:firm, :frozen)
                    $usersql";
-        $userids = $DB->get_fieldset_sql($sql, $params);
+        $userids = array_map('intval', $DB->get_fieldset_sql($sql, $params));
 
         // 1.4.0: sequence-of-joining decomposition; the per-step
-        // breakdown travels as gradebook feedback.
+        // breakdown travels as gradebook feedback. Computed for every
+        // listed student in one batched pass (gradebook::compute_activity())
+        // rather than one gradebook query per student, since this runs
+        // for every confirmed member of the activity on every settings
+        // change and in the nightly reconciliation task.
         $grades = [];
+        $computedall = gradebook::compute_activity($activity, $userids);
         foreach ($userids as $graded) {
-            $computed = gradebook::compute_user($activity, (int) $graded);
-            $grades[(int) $graded] = (object) [
-                'userid' => (int) $graded,
+            $computed = $computedall[$graded];
+            $grades[$graded] = (object) [
+                'userid' => $graded,
                 'rawgrade' => $computed->grade,
                 'feedback' => \html_writer::alist($computed->steps, ['class' => 'selfselectadvanced-gradesteps']),
                 'feedbackformat' => FORMAT_HTML,
