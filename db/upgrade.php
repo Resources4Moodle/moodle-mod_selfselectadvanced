@@ -514,5 +514,11 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072433, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072434) {
+        // 1.9.0: audit round 7 fixes and the records-per-page control,
+        // plus the send_nudges adhoc task, no schema change.
+        upgrade_mod_savepoint(true, 2026072434, 'selfselectadvanced');
+    }
+
     return true;
 }
