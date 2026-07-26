@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.9.0 (2026-07-26)
+
+- Fixed the flagged report's defaulters tab, which failed with a
+  database error both on screen and on download because its query
+  carried one placeholder more than it supplied. A regression test now
+  covers the tab.
+- Every paginated listing gained a records-per-page selector (10 to
+  200), remembered per user across pages and visits.
+- The override form accepts a guide capacity of zero, the documented
+  "always full" state that the rest of the plugin already honoured.
+- Replaced three list scans that cost time proportional to the square
+  of the class size, in the flagged report, the auto-grouping engine
+  and the deadline reminder.
+- Scale work for large cohorts: the nightly gradebook recomputation is
+  batched instead of querying per student, roster and attribute
+  downloads stream instead of loading whole datasets, historical
+  auto-grouping exports chunk their lookups, and bulk nudges can be
+  handed to an adhoc task rather than sent inside one web request.
+
 ## 1.8.3 (2026-07-26)
 
 - The invite, nominate and submit forms on a group page each name their
