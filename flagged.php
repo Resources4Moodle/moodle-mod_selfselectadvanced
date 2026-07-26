@@ -71,6 +71,9 @@ $confirmedids = $DB->get_fieldset_sql(
     [$activity->id(), \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED]
 );
 $attrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users(array_keys($enrolled));
+// Hash set built once: a linear scan rebuilt per iteration costs
+// seconds of pure CPU on a course of several thousand students.
+$confirmedset = array_flip(array_map('intval', $confirmedids));
 $groupless = [];
 $missingattrs = [];
 foreach ($enrolled as $user) {
@@ -78,7 +81,7 @@ foreach ($enrolled as $user) {
         $attrs[(int) $user->id] ?? null,
         true
     );
-    if (!in_array((int) $user->id, array_map('intval', $confirmedids), true)) {
+    if (!isset($confirmedset[(int) $user->id])) {
         $groupless[] = (object) [
             'fullname' => fullname($user),
             'attrline' => $attrline,

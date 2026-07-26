@@ -139,8 +139,18 @@ class override_form extends \moodleform {
 
         foreach (['maxlead', 'maxmembership', 'maxguided', 'minsize', 'maxsize'] as $field) {
             $value = trim((string) ($data[$field] ?? ''));
-            if ($value !== '' && (!ctype_digit($value) || (int) $value < 1)) {
-                $errors[$field] = get_string('errpositiveint', 'mod_selfselectadvanced');
+            if ($value === '') {
+                continue;
+            }
+            // A guide capped at zero is a real setting ("always full"),
+            // so zero is accepted there while every other limit still
+            // needs at least one.
+            $floor = ($field === 'maxguided' && $this->_customdata['mode'] === 'guide') ? 0 : 1;
+            if (!ctype_digit($value) || (int) $value < $floor) {
+                $errors[$field] = get_string(
+                    $floor === 0 ? 'errnonnegativeint' : 'errpositiveint',
+                    'mod_selfselectadvanced'
+                );
             }
         }
         $min = trim((string) ($data['minsize'] ?? ''));

@@ -63,9 +63,12 @@ class deadline_reminder extends \core\task\scheduled_task {
             );
             $prefkey = 'mod_selfselectadvanced_reminded_' . $activity->id();
             $enrolled = get_enrolled_users($activity->context(), 'mod/selfselectadvanced:respond', 0, 'u.id');
+            // Hash set built once: a linear scan rebuilt per iteration
+            // costs seconds of CPU on a course of several thousand.
+            $confirmedset = array_flip(array_map('intval', $confirmed));
             foreach ($enrolled as $user) {
                 $userid = (int) $user->id;
-                if (in_array($userid, array_map('intval', $confirmed), true)) {
+                if (isset($confirmedset[$userid])) {
                     continue;
                 }
                 $due = $resolver->effective_dates($userid, null)->timedue;

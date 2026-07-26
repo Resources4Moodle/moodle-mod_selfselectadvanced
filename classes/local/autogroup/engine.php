@@ -69,10 +69,13 @@ class engine {
               WHERE g.activityid = ? AND m.status = ?",
             [$activity->id(), groups::STATUS_CONFIRMED]
         );
+        // Hash set built once: a linear scan rebuilt per iteration costs
+        // seconds of pure CPU on a course of several thousand students.
+        $confirmedset = array_flip(array_map('intval', $confirmed));
         $pool = [];
         foreach ($enrolled as $user) {
             $userid = (int) $user->id;
-            if (in_array($userid, array_map('intval', $confirmed), true)) {
+            if (isset($confirmedset[$userid])) {
                 continue;
             }
             $dates = $resolver->effective_dates($userid, null);
