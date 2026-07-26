@@ -499,5 +499,10 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072430, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072431) {
+        // 1.8.1: report wording only, no schema change.
+        upgrade_mod_savepoint(true, 2026072431, 'selfselectadvanced');
+    }
+
     return true;
 }

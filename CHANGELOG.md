@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.1 (2026-07-26)
+
+- The flagged report's explanation names all four download formats
+  instead of only CSV.
+
 ## 1.8.0 (2026-07-26)
 
 - The flagged report's guides tab shows each guide's current load beside
