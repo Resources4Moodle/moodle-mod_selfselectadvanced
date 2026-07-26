@@ -88,6 +88,26 @@ if (
     );
 }
 
+// Digest preference (1.8.0): site-wide, not per-activity, so a guide
+// working across many activities can opt into one rollup message
+// instead of one per event (spec 14.8 addendum). Stored with
+// set_user_preference/get_user_preferences under
+// 'mod_selfselectadvanced_digest'; the notifier consults it directly.
+if ($action === 'digest' && data_submitted() && confirm_sesskey()) {
+    $digestperiod = optional_param('digestperiod', 'immediate', PARAM_ALPHA);
+    if (!in_array($digestperiod, ['immediate', 'daily', 'weekly'], true)) {
+        $digestperiod = 'immediate';
+    }
+    set_user_preference('mod_selfselectadvanced_digest', $digestperiod, $USER->id);
+    redirect(
+        new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
+        get_string('digestsaved', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+$digestperiod = get_user_preferences('mod_selfselectadvanced_digest', 'immediate', $USER->id);
+
 // Filters (spec 12): state, quota compliance, approved before/after, department.
 $fstate = optional_param('fstate', '', PARAM_ALPHAEXT);
 $fquota = optional_param('fquota', '', PARAM_ALPHA);
@@ -270,6 +290,40 @@ if ($guidedownload !== '') {
 }
 
 echo $OUTPUT->header();
+
+// Digest preference form (1.8.0): kept as its own block, deliberately
+// separate from the mustache-rendered dashboard below.
+echo html_writer::start_div('selfselectadvanced-digest mb-3');
+echo html_writer::tag('h3', get_string('digestheading', 'mod_selfselectadvanced'));
+echo html_writer::tag('p', get_string('digestexplain', 'mod_selfselectadvanced'), ['class' => 'text-muted']);
+echo html_writer::start_tag('form', [
+    'method' => 'post',
+    'action' => (new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]))->out(false),
+    'class' => 'd-flex flex-wrap gap-2 align-items-end',
+]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'digest']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+echo html_writer::label(get_string('digestlabel', 'mod_selfselectadvanced'), 'ssa-digestperiod', true, ['class' => 'me-2']);
+echo html_writer::select(
+    [
+        'immediate' => get_string('digestimmediate', 'mod_selfselectadvanced'),
+        'daily' => get_string('digestdaily', 'mod_selfselectadvanced'),
+        'weekly' => get_string('digestweekly', 'mod_selfselectadvanced'),
+    ],
+    'digestperiod',
+    $digestperiod,
+    false,
+    ['id' => 'ssa-digestperiod', 'class' => 'form-select form-select-sm w-auto me-2']
+);
+echo html_writer::empty_tag('input', [
+    'type' => 'submit',
+    'value' => get_string('digestsave', 'mod_selfselectadvanced'),
+    'class' => 'btn btn-secondary btn-sm',
+]);
+echo html_writer::end_tag('form');
+echo html_writer::end_div();
+
 $departments = \mod_selfselectadvanced\local\attributes\manager::distinct_values('department');
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/guide_dashboard', (object) [
     'loadline' => get_string('guideloadheader', 'mod_selfselectadvanced', $load),

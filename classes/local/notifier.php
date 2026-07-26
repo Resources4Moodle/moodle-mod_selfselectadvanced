@@ -30,7 +30,19 @@ use mod_selfselectadvanced\activity;
  */
 class notifier {
     /**
+     * Guide-facing providers a recipient may defer to their digest
+     * (1.8.0) instead of receiving immediately.
+     */
+    private const DIGESTIBLE = ['guidequeue', 'deadlinereminder', 'autogroupresult'];
+
+    /**
      * Send one plugin notification.
+     *
+     * When the recipient's digest preference (mod_selfselectadvanced_digest)
+     * is daily or weekly and the provider is one of the DIGESTIBLE
+     * kinds, the notification is queued in selfselectadvanced_digestq
+     * instead of being sent now; the send_digests scheduled task flushes
+     * it later using the same subject/body resolution.
      *
      * @param activity $activity the activity
      * @param string $provider message provider name from db/messages.php
@@ -52,6 +64,8 @@ class notifier {
         \moodle_url $contexturl,
         string $contextname
     ): void {
+        global $DB;
+
         // Standard placeholders available to EVERY template (site
         // admins can rewrite any message via Language customisation):
         // firstname, lastname, fullname of the recipient, and url.
@@ -64,16 +78,29 @@ class notifier {
         }
         $a->url = $a->url ?? $contexturl->out(false);
 
-        // Per-activity template override (editing teachers) wins over
-        // the language string; both use {$a->name} placeholders.
-        $custom = templates::get($activity, $bodykey);
-        if ($custom) {
-            $subject = templates::render($custom->subject, $a);
-            $body = templates::render($custom->body, $a);
-        } else {
-            $subject = get_string($subjectkey, 'mod_selfselectadvanced', $a);
-            $body = get_string($bodykey, 'mod_selfselectadvanced', $a);
+        if (in_array($provider, self::DIGESTIBLE, true)) {
+            $period = get_user_preferences('mod_selfselectadvanced_digest', 'immediate', $touserid);
+            if (in_array($period, ['daily', 'weekly'], true)) {
+                // Store the already-resolved $a so the digest renders
+                // identical text later, whatever templates change to
+                // in the meantime.
+                $DB->insert_record('selfselectadvanced_digestq', (object) [
+                    'userid' => $touserid,
+                    'activityid' => $activity->id(),
+                    'groupid' => null,
+                    'provider' => $provider,
+                    'subjectkey' => $subjectkey,
+                    'bodykey' => $bodykey,
+                    'payload' => json_encode($a),
+                    'contexturl' => $contexturl->out(false),
+                    'timecreated' => time(),
+                ]);
+
+                return;
+            }
         }
+
+        [$subject, $body] = self::resolve_text($activity, $subjectkey, $bodykey, $a);
 
         $message = new message();
         $message->component = 'mod_selfselectadvanced';
@@ -91,5 +118,30 @@ class notifier {
         $message->contexturlname = $contextname;
 
         message_send($message);
+    }
+
+    /**
+     * Resolve the subject and body text for a message kind: a
+     * per-activity template override wins over the language string;
+     * both use {$a->name} placeholders. Shared by send() and the
+     * send_digests task so a queued item renders exactly as it would
+     * have if sent immediately.
+     *
+     * @param activity $activity the activity
+     * @param string $subjectkey lang key for the subject
+     * @param string $bodykey lang key for the body
+     * @param \stdClass $a resolved placeholder values
+     * @return string[] [subject, body]
+     */
+    public static function resolve_text(activity $activity, string $subjectkey, string $bodykey, \stdClass $a): array {
+        $custom = templates::get($activity, $bodykey);
+        if ($custom) {
+            return [templates::render($custom->subject, $a), templates::render($custom->body, $a)];
+        }
+
+        return [
+            get_string($subjectkey, 'mod_selfselectadvanced', $a),
+            get_string($bodykey, 'mod_selfselectadvanced', $a),
+        ];
     }
 }

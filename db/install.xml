@@ -349,5 +349,27 @@
         <INDEX NAME="activityid_userid" UNIQUE="true" FIELDS="activityid, userid"/>
       </INDEXES>
     </TABLE>
+    <TABLE NAME="selfselectadvanced_digestq" COMMENT="Guide-facing notifications queued for a recipient's daily or weekly digest instead of being sent immediately">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Recipient awaiting the digest"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Related group, when the notification concerns one; null otherwise"/>
+        <FIELD NAME="provider" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false" COMMENT="Message provider name from db/messages.php"/>
+        <FIELD NAME="subjectkey" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false" COMMENT="Lang key for the subject"/>
+        <FIELD NAME="bodykey" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false" COMMENT="Lang key for the body"/>
+        <FIELD NAME="payload" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON of the already-resolved $a placeholder object"/>
+        <FIELD NAME="contexturl" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Deep link target"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="userid_timecreated" UNIQUE="false" FIELDS="userid, timecreated"/>
+      </INDEXES>
+    </TABLE>
   </TABLES>
 </XMLDB>

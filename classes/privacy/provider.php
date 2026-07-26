@@ -28,13 +28,15 @@ use core_privacy\local\request\writer;
  * Privacy provider (spec 14.10): full export and delete of groups
  * led/joined, briefs, invitations, nominations, guide decisions,
  * participant attributes (system-wide), penalties, overrides, staged
- * moves, volunteered guiding capacity (1.7.0) and reminder preferences.
+ * moves, volunteered guiding capacity (1.7.0), reminder preferences and
+ * the queued digest notifications and digest preference (1.8.0).
  *
  * Deletion keeps group structure (course data) but removes the user's
  * member rows and de-links ids; a deletion that blanks a leader routes
  * the group to the flagged report via its empty leaderid (review item
  * M1). Snapshots are scrubbed of the user; agrun logs are
- * pseudonymised.
+ * pseudonymised. Queued digest rows are deleted outright: they hold no
+ * audit value once the recipient is gone.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -91,9 +93,17 @@ class provider implements
         $collection->add_database_table('selfselectadvanced_agrun', [
             'log' => 'privacy:metadata:agrun:log',
         ], 'privacy:metadata:agrun');
+        $collection->add_database_table('selfselectadvanced_digestq', [
+            'userid' => 'privacy:metadata:digestq:userid',
+            'payload' => 'privacy:metadata:digestq:payload',
+        ], 'privacy:metadata:digestq');
         $collection->add_user_preference(
             'mod_selfselectadvanced_reminded_',
             'privacy:metadata:preference:reminded'
+        );
+        $collection->add_user_preference(
+            'mod_selfselectadvanced_digest',
+            'privacy:metadata:preference:digest'
         );
 
         return $collection;
@@ -128,11 +138,15 @@ class provider implements
                          WHERE mv.activityid = a.id AND (mv.userid = :userid6 OR mv.successorid = :userid7))
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_volunteer} v
-                         WHERE v.activityid = a.id AND v.userid = :userid8)";
+                         WHERE v.activityid = a.id AND v.userid = :userid8)
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_digestq} dq
+                         WHERE dq.activityid = a.id AND dq.userid = :userid9)";
         $contextlist->add_from_sql($sql, [
             'modlevel' => CONTEXT_MODULE,
             'userid1' => $userid, 'userid2' => $userid, 'userid3' => $userid, 'userid4' => $userid,
             'userid5' => $userid, 'userid6' => $userid, 'userid7' => $userid, 'userid8' => $userid,
+            'userid9' => $userid,
         ]);
 
         global $DB;
@@ -179,6 +193,13 @@ class provider implements
             "SELECT v.userid
                FROM {selfselectadvanced_volunteer} v
                JOIN {course_modules} cm ON cm.instance = v.activityid AND cm.id = :cmid",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT dq.userid
+               FROM {selfselectadvanced_digestq} dq
+               JOIN {course_modules} cm ON cm.instance = dq.activityid AND cm.id = :cmid",
             $params
         );
     }
@@ -271,6 +292,10 @@ class provider implements
                 'activityid' => $cm->instance,
                 'userid' => $userid,
             ]);
+            $digestqueue = $DB->get_records('selfselectadvanced_digestq', [
+                'activityid' => $cm->instance,
+                'userid' => $userid,
+            ], 'timecreated ASC');
             writer::with_context($context)->export_data(
                 [get_string('pluginname', 'mod_selfselectadvanced')],
                 (object) [
@@ -292,13 +317,18 @@ class provider implements
                         'capacity' => $volunteer->capacity,
                         'timemodified' => transform::datetime($volunteer->timemodified),
                     ] : null,
+                    'digestqueue' => array_values(array_map(static fn($dq) => (object) [
+                        'provider' => $dq->provider,
+                        'timecreated' => transform::datetime($dq->timecreated),
+                    ], $digestqueue)),
                 ]
             );
         }
     }
 
     /**
-     * Export reminder preferences.
+     * Export reminder preferences and the site-wide notification
+     * digest preference.
      *
      * @param int $userid the user
      */
@@ -315,6 +345,16 @@ class provider implements
                     get_string('privacy:metadata:preference:reminded', 'mod_selfselectadvanced')
                 );
             }
+        }
+
+        $digest = get_user_preferences('mod_selfselectadvanced_digest', null, $userid);
+        if ($digest !== null) {
+            writer::export_user_preference(
+                'mod_selfselectadvanced',
+                'mod_selfselectadvanced_digest',
+                $digest,
+                get_string('privacy:metadata:preference:digest', 'mod_selfselectadvanced')
+            );
         }
     }
 
@@ -356,6 +396,7 @@ class provider implements
             [$cm->instance]
         );
         $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $cm->instance]);
+        $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'leaderid', 0, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'guideid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'successorid', null, ['activityid' => $cm->instance]);
@@ -494,6 +535,7 @@ class provider implements
             ['activityid' => $activityid, 'userid' => $userid]
         );
         $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $activityid, 'userid' => $userid]);
+        $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $activityid, 'userid' => $userid]);
 
         // Pseudonymise agrun logs.
         foreach ($DB->get_records('selfselectadvanced_agrun', ['activityid' => $activityid]) as $agrun) {
