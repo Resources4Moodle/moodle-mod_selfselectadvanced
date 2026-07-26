@@ -65,6 +65,10 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
                 'ssavolunteer',
                 '/activity/selfselectadvanced/volunteers/volunteer'
             );
+            $paths[] = new restore_path_element(
+                'ssadigestitem',
+                '/activity/selfselectadvanced/digestqueue/digestitem'
+            );
         }
 
         return $this->prepare_activity_structure($paths);
@@ -259,6 +263,27 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         }
         $newid = $DB->insert_record('selfselectadvanced_volunteer', $data);
         $this->set_mapping('selfselectadvanced_volunteer', $oldid, $newid);
+    }
+
+    /**
+     * Restore a queued digest notification. Transient per-user data
+     * (spec 14.11): the stored contexturl and JSON payload are carried
+     * over as backed up, without deep-remapping any ids they embed,
+     * exactly like the volunteer table's own restore.
+     *
+     * @param array $data the row
+     */
+    protected function process_ssadigestitem($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $data->activityid = $this->get_new_parentid('selfselectadvanced');
+        $data->userid = $this->get_mappingid('user', $data->userid);
+        if (!$data->userid) {
+            return;
+        }
+        $data->groupid = $data->groupid ? ($this->get_mappingid('ssagroup', $data->groupid) ?: null) : null;
+        $DB->insert_record('selfselectadvanced_digestq', $data);
     }
 
     /**

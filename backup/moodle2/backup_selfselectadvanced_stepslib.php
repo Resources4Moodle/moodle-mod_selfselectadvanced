@@ -19,11 +19,16 @@
  *
  * Included: instance settings, quota rules; with userinfo also groups,
  * members, snapshots, user/group/guide-scope overrides, volunteered
- * guiding capacity (1.7.0) and penalties. EXCLUDED by design and
- * documented (review item M2): agrun logs (operational) and staged
- * moves (transient manager state - a restore must never replay
- * half-staged edits). Site-wide participant attributes are not course
- * data and are never in course backups.
+ * guiding capacity (1.7.0), penalties and queued digest notifications
+ * (1.8.0). EXCLUDED by design and documented (review item M2): agrun
+ * logs (operational) and staged moves (transient manager state - a
+ * restore must never replay half-staged edits). Site-wide participant
+ * attributes are not course data and are never in course backups.
+ *
+ * The queued digest rows are transient per-user data, carried across
+ * exactly like the volunteer table: the stored contexturl and JSON
+ * payload are not deep-remapped (any embedded ids stay as backed up),
+ * matching this table's throwaway, soon-flushed nature.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -91,6 +96,10 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $volunteer = new backup_nested_element('volunteer', ['id'], [
             'userid', 'capacity', 'timecreated', 'timemodified',
         ]);
+        $digestqueue = new backup_nested_element('digestqueue');
+        $digestitem = new backup_nested_element('digestitem', ['id'], [
+            'userid', 'groupid', 'provider', 'subjectkey', 'bodykey', 'payload', 'contexturl', 'timecreated',
+        ]);
 
         $activity->add_child($quotas);
         $quotas->add_child($quota);
@@ -109,6 +118,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $overrides->add_child($override);
         $activity->add_child($volunteers);
         $volunteers->add_child($volunteer);
+        $activity->add_child($digestqueue);
+        $digestqueue->add_child($digestitem);
 
         $activity->set_source_table('selfselectadvanced', ['id' => backup::VAR_ACTIVITYID]);
         $quota->set_source_table('selfselectadvanced_quota', ['activityid' => backup::VAR_PARENTID]);
@@ -126,6 +137,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
                 [backup::VAR_PARENTID]
             );
             $volunteer->set_source_table('selfselectadvanced_volunteer', ['activityid' => backup::VAR_PARENTID]);
+            $digestitem->set_source_table('selfselectadvanced_digestq', ['activityid' => backup::VAR_PARENTID]);
         }
 
         $member->annotate_ids('user', 'userid');
@@ -138,6 +150,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $snapshot->annotate_ids('user', 'takenby');
         $override->annotate_ids('user', 'userid');
         $volunteer->annotate_ids('user', 'userid');
+        $digestitem->annotate_ids('user', 'userid');
 
         // Proposal documents travel with their group (itemid = group id).
         $group->annotate_files('mod_selfselectadvanced', 'proposal', 'id');

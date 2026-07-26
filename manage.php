@@ -163,6 +163,11 @@ echo html_writer::empty_tag('input', [
     'class' => 'btn btn-outline-primary btn-sm',
 ]);
 echo html_writer::end_tag('form');
+echo ' ' . html_writer::link(
+    new moodle_url('/mod/selfselectadvanced/autogrouphistory.php', ['id' => $cm->id]),
+    get_string('agrunhistory', 'mod_selfselectadvanced'),
+    ['class' => 'btn btn-outline-secondary btn-sm']
+);
 echo html_writer::end_div();
 
 // State filter (GET, read-only view change).

@@ -470,5 +470,34 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072429, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072430) {
+        // 1.8.0: opt-in daily or weekly digest for guide-facing
+        // notifications, queued here and flushed by the send_digests
+        // scheduled task.
+        $table = new xmldb_table('selfselectadvanced_digestq');
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE);
+            $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+            $table->add_field('activityid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+            $table->add_field('groupid', XMLDB_TYPE_INTEGER, '10');
+            $table->add_field('provider', XMLDB_TYPE_CHAR, '64', null, XMLDB_NOTNULL);
+            $table->add_field('subjectkey', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL);
+            $table->add_field('bodykey', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL);
+            $table->add_field('payload', XMLDB_TYPE_TEXT);
+            $table->add_field('contexturl', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL);
+            $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_key('fk_userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+            $table->add_key('fk_activityid', XMLDB_KEY_FOREIGN, ['activityid'], 'selfselectadvanced', ['id']);
+            // The fk_userid foreign key already indexes userid on its
+            // own (the volunteer table's lesson, 2026072429): only the
+            // composite (userid, timecreated) index is added here.
+            $table->add_index('userid_timecreated', XMLDB_INDEX_NOTUNIQUE, ['userid', 'timecreated']);
+            $dbman->create_table($table);
+        }
+
+        upgrade_mod_savepoint(true, 2026072430, 'selfselectadvanced');
+    }
+
     return true;
 }
