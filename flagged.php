@@ -406,7 +406,15 @@ $tabs = [
     ),
 ];
 echo $OUTPUT->tabtree($tabs, $tab);
-echo $OUTPUT->notification(get_string('flaggedexplain', 'mod_selfselectadvanced'), 'info', false);
+// Each tab explains itself. The anomaly wording only belongs on the
+// students tab, where anomalies are actually listed.
+$introkey = match ($tab) {
+    'defaulters' => 'flaggedintrodefaulters',
+    'guides' => 'flaggedintroguides',
+    'quota' => 'flaggedintroquota',
+    default => 'flaggedintrostudents',
+};
+echo $OUTPUT->notification(get_string($introkey, 'mod_selfselectadvanced'), 'info', false);
 $filterform = html_writer::start_tag('form', ['method' => 'get',
         'action' => $tabbase->out_omit_querystring(), 'class' => 'd-inline-flex gap-2 me-3 mb-2'])
     . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id])
