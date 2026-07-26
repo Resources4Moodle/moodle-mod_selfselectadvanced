@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'mod_selfselectadvanced';
-$plugin->version = 2026072430;
+$plugin->version = 2026072431;
 $plugin->requires = 2024100700; // Moodle 4.5 LTS.
 $plugin->supported = [405, 502];
 $plugin->maturity = MATURITY_STABLE;
-$plugin->release = '1.8.0';
+$plugin->release = '1.8.1';
