@@ -28,6 +28,7 @@
         <FIELD NAME="proposalrequired" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 optional, 1 proposal upload mandatory before submission"/>
         <FIELD NAME="guidewindow" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Seconds a guide has to decide after submission; 0 = unlimited"/>
         <FIELD NAME="guideautoapprove" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: groups undecided past the window auto-approve"/>
+        <FIELD NAME="guidevolunteer" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: guides must volunteer a capacity to become available for new assignments"/>
         <FIELD NAME="minmembership" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Minimum groups each student must belong to; below = defaulter"/>
         <FIELD NAME="defaulterpenalty" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Mark penalty per missing membership"/>
         <FIELD NAME="incompletepenalty" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Mark penalty when a group is below its minimum size"/>
@@ -328,6 +329,25 @@
       </KEYS>
       <INDEXES>
         <INDEX NAME="activityslot" UNIQUE="true" FIELDS="activityid, slotno"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_volunteer" COMMENT="Guide-declared capacity: how many groups a guide has volunteered to take on, consulted by the resolver when guide volunteering is enabled">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The guide declaring capacity"/>
+        <FIELD NAME="capacity" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Groups volunteered for; 0 means withdrawn"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+        <KEY NAME="fk_userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="activityid_userid" UNIQUE="true" FIELDS="activityid, userid"/>
+        <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
       </INDEXES>
     </TABLE>
   </TABLES>

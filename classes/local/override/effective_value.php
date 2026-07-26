@@ -40,6 +40,9 @@ final class effective_value {
     /** @var int Value comes from a guide-scope override. */
     public const SOURCE_GUIDE = 3;
 
+    /** @var int Value comes from the guide's own volunteered capacity (1.7.0). */
+    public const SOURCE_VOLUNTEER = 4;
+
     /**
      * Constructor.
      *

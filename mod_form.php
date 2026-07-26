@@ -101,6 +101,13 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setDefault('guideautoapprove', 0);
         $mform->addHelpButton('guideautoapprove', 'guideautoapprove', 'mod_selfselectadvanced');
         $mform->disabledIf('guideautoapprove', 'guidewindow[enabled]', 'notchecked');
+        $mform->addElement(
+            'advcheckbox',
+            'guidevolunteer',
+            get_string('guidevolunteer', 'mod_selfselectadvanced')
+        );
+        $mform->setDefault('guidevolunteer', 0);
+        $mform->addHelpButton('guidevolunteer', 'guidevolunteer', 'mod_selfselectadvanced');
 
         // Formation window.
         $mform->addElement('header', 'formationwindow', get_string('formationwindow', 'mod_selfselectadvanced'));

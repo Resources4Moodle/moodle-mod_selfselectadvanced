@@ -28,7 +28,7 @@ use core_privacy\local\request\writer;
  * Privacy provider (spec 14.10): full export and delete of groups
  * led/joined, briefs, invitations, nominations, guide decisions,
  * participant attributes (system-wide), penalties, overrides, staged
- * moves and reminder preferences.
+ * moves, volunteered guiding capacity (1.7.0) and reminder preferences.
  *
  * Deletion keeps group structure (course data) but removes the user's
  * member rows and de-links ids; a deletion that blanks a leader routes
@@ -76,6 +76,10 @@ class provider implements
         $collection->add_database_table('selfselectadvanced_override', [
             'userid' => 'privacy:metadata:override:userid',
         ], 'privacy:metadata:override');
+        $collection->add_database_table('selfselectadvanced_volunteer', [
+            'userid' => 'privacy:metadata:volunteer:userid',
+            'capacity' => 'privacy:metadata:volunteer:capacity',
+        ], 'privacy:metadata:volunteer');
         $collection->add_database_table('selfselectadvanced_move', [
             'userid' => 'privacy:metadata:move:userid',
             'successorid' => 'privacy:metadata:move:successorid',
@@ -121,11 +125,14 @@ class provider implements
                          WHERE o.activityid = a.id AND o.userid = :userid5)
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_move} mv
-                         WHERE mv.activityid = a.id AND (mv.userid = :userid6 OR mv.successorid = :userid7))";
+                         WHERE mv.activityid = a.id AND (mv.userid = :userid6 OR mv.successorid = :userid7))
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_volunteer} v
+                         WHERE v.activityid = a.id AND v.userid = :userid8)";
         $contextlist->add_from_sql($sql, [
             'modlevel' => CONTEXT_MODULE,
             'userid1' => $userid, 'userid2' => $userid, 'userid3' => $userid, 'userid4' => $userid,
-            'userid5' => $userid, 'userid6' => $userid, 'userid7' => $userid,
+            'userid5' => $userid, 'userid6' => $userid, 'userid7' => $userid, 'userid8' => $userid,
         ]);
 
         global $DB;
@@ -165,6 +172,13 @@ class provider implements
             "SELECT g.leaderid AS leaderid
                FROM {selfselectadvanced_group} g
                JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT v.userid
+               FROM {selfselectadvanced_volunteer} v
+               JOIN {course_modules} cm ON cm.instance = v.activityid AND cm.id = :cmid",
             $params
         );
     }
@@ -253,6 +267,10 @@ class provider implements
                 'activityid = :activityid AND (userid = :u1 OR successorid = :u2)',
                 ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid]
             );
+            $volunteer = $DB->get_record('selfselectadvanced_volunteer', [
+                'activityid' => $cm->instance,
+                'userid' => $userid,
+            ]);
             writer::with_context($context)->export_data(
                 [get_string('pluginname', 'mod_selfselectadvanced')],
                 (object) [
@@ -270,6 +288,10 @@ class provider implements
                         'status' => $m->status,
                         'timecreated' => transform::datetime($m->timecreated),
                     ], $moves)),
+                    'volunteer' => $volunteer ? (object) [
+                        'capacity' => $volunteer->capacity,
+                        'timemodified' => transform::datetime($volunteer->timemodified),
+                    ] : null,
                 ]
             );
         }
@@ -333,6 +355,7 @@ class provider implements
             "activityid = ? AND scope IN ('user', 'guide')",
             [$cm->instance]
         );
+        $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'leaderid', 0, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'guideid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'successorid', null, ['activityid' => $cm->instance]);
@@ -470,6 +493,7 @@ class provider implements
             "activityid = :activityid AND scope IN ('user', 'guide') AND userid = :userid",
             ['activityid' => $activityid, 'userid' => $userid]
         );
+        $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $activityid, 'userid' => $userid]);
 
         // Pseudonymise agrun logs.
         foreach ($DB->get_records('selfselectadvanced_agrun', ['activityid' => $activityid]) as $agrun) {

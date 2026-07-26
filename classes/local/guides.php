@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\local;
 
 use mod_selfselectadvanced\activity;
+use mod_selfselectadvanced\local\override\effective_value;
 use mod_selfselectadvanced\local\override\resolver;
 
 /**
@@ -26,6 +27,12 @@ use mod_selfselectadvanced\local\override\resolver;
  * context. Every load figure is the L5 counting basis (pending_guide,
  * firm, frozen) against the guide's effective max_guided from the
  * override resolver.
+ *
+ * Guide volunteering (1.7.0): when the activity has guidevolunteer
+ * enabled, a guide whose effective cap is 0 purely because they have
+ * not volunteered (or volunteered for zero groups) is not offered in
+ * any picker built from with_load() - a manager-overridden guide (even
+ * an explicit always-full 0) stays visible, per precedence.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -56,8 +63,15 @@ class guides {
                 // 1.5.0: overridden out of every guide picker.
                 continue;
             }
+            $maxvalue = $resolver->effective_maxguided((int) $user->id);
+            if ($maxvalue->source === effective_value::SOURCE_VOLUNTEER && $maxvalue->value === 0) {
+                // 1.7.0: has not volunteered (or volunteered for zero
+                // groups) - unavailable for new assignments, out of
+                // every guide picker built from this list.
+                continue;
+            }
             $used = groups::count_guiding($activity, (int) $user->id);
-            $max = $resolver->effective_maxguided((int) $user->id)->value;
+            $max = $maxvalue->value;
             $entry = (object) [
                 'id' => (int) $user->id,
                 'fullname' => fullname($user),

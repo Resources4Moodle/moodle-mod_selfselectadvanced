@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.7.0 (2026-07-26)
+
+- New optional setting, guide volunteering: when enabled, a guide only
+  becomes available for new assignments after declaring a capacity, up
+  to the activity's maximum groups per guide. Guides who have not
+  volunteered, or who have volunteered for zero groups, are
+  unavailable for new assignments; every existing enforcement point
+  and picker inherits this through the override resolver, so an active
+  manager guide-scope override always takes precedence over the
+  volunteered number.
+- Reducing a volunteered capacity below the guide's current load never
+  unassigns anything, matching the plugin's established grandfathering
+  pattern; the guide dashboard shows the grandfathered note when this
+  applies.
+- The guide dashboard gained a small form for declaring or updating a
+  capacity, with a success notification and a refusal when the chosen
+  number is out of range.
+- Volunteered capacity is personal data: covered by the privacy
+  provider (metadata, export, all delete paths) and by backup/restore.
+- Manager override target pickers still list guides who have not
+  volunteered, so a manager can grant such a guide capacity directly.
+
 ## 1.6.2 (2026-07-26)
 
 - The flagged report's defaulters, guides and quota tabs are rebuilt

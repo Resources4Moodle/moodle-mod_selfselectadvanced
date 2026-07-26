@@ -65,6 +65,29 @@ if ($action === 'bulkfreeze' && data_submitted() && confirm_sesskey()) {
     );
 }
 
+// Guide volunteering (1.7.0): the guide declares or updates their own
+// capacity, up to the manager-override-aware effective maximum.
+if (
+    $action === 'volunteer' && data_submitted() && confirm_sesskey()
+    && !empty($activity->settings()->guidevolunteer)
+) {
+    $capacity = optional_param('capacity', -1, PARAM_INT);
+    try {
+        \mod_selfselectadvanced\local\volunteering::set($activity, (int) $USER->id, $capacity);
+        $notice = get_string('volunteersaved', 'mod_selfselectadvanced');
+        $notifytype = \core\output\notification::NOTIFY_SUCCESS;
+    } catch (moodle_exception $e) {
+        $notice = $e->getMessage();
+        $notifytype = \core\output\notification::NOTIFY_ERROR;
+    }
+    redirect(
+        new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
+        $notice,
+        null,
+        $notifytype
+    );
+}
+
 // Filters (spec 12): state, quota compliance, approved before/after, department.
 $fstate = optional_param('fstate', '', PARAM_ALPHAEXT);
 $fquota = optional_param('fquota', '', PARAM_ALPHA);
@@ -108,6 +131,43 @@ $load = (object) [
     'used' => \mod_selfselectadvanced\local\groups::count_guiding($activity, (int) $USER->id),
     'max' => $resolver->effective_maxguided((int) $USER->id)->value,
 ];
+
+// Guide volunteering (1.7.0): own status line, call-to-action when
+// never volunteered, and the grandfathered note when the declared
+// number now sits below the current guiding load.
+$showvolunteer = !empty($activity->settings()->guidevolunteer);
+$volunteer = (object) [
+    'hasvolunteered' => false,
+    'statusline' => '',
+    'callline' => '',
+    'showgrandfathered' => false,
+    'grandfatherline' => '',
+    'options' => [],
+];
+if ($showvolunteer) {
+    $volunteerrow = \mod_selfselectadvanced\local\volunteering::get($activity, (int) $USER->id);
+    $n = $volunteerrow !== null ? (int) $volunteerrow->capacity : 0;
+    $ceiling = $resolver->guide_capacity_ceiling((int) $USER->id)->value;
+    $options = [];
+    for ($i = 0; $i <= $ceiling; $i++) {
+        $options[] = (object) [
+            'value' => $i,
+            'label' => $i === 0 ? get_string('volunteerwithdrawoption', 'mod_selfselectadvanced') : (string) $i,
+            'selected' => $i === $n,
+        ];
+    }
+    $volunteer = (object) [
+        'hasvolunteered' => $volunteerrow !== null,
+        'statusline' => get_string('volunteerstatus', 'mod_selfselectadvanced', (object) ['n' => $n, 'max' => $ceiling]),
+        'callline' => get_string('volunteernone', 'mod_selfselectadvanced'),
+        'showgrandfathered' => $load->used > $n,
+        'grandfatherline' => get_string('volunteergrandfathered', 'mod_selfselectadvanced', (object) [
+            'used' => $load->used,
+            'n' => $n,
+        ]),
+        'options' => $options,
+    ];
+}
 
 $queue = [];
 $guided = [];
@@ -213,6 +273,8 @@ echo $OUTPUT->header();
 $departments = \mod_selfselectadvanced\local\attributes\manager::distinct_values('department');
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/guide_dashboard', (object) [
     'loadline' => get_string('guideloadheader', 'mod_selfselectadvanced', $load),
+    'showvolunteer' => $showvolunteer,
+    'volunteer' => $volunteer,
     'queue' => $queue,
     'hasqueue' => !empty($queue),
     'guided' => $guided,

@@ -61,6 +61,10 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
                 'ssaoverride',
                 '/activity/selfselectadvanced/overrides/override'
             );
+            $paths[] = new restore_path_element(
+                'ssavolunteer',
+                '/activity/selfselectadvanced/volunteers/volunteer'
+            );
         }
 
         return $this->prepare_activity_structure($paths);
@@ -236,6 +240,25 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         }
         $data->usermodified = 0;
         $DB->insert_record('selfselectadvanced_override', $data);
+    }
+
+    /**
+     * Restore a guide's volunteered capacity row.
+     *
+     * @param array $data the row
+     */
+    protected function process_ssavolunteer($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $oldid = $data->id;
+        $data->activityid = $this->get_new_parentid('selfselectadvanced');
+        $data->userid = $this->get_mappingid('user', $data->userid);
+        if (!$data->userid) {
+            return;
+        }
+        $newid = $DB->insert_record('selfselectadvanced_volunteer', $data);
+        $this->set_mapping('selfselectadvanced_volunteer', $oldid, $newid);
     }
 
     /**
