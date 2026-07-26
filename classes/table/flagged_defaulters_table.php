@@ -127,6 +127,25 @@ class flagged_defaulters_table extends \table_sql {
     }
 
     /**
+     * The distinct recipient ids for the "Message all defaulters" bulk
+     * action: exactly the currently filtered rows, one id per student
+     * since each row is already one user (never duplicated).
+     *
+     * @param activity $activity the activity
+     * @param int $minmembership minimum confirmed memberships a student must hold
+     * @param string $q name filter, '' = none
+     * @return int[] user ids
+     */
+    public static function recipient_ids(activity $activity, int $minmembership, string $q): array {
+        global $DB;
+
+        [$from, $where, $params] = self::sql_parts($activity, $minmembership, $q);
+        $ids = $DB->get_fieldset_sql("SELECT DISTINCT u.id FROM $from WHERE $where", $params);
+
+        return array_map('intval', $ids);
+    }
+
+    /**
      * Build the FROM/WHERE/params shared by the display query, the
      * tab-label count and the export dataset.
      *
