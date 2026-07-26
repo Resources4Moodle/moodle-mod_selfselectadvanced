@@ -44,9 +44,11 @@ class guides {
      *
      * @param activity $activity the activity
      * @param resolver $resolver the override resolver
+     * @param bool $includeunavailable keep guides who are unavailable purely for want of volunteering,
+     *      for manager-facing target pickers such as the overrides page
      * @return \stdClass[] userid-keyed: user fields + used, max, remaining, label
      */
-    public static function with_load(activity $activity, resolver $resolver): array {
+    public static function with_load(activity $activity, resolver $resolver, bool $includeunavailable = false): array {
         $namefields = implode(', ', array_map(
             static fn($field) => 'u.' . $field,
             \core_user\fields::for_name()->get_required_fields()
@@ -64,10 +66,15 @@ class guides {
                 continue;
             }
             $maxvalue = $resolver->effective_maxguided((int) $user->id);
-            if ($maxvalue->source === effective_value::SOURCE_VOLUNTEER && $maxvalue->value === 0) {
+            if (
+                !$includeunavailable
+                && $maxvalue->source === effective_value::SOURCE_VOLUNTEER && $maxvalue->value === 0
+            ) {
                 // 1.7.0: has not volunteered (or volunteered for zero
-                // groups) - unavailable for new assignments, out of
-                // every guide picker built from this list.
+                // groups) - unavailable for new assignments, so out of
+                // every ASSIGNMENT picker built from this list. Manager
+                // target pickers pass $includeunavailable, otherwise the
+                // guides most in need of an override become unreachable.
                 continue;
             }
             $used = groups::count_guiding($activity, (int) $user->id);

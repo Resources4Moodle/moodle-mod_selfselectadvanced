@@ -196,6 +196,12 @@ final class volunteer_test extends \advanced_testcase {
         $this->assertArrayHasKey((int) $guide1->id, $loads);
         $this->assertArrayNotHasKey((int) $guide2->id, $loads);
 
+        // Manager target pickers ask for the unavailable guides too,
+        // otherwise a non-volunteer could never be granted capacity.
+        $managerview = guides::with_load($activity, new resolver($activity), true);
+        $this->assertArrayHasKey((int) $guide1->id, $managerview);
+        $this->assertArrayHasKey((int) $guide2->id, $managerview);
+
         // With the feature off, both guides are offered again.
         $DB->set_field('selfselectadvanced', 'guidevolunteer', 0, ['id' => $activity->id()]);
         $activityoff = activity::from_instance($activity->id());
