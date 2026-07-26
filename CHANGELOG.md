@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.10.0 (2026-07-26)
+
+- The flagged report no longer issues thousands of queries on a large
+  course. Per-group membership counts and composition compliance are
+  now answered set-based: measured on 10,000 students in 2,000 groups,
+  the anomaly scan fell from 4,002 queries to 6 and the compliance
+  sweep from 10,001 to 6, with identical results.
+- Bulk nudges are handed to a scheduled task instead of being sent
+  inside the web request, and the defaulters tab gained a per-row
+  action to place a student.
+- The missing-attributes and group-anomaly lists became sortable,
+  filterable, paginated tables, the last two plain lists in the plugin.
+- The activity page's staff group panel is capped with a count and a
+  link to the full listing rather than rendering every group.
+- Validation messages for the membership minimum and the penalty fields
+  render properly instead of showing the raw text in brackets.
+- Guide picker labels are one translatable string, participant names
+  follow the site's configured name format, and sorting is locale aware.
+- Each tab of the flagged report explains itself instead of repeating
+  the anomaly notice, and informational counters no longer look like
+  disabled buttons.
+
 ## 1.9.0 (2026-07-26)
 
 - Fixed the flagged report's defaulters tab, which failed with a
