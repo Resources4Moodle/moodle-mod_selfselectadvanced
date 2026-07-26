@@ -64,7 +64,11 @@ if ($mode === 'group') {
     // gives such a guide capacity (1.7.0).
     $allguides = \mod_selfselectadvanced\local\guides::with_load($activity, $api->gatekeeper()->resolver(), true);
     foreach ($allguides as $guide) {
-        $targets[$guide->id] = $guide->fullname . ' — ' . $guide->label;
+        $targets[$guide->id] = get_string(
+            'guidepickerlabel',
+            'mod_selfselectadvanced',
+            (object) ['fullname' => $guide->fullname, 'label' => $guide->label]
+        );
     }
 } else {
     foreach (get_enrolled_users($context, 'mod/selfselectadvanced:respond', 0, 'u.*', 'lastname, firstname') as $user) {

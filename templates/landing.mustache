@@ -50,6 +50,7 @@
         "hasallgroups": false,
         "allgroups": [],
         "allgroupstruncated": false,
+        "canseeallgroups": true,
         "allgroupsshowingtext": "",
         "manageallurl": "https://example.com/mod/selfselectadvanced/manage.php?id=1"
     }
@@ -192,7 +193,9 @@
         {{#allgroupstruncated}}
             <p class="text-muted">
                 {{allgroupsshowingtext}}
-                <a href="{{manageallurl}}">{{#str}} allgroupsseeall, mod_selfselectadvanced {{/str}}</a>
+                {{#canseeallgroups}}
+                    <a href="{{manageallurl}}">{{#str}} allgroupsseeall, mod_selfselectadvanced {{/str}}</a>
+                {{/canseeallgroups}}
             </p>
         {{/allgroupstruncated}}
     {{/hasallgroups}}

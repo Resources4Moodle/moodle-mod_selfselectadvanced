@@ -177,7 +177,7 @@ if ($q !== '') {
 // here. The defaulters/guides/quota tabs use flexible_table's native
 // tsort/tdir handling instead (see their respective table classes).
 if ($tsort === 'fullname') {
-    usort($groupless, static fn($a, $b) => strcasecmp($a->fullname, $b->fullname));
+    usort($groupless, static fn($a, $b) => \core_collator::compare($a->fullname, $b->fullname));
     if ($tdir) {
         $groupless = array_reverse($groupless);
     }
