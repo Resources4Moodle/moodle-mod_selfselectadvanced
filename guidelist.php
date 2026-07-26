@@ -44,7 +44,14 @@ $guideids = array_map(
     static fn($user) => (int) $user->id,
     get_enrolled_users($activity->context(), 'mod/selfselectadvanced:guide', 0, 'u.id')
 );
-$table = new \mod_selfselectadvanced\table\guides_table('ssaguides', $activity, $guideids, $baseurl, $fdept);
+$perpage = \mod_selfselectadvanced\local\perpage::current(50);
+$table = new \mod_selfselectadvanced\table\guides_table(
+    'ssaguides',
+    $activity,
+    $guideids,
+    new moodle_url($baseurl, ['perpage' => $perpage]),
+    $fdept
+);
 $table->is_downloading($download, 'guides');
 
 if (!$table->is_downloading()) {
@@ -66,9 +73,10 @@ if (!$table->is_downloading()) {
         ['label' => get_string('attrdepartment', 'mod_selfselectadvanced')]
     );
     echo html_writer::end_div();
+    echo html_writer::div(\mod_selfselectadvanced\local\perpage::controls($baseurl), 'mb-3');
 }
 
-$table->out(50, false);
+$table->out($perpage, false);
 
 if (!$table->is_downloading()) {
     echo $OUTPUT->single_button(

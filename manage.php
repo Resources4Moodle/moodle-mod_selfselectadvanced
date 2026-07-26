@@ -82,17 +82,19 @@ if (!in_array($statefilter, \mod_selfselectadvanced\local\state::all(), true)) {
     $statefilter = '';
 }
 $download = optional_param('download', '', PARAM_ALPHA);
+$perpage = \mod_selfselectadvanced\local\perpage::current(50);
 $tableurl = new moodle_url($baseurl, $statefilter !== '' ? ['statefilter' => $statefilter] : []);
 $groupstable = new \mod_selfselectadvanced\table\groups_table(
     'ssagroups',
     $activity,
     $api->gatekeeper(),
-    $tableurl,
+    new moodle_url($tableurl, ['perpage' => $perpage]),
     $statefilter,
     $download !== ''
 );
 if ($download !== '') {
     $groupstable->is_downloading($download, 'groups');
+    // Download ignores paging and dumps the full recordset; left unchanged.
     $groupstable->out(50, false);
     die;
 }
@@ -186,7 +188,8 @@ echo html_writer::empty_tag('input', [
 ]);
 echo html_writer::end_tag('form');
 
-$groupstable->out(50, true);
+echo html_writer::div(\mod_selfselectadvanced\local\perpage::controls($tableurl), 'mb-3');
+$groupstable->out($perpage, true);
 
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/manage_queue', (object) [
     'queue' => $queue,

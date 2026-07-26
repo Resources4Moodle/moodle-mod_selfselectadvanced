@@ -45,7 +45,14 @@ $PAGE->set_url($baseurl);
 $PAGE->set_title(get_string('roster', 'mod_selfselectadvanced'));
 $PAGE->set_heading(format_string($course->fullname));
 
-$table = new \mod_selfselectadvanced\table\roster_table('ssaroster', $activity, $baseurl, $fstate, $frole);
+$perpage = \mod_selfselectadvanced\local\perpage::current(50);
+$table = new \mod_selfselectadvanced\table\roster_table(
+    'ssaroster',
+    $activity,
+    new moodle_url($baseurl, ['perpage' => $perpage]),
+    $fstate,
+    $frole
+);
 $table->is_downloading($download, 'roster');
 
 if (!$table->is_downloading()) {
@@ -80,9 +87,10 @@ if (!$table->is_downloading()) {
         ['label' => get_string('rosterrole', 'mod_selfselectadvanced')]
     );
     echo html_writer::end_div();
+    echo html_writer::div(\mod_selfselectadvanced\local\perpage::controls($baseurl), 'mb-3');
 }
 
-$table->out(50, false);
+$table->out($perpage, false);
 
 if (!$table->is_downloading()) {
     echo $OUTPUT->single_button(
