@@ -109,15 +109,28 @@ foreach ($enrolled as $user) {
     }
 }
 
-// Group anomalies: leaderless (M1) and out-of-limit grandfathered (4A.8).
+// Group anomalies (leaderless, M1; out-of-limit grandfathered, 4A.8)
+// and quota-failing groups (tab) share one fetch of the activity's
+// groups. The per-group counts and the quota verdict, formerly a
+// query (or five) per group, are now each loaded in bulk once for the
+// whole set (see groups::count_confirmed_bulk(), count_seats_taken_bulk()
+// and evaluator::compliance_for_activity()); effective_minsize() and
+// effective_maxsize() stay per-group calls because the shared resolver
+// caches every override row after its first query, so they cost
+// nothing extra here.
+$allgroups = $DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()]);
+$allgroupids = array_map(static fn($group) => (int) $group->id, $allgroups);
+$confirmedcounts = \mod_selfselectadvanced\local\groups::count_confirmed_bulk($allgroupids);
+$seatstakencounts = \mod_selfselectadvanced\local\groups::count_seats_taken_bulk($allgroupids);
+
 $anomalies = [];
-foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()]) as $group) {
+foreach ($allgroups as $group) {
     $issues = [];
     if (empty($group->leaderid)) {
         $issues[] = get_string('flagleaderless', 'mod_selfselectadvanced');
     }
-    $confirmed = \mod_selfselectadvanced\local\groups::count_confirmed((int) $group->id);
-    $seats = \mod_selfselectadvanced\local\groups::count_seats_taken((int) $group->id);
+    $confirmed = $confirmedcounts[(int) $group->id];
+    $seats = $seatstakencounts[(int) $group->id];
     $min = $resolver->effective_minsize((int) $group->id)->value;
     $max = $resolver->effective_maxsize((int) $group->id)->value;
     if ($confirmed < $min || $seats > $max) {
@@ -142,22 +155,31 @@ foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity
     }
 }
 
-// Quota-failing groups (tab): the compliance check is PHP-only over
-// each group's confirmed roster, so the array is still built here.
-$quotafail = [];
-foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()]) as $fgroup) {
-    if (
-        in_array($fgroup->state, [\mod_selfselectadvanced\local\state::FORMING,
-            \mod_selfselectadvanced\local\state::PENDING_GUIDE], true)
-            && !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($activity, (int) $fgroup->id)
-    ) {
-        $quotafail[] = (object) [
-            'name' => format_string($fgroup->name),
-            'rawname' => $fgroup->name,
-            'pluginuid' => $fgroup->pluginuid,
-            'statelabel' => get_string('state' . str_replace('_', '', $fgroup->state), 'mod_selfselectadvanced'),
-        ];
+// Quota-failing groups (tab): only forming and pending-guide groups
+// are candidates. Their compliance is evaluated in one pass over the
+// whole candidate set through compliance_for_activity(), instead of
+// one is_compliant() call, about five queries, per candidate group.
+$quotastates = [\mod_selfselectadvanced\local\state::FORMING, \mod_selfselectadvanced\local\state::PENDING_GUIDE];
+$quotacandidates = [];
+foreach ($allgroups as $fgroup) {
+    if (in_array($fgroup->state, $quotastates, true)) {
+        $quotacandidates[] = (int) $fgroup->id;
     }
+}
+$compliance = \mod_selfselectadvanced\local\quota\evaluator::compliance_for_activity($activity, $quotacandidates);
+
+$quotafail = [];
+foreach ($allgroups as $fgroup) {
+    $fgroupid = (int) $fgroup->id;
+    if (!isset($compliance[$fgroupid]) || $compliance[$fgroupid]) {
+        continue;
+    }
+    $quotafail[] = (object) [
+        'name' => format_string($fgroup->name),
+        'rawname' => $fgroup->name,
+        'pluginuid' => $fgroup->pluginuid,
+        'statelabel' => get_string('state' . str_replace('_', '', $fgroup->state), 'mod_selfselectadvanced'),
+    ];
 }
 
 // Name filter (2026-07-25: usable at hundreds of rows). Defaulters and

@@ -133,7 +133,7 @@ class gradebook {
         // when it will actually be used, exactly like the per-row query
         // it replaces.
         $confirmedcounts = (float) $settings->incompletepenalty > 0
-            ? self::count_confirmed_bulk(array_keys($groupids))
+            ? groups::count_confirmed_bulk(array_keys($groupids))
             : [];
 
         $results = [];
@@ -253,8 +253,8 @@ class gradebook {
      * @param stdClass $row membership row (groupid, leaderid)
      * @param int $userid the student
      * @param int[] $confirmedcounts confirmed member counts keyed by groupid, from
-     *                               count_confirmed_bulk(); falls back to a direct
-     *                               count when a groupid is not present
+     *                               groups::count_confirmed_bulk(); falls back to a
+     *                               direct count when a groupid is not present
      * @return float
      */
     private static function incomplete_share(
@@ -283,40 +283,5 @@ class gradebook {
         }
 
         return ($penalty - $leaderpart) / ($confirmed - 1);
-    }
-
-    /**
-     * Confirmed member counts for a set of groups in one query per
-     * chunk, the bulk counterpart of groups::count_confirmed() used so
-     * incomplete_share() does not issue one count query per membership
-     * row when grading a whole activity.
-     *
-     * @param int[] $groupids the groups to count, deduplicated by the caller
-     * @return int[] confirmed member count keyed by groupid
-     */
-    private static function count_confirmed_bulk(array $groupids): array {
-        global $DB;
-
-        $counts = [];
-        if (!$groupids) {
-            return $counts;
-        }
-
-        foreach (array_chunk($groupids, 1000) as $chunk) {
-            [$insql, $params] = $DB->get_in_or_equal($chunk, SQL_PARAMS_NAMED, 'gc');
-            $params['status'] = groups::STATUS_CONFIRMED;
-            $chunkrows = $DB->get_records_sql(
-                "SELECT groupid, COUNT(*) AS cnt
-                   FROM {selfselectadvanced_member}
-                  WHERE groupid $insql AND status = :status
-               GROUP BY groupid",
-                $params
-            );
-            foreach ($chunkrows as $chunkrow) {
-                $counts[(int) $chunkrow->groupid] = (int) $chunkrow->cnt;
-            }
-        }
-
-        return $counts;
     }
 }

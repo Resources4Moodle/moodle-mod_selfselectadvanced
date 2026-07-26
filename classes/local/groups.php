@@ -100,6 +100,70 @@ class groups {
     }
 
     /**
+     * Count confirmed members of a set of groups in one query (bulk
+     * counterpart of count_confirmed(), L1 basis), used so a report
+     * that lists many groups does not issue one query per group.
+     *
+     * @param int[] $groupids the groups to count
+     * @return int[] confirmed member count keyed by groupid; a group
+     *               with no confirmed rows comes back as 0, not missing
+     */
+    public static function count_confirmed_bulk(array $groupids): array {
+        return self::count_by_status_bulk($groupids, [self::STATUS_CONFIRMED]);
+    }
+
+    /**
+     * Count taken seats of a set of groups in one query (bulk
+     * counterpart of count_seats_taken(), L2 basis): confirmed members
+     * plus pending invitations, used so a report that lists many
+     * groups does not issue one query per group.
+     *
+     * @param int[] $groupids the groups to count
+     * @return int[] seats-taken count keyed by groupid; a group with no
+     *               qualifying rows comes back as 0, not missing
+     */
+    public static function count_seats_taken_bulk(array $groupids): array {
+        return self::count_by_status_bulk($groupids, [self::STATUS_CONFIRMED, self::STATUS_INVITED]);
+    }
+
+    /**
+     * Shared bulk counter behind count_confirmed_bulk() and
+     * count_seats_taken_bulk(): one GROUP BY query per 1000 ids so a
+     * huge activity cannot approach a bind-parameter limit, merged into
+     * a single zero-normalised result.
+     *
+     * @param int[] $groupids the groups to count
+     * @param string[] $statuses member statuses that count toward a seat
+     * @return int[] count keyed by groupid, every requested id present
+     */
+    private static function count_by_status_bulk(array $groupids, array $statuses): array {
+        global $DB;
+
+        $groupids = array_values(array_unique(array_map('intval', $groupids)));
+        $counts = array_fill_keys($groupids, 0);
+        if (!$groupids) {
+            return $counts;
+        }
+
+        foreach (array_chunk($groupids, 1000) as $chunk) {
+            [$groupinsql, $params] = $DB->get_in_or_equal($chunk, SQL_PARAMS_NAMED, 'gc');
+            [$statusinsql, $statusparams] = $DB->get_in_or_equal($statuses, SQL_PARAMS_NAMED, 'st');
+            $chunkrows = $DB->get_records_sql(
+                "SELECT groupid, COUNT(*) AS cnt
+                   FROM {selfselectadvanced_member}
+                  WHERE groupid $groupinsql AND status $statusinsql
+               GROUP BY groupid",
+                $params + $statusparams
+            );
+            foreach ($chunkrows as $chunkrow) {
+                $counts[(int) $chunkrow->groupid] = (int) $chunkrow->cnt;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
      * Count pending invitations of a group.
      *
      * @param int $groupid the group

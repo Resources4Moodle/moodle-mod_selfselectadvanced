@@ -175,9 +175,8 @@ class slots {
         global $DB;
 
         $template = self::get_all($activity);
-        $result = (object) ['ok' => true, 'slots' => []];
         if (!$template) {
-            return $result;
+            return (object) ['ok' => true, 'slots' => []];
         }
 
         $memberids = $DB->get_fieldset_select(
@@ -186,8 +185,36 @@ class slots {
             'groupid = ? AND status = ?',
             [$groupid, groups::STATUS_CONFIRMED]
         );
+        $memberids = array_map('intval', $memberids);
+        $attrs = manager::get_for_users($memberids);
+
+        return self::evaluate_from_data($template, $memberids, $attrs);
+    }
+
+    /**
+     * Evaluate the template against an already-loaded confirmed member
+     * set of one group.
+     *
+     * The booking algorithm behind evaluate(), extracted so the batch
+     * quota compliance path (evaluator::compliance_for_activity()) can
+     * reuse the exact same logic against data it loaded once for a
+     * whole activity, instead of these three queries per group. Booking
+     * is the greedy heuristic described in the class docblock; this
+     * method issues no queries of its own.
+     *
+     * @param stdClass[] $template slot rows in slot order
+     * @param int[] $memberids the group's confirmed member ids
+     * @param stdClass[] $attrs participant attribute records keyed by userid
+     * @return stdClass {ok, slots: [{slot, filled, missing, label, deficiency}]}
+     */
+    public static function evaluate_from_data(array $template, array $memberids, array $attrs): stdClass {
+        $result = (object) ['ok' => true, 'slots' => []];
+        if (!$template) {
+            return $result;
+        }
+
+        $memberids = array_values(array_unique(array_map('intval', $memberids)));
         sort($memberids);
-        $attrs = manager::get_for_users(array_map('intval', $memberids));
 
         $booked = [];               // Userid => slotno.
         $usedvalues = [];           // Dimension => value => true (consumed by earlier slots).
