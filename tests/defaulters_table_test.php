@@ -48,9 +48,17 @@ final class defaulters_table_test extends \advanced_testcase {
         ]);
         $activity = activity::from_instance((int) $instance->id);
 
+        // Explicit, mutually non-overlapping surnames: the generator's
+        // sequential names can contain one another (Lastname1 inside
+        // Lastname12), which made the filter assertion depend on how
+        // many users earlier tests had created.
+        $surnames = ['Alphaonly', 'Betaonly', 'Gammaonly'];
         $students = [];
-        for ($i = 0; $i < 3; $i++) {
-            $student = $generator->create_user();
+        foreach ($surnames as $i => $surname) {
+            $student = $generator->create_user([
+                'firstname' => 'Defaulter' . $i,
+                'lastname' => $surname,
+            ]);
             $generator->enrol_user($student->id, $course->id, 'student');
             $students[] = $student;
         }
