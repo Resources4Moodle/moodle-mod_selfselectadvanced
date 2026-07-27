@@ -53,7 +53,7 @@ $table = new \mod_selfselectadvanced\table\roster_table(
     $fstate,
     $frole
 );
-$table->is_downloading($download, 'roster');
+$table->is_downloading($download, \mod_selfselectadvanced\local\exporter::stamp('roster'));
 
 if (!$table->is_downloading()) {
     echo $OUTPUT->header();

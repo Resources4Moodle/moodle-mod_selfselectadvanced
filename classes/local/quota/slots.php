@@ -31,8 +31,11 @@ use stdClass;
  * "distinct"). A member is booked into at most ONE slot — once booked
  * under a slot, later slots no longer see them, so the remaining
  * requirements adjust themselves. Unless a slot sets `allowoverlap`,
- * attribute values consumed by earlier slots are excluded from it
- * ("must not match"); with `allowoverlap` they stay eligible.
+ * a member is excluded from it when ANY of their attribute values —
+ * in any dimension, not just the slot's own — was consumed by an
+ * earlier slot ("must not match"): after "2 with Department Computer",
+ * a third Computer student cannot fill a distinct-sub-department seat.
+ * With `allowoverlap` such members stay eligible.
  *
  * The evaluation is a GREEDY HEURISTIC (documented, audit item 14):
  * slots book in order and never backtrack, so a rare roster with a
@@ -228,7 +231,7 @@ class slots {
                 if ($value === '') {
                     continue;
                 }
-                if (!$slot->allowoverlap && isset($usedvalues[$slot->dimension][$value])) {
+                if (!$slot->allowoverlap && self::consumed($attrs[$userid] ?? null, $usedvalues)) {
                     continue;
                 }
                 $eligible[$value][] = (int) $userid;
@@ -291,6 +294,27 @@ class slots {
         }
 
         return $result;
+    }
+
+    /**
+     * Whether any of a member's attribute values — in any dimension —
+     * was already consumed by an earlier slot. This is the no-overlap
+     * exclusion: after "2 with Department Computer", a third Computer
+     * student must not fill a later distinct-sub-department seat.
+     *
+     * @param stdClass|null $attr the member's attribute record
+     * @param array $usedvalues dimension => value => true, consumed so far
+     * @return bool
+     */
+    protected static function consumed(?stdClass $attr, array $usedvalues): bool {
+        foreach ($usedvalues as $dimension => $values) {
+            $own = \core_text::strtolower(trim((string) ($attr->{$dimension} ?? '')));
+            if ($own !== '' && isset($values[$own])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

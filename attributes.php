@@ -200,7 +200,7 @@ $table = new \mod_selfselectadvanced\table\attributes_table(
     $download !== ''
 );
 if ($download !== '') {
-    $table->is_downloading($download, 'participant-attributes');
+    $table->is_downloading($download, \mod_selfselectadvanced\local\exporter::stamp('participant-attributes'));
     // Download ignores paging and dumps the full recordset; left unchanged.
     $table->out(50, false);
     die;

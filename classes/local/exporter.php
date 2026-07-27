@@ -49,6 +49,17 @@ class exporter {
     }
 
     /**
+     * Suffix a download base name with the generation moment, so
+     * successive report downloads never overwrite each other.
+     *
+     * @param string $filename base file name, no extension
+     * @return string the name with a _YYYYMMDDHHMMSS suffix
+     */
+    public static function stamp(string $filename): string {
+        return $filename . '_' . date('YmdHis');
+    }
+
+    /**
      * Send rows to the browser in the requested (or default) format
      * and exit.
      *
@@ -59,7 +70,7 @@ class exporter {
      */
     public static function download(string $filename, array $columns, array $rows, ?string $format = null): void {
         $format = $format !== null && isset(self::FORMATS[$format]) ? $format : self::default_format();
-        $filename = clean_filename($filename);
+        $filename = clean_filename(self::stamp($filename));
 
         if ($format === 'txt') {
             // Tab-separated plain text (the gradebook's TXT flavour).

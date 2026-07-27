@@ -139,6 +139,92 @@ final class slots_test extends \advanced_testcase {
     }
 
     /**
+     * No-overlap exclusion works ACROSS dimensions: after "2 with
+     * Department Computer", a third Computer student cannot take a
+     * distinct-SUB-department seat, because their department value was
+     * consumed by the earlier seat rule. With overlap they can.
+     */
+    public function test_no_overlap_excludes_across_dimensions(): void {
+        $this->resetAfterTest();
+
+        $build = function (array $memberattrs) {
+            $generator = $this->getDataGenerator();
+            $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+            $course = $generator->create_course();
+            $instance = $generator->create_module('selfselectadvanced', ['course' => $course->id, 'maxsize' => 10]);
+            $activity = activity::from_instance((int) $instance->id);
+            $group = null;
+            foreach ($memberattrs as $i => [$dept, $subdept]) {
+                $user = $generator->create_user();
+                $generator->enrol_user($user->id, $course->id, 'student');
+                manager::set((int) $user->id, ['department' => $dept, 'subdepartment' => $subdept], 2);
+                if ($i === 0) {
+                    $group = $plugingen->create_group([
+                        'activityid' => $activity->id(),
+                        'leaderid' => (int) $user->id,
+                        'name' => 'G',
+                        'state' => state::FORMING,
+                    ]);
+                } else {
+                    $plugingen->create_member([
+                        'groupid' => $group->id,
+                        'userid' => (int) $user->id,
+                        'status' => groups::STATUS_CONFIRMED,
+                    ]);
+                }
+            }
+
+            return [$activity, (int) $group->id];
+        };
+
+        // A third Computer student (Hardware) must NOT count among the
+        // three distinct sub-departments: deficient by one.
+        [$activity, $groupid] = $build([
+            ['Computer', 'AI'], ['Computer', 'ML'], ['Computer', 'Hardware'],
+            ['Science', 'Physics'], ['Science', 'Biology'],
+        ]);
+        slots::create($activity, (object) [
+            'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
+        ]);
+        slots::create($activity, (object) [
+            'mincount' => 3, 'dimension' => 'subdepartment', 'matchtype' => 'distinct', 'allowoverlap' => 0,
+        ]);
+        $result = slots::evaluate($activity, $groupid);
+        $this->assertFalse($result->ok);
+        $this->assertSame(2, $result->slots[0]->filled);
+        $this->assertSame(1, $result->slots[1]->missing);
+
+        // Three genuinely non-Computer sub-departments: compliant.
+        [$activity2, $groupid2] = $build([
+            ['Computer', 'AI'], ['Computer', 'AI'],
+            ['Science', 'Physics'], ['Science', 'Biology'], ['Science', 'Chemistry'],
+        ]);
+        slots::create($activity2, (object) [
+            'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
+        ]);
+        slots::create($activity2, (object) [
+            'mincount' => 3, 'dimension' => 'subdepartment', 'matchtype' => 'distinct', 'allowoverlap' => 0,
+        ]);
+        $result = slots::evaluate($activity2, $groupid2);
+        $this->assertTrue($result->ok);
+
+        // The overlap tick restores the permissive reading: the third
+        // Computer student may fill the distinct sub-department seat.
+        [$activity3, $groupid3] = $build([
+            ['Computer', 'AI'], ['Computer', 'ML'], ['Computer', 'Hardware'],
+            ['Science', 'Physics'], ['Science', 'Biology'],
+        ]);
+        slots::create($activity3, (object) [
+            'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
+        ]);
+        slots::create($activity3, (object) [
+            'mincount' => 3, 'dimension' => 'subdepartment', 'matchtype' => 'distinct', 'allowoverlap' => 1,
+        ]);
+        $result = slots::evaluate($activity3, $groupid3);
+        $this->assertTrue($result->ok);
+    }
+
+    /**
      * Slots and classic rules gate compliance together through the
      * evaluator (submission/approval/freeze consume is_compliant).
      */
