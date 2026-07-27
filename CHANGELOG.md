@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.11.0 (2026-07-27)
+
+- Pick that team: a leader may list their forming team, guides browse
+  listed teams and express interest with rich-text remarks, and the
+  leader accepts or rejects each interest, so the team always chooses
+  its guide and the first contact stays inside Moodle. Accepting
+  pre-assigns the guide, auto-declines every other pending interest,
+  and the submitted team goes straight to that guide.
+- Manager switches govern the flow: a leader-response window after
+  which an interest times out and the guide may pick again, a cap on
+  each guide's open interests, sequential first-come-first-served
+  reveal of interests to the leader, and whether guides can see who
+  else is interested. A pre-assigned guide can step out of a forming
+  team, which relists it.
+- The guide dashboard gained four stat cards with drill-downs: teams
+  guided, interests awaiting a leader, timed out, and declined. The
+  interest list opens each team's leader, topic and remarks, and its
+  members with mail, WhatsApp and whole-team mail links.
+- Formation analytics page for managers: funnel counts, median times
+  from creation to submission and approval, listing to first interest,
+  and interest to response, all exportable.
+- The activity settings form is regrouped into named sections, the
+  return comment is rich text, staged-move rule verdicts show their
+  reason as visible text, and the plugin ships a real stylesheet with
+  a distinctive card system.
+- Interests are covered by privacy export and delete, backup and
+  restore, and the events log; bulk mail tasks continue past a failing
+  recipient and report what could not be sent.
+
 ## 1.10.0 (2026-07-26)
 
 - The flagged report no longer issues thousands of queries on a large

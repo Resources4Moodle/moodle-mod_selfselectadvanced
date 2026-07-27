@@ -28,8 +28,9 @@ use core_privacy\local\request\writer;
  * Privacy provider (spec 14.10): full export and delete of groups
  * led/joined, briefs, invitations, nominations, guide decisions,
  * participant attributes (system-wide), penalties, overrides, staged
- * moves, volunteered guiding capacity (1.7.0), reminder preferences and
- * the queued digest notifications and digest preference (1.8.0).
+ * moves, volunteered guiding capacity (1.7.0), reminder preferences,
+ * the queued digest notifications and digest preference (1.8.0), and a
+ * guide's expressions of interest in listed teams (1.11.0).
  *
  * Deletion keeps group structure (course data) but removes the user's
  * member rows and de-links ids; a deletion that blanks a leader routes
@@ -97,6 +98,11 @@ class provider implements
             'userid' => 'privacy:metadata:digestq:userid',
             'payload' => 'privacy:metadata:digestq:payload',
         ], 'privacy:metadata:digestq');
+        $collection->add_database_table('selfselectadvanced_eoi', [
+            'guideid' => 'privacy:metadata:eoi:guideid',
+            'remarks' => 'privacy:metadata:eoi:remarks',
+            'status' => 'privacy:metadata:eoi:status',
+        ], 'privacy:metadata:eoi');
         $collection->add_user_preference(
             'mod_selfselectadvanced_reminded_',
             'privacy:metadata:preference:reminded'
@@ -141,12 +147,15 @@ class provider implements
                          WHERE v.activityid = a.id AND v.userid = :userid8)
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_digestq} dq
-                         WHERE dq.activityid = a.id AND dq.userid = :userid9)";
+                         WHERE dq.activityid = a.id AND dq.userid = :userid9)
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_eoi} eo
+                         WHERE eo.activityid = a.id AND eo.guideid = :userid10)";
         $contextlist->add_from_sql($sql, [
             'modlevel' => CONTEXT_MODULE,
             'userid1' => $userid, 'userid2' => $userid, 'userid3' => $userid, 'userid4' => $userid,
             'userid5' => $userid, 'userid6' => $userid, 'userid7' => $userid, 'userid8' => $userid,
-            'userid9' => $userid,
+            'userid9' => $userid, 'userid10' => $userid,
         ]);
 
         global $DB;
@@ -200,6 +209,13 @@ class provider implements
             "SELECT dq.userid
                FROM {selfselectadvanced_digestq} dq
                JOIN {course_modules} cm ON cm.instance = dq.activityid AND cm.id = :cmid",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT eo.guideid AS userid
+               FROM {selfselectadvanced_eoi} eo
+               JOIN {course_modules} cm ON cm.instance = eo.activityid AND cm.id = :cmid",
             $params
         );
     }
@@ -296,10 +312,26 @@ class provider implements
                 'activityid' => $cm->instance,
                 'userid' => $userid,
             ], 'timecreated ASC');
+            $eois = $DB->get_records_sql(
+                "SELECT eo.id, g.name, g.pluginuid, eo.status, eo.remarks, eo.remarksformat,
+                        eo.timecreated, eo.timeresponded
+                   FROM {selfselectadvanced_eoi} eo
+                   JOIN {selfselectadvanced_group} g ON g.id = eo.groupid
+                  WHERE eo.activityid = :activityid AND eo.guideid = :userid",
+                ['activityid' => $cm->instance, 'userid' => $userid]
+            );
             writer::with_context($context)->export_data(
                 [get_string('pluginname', 'mod_selfselectadvanced')],
                 (object) [
                     'memberships' => $memberships,
+                    'interests' => array_values(array_map(static fn($eo) => (object) [
+                        'group' => format_string($eo->name),
+                        'pluginuid' => $eo->pluginuid,
+                        'status' => $eo->status,
+                        'remarks' => format_text($eo->remarks, $eo->remarksformat, ['context' => $context]),
+                        'timecreated' => transform::datetime($eo->timecreated),
+                        'timeresponded' => $eo->timeresponded ? transform::datetime($eo->timeresponded) : null,
+                    ], $eois)),
                     'overrides' => array_values(array_map(static fn($o) => (object) [
                         'scope' => $o->scope,
                         'timeopen' => $o->timeopen,
@@ -397,6 +429,7 @@ class provider implements
         );
         $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $cm->instance]);
+        $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'leaderid', 0, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'guideid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'successorid', null, ['activityid' => $cm->instance]);
@@ -536,6 +569,11 @@ class provider implements
         );
         $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $activityid, 'userid' => $userid]);
         $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $activityid, 'userid' => $userid]);
+        // The interest history is the guide's own personal content
+        // (remarks) and identity; deleted outright, exactly like a
+        // member row, rather than de-linked (nothing else references
+        // an eoi row by id).
+        $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $activityid, 'guideid' => $userid]);
 
         // Pseudonymise agrun logs.
         foreach ($DB->get_records('selfselectadvanced_agrun', ['activityid' => $activityid]) as $agrun) {

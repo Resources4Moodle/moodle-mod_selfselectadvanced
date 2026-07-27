@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\output;
 
 use mod_selfselectadvanced\local\api;
+use mod_selfselectadvanced\local\eoi;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\state;
 use renderable;
@@ -182,7 +183,78 @@ class group_page implements renderable, templatable {
         $canunfreeze = $this->group->state === state::FROZEN
             && has_capability('mod/selfselectadvanced:unfreeze', $context, $this->userid);
 
+        // Expressions of interest (spec: EOI). The leader (and staff)
+        // see the full panel; other members see only the count line.
+        // Acceptance pre-assigns the guide while the team is still
+        // forming, ahead of the usual submit-time assignment.
+        $canmanage = has_capability('mod/selfselectadvanced:manage', $context, $this->userid);
+        $eoienabled = !empty($activity->settings()->eoienabled);
+        $listed = !empty($this->group->listed);
+        $showeoitoggle = $isleader && $isforming && $eoienabled;
+        $showeoipanel = $eoienabled && ($isleader || $canviewall || $canmanage);
+        $caneoirespond = $isleader || $canmanage;
+        $eoiassigned = $isforming && !empty($this->group->guideid);
+        $eoiinterestline = '';
+        $eoirows = [];
+        if ($eoienabled) {
+            $allinterests = eoi::for_group($activity, (int) $this->group->id);
+            $pendingcount = count(array_filter(
+                $allinterests,
+                static fn(\stdClass $row): bool => $row->status === eoi::STATUS_PENDING
+            ));
+            if ($pendingcount > 0) {
+                $eoiinterestline = get_string('eoiinterestline', 'mod_selfselectadvanced', $pendingcount);
+            }
+            if ($showeoipanel) {
+                $sequential = !empty($activity->settings()->eoisequential);
+                $seenpending = false;
+                foreach ($allinterests as $interest) {
+                    $ispending = $interest->status === eoi::STATUS_PENDING;
+                    if ($ispending) {
+                        if ($sequential && $seenpending) {
+                            // Later pending interests wait their turn (spec eoisequential).
+                            continue;
+                        }
+                        $seenpending = true;
+                    }
+                    $eoirows[] = (object) [
+                        'eoiid' => (int) $interest->id,
+                        'guidename' => fullname(\core_user::get_user((int) $interest->guideid)),
+                        'remarks' => $interest->remarks !== null && $interest->remarks !== ''
+                            ? format_text($interest->remarks, (int) $interest->remarksformat, ['context' => $context])
+                            : '',
+                        'timecreated' => userdate($interest->timecreated),
+                        'statuslabel' => get_string('eoistatus' . $interest->status, 'mod_selfselectadvanced'),
+                        'ispending' => $ispending,
+                        'accepturl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                            'id' => $cmid,
+                            'g' => $this->group->id,
+                            'action' => 'eoirespond',
+                            'eoiid' => (int) $interest->id,
+                            'decision' => 'accept',
+                        ]))->out(false),
+                        'rejecturl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                            'id' => $cmid,
+                            'g' => $this->group->id,
+                            'action' => 'eoirespond',
+                            'eoiid' => (int) $interest->id,
+                            'decision' => 'reject',
+                        ]))->out(false),
+                    ];
+                }
+            }
+        }
+
         return (object) [
+            'eoienabled' => $eoienabled,
+            'listed' => $listed,
+            'showeoitoggle' => $showeoitoggle,
+            'showeoipanel' => $showeoipanel,
+            'caneoirespond' => $caneoirespond,
+            'eoiassigned' => $eoiassigned,
+            'eoiinterestline' => $eoiinterestline,
+            'eoirows' => $eoirows,
+            'haseoirows' => !empty($eoirows),
             'canrequestleave' => $canrequestleave,
             'leaverequests' => $leaverequests,
             'hasleaverequests' => !empty($leaverequests),

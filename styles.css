@@ -1,8 +1,93 @@
 /*
  * Styles for mod_selfselectadvanced.
  *
- * Bound per the gate-1 plan (S5a): plugin-specific STRUCTURAL selectors only,
- * every selector prefixed .selfselectadvanced-, and no colour, spacing or
- * typography values duplicating theme tokens — visual styling comes from the
- * Bootstrap utility classes Moodle ships. Audited every slice.
+ * Every selector is either scoped under a .selfselectadvanced- container
+ * or is one of the plugin-wide ssa- component classes below. Theme-safe:
+ * no fixed backgrounds and no literal colours - borders use currentColor
+ * or neutral rgba() so light and dark themes, and any Bootstrap text-*
+ * colour utility applied alongside a class here, come through unchanged.
  */
+
+/* Stat-card system (ssa-cards / ssa-card / ssa-card-number / ssa-card-label).
+ * Used for dashboard counts (guiding / pending / expired / rejected and
+ * similar). Deliberately distinctive rather than the generic bootstrap-grey
+ * panel: an accent left border picked up from the card's own text colour,
+ * large lining numerals for the count, and a lifted hover state on cards
+ * that are links.
+ */
+.ssa-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 1rem;
+    margin-block: 1rem;
+}
+
+.ssa-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid rgba(127, 127, 127, 0.25);
+    border-left-width: 4px;
+    border-left-color: currentColor;
+    border-radius: 0.375rem;
+    background-color: rgba(127, 127, 127, 0.05);
+    color: inherit;
+    text-decoration: none;
+    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, background-color 0.15s ease-out;
+}
+
+a.ssa-card:hover,
+a.ssa-card:focus-visible {
+    transform: translateY(-0.125rem);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    background-color: rgba(127, 127, 127, 0.1);
+    color: inherit;
+    text-decoration: none;
+}
+
+.ssa-card-number {
+    font-size: 2.25rem;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: lining-nums tabular-nums;
+}
+
+.ssa-card-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.75;
+}
+
+/* Badge polish inside plugin pages: a touch more breathing room and
+ * letter-spacing than the bare bootstrap badge, still using the
+ * bootstrap bg-* colour utilities already applied alongside these
+ * classes so no colour is hard-coded here.
+ */
+.selfselectadvanced-reviewpage .badge,
+.selfselectadvanced-moves .badge,
+.selfselectadvanced-guidedashboard .badge {
+    padding: 0.4em 0.7em;
+    border-radius: 1rem;
+    letter-spacing: 0.02em;
+    font-weight: 600;
+}
+
+/* Staged-move rule chips: the verdict reason sits as visible small text
+ * under its badge rather than living only in a hover tooltip.
+ */
+.ssa-rulechip {
+    margin-bottom: 0.5rem;
+}
+
+.ssa-rulechip:last-child {
+    margin-bottom: 0;
+}
+
+.ssa-rulechip-reason {
+    margin-top: 0.15rem;
+    max-width: 16rem;
+}

@@ -42,7 +42,8 @@
         "sesskey": "abc",
         "cmid": 1,
         "groupid": 1,
-        "backurl": "https://example.com/mod/selfselectadvanced/guide.php?id=1"
+        "backurl": "https://example.com/mod/selfselectadvanced/guide.php?id=1",
+        "formathtml": 1
     }
 }}
 <div class="selfselectadvanced-reviewpage">
@@ -96,12 +97,21 @@
             <input type="hidden" name="g" value="{{groupid}}">
             <input type="hidden" name="action" value="returngroup">
             <input type="hidden" name="sesskey" value="{{sesskey}}">
+            <input type="hidden" name="commentformat" value="{{formathtml}}">
             <div class="mb-2">
                 <label for="selfselectadvanced-returncomment-{{groupid}}">
                     {{#str}} returncommentlabel, mod_selfselectadvanced {{/str}}
                 </label>
+                {{!
+                    No "required" attribute: once review.php upgrades this
+                    textarea to a rich-text editor, the browser hides the
+                    original control, and hidden required fields can block
+                    submission with no visible prompt. Emptiness is still
+                    enforced server-side (state.php refuses a blank
+                    comment).
+                }}
                 <textarea id="selfselectadvanced-returncomment-{{groupid}}" name="comment" rows="3"
-                    class="form-control" required></textarea>
+                    class="form-control"></textarea>
             </div>
             <button type="submit" class="btn btn-secondary">
                 {{#str}} returngroup, mod_selfselectadvanced {{/str}}

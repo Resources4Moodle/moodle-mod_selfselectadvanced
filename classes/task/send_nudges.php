@@ -55,6 +55,12 @@ use moodle_url;
  * The guide-facing nudge sets both, since a guide's overdue queue is
  * reviewed from guide.php, not view.php.
  *
+ * Each recipient is sent inside its own try/catch: one failure is
+ * logged and skipped rather than aborting the rest of the batch. The
+ * task throws only when EVERY recipient failed, because Moodle retries
+ * a thrown adhoc task in full and would re-notify anyone who already
+ * got their message.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -91,12 +97,31 @@ class send_nudges extends adhoc_task {
         $contextname = isset($data->contextname) ? (string) $data->contextname : $activity->name();
 
         $sent = 0;
+        $failed = 0;
         foreach (array_chunk($userids, self::CHUNK_SIZE) as $chunk) {
             foreach ($chunk as $userid) {
-                notifier::send($activity, $provider, $userid, $subjectkey, $bodykey, $a, $contexturl, $contextname);
-                $sent++;
+                // One bad recipient (a deleted account, a messaging
+                // backend hiccup) must not abort the rest of a batch
+                // that can run into the thousands.
+                try {
+                    notifier::send($activity, $provider, $userid, $subjectkey, $bodykey, $a, $contexturl, $contextname);
+                    $sent++;
+                } catch (\Throwable $e) {
+                    $failed++;
+                    mtrace("mod_selfselectadvanced: send_nudges failed to notify user $userid: " . $e->getMessage());
+                }
             }
             mtrace("mod_selfselectadvanced: send_nudges sent $sent of " . count($userids) . " nudge(s)");
+        }
+
+        if ($failed > 0 && $sent === 0) {
+            // Moodle retries a THROWN adhoc task in full, re-sending to
+            // every recipient again; only escalate when nothing at all
+            // got through, never for a partial batch, or the recipients
+            // already notified would receive the same nudge twice.
+            throw new \RuntimeException(
+                "mod_selfselectadvanced: send_nudges could not deliver any of $failed queued nudge(s)"
+            );
         }
     }
 }
