@@ -29,6 +29,11 @@
         <FIELD NAME="guidewindow" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Seconds a guide has to decide after submission; 0 = unlimited"/>
         <FIELD NAME="guideautoapprove" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: groups undecided past the window auto-approve"/>
         <FIELD NAME="guidevolunteer" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: guides must volunteer a capacity to become available for new assignments"/>
+        <FIELD NAME="eoienabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: leaders may list teams and guides may express interest"/>
+        <FIELD NAME="eoiwindow" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Seconds a leader has to respond to an interest; 0 = never expires"/>
+        <FIELD NAME="eoimax" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="3" SEQUENCE="false" COMMENT="Maximum open interests one guide may hold in this activity"/>
+        <FIELD NAME="eoisequential" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: leader sees only the earliest pending interest until it is decided"/>
+        <FIELD NAME="eoipeers" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: guides can see which other guides are interested in a group"/>
         <FIELD NAME="minmembership" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Minimum groups each student must belong to; below = defaulter"/>
         <FIELD NAME="defaulterpenalty" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Mark penalty per missing membership"/>
         <FIELD NAME="incompletepenalty" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Mark penalty when a group is below its minimum size"/>
@@ -58,6 +63,9 @@
         <FIELD NAME="successortype" TYPE="char" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="transfer or stepout"/>
         <FIELD NAME="timenominated" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="returncomment" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Latest guide return comment; history lives in events"/>
+        <FIELD NAME="returncommentformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="2" SEQUENCE="false" COMMENT="Text format of returncomment; legacy rows are plain text"/>
+        <FIELD NAME="listed" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: the leader listed this forming team for guide interest"/>
+        <FIELD NAME="timelisted" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="When the team was first listed"/>
         <FIELD NAME="guidenotes" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Guide private rich-text notes taken before accepting"/>
         <FIELD NAME="guidenotesformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
         <FIELD NAME="timesubmitted" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
@@ -369,6 +377,29 @@
       </KEYS>
       <INDEXES>
         <INDEX NAME="userid_timecreated" UNIQUE="false" FIELDS="userid, timecreated"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_eoi" COMMENT="Guide expressions of interest in listed teams: pending until the leader decides, with full history kept">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="guideid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The interested guide"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="pending" SEQUENCE="false" COMMENT="pending, accepted, rejected, expired or withdrawn"/>
+        <FIELD NAME="remarks" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Rich-text remarks the guide attached when expressing interest"/>
+        <FIELD NAME="remarksformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="First come, first served ordering"/>
+        <FIELD NAME="timeresponded" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+        <KEY NAME="fk_groupid" TYPE="foreign" FIELDS="groupid" REFTABLE="selfselectadvanced_group" REFFIELDS="id"/>
+        <KEY NAME="fk_guideid" TYPE="foreign" FIELDS="guideid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="groupid_status" UNIQUE="false" FIELDS="groupid, status"/>
+        <INDEX NAME="guideid_status" UNIQUE="false" FIELDS="guideid, status"/>
       </INDEXES>
     </TABLE>
   </TABLES>

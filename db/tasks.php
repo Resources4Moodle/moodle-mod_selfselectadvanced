@@ -74,6 +74,15 @@ $tasks = [
         'dayofweek' => '*',
     ],
     [
+        'classname' => \mod_selfselectadvanced\task\expire_eoi::class,
+        'blocking' => 0,
+        'minute' => '30',
+        'hour' => '*',
+        'day' => '*',
+        'month' => '*',
+        'dayofweek' => '*',
+    ],
+    [
         'classname' => \mod_selfselectadvanced\task\send_digests::class,
         'blocking' => 0,
         'minute' => '0',
