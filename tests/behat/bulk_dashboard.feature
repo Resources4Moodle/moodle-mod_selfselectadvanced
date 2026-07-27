@@ -45,7 +45,7 @@ Feature: Bulk operations, the manager dashboard and the flagged report
   Scenario: The manager dashboard filters by state and offers unfreeze
     When I am on the "Lab groups" "mod_selfselectadvanced > manage" page logged in as teacher1
     Then I should see "Team Fir" in the "#region-main" "css_element"
-    And I should see "1+0 of 1 to 6"
+    And I should see "1 of 1 to 6"
     When I set the field "statefilter" to "Forming"
     And I press "Filter"
     Then I should see "Nothing to display"
