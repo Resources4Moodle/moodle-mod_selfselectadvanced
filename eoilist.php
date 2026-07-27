@@ -121,21 +121,7 @@ if ($viewgroup > 0) {
     // so the guide sees at a glance how each member satisfies the seat
     // plan; when no rules are configured the two department levels are
     // shown as the sensible default.
-    $useddims = $DB->get_fieldset_sql(
-        "SELECT DISTINCT dimension FROM (
-            SELECT dimension FROM {selfselectadvanced_quota} WHERE activityid = :qa
-            UNION
-            SELECT dimension FROM {selfselectadvanced_qslot} WHERE activityid = :sa
-         ) dims",
-        ['qa' => $activity->id(), 'sa' => $activity->id()]
-    );
-    $useddims = array_values(array_intersect(
-        \mod_selfselectadvanced\local\attributes\manager::DIMENSIONS,
-        $useddims ?: []
-    ));
-    if (!$useddims) {
-        $useddims = ['department', 'subdepartment'];
-    }
+    $useddims = \mod_selfselectadvanced\local\attributes\manager::used_dimensions($activity);
 
     $mq = optional_param('mq', '', PARAM_RAW_TRIMMED);
     $msort = optional_param('msort', 'lastname', PARAM_ALPHANUMEXT);

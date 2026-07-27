@@ -228,4 +228,28 @@ class manager {
 
         return $parts ? implode(' | ', $parts) : get_string('attrsmissing', 'mod_selfselectadvanced');
     }
+
+    /**
+     * The composition dimensions this activity actually uses in its
+     * counting rules or its seat plan, in canonical order; the two
+     * department levels when nothing is configured yet.
+     *
+     * @param \mod_selfselectadvanced\activity $activity the activity
+     * @return string[]
+     */
+    public static function used_dimensions(\mod_selfselectadvanced\activity $activity): array {
+        global $DB;
+
+        $dims = $DB->get_fieldset_sql(
+            "SELECT DISTINCT dimension FROM (
+                SELECT dimension FROM {selfselectadvanced_quota} WHERE activityid = :qa
+                UNION
+                SELECT dimension FROM {selfselectadvanced_qslot} WHERE activityid = :sa
+             ) dims",
+            ['qa' => $activity->id(), 'sa' => $activity->id()]
+        );
+        $dims = array_values(array_intersect(self::DIMENSIONS, $dims ?: []));
+
+        return $dims ?: ['department', 'subdepartment'];
+    }
 }
