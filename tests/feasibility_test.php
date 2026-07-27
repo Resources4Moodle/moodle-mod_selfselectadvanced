@@ -194,7 +194,11 @@ final class feasibility_test extends \advanced_testcase {
             $api->invitations()->accept($group, (int) $students[$key]->id);
         }
         \mod_selfselectadvanced\local\override\store::save(
-            $activity, 'group', (int) $group->id, ['quotaexempt' => 1], 0
+            $activity,
+            'group',
+            (int) $group->id,
+            ['quotaexempt' => 1],
+            0
         );
 
         $api2 = new api($activity);
@@ -224,5 +228,57 @@ final class feasibility_test extends \advanced_testcase {
             'refusalcompositionunreachable',
             $api->gatekeeper()->can_invite($group, (int) $blank->id)?->stringkey
         );
+    }
+
+    /**
+     * Counting-rule MINIMUMS bound admission too: with more required
+     * members of a value than free seats could ever supply, the
+     * admission is refused — while enough slack remains, it is not.
+     */
+    public function test_rule_minimum_deficit_bounds_admission(): void {
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 5,
+            'maxlead' => 1,
+            'maxmembership' => 1,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+        quotastore::save($activity, (object) [
+            'dimension' => 'gender',
+            'rtype' => 'value',
+            'value' => 'Female',
+            'mincount' => 3,
+            'maxcount' => null,
+        ]);
+        $males = [];
+        for ($i = 0; $i < 5; $i++) {
+            $user = $generator->create_user();
+            $generator->enrol_user($user->id, $course->id, 'student');
+            manager::set((int) $user->id, ['gender' => 'Male', 'department' => 'Science'], 2);
+            $males[] = $user;
+        }
+        $female = $generator->create_user();
+        $generator->enrol_user($female->id, $course->id, 'student');
+        manager::set((int) $female->id, ['gender' => 'Female', 'department' => 'Science'], 2);
+
+        $api = new api($activity);
+        $leader = (int) $males[0]->id;
+        $group = $api->create_group($leader, 'Minimums', 'T', '<p>b</p>', FORMAT_HTML);
+        $api->invitations()->send($group, (int) $males[1]->id, $leader);
+        $api->invitations()->accept($group, (int) $males[1]->id);
+
+        // Two males seated, three free seats, three Females required:
+        // a third male leaves only two free seats for three Females.
+        $this->assertSame(
+            'refusalcompositionunreachable',
+            $api->gatekeeper()->can_invite($group, (int) $males[2]->id)?->stringkey
+        );
+        // A Female shrinks the deficit with the seat she takes.
+        $this->assertNull($api->gatekeeper()->can_invite($group, (int) $female->id));
     }
 }

@@ -433,4 +433,64 @@ final class moves_test extends \advanced_testcase {
         $verdicts = $api->moves()->validate_set([(int) $move->id]);
         $this->assertFalse($verdicts->permove[(int) $move->id]['QUOTA']['ok']);
     }
+
+    /**
+     * SUCC judges the leader at APPLY time: a crown gained from an
+     * earlier makeleader move in the same set makes the later
+     * move-out a leader move, so it demands a successor — otherwise
+     * the commit would leave the group leaderless.
+     */
+    public function test_intra_set_leadership_gain_requires_successor(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'maxsize' => 3, 'minsize' => 1, 'maxmembership' => 2,
+        ]);
+        $member = (int) $students[1]->id;
+
+        $crown = $api->moves()->stage($member, null, (int) $a->id, true, null, 99, true);
+        $out = $api->moves()->stage($member, (int) $a->id, (int) $b->id, false, null, 99);
+
+        $verdicts = $api->moves()->validate_set([(int) $crown->id, (int) $out->id]);
+        $this->assertFalse($verdicts->valid);
+        $this->assertFalse($verdicts->permove[(int) $out->id]['SUCC']['ok']);
+    }
+
+    /**
+     * The joint L4 credits a source removal only while the user is
+     * still confirmed there: a staged move whose source membership
+     * has since gone must not commit the user over their cap behind
+     * a green verdict.
+     */
+    public function test_l4_ignores_stale_source_removal(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups(['maxsize' => 3]);
+        $member = (int) $students[1]->id;
+        $move = $api->moves()->stage($member, (int) $a->id, (int) $b->id, false, null, 99);
+
+        // The source membership evaporates after staging; the user is
+        // meanwhile confirmed elsewhere, sitting exactly at the cap.
+        $DB->set_field('selfselectadvanced_member', 'status', groups::STATUS_REMOVED, [
+            'groupid' => (int) $a->id,
+            'userid' => $member,
+        ]);
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $c = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[4]->id,
+            'name' => 'C',
+            'state' => state::FORMING,
+        ]);
+        $plugingen->create_member([
+            'groupid' => $c->id,
+            'userid' => $member,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+
+        $verdicts = $api->moves()->validate_set([(int) $move->id]);
+        $this->assertFalse($verdicts->valid);
+        $this->assertFalse($verdicts->permove[(int) $move->id]['L4']['ok']);
+    }
 }
