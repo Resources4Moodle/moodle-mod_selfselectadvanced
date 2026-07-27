@@ -98,7 +98,7 @@ class group_page implements renderable, templatable {
         $rsort = optional_param('rsort', '', PARAM_ALPHANUMEXT);
         $rdir = optional_param('rdir', 0, PARAM_INT);
         $rq = optional_param('rq', '', PARAM_RAW_TRIMMED);
-        $rostersortable = array_merge(['firstname', 'lastname'], $useddims);
+        $rostersortable = array_merge(['firstname', 'lastname'], $useddims, $canviewall ? ['mobile'] : []);
 
         $roster = [];
         foreach ($rostermembers as $member) {
@@ -113,6 +113,10 @@ class group_page implements renderable, templatable {
             foreach ($useddims as $dim) {
                 $row->$dim = (string) ($attr->$dim ?? '');
                 $row->dims[] = ['value' => $row->$dim];
+            }
+            if ($canviewall) {
+                $row->mobile = (string) ($attr->mobile ?? '');
+                $row->dims[] = ['value' => $row->mobile];
             }
             $roster[] = $row;
         }
@@ -149,6 +153,9 @@ class group_page implements renderable, templatable {
         ];
         foreach ($useddims as $dim) {
             $headcols[] = ['col' => $dim, 'label' => get_string('attr' . $dim, 'mod_selfselectadvanced')];
+        }
+        if ($canviewall) {
+            $headcols[] = ['col' => 'mobile', 'label' => get_string('attrmobile', 'mod_selfselectadvanced')];
         }
         foreach ($headcols as $headcol) {
             $url = new \moodle_url($groupurl, [
@@ -413,7 +420,6 @@ class group_page implements renderable, templatable {
             'rosterhead' => $rosterhead,
             'rosterfilter' => $rq,
             'rosterfilteraction' => $groupurl->out_omit_querystring(false),
-            'groupid' => (int) $this->group->id,
             'isleader' => $isleader,
             'candelete' => $isleader && $isforming,
             'caninvite' => $caninvite,

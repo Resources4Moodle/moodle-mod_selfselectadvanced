@@ -50,7 +50,9 @@ Feature: Site administrators manage participant attributes
       | ssa1               | Team Blue | student1 |
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
     And I follow "Team Blue"
-    Then I should see "Female · Civil · Structures · +91 111 22222"
+    Then I should see "Civil" in the ".selfselectadvanced-roster" "css_element"
+    And I should see "Structures" in the ".selfselectadvanced-roster" "css_element"
+    And I should see "+91 111 22222" in the ".selfselectadvanced-roster" "css_element"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
     Then I should not see "Structures"
