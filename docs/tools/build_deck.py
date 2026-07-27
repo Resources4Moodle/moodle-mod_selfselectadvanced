@@ -145,7 +145,7 @@ def table_slide(title, kicker, headers, rows, widths=None):
     heading(s, title, kicker)
     cols = len(headers)
     widths = widths or [1.0 / cols] * cols
-    left0, top0 = Inches(0.55), Inches(1.85)
+    left0, top0 = Inches(0.55), Inches(1.75)
     total_w = Inches(12.2)
     x = left0
     for c, head in enumerate(headers):
@@ -153,9 +153,9 @@ def table_slide(title, kicker, headers, rows, widths=None):
         tf = frame(s, x, top0, w, Inches(0.4))
         para(tf, head, size=12, bold=True, color=ACCENT, first=True, after=0)
         x = Emu(x + w)
-    line = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, left0, Inches(2.28), total_w, Pt(1))
+    line = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, left0, Inches(2.18), total_w, Pt(1))
     line.fill.solid(); line.fill.fore_color.rgb = RULE; line.line.fill.background(); line.shadow.inherit = False
-    y = Inches(2.42)
+    y = Inches(2.32)
     for row in rows:
         x = left0
         tallest = Inches(0.4)
@@ -227,7 +227,7 @@ table_slide(
         ['Appear on the guide list; review and approve groups', 'Yes', 'Only if delegated', 'Yes', 'No'],
         ['Freeze a group', 'Yes', 'Only if delegated', 'Yes', 'No'],
         ['Unfreeze a group', 'Yes', 'Yes', 'Only if delegated', 'No'],
-        ['See every group, member, state and the penalty ledger', 'Yes', 'Yes', 'Yes', 'No'],
+        ['See every group, member and report', 'Yes', 'Yes', 'Yes', 'No'],
     ],
     widths=[0.30, 0.16, 0.19, 0.19, 0.16],
 )
