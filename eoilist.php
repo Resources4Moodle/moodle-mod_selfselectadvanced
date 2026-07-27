@@ -90,8 +90,11 @@ if ($withdrawaction === 'withdraw') {
     echo $OUTPUT->header();
     echo $OUTPUT->confirm(
         get_string('eoiwithdrawconfirm', 'mod_selfselectadvanced', format_string($rowgroup->name)),
-        new single_button(new moodle_url($baseurl, ['action' => 'withdraw', 'eoiid' => $eoiid]),
-            get_string('eoiwithdraw', 'mod_selfselectadvanced'), 'post'),
+        new single_button(
+            new moodle_url($baseurl, ['action' => 'withdraw', 'eoiid' => $eoiid]),
+            get_string('eoiwithdraw', 'mod_selfselectadvanced'),
+            'post'
+        ),
         $baseurl
     );
     echo $OUTPUT->footer();
