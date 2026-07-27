@@ -26,7 +26,7 @@ Feature: Students control mobile-sharing consent
     Then I should see "Your mobile number is hidden from students. Staff with full view can still see it."
     And I should see "Share my number"
     When I press "Share my number"
-    Then I should see "Your mobile number is visible to your team leaders and teammates."
+    Then I should see "Your mobile number is visible to your team leaders, teammates and guides."
     And I should see "Stop sharing my number"
     When I press "Stop sharing my number"
     Then I should see "Your mobile number is hidden from students. Staff with full view can still see it."
