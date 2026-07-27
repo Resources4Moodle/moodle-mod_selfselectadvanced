@@ -169,6 +169,11 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setDefault('eoipeers', 0);
         $mform->addHelpButton('eoipeers', 'eoipeers', 'mod_selfselectadvanced');
         $mform->disabledIf('eoipeers', 'eoienabled', 'notchecked');
+        $mform->addElement('text', 'eoigroupmax', get_string('eoigroupmax', 'mod_selfselectadvanced'), ['size' => 4]);
+        $mform->setType('eoigroupmax', PARAM_INT);
+        $mform->setDefault('eoigroupmax', 0);
+        $mform->addHelpButton('eoigroupmax', 'eoigroupmax', 'mod_selfselectadvanced');
+        $mform->disabledIf('eoigroupmax', 'eoienabled', 'notchecked');
 
         // Formation window.
         $mform->addElement('header', 'formationwindow', get_string('formationwindow', 'mod_selfselectadvanced'));

@@ -587,5 +587,33 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072437, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072440) {
+        // 1.14.0: per-group waitlist cap, guide handover nominee,
+        // mobile-sharing consent.
+        $table = new xmldb_table('selfselectadvanced');
+        $field = new xmldb_field('eoigroupmax', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'eoipeers');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $table = new xmldb_table('selfselectadvanced_group');
+        $field = new xmldb_field('guidesuccessorid', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'successortype');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('timeguidenominated', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'guidesuccessorid');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $table = new xmldb_table('selfselectadvanced_userattr');
+        $field = new xmldb_field('shareconsent', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0', 'program');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 2026072440, 'selfselectadvanced');
+    }
+
     return true;
 }
