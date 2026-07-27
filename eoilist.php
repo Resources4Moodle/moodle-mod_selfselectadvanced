@@ -117,12 +117,37 @@ if ($viewgroup > 0) {
     }
     $group = \mod_selfselectadvanced\local\groups::get($activity, $viewgroup);
 
+    // One column per composition dimension the activity actually uses,
+    // so the guide sees at a glance how each member satisfies the seat
+    // plan; when no rules are configured the two department levels are
+    // shown as the sensible default.
+    $useddims = $DB->get_fieldset_sql(
+        "SELECT DISTINCT dimension FROM (
+            SELECT dimension FROM {selfselectadvanced_quota} WHERE activityid = :qa
+            UNION
+            SELECT dimension FROM {selfselectadvanced_qslot} WHERE activityid = :sa
+         ) dims",
+        ['qa' => $activity->id(), 'sa' => $activity->id()]
+    );
+    $useddims = array_values(array_intersect(
+        \mod_selfselectadvanced\local\attributes\manager::DIMENSIONS,
+        $useddims ?: []
+    ));
+    if (!$useddims) {
+        $useddims = ['department', 'subdepartment'];
+    }
+
+    $mq = optional_param('mq', '', PARAM_RAW_TRIMMED);
+    $msort = optional_param('msort', 'lastname', PARAM_ALPHANUMEXT);
+    $mdir = optional_param('mdir', 0, PARAM_INT);
+
     $namefields = implode(', ', array_map(
         static fn(string $field) => 'u.' . $field,
         \core_user\fields::for_name()->get_required_fields()
     ));
+    $dimselect = implode(', ', array_map(static fn(string $dim) => 'a.' . $dim, $useddims));
     $memberrecords = $DB->get_records_sql(
-        "SELECT u.id AS userid, $namefields, u.email, a.mobile
+        "SELECT u.id AS userid, $namefields, u.email, a.mobile, $dimselect
            FROM {selfselectadvanced_member} m
            JOIN {user} u ON u.id = m.userid
       LEFT JOIN {selfselectadvanced_userattr} a ON a.userid = u.id
@@ -135,15 +160,43 @@ if ($viewgroup > 0) {
     $addresses = [];
     foreach ($memberrecords as $memberrecord) {
         $digits = preg_replace('/\D+/', '', (string) ($memberrecord->mobile ?? ''));
-        $members[] = (object) [
-            'fullname' => fullname($memberrecord),
+        $member = (object) [
+            'firstname' => $memberrecord->firstname,
+            'lastname' => $memberrecord->lastname,
             'email' => $memberrecord->email,
+            'mobile' => (string) ($memberrecord->mobile ?? ''),
             'mailtourl' => 'mailto:' . $memberrecord->email,
             'haswhatsapp' => $digits !== '',
             'whatsappurl' => $digits !== '' ? 'https://wa.me/' . $digits : '',
         ];
+        foreach ($useddims as $dim) {
+            $member->$dim = (string) ($memberrecord->$dim ?? '');
+        }
+        $members[] = $member;
         if (!empty($memberrecord->email)) {
             $addresses[] = $memberrecord->email;
+        }
+    }
+
+    // Text filter across every visible field, then a locale-aware sort
+    // on the requested column; the roster is bounded by the group size,
+    // so both happen comfortably in PHP.
+    $sortable = array_merge(['firstname', 'lastname', 'email', 'mobile'], $useddims);
+    if ($mq !== '') {
+        $needle = \core_text::strtolower($mq);
+        $members = array_values(array_filter($members, static function ($member) use ($needle, $sortable) {
+            foreach ($sortable as $field) {
+                if (\core_text::strpos(\core_text::strtolower((string) $member->$field), $needle) !== false) {
+                    return true;
+                }
+            }
+            return false;
+        }));
+    }
+    if (in_array($msort, $sortable, true)) {
+        usort($members, static fn($a, $b) => \core_collator::compare((string) $a->$msort, (string) $b->$msort));
+        if ($mdir) {
+            $members = array_reverse($members);
         }
     }
 
@@ -151,19 +204,53 @@ if ($viewgroup > 0) {
     echo $OUTPUT->heading(format_string($group->name));
     echo $OUTPUT->heading(get_string('eoimembers', 'mod_selfselectadvanced'), 3);
 
+    $memberurl = new moodle_url($baseurl, array_filter(['viewgroup' => $viewgroup, 'mq' => $mq]));
+    echo html_writer::start_tag('form', ['method' => 'get',
+        'action' => $memberurl->out_omit_querystring(), 'class' => 'd-flex flex-wrap gap-2 mb-2']);
+    foreach (['id' => $cm->id, 'viewgroup' => $viewgroup, 'status' => $status] as $hname => $hvalue) {
+        if ($hvalue !== '' && $hvalue !== 0) {
+            echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => $hname, 'value' => $hvalue]);
+        }
+    }
+    echo html_writer::empty_tag('input', ['type' => 'text', 'name' => 'mq', 'value' => $mq,
+        'class' => 'form-control form-control-sm w-auto',
+        'placeholder' => get_string('flaggedfilter', 'mod_selfselectadvanced')]);
+    echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('filter'),
+        'class' => 'btn btn-secondary btn-sm']);
+    echo html_writer::end_tag('form');
+
+    $sortlink = static function (string $col, string $label) use ($memberurl, $msort, $mdir): string {
+        $url = new moodle_url($memberurl, ['msort' => $col, 'mdir' => ($msort === $col && !$mdir) ? 1 : 0]);
+        $arrow = $msort === $col ? ($mdir ? ' &#9660;' : ' &#9650;') : '';
+        return html_writer::link($url, $label) . $arrow;
+    };
     $table = new html_table();
-    $table->head = [get_string('fullname'), get_string('email')];
+    $table->head = [
+        $sortlink('firstname', get_string('firstname')),
+        $sortlink('lastname', get_string('lastname')),
+        $sortlink('email', get_string('email')),
+        $sortlink('mobile', get_string('attrmobile', 'mod_selfselectadvanced')),
+    ];
+    foreach ($useddims as $dim) {
+        $table->head[] = $sortlink($dim, get_string('attr' . $dim, 'mod_selfselectadvanced'));
+    }
     foreach ($members as $member) {
-        $links = html_writer::link($member->mailtourl, $member->email);
+        $contact = html_writer::link($member->mailtourl, $member->email);
+        $mobilecell = s($member->mobile);
         if ($member->haswhatsapp) {
-            $links .= ' ' . html_writer::link(
+            $mobilecell .= ' ' . html_writer::link(
                 $member->whatsappurl,
                 get_string('eoiwhatsapp', 'mod_selfselectadvanced'),
-                ['class' => 'ms-2']
+                ['class' => 'ms-1']
             );
         }
-        $table->data[] = [s($member->fullname), $links];
+        $row = [s($member->firstname), s($member->lastname), $contact, $mobilecell];
+        foreach ($useddims as $dim) {
+            $row[] = s($member->$dim);
+        }
+        $table->data[] = $row;
     }
+    $table->attributes['class'] = 'generaltable selfselectadvanced-eoimembers';
     echo html_writer::table($table);
 
     if ($addresses) {

@@ -581,5 +581,11 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072436, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072437) {
+        // 1.11.1: member drill-down composition columns, inline
+        // proposal preview, code only.
+        upgrade_mod_savepoint(true, 2026072437, 'selfselectadvanced');
+    }
+
     return true;
 }
