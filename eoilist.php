@@ -123,6 +123,11 @@ if ($viewgroup > 0) {
     // shown as the sensible default.
     $useddims = \mod_selfselectadvanced\local\attributes\manager::used_dimensions($activity);
 
+    // Mobile visibility is per-member consent, gated through
+    // manager::mobile_visible; a viewall holder always sees every
+    // number, a guide without it only when that member consented.
+    $viewerhasviewall = has_capability('mod/selfselectadvanced:viewall', $context, $USER->id, false);
+
     $mq = optional_param('mq', '', PARAM_RAW_TRIMMED);
     $msort = optional_param('msort', 'lastname', PARAM_ALPHANUMEXT);
     $mdir = optional_param('mdir', 0, PARAM_INT);
@@ -133,7 +138,7 @@ if ($viewgroup > 0) {
     ));
     $dimselect = implode(', ', array_map(static fn(string $dim) => 'a.' . $dim, $useddims));
     $memberrecords = $DB->get_records_sql(
-        "SELECT u.id AS userid, $namefields, u.email, a.mobile, $dimselect
+        "SELECT u.id AS userid, $namefields, u.email, a.mobile, a.shareconsent, $dimselect
            FROM {selfselectadvanced_member} m
            JOIN {user} u ON u.id = m.userid
       LEFT JOIN {selfselectadvanced_userattr} a ON a.userid = u.id
@@ -144,17 +149,30 @@ if ($viewgroup > 0) {
 
     $members = [];
     $addresses = [];
+    $anymobileshown = false;
     foreach ($memberrecords as $memberrecord) {
-        $digits = preg_replace('/\D+/', '', (string) ($memberrecord->mobile ?? ''));
+        // Manager::mobile_visible() reads only ->shareconsent off the
+        // record; the joined member row carries it directly, so it
+        // doubles as the attribute record without a second query.
+        $mobilevisible = \mod_selfselectadvanced\local\attributes\manager::mobile_visible(
+            $memberrecord,
+            $viewerhasviewall
+        );
+        $rawmobile = (string) ($memberrecord->mobile ?? '');
+        $digits = $mobilevisible ? preg_replace('/\D+/', '', $rawmobile) : '';
         $member = (object) [
             'firstname' => $memberrecord->firstname,
             'lastname' => $memberrecord->lastname,
             'email' => $memberrecord->email,
-            'mobile' => (string) ($memberrecord->mobile ?? ''),
+            'mobile' => $mobilevisible ? $rawmobile : get_string('mobilewithheld', 'mod_selfselectadvanced'),
+            'mobileraw' => $mobilevisible ? $rawmobile : '',
             'mailtourl' => 'mailto:' . $memberrecord->email,
             'haswhatsapp' => $digits !== '',
             'whatsappurl' => $digits !== '' ? 'https://wa.me/' . $digits : '',
         ];
+        if ($mobilevisible && $rawmobile !== '') {
+            $anymobileshown = true;
+        }
         foreach ($useddims as $dim) {
             $member->$dim = (string) ($memberrecord->$dim ?? '');
         }
@@ -187,9 +205,32 @@ if ($viewgroup > 0) {
         }
     }
 
+    // Export: the same per-member visibility rule applies, so a
+    // non-viewall guide's download can never carry a withheld number.
+    if ($download !== '') {
+        $columns = [get_string('firstname'), get_string('lastname'), get_string('email'),
+            get_string('attrmobile', 'mod_selfselectadvanced')];
+        foreach ($useddims as $dim) {
+            $columns[] = get_string('attr' . $dim, 'mod_selfselectadvanced');
+        }
+        $exportrows = [];
+        foreach ($members as $member) {
+            $exportrow = [$member->firstname, $member->lastname, $member->email, $member->mobileraw];
+            foreach ($useddims as $dim) {
+                $exportrow[] = $member->$dim;
+            }
+            $exportrows[] = $exportrow;
+        }
+        \mod_selfselectadvanced\local\exporter::download('eoi-team-members', $columns, $exportrows, $download);
+    }
+
     echo $OUTPUT->header();
     echo $OUTPUT->heading(format_string($group->name));
     echo $OUTPUT->heading(get_string('eoimembers', 'mod_selfselectadvanced'), 3);
+
+    if ($anymobileshown) {
+        echo html_writer::tag('p', get_string('mobilecaution', 'mod_selfselectadvanced'), ['class' => 'text-muted small']);
+    }
 
     $memberurl = new moodle_url($baseurl, array_filter(['viewgroup' => $viewgroup, 'mq' => $mq]));
     echo html_writer::start_tag('form', ['method' => 'get',
@@ -250,6 +291,11 @@ if ($viewgroup > 0) {
             'mt-2'
         );
     }
+
+    echo html_writer::div(
+        \mod_selfselectadvanced\local\exporter::controls($memberurl, ''),
+        'mt-2'
+    );
 
     echo html_writer::div(
         html_writer::link($baseurl, get_string('back'), ['class' => 'btn btn-secondary mt-3']),
@@ -319,7 +365,14 @@ echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string(
 echo html_writer::end_tag('form');
 
 $tableurl = new moodle_url($baseurl, ['perpage' => $perpage]);
-$table = new \mod_selfselectadvanced\table\eoilist_table('ssaeoilist', $activity, (int) $USER->id, $tableurl, $status);
+$table = new \mod_selfselectadvanced\table\eoilist_table(
+    'ssaeoilist',
+    $activity,
+    (int) $USER->id,
+    $tableurl,
+    $status,
+    !empty($activity->settings()->eoisequential)
+);
 $table->out($perpage, false);
 
 echo html_writer::div(

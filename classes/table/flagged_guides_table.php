@@ -78,7 +78,7 @@ class flagged_guides_table extends \table_sql {
         $this->activity = $activity;
         $this->resolver = $resolver;
 
-        $this->define_columns(['groupname', 'pluginuid', 'guidename', 'submitted', 'decideby', 'guideload']);
+        $this->define_columns(['groupname', 'pluginuid', 'guidename', 'submitted', 'decideby', 'guideload', 'actions']);
         $this->define_headers([
             get_string('groupname', 'mod_selfselectadvanced'),
             get_string('pluginid', 'mod_selfselectadvanced'),
@@ -86,6 +86,7 @@ class flagged_guides_table extends \table_sql {
             get_string('flaggedsubmitted', 'mod_selfselectadvanced'),
             get_string('flaggeddecideby', 'mod_selfselectadvanced'),
             get_string('guideloads', 'mod_selfselectadvanced'),
+            get_string('actions'),
         ]);
         $this->define_baseurl($baseurl);
         $this->sortable(true, 'groupname');
@@ -93,6 +94,7 @@ class flagged_guides_table extends \table_sql {
         $this->no_sorting('guidename');
         $this->no_sorting('decideby');
         $this->no_sorting('guideload');
+        $this->no_sorting('actions');
         $this->is_downloadable(false);
         $this->set_attribute('class', 'generaltable selfselectadvanced-guidespending');
 
@@ -183,6 +185,32 @@ class flagged_guides_table extends \table_sql {
         ]);
 
         return \html_writer::link($url, $label);
+    }
+
+    /**
+     * Actions cell (UX audit item 7): a stalled group already holding a
+     * guide links to the manager dashboard's Reassign guide section, the
+     * fix path for a guide who has gone quiet. A group with no guide yet
+     * belongs to the dashboard's original assignment queue instead, so
+     * nothing renders here for it.
+     *
+     * @param \stdClass $row table row
+     * @return string
+     */
+    public function col_actions($row) {
+        if (!$row->guideid) {
+            return '-';
+        }
+
+        $url = new \moodle_url(
+            '/mod/selfselectadvanced/manage.php',
+            ['id' => $this->activity->cm()->id],
+            'reassignguide'
+        );
+
+        return \html_writer::link($url, get_string('reassignguide', 'mod_selfselectadvanced'), [
+            'class' => 'btn btn-outline-primary btn-sm',
+        ]);
     }
 
     /**

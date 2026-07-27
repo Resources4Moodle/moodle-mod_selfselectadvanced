@@ -39,7 +39,8 @@ class attributes_table extends \table_sql {
     public function __construct(string $uniqueid, \moodle_url $baseurl, bool $download) {
         parent::__construct($uniqueid);
 
-        $columns = ['fullname', 'username', 'gender', 'department', 'subdepartment', 'mobile', 'timemodified'];
+        $columns = ['fullname', 'username', 'gender', 'department', 'subdepartment', 'mobile', 'shareconsent',
+            'timemodified'];
         $headers = [
             get_string('fullname'),
             get_string('username'),
@@ -47,6 +48,7 @@ class attributes_table extends \table_sql {
             get_string('attrdepartment', 'mod_selfselectadvanced'),
             get_string('attrsubdepartment', 'mod_selfselectadvanced'),
             get_string('attrmobile', 'mod_selfselectadvanced'),
+            get_string('shareconsent', 'mod_selfselectadvanced'),
             get_string('lastmodified'),
         ];
         if (!$download) {
@@ -57,6 +59,7 @@ class attributes_table extends \table_sql {
         $this->define_headers($headers);
         $this->define_baseurl($baseurl);
         $this->sortable(true, 'lastname');
+        $this->no_sorting('shareconsent');
         $this->no_sorting('actions');
         $this->is_downloadable(true);
         $this->show_download_buttons_at([TABLE_P_BOTTOM]);
@@ -66,7 +69,7 @@ class attributes_table extends \table_sql {
             \core_user\fields::for_name()->get_required_fields()
         ));
         $this->set_sql(
-            "a.id, a.userid, a.gender, a.department, a.subdepartment, a.mobile, a.timemodified,
+            "a.id, a.userid, a.gender, a.department, a.subdepartment, a.mobile, a.shareconsent, a.timemodified,
              u.username, $namefields",
             '{selfselectadvanced_userattr} a JOIN {user} u ON u.id = a.userid',
             'u.deleted = 0'
@@ -117,6 +120,19 @@ class attributes_table extends \table_sql {
      */
     public function col_fullname($row) {
         return fullname($row);
+    }
+
+    /**
+     * Whether the participant has consented to share their mobile
+     * number with team leaders and teammates (site admins hold the
+     * viewall-equivalent capability, so they always see the number
+     * itself; this column shows the consent state alongside it).
+     *
+     * @param \stdClass $row table row
+     * @return string
+     */
+    public function col_shareconsent($row) {
+        return !empty($row->shareconsent) ? get_string('yes') : get_string('no');
     }
 
     /**

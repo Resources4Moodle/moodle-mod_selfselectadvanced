@@ -75,6 +75,7 @@ class provider implements
             'department' => 'privacy:metadata:userattr:department',
             'subdepartment' => 'privacy:metadata:userattr:subdepartment',
             'mobile' => 'privacy:metadata:userattr:mobile',
+            'shareconsent' => 'privacy:metadata:userattr:shareconsent',
         ], 'privacy:metadata:userattr');
         $collection->add_database_table('selfselectadvanced_override', [
             'userid' => 'privacy:metadata:override:userid',
@@ -241,6 +242,7 @@ class provider implements
                             'department' => $attr->department,
                             'subdepartment' => $attr->subdepartment,
                             'mobile' => $attr->mobile,
+                            'shareconsent' => (int) ($attr->shareconsent ?? 0),
                         ]
                     );
                 }

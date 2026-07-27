@@ -81,6 +81,32 @@ class moves {
 
         // Server-side ownership of every id (IDOR).
         groups::get($this->activity, $targetgroupid);
+        if ($sourcegroupid === null) {
+            // A blank source for a student who IS confirmed somewhere
+            // would silently create a second membership on commit:
+            // infer the source when it is unambiguous, refuse when the
+            // manager must choose.
+            $memberships = $DB->get_records_sql(
+                "SELECT g.id, g.name
+                   FROM {selfselectadvanced_member} m
+                   JOIN {selfselectadvanced_group} g ON g.id = m.groupid
+                  WHERE g.activityid = :activityid AND m.userid = :userid AND m.status = :status",
+                [
+                    'activityid' => $this->activity->id(),
+                    'userid' => $userid,
+                    'status' => groups::STATUS_CONFIRMED,
+                ]
+            );
+            if (count($memberships) === 1) {
+                $sourcegroupid = (int) reset($memberships)->id;
+            } else if ($memberships) {
+                $names = implode(', ', array_map(
+                    static fn($group) => format_string($group->name),
+                    $memberships
+                ));
+                throw new \moodle_exception('refusalmovesourcerequired', 'mod_selfselectadvanced', '', $names);
+            }
+        }
         if ($sourcegroupid !== null) {
             $source = groups::get($this->activity, $sourcegroupid);
             $ismember = $DB->record_exists('selfselectadvanced_member', [
@@ -386,7 +412,24 @@ class moves {
 
             $verdicts = $this->validate_set($moveids);
             if (!$verdicts->valid) {
-                throw new \moodle_exception('errmovesetinvalid', 'mod_selfselectadvanced');
+                // Name the first offending move and rule, so the
+                // refusal tells the manager where to look.
+                $failuser = '';
+                $failrule = '';
+                foreach ($verdicts->permove as $failmoveid => $moveverdicts) {
+                    foreach ($moveverdicts as $rulecode => $verdict) {
+                        if (!$verdict['ok'] && !$verdict['bypassed']) {
+                            $failrow = $DB->get_record('selfselectadvanced_move', ['id' => $failmoveid]);
+                            $failuser = $failrow ? fullname(\core_user::get_user((int) $failrow->userid)) : '?';
+                            $failrule = $rulecode;
+                            break 2;
+                        }
+                    }
+                }
+                throw new \moodle_exception('errmovesetinvalid', 'mod_selfselectadvanced', '', (object) [
+                    'user' => $failuser,
+                    'rule' => $failrule,
+                ]);
             }
             $moves = $this->load_pending($moveids);
 

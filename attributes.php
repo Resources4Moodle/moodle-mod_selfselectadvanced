@@ -43,7 +43,7 @@ $action = optional_param('action', '', PARAM_ALPHA);
 if ($action === 'template') {
     $program = optional_param('program', '', PARAM_TEXT);
     $rows = [['Username', 'First name', 'Last Name', 'Gender', 'Department', 'Sub-Department',
-        'Mobile Number', 'Seat Location', 'Type of Program', 'Email']];
+        'Mobile Number', 'Share Consent', 'Seat Location', 'Type of Program', 'Email']];
     $tree = \mod_selfselectadvanced\local\attributes\depts::get_all();
     $pairs = [];
     foreach ($tree as $node) {
@@ -64,7 +64,7 @@ if ($action === 'template') {
         $pairs[] = ['', ''];
     }
     foreach ($pairs as [$dept, $sub]) {
-        $rows[] = ['', '', '', '', $dept, $sub, '', '', $program, ''];
+        $rows[] = ['', '', '', '', $dept, $sub, '', '', '', $program, ''];
     }
     $filename = 'attributes-template' . ($program !== '' ? '-' . clean_filename($program) : '');
     $writer = new \csv_export_writer('comma');

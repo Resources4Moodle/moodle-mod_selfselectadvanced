@@ -37,6 +37,21 @@ $activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
 $instance = $activity->settings();
 $context = $activity->context();
 
+// Self-service mobile-sharing consent toggle (spec 3b, mobile consent
+// surfaces): a single sesskey-protected POST, no separate confirm step.
+// Any logged-in viewer may toggle their own consent; the widget itself
+// only appears on the landing page when the viewer holds a userattr
+// record with a non-empty mobile.
+$consentaction = optional_param('consentaction', '', PARAM_ALPHA);
+if (in_array($consentaction, ['grant', 'revoke'], true) && data_submitted() && confirm_sesskey()) {
+    \mod_selfselectadvanced\local\attributes\manager::set_consent(
+        (int) $USER->id,
+        $consentaction === 'grant',
+        (int) $USER->id
+    );
+    redirect(new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]));
+}
+
 $event = \mod_selfselectadvanced\event\course_module_viewed::create([
     'objectid' => $instance->id,
     'context' => $context,

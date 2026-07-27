@@ -57,7 +57,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'maxmembership', 'maxguided', 'timeopen', 'timedue', 'timecutoff',
             'penaltytype', 'penaltyperday', 'guidemode', 'inviteexpiry', 'autogroup', 'proposalrequired',
             'guidewindow', 'guideautoapprove', 'guidevolunteer',
-            'eoienabled', 'eoiwindow', 'eoimax', 'eoisequential', 'eoipeers',
+            'eoienabled', 'eoiwindow', 'eoimax', 'eoisequential', 'eoipeers', 'eoigroupmax',
             'minmembership', 'defaulterpenalty', 'incompletepenalty', 'leadershare',
             'timecreated', 'timemodified',
         ]);
@@ -69,6 +69,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $group = new backup_nested_element('group', ['id'], [
             'pluginuid', 'name', 'title', 'brief', 'briefformat', 'leaderid', 'guideid',
             'state', 'autoformed', 'successorid', 'successortype', 'timenominated',
+            'guidesuccessorid', 'timeguidenominated',
             'returncomment', 'returncommentformat', 'listed', 'timelisted',
             'guidenotes', 'guidenotesformat', 'timesubmitted', 'timeapproved', 'timefrozen', 'coregroupid',
             'timecreated', 'timemodified',

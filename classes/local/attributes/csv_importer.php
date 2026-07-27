@@ -25,7 +25,11 @@ use stdClass;
  * Input columns: username, firstname, lastname, gender, department,
  * subdepartment, mobile (header matching is case- and
  * space-insensitive; an optional email column acts as the fallback
- * match key when a row's username is blank).
+ * match key when a row's username is blank). An optional "Share
+ * consent" column (1/0/yes/no, case-insensitive) sets the student's
+ * mobile-sharing consent through manager::set_consent(); a column
+ * absent from the file, or a blank/unrecognised cell, leaves existing
+ * consent untouched.
  *
  * Rules: rows are matched to EXISTING users by username (fallback
  * email). Unknown users are rejected and reported - creating accounts
@@ -214,6 +218,21 @@ class csv_importer {
                 $mobile = '';
             }
 
+            // Optional "Share consent" column (1/0/yes/no, case
+            // insensitive): a column absent from the file, or a blank
+            // or unrecognised cell, leaves the user's existing consent
+            // untouched. Consent is a separate self-service field, not
+            // one of manager::set()'s attribute cells.
+            $consentvalue = null;
+            if (isset($map['shareconsent'])) {
+                $rawconsent = \core_text::strtolower($get('shareconsent'));
+                if (in_array($rawconsent, ['1', 'yes'], true)) {
+                    $consentvalue = true;
+                } else if (in_array($rawconsent, ['0', 'no'], true)) {
+                    $consentvalue = false;
+                }
+            }
+
             $exists = $DB->record_exists('selfselectadvanced_userattr', ['userid' => $user->id]);
             if ($commit) {
                 $current = manager::get((int) $user->id);
@@ -245,6 +264,9 @@ class csv_importer {
                 }
                 if ($set) {
                     manager::set((int) $user->id, $set, $actorid);
+                }
+                if ($consentvalue !== null) {
+                    manager::set_consent((int) $user->id, $consentvalue, $actorid);
                 }
             }
             if ($exists) {

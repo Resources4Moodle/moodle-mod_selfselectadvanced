@@ -22,9 +22,17 @@
     Context variables required for this template:
     * isstudent - whether to show the student area
     * isstaff - whether to show the all-groups area
+    * showconsent - whether to show the mobile-sharing consent widget
+      (a userattr record with a non-empty mobile exists for the viewer)
 
     Example context (json):
     {
+        "showconsent": true,
+        "consentgranted": false,
+        "consentstatus": "Your mobile number is hidden from students. Staff with full view can still see it.",
+        "consentbuttonlabel": "Share my number",
+        "consentaction": "grant",
+        "consentactionurl": "https://example.com/mod/selfselectadvanced/view.php?id=1",
         "isstudent": true,
         "leadcounter": "You lead 1 of 2 groups",
         "membercounter": "You are a member of 1 of 3 groups",
@@ -56,6 +64,17 @@
     }
 }}
 <div class="selfselectadvanced-landing">
+{{#showconsent}}
+    <div class="selfselectadvanced-consent alert alert-light border mb-3 d-flex justify-content-between align-items-center flex-wrap">
+        <span>{{consentstatus}}</span>
+        <form method="post" action="{{consentactionurl}}" class="d-inline ms-2">
+            <input type="hidden" name="id" value="{{cmid}}">
+            <input type="hidden" name="consentaction" value="{{consentaction}}">
+            <input type="hidden" name="sesskey" value="{{sesskey}}">
+            <button type="submit" class="btn btn-outline-secondary btn-sm">{{consentbuttonlabel}}</button>
+        </form>
+    </div>
+{{/showconsent}}
 {{#isstudent}}
     <div class="selfselectadvanced-counters mb-3">
         <span class="badge bg-light text-body border me-2">{{leadcounter}}</span>

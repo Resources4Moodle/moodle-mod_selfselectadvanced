@@ -104,6 +104,19 @@ class eoi {
             if ($max > 0 && $open >= $max) {
                 throw new \moodle_exception('refusaleoimax', 'mod_selfselectadvanced', '', $max);
             }
+            // The per-GROUP waitlist cap (1.14.0): under the group
+            // lock, so two simultaneous picks cannot both squeeze into
+            // the last waitlist place.
+            $groupmax = (int) ($activity->settings()->eoigroupmax ?? 0);
+            if ($groupmax > 0) {
+                $groupopen = $DB->count_records('selfselectadvanced_eoi', [
+                    'groupid' => $groupid,
+                    'status' => self::STATUS_PENDING,
+                ]);
+                if ($groupopen >= $groupmax) {
+                    throw new \moodle_exception('refusaleoigroupfull', 'mod_selfselectadvanced');
+                }
+            }
             if (self::remaining_capacity($activity, $guideid) < 1) {
                 throw new \moodle_exception('refusaleoifull', 'mod_selfselectadvanced');
             }
@@ -613,5 +626,43 @@ class eoi {
             'relateduserid' => (int) $row->guideid,
             'other' => ['groupid' => (int) $row->groupid, 'status' => $status],
         ])->trigger();
+    }
+
+    /**
+     * A pending interest's 1-based first-come-first-served position in
+     * its group's queue (the order for_group() lists and sequential
+     * reveal walks): null when the row is not pending.
+     *
+     * @param activity $activity the activity
+     * @param int $groupid the group
+     * @param int $eoiid the guide's own interest row
+     * @return int|null
+     */
+    public static function queue_position(activity $activity, int $groupid, int $eoiid): ?int {
+        global $DB;
+
+        $row = $DB->get_record('selfselectadvanced_eoi', [
+            'id' => $eoiid,
+            'activityid' => $activity->id(),
+            'groupid' => $groupid,
+        ], '*', MUST_EXIST);
+        if ($row->status !== self::STATUS_PENDING) {
+            return null;
+        }
+
+        $ahead = $DB->count_records_select(
+            'selfselectadvanced_eoi',
+            'groupid = :groupid AND status = :status AND '
+                . '(timecreated < :t1 OR (timecreated = :t2 AND id < :id))',
+            [
+                'groupid' => $groupid,
+                'status' => self::STATUS_PENDING,
+                't1' => (int) $row->timecreated,
+                't2' => (int) $row->timecreated,
+                'id' => (int) $row->id,
+            ]
+        );
+
+        return 1 + $ahead;
     }
 }

@@ -103,6 +103,7 @@ class manager {
                 'mobile' => null,
                 'seatlocation' => null,
                 'program' => null,
+                'shareconsent' => 0,
                 'timecreated' => $now,
             ];
         }
@@ -111,6 +112,9 @@ class manager {
                 $value = trim((string) $values[$field]);
                 $record->$field = $value === '' ? null : $value;
             }
+        }
+        if (array_key_exists('shareconsent', $values)) {
+            $record->shareconsent = empty($values['shareconsent']) ? 0 : 1;
         }
         $record->usermodified = $actorid;
         $record->timemodified = $now;
@@ -255,5 +259,41 @@ class manager {
         $dims = array_values(array_intersect(self::DIMENSIONS, $dims ?: []));
 
         return $dims ?: ['department', 'subdepartment'];
+    }
+
+    /**
+     * Self-service mobile-sharing consent (privacy feature): flips
+     * only the consent flag, never any attribute value, and only for
+     * a user who already holds an attribute record.
+     *
+     * @param int $userid the consenting user
+     * @param bool $consent share (true) or withhold (false)
+     * @param int $actorid the acting user (the student themself)
+     */
+    public static function set_consent(int $userid, bool $consent, int $actorid): void {
+        global $DB;
+
+        $record = $DB->get_record('selfselectadvanced_userattr', ['userid' => $userid], '*', MUST_EXIST);
+        $record->shareconsent = $consent ? 1 : 0;
+        $record->usermodified = $actorid;
+        $record->timemodified = time();
+        $DB->update_record('selfselectadvanced_userattr', $record);
+    }
+
+    /**
+     * Whether a viewer may see this record's mobile number: full-view
+     * staff always may; everyone else (guides, leaders, teammates)
+     * only when the owner consented to share it.
+     *
+     * @param stdClass|null $record the attribute record
+     * @param bool $viewerhasviewall the viewer holds the viewall capability
+     * @return bool
+     */
+    public static function mobile_visible(?stdClass $record, bool $viewerhasviewall): bool {
+        if (!$record || empty($record->mobile)) {
+            return false;
+        }
+
+        return $viewerhasviewall || !empty($record->shareconsent);
     }
 }

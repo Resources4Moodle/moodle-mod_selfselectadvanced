@@ -493,4 +493,43 @@ final class moves_test extends \advanced_testcase {
         $this->assertFalse($verdicts->valid);
         $this->assertFalse($verdicts->permove[(int) $move->id]['L4']['ok']);
     }
+
+    /**
+     * A blank source is inferred when the student has exactly one
+     * confirmed membership, and refused outright when they have
+     * several — a silent second membership must be impossible.
+     */
+    public function test_source_inference(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'maxsize' => 3, 'maxmembership' => 2,
+        ]);
+        $member = (int) $students[1]->id;
+
+        // One membership (in A): the source is inferred.
+        $move = $api->moves()->stage($member, null, (int) $b->id, false, null, 99);
+        $this->assertEquals((int) $a->id, (int) $move->sourcegroupid);
+
+        // Two memberships: staging without a source refuses.
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $c = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[4]->id,
+            'name' => 'C',
+            'state' => state::FORMING,
+        ]);
+        $plugingen->create_member([
+            'groupid' => $c->id,
+            'userid' => $member,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        try {
+            $api->moves()->stage($member, null, (int) $b->id, false, null, 99);
+            $this->fail('Expected source-required refusal');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalmovesourcerequired', $e->errorcode);
+        }
+    }
 }

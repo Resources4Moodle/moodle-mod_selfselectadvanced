@@ -55,6 +55,15 @@ if (empty($activity->settings()->eoienabled)) {
     );
 }
 
+// Pick-time bandwidth (3b-iii): the guide's remaining guiding capacity,
+// override and volunteering aware through eoi::remaining_capacity().
+// Both the browse listing and the single-team view show it, and every
+// Pick control is disabled once it reaches zero - server-side refusal
+// in eoi::express()/respond() still applies regardless, this is UI
+// honesty only.
+$remaining = \mod_selfselectadvanced\local\eoi::remaining_capacity($activity, (int) $USER->id);
+$hasbandwidth = $remaining > 0;
+
 $PAGE->set_url($baseurl);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
@@ -90,6 +99,10 @@ if ($groupid > 0) {
     }
 
     $templatecontext = (object) ['pickable' => $stilllistable];
+    $templatecontext->hasbandwidth = $hasbandwidth;
+    $templatecontext->remainingline = $hasbandwidth
+        ? get_string('pickteamremaining', 'mod_selfselectadvanced', $remaining)
+        : get_string('pickteamnobandwidth', 'mod_selfselectadvanced');
     if (!$stilllistable) {
         // The team stopped being pickable between the browse page and
         // this view (unlisted, guided, or no longer forming): explain
@@ -147,6 +160,31 @@ if ($groupid > 0) {
         $templatecontext->expressurl = $expressurl->out(false);
         $templatecontext->sesskey = sesskey();
         $templatecontext->cancelurl = $baseurl->out(false);
+
+        // Queue position (3b-i): when this guide already has a pending
+        // interest in this team, show their own FCFS position under
+        // the card, same wording as the eoilist.php Queue column.
+        $templatecontext->showqueue = false;
+        $mypending = $DB->get_record('selfselectadvanced_eoi', [
+            'groupid' => $group->id,
+            'guideid' => (int) $USER->id,
+            'status' => \mod_selfselectadvanced\local\eoi::STATUS_PENDING,
+        ]);
+        if ($mypending) {
+            $position = \mod_selfselectadvanced\local\eoi::queue_position(
+                $activity,
+                (int) $group->id,
+                (int) $mypending->id
+            );
+            if ($position !== null) {
+                $templatecontext->showqueue = true;
+                $templatecontext->queueline = $sequential
+                    ? ($position === 1
+                        ? get_string('eoiqueuefirst', 'mod_selfselectadvanced')
+                        : get_string('eoiqueuequeued', 'mod_selfselectadvanced'))
+                    : get_string('eoiqueueposition', 'mod_selfselectadvanced', $position);
+            }
+        }
     }
 
     echo $OUTPUT->render_from_template('mod_selfselectadvanced/pickteam', $templatecontext);
@@ -173,12 +211,18 @@ $table = new \mod_selfselectadvanced\table\pickteam_table(
     $activity,
     new moodle_url($tableurl, ['perpage' => $perpage]),
     $rq,
-    !empty($activity->settings()->eoisequential)
+    !empty($activity->settings()->eoisequential),
+    $hasbandwidth
 );
 
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('eoisettings', 'mod_selfselectadvanced'));
 echo html_writer::tag('p', get_string('pickteamintro', 'mod_selfselectadvanced'), ['class' => 'text-muted']);
+if ($hasbandwidth) {
+    echo $OUTPUT->notification(get_string('pickteamremaining', 'mod_selfselectadvanced', $remaining), 'info', false);
+} else {
+    echo $OUTPUT->notification(get_string('pickteamnobandwidth', 'mod_selfselectadvanced'), 'warning', false);
+}
 
 echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
     'class' => 'd-inline-flex gap-2 align-items-center mb-3']);

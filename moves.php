@@ -107,6 +107,16 @@ foreach ($pending as $move) {
             $allok = false;
         }
     }
+    $restageurl = new moodle_url('/mod/selfselectadvanced/moveedit.php', [
+        'id' => $cm->id,
+        'student' => (int) $move->userid,
+        'source' => (int) $move->sourcegroupid,
+        'target' => (int) $move->targetgroupid,
+        'makeleader' => (int) $move->makeleader,
+        'replaceleader' => (int) $move->replaceleader,
+        'successor' => (int) $move->successorid,
+        'replaces' => (int) $move->id,
+    ]);
     $rows[] = (object) [
         'moveid' => (int) $move->id,
         'user' => $userlabel,
@@ -115,6 +125,7 @@ foreach ($pending as $move) {
         'makeleader' => (bool) $move->makeleader,
         'chips' => $chips,
         'allok' => $allok,
+        'restageurl' => $restageurl->out(false),
     ];
 }
 

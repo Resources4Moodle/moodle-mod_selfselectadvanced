@@ -45,13 +45,16 @@ $PAGE->set_url($baseurl);
 $PAGE->set_title(get_string('roster', 'mod_selfselectadvanced'));
 $PAGE->set_heading(format_string($course->fullname));
 
+$canmanage = has_capability('mod/selfselectadvanced:manage', $activity->context());
 $perpage = \mod_selfselectadvanced\local\perpage::current(50);
 $table = new \mod_selfselectadvanced\table\roster_table(
     'ssaroster',
     $activity,
     new moodle_url($baseurl, ['perpage' => $perpage]),
     $fstate,
-    $frole
+    $frole,
+    $canmanage,
+    $download !== ''
 );
 $table->is_downloading($download, \mod_selfselectadvanced\local\exporter::stamp('roster'));
 

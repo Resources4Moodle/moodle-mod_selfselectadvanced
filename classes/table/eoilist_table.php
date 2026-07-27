@@ -44,6 +44,12 @@ class eoilist_table extends \table_sql {
     /** @var string The active status filter, carried into the view-team link so its back link returns here. */
     private string $status;
 
+    /** @var activity The activity, kept for the per-row queue_position() lookup. */
+    private activity $activity;
+
+    /** @var bool The activity's eoisequential setting: swaps the numeric queue column for a first/queued line. */
+    private bool $sequential;
+
     /**
      * Constructor.
      *
@@ -52,27 +58,34 @@ class eoilist_table extends \table_sql {
      * @param int $guideid the guide whose interests are listed
      * @param \moodle_url $baseurl page url (with the active status filter)
      * @param string $status status filter, '' = every status
+     * @param bool $sequential the activity's eoisequential setting (3b-i queue column wording)
      */
     public function __construct(
         string $uniqueid,
         activity $activity,
         int $guideid,
         \moodle_url $baseurl,
-        string $status
+        string $status,
+        bool $sequential
     ) {
         parent::__construct($uniqueid);
 
         $this->context = $activity->context();
         $this->cmid = $activity->cm()->id;
         $this->status = $status;
+        $this->activity = $activity;
+        $this->sequential = $sequential;
 
-        $this->define_columns(['groupname', 'leader', 'topic', 'remarks', 'status', 'timecreated', 'timeresponded', 'actions']);
+        $this->define_columns([
+            'groupname', 'leader', 'topic', 'remarks', 'status', 'queue', 'timecreated', 'timeresponded', 'actions',
+        ]);
         $this->define_headers([
             get_string('groupname', 'mod_selfselectadvanced'),
             get_string('leader', 'mod_selfselectadvanced'),
             get_string('worktitle', 'mod_selfselectadvanced'),
             get_string('eoiremarks', 'mod_selfselectadvanced'),
             get_string('state', 'mod_selfselectadvanced'),
+            get_string('eoiqueuecol', 'mod_selfselectadvanced'),
             get_string('timecreated'),
             get_string('lastmodified'),
             get_string('actions'),
@@ -82,6 +95,7 @@ class eoilist_table extends \table_sql {
         $this->no_sorting('leader');
         $this->no_sorting('topic');
         $this->no_sorting('remarks');
+        $this->no_sorting('queue');
         $this->no_sorting('actions');
         $this->is_downloadable(false);
         $this->set_attribute('class', 'generaltable selfselectadvanced-eoilist');
@@ -159,6 +173,29 @@ class eoilist_table extends \table_sql {
      */
     public function col_status($row) {
         return get_string('eoistatus' . $row->status, 'mod_selfselectadvanced');
+    }
+
+    /**
+     * The guide's own FCFS queue position among the group's pending
+     * interests (3b-i); a dash once the row is no longer pending, since
+     * a queue position only means something while a decision is
+     * outstanding. Sequential activities hide the raw number entirely.
+     *
+     * @param \stdClass $row table row
+     * @return string
+     */
+    public function col_queue($row) {
+        $position = eoi::queue_position($this->activity, (int) $row->groupid, (int) $row->id);
+        if ($position === null) {
+            return '-';
+        }
+        if ($this->sequential) {
+            return $position === 1
+                ? get_string('eoiqueuefirst', 'mod_selfselectadvanced')
+                : get_string('eoiqueuequeued', 'mod_selfselectadvanced');
+        }
+
+        return get_string('eoiqueueposition', 'mod_selfselectadvanced', $position);
     }
 
     /**

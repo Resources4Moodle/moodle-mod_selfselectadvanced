@@ -26,7 +26,14 @@ require_once($CFG->libdir . '/formslib.php');
  * the override capability - rule bypass codes attached as a move-scope
  * override.
  *
- * Custom data: cmid, students, groups, canbypass.
+ * Custom data: cmid, selectedstudent, selectedsuccessor, groups, canbypass.
+ *
+ * UX audit fix: a failed stage() is surfaced back onto this same form
+ * instance as a field error (see set_element_error()) rather than
+ * fataling, so a hasty or invalid submission never loses the manager's
+ * input. The hidden 'replaces' field carries the id of a dead-end move
+ * being edited-and-restaged from moves.php, so the caller can cancel
+ * it once the replacement stages successfully.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -41,6 +48,11 @@ class move_form extends \moodleform {
 
         $mform->addElement('hidden', 'id', $this->_customdata['cmid']);
         $mform->setType('id', PARAM_INT);
+
+        // Carries the id of a dead-end move being edited-and-restaged
+        // (moves.php's per-row link), 0 when staging fresh.
+        $mform->addElement('hidden', 'replaces', 0);
+        $mform->setType('replaces', PARAM_INT);
 
         // AJAX selector: with thousands of enrolled students a
         // preloaded dropdown is not workable; membership and
@@ -65,11 +77,15 @@ class move_form extends \moodleform {
         );
         $mform->addHelpButton('source', 'movefrom', 'mod_selfselectadvanced');
 
+        // An explicit empty choice (UX audit): without one the select
+        // always carries a real value (the alphabetically first group),
+        // so a hasty submit silently staged a move nobody chose. The
+        // required rule can only bite once a truly-empty state exists.
         $mform->addElement(
             'select',
             'target',
             get_string('moveto', 'mod_selfselectadvanced'),
-            $this->_customdata['groups']
+            ['' => get_string('choosedots')] + $this->_customdata['groups']
         );
         $mform->addRule('target', get_string('required'), 'required', null, 'client');
 
@@ -91,7 +107,7 @@ class move_form extends \moodleform {
             'autocomplete',
             'successor',
             get_string('movesuccessor', 'mod_selfselectadvanced'),
-            [],
+            $this->_customdata['selectedsuccessor'] ?? [],
             [
                 'ajax' => 'core_user/form_user_selector',
                 'noselectionstring' => get_string('choosedots'),
@@ -134,7 +150,12 @@ class move_form extends \moodleform {
     public function validation($data, $files): array {
         $errors = parent::validation($data, $files);
 
-        if (!empty($data['source']) && (int) $data['source'] === (int) $data['target']) {
+        // The target's own required rule already flags a blank choice;
+        // guard against also treating "blank target" as "same as source".
+        if (
+            !empty($data['source']) && $data['target'] !== ''
+            && (int) $data['source'] === (int) $data['target']
+        ) {
             $errors['target'] = get_string('errmovesamegroup', 'mod_selfselectadvanced');
         }
 
@@ -153,5 +174,19 @@ class move_form extends \moodleform {
         }
 
         return $data;
+    }
+
+    /**
+     * Attach an error message to one field and have it survive the next
+     * display() of THIS form instance, without discarding the submitted
+     * values. Used by moveedit.php to surface a moves-engine refusal
+     * (moodle_exception from stage()) as a field error instead of a
+     * fatal, per the catch-and-surface pattern used on pickteam.php.
+     *
+     * @param string $element the element name to attach the error to
+     * @param string $message the error message, already localised
+     */
+    public function set_element_error(string $element, string $message): void {
+        $this->_form->setElementError($element, $message);
     }
 }

@@ -232,4 +232,46 @@ final class attributes_test extends \advanced_testcase {
         $this->assertSame('Mechanical', $record->subdepartment);
         $this->assertSame('12345', $record->mobile);
     }
+
+    /**
+     * Mobile-consent surfaces: the CSV importer's optional "Share
+     * consent" column (1/0/yes/no, case-insensitive) sets consent
+     * through manager::set_consent(); a column absent from the file,
+     * or a blank/unrecognised cell, leaves existing consent untouched.
+     */
+    public function test_importer_optional_shareconsent_column(): void {
+        $this->resetAfterTest();
+
+        $gen = $this->getDataGenerator();
+        $u1 = $gen->create_user(['username' => 'consenta']);
+        $u2 = $gen->create_user(['username' => 'consentb']);
+        $u3 = $gen->create_user(['username' => 'consentc']);
+        $header = "Username,First name,Last Name,Gender,Department,Sub-Department,Mobile Number,Share Consent\n";
+
+        // Mixed 1/0/yes/no values, case-insensitive.
+        $csv = $header
+            . "consenta,,,,,,,1\n"
+            . "consentb,,,,,,,No\n"
+            . "consentc,,,,,,,YES\n";
+        $report = csv_importer::run($this->reader($csv), (int) get_admin()->id, true);
+        $this->assertTrue($report->ok);
+        $this->assertTrue((bool) manager::get((int) $u1->id)->shareconsent);
+        $this->assertFalse((bool) manager::get((int) $u2->id)->shareconsent);
+        $this->assertTrue((bool) manager::get((int) $u3->id)->shareconsent);
+
+        // Revoke, then a blank cell in a present column leaves it untouched.
+        $csv = $header . "consenta,,,,,,,0\n";
+        csv_importer::run($this->reader($csv), (int) get_admin()->id, true);
+        $this->assertFalse((bool) manager::get((int) $u1->id)->shareconsent);
+
+        $csv = $header . "consenta,,,,,,,\n";
+        csv_importer::run($this->reader($csv), (int) get_admin()->id, true);
+        $this->assertFalse((bool) manager::get((int) $u1->id)->shareconsent);
+
+        // Column absent from the file entirely: also untouched.
+        manager::set_consent((int) $u1->id, true, (int) get_admin()->id);
+        $noconsentheader = "Username,First name,Last Name,Gender,Department,Sub-Department,Mobile Number\n";
+        csv_importer::run($this->reader($noconsentheader . "consenta,,,,,,\n"), (int) get_admin()->id, true);
+        $this->assertTrue((bool) manager::get((int) $u1->id)->shareconsent);
+    }
 }

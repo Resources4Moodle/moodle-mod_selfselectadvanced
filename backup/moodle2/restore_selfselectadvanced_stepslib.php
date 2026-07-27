@@ -150,6 +150,9 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         $data->successorid = $data->successorid
             ? ($this->get_mappingid('user', $data->successorid) ?: null)
             : null;
+        $data->guidesuccessorid = !empty($data->guidesuccessorid)
+            ? ($this->get_mappingid('user', $data->guidesuccessorid) ?: null)
+            : null;
         $data->coregroupid = $data->coregroupid
             ? ($this->get_mappingid('group', $data->coregroupid) ?: null)
             : null;
