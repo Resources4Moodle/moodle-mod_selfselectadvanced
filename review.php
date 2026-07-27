@@ -163,7 +163,38 @@ foreach ($fs->get_area_files($context->id, 'mod_selfselectadvanced', 'proposal',
         $file->get_filename(),
         true
     );
+    $inlineurl = moodle_url::make_pluginfile_url(
+        $context->id,
+        'mod_selfselectadvanced',
+        'proposal',
+        (int) $group->id,
+        $file->get_filepath(),
+        $file->get_filename(),
+        false
+    );
     $proposalhtml .= html_writer::div(html_writer::link($url, $file->get_filename()));
+    // The shared proposal is visible immediately, not one click away:
+    // PDFs embed in place, images render in place, anything else keeps
+    // the download link above as its only handle.
+    $mimetype = $file->get_mimetype();
+    if ($mimetype === 'application/pdf') {
+        $proposalhtml .= html_writer::tag(
+            'object',
+            html_writer::link($url, $file->get_filename()),
+            [
+                'data' => $inlineurl->out(false),
+                'type' => 'application/pdf',
+                'class' => 'w-100 border mt-2',
+                'style' => 'height: 32rem;',
+            ]
+        );
+    } else if (strpos($mimetype, 'image/') === 0) {
+        $proposalhtml .= html_writer::empty_tag('img', [
+            'src' => $inlineurl->out(false),
+            'alt' => $file->get_filename(),
+            'class' => 'img-fluid border mt-2',
+        ]);
+    }
 }
 echo html_writer::div(
     $OUTPUT->heading(get_string('proposal', 'mod_selfselectadvanced'), 4)

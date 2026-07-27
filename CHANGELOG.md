@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.11.1 (2026-07-27)
+
+- The team member drill-down shows first and last name separately, the
+  mobile number beside its WhatsApp link, and one sortable, filterable
+  column per composition dimension the activity uses, so a guide sees
+  how each member satisfies the seat plan.
+- The shared proposal is visible immediately on the review page: PDFs
+  embed in place and images render in place, with the download link
+  kept.
+
 ## 1.11.0 (2026-07-27)
 
 - Pick that team: a leader may list their forming team, guides browse
