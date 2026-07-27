@@ -66,17 +66,16 @@ class flagged_quota_table extends \flexible_table {
     public function display_rows(array $rows, int $perpage): void {
         $sort = $this->get_sort_columns();
         if ($sort) {
-            usort($rows, static function ($a, $b) use ($sort) {
-                foreach ($sort as $column => $direction) {
-                    $key = $column === 'state' ? 'statelabel' : $column;
-                    $result = \core_collator::compare((string) $a->$key, (string) $b->$key);
-                    if ($result !== 0) {
-                        return $direction === SORT_DESC ? -$result : $result;
-                    }
+            // Locale-aware stable sort: apply the requested columns in
+            // reverse priority order so the primary column decides last.
+            foreach (array_reverse($sort, true) as $column => $direction) {
+                $key = $column === 'state' ? 'statelabel' : $column;
+                \core_collator::asort_objects_by_property($rows, $key);
+                $rows = array_values($rows);
+                if ($direction === SORT_DESC) {
+                    $rows = array_reverse($rows);
                 }
-
-                return 0;
-            });
+            }
         }
 
         $this->pagesize($perpage, count($rows));
