@@ -87,17 +87,79 @@ class group_page implements renderable, templatable {
                 array_map(static fn($m) => (int) $m->userid, $rostermembers)
             )
             : [];
+        // The roster is a real table (2026-07-27 request): first and
+        // last name as separate sortable columns plus one column per
+        // composition dimension the activity uses, with a text filter.
+        // Attribute columns stay staff-only, matching the old attrline
+        // privacy split.
+        $useddims = $canviewall
+            ? \mod_selfselectadvanced\local\attributes\manager::used_dimensions($activity)
+            : [];
+        $rsort = optional_param('rsort', '', PARAM_ALPHANUMEXT);
+        $rdir = optional_param('rdir', 0, PARAM_INT);
+        $rq = optional_param('rq', '', PARAM_RAW_TRIMMED);
+        $rostersortable = array_merge(['firstname', 'lastname'], $useddims);
+
         $roster = [];
         foreach ($rostermembers as $member) {
-            $roster[] = (object) [
+            $attr = $attrs[(int) $member->userid] ?? null;
+            $row = (object) [
                 'fullname' => fullname($member),
+                'firstname' => $member->firstname,
+                'lastname' => $member->lastname,
                 'isleader' => (bool) $member->isleader,
-                'attrline' => $canviewall
-                    ? \mod_selfselectadvanced\local\attributes\manager::display_line(
-                        $attrs[(int) $member->userid] ?? null,
-                        true
-                    )
-                    : '',
+                'dims' => [],
+            ];
+            foreach ($useddims as $dim) {
+                $row->$dim = (string) ($attr->$dim ?? '');
+                $row->dims[] = ['value' => $row->$dim];
+            }
+            $roster[] = $row;
+        }
+        if ($rq !== '') {
+            $needle = \core_text::strtolower($rq);
+            $roster = array_values(array_filter($roster, static function ($row) use ($needle, $rostersortable) {
+                foreach ($rostersortable as $field) {
+                    if (\core_text::strpos(\core_text::strtolower((string) $row->$field), $needle) !== false) {
+                        return true;
+                    }
+                }
+                return false;
+            }));
+        }
+        if ($rsort !== '' && in_array($rsort, $rostersortable, true)) {
+            \core_collator::asort_objects_by_property($roster, $rsort);
+            $roster = array_values($roster);
+            if ($rdir) {
+                $roster = array_reverse($roster);
+            }
+        }
+
+        // Sortable header cells and the filter form target, prepared
+        // here so the template stays logic-free.
+        $groupurl = new \moodle_url('/mod/selfselectadvanced/group.php', array_filter([
+            'id' => $cmid,
+            'g' => (int) $this->group->id,
+            'rq' => $rq,
+        ]));
+        $rosterhead = [];
+        $headcols = [
+            ['col' => 'firstname', 'label' => get_string('firstname')],
+            ['col' => 'lastname', 'label' => get_string('lastname')],
+        ];
+        foreach ($useddims as $dim) {
+            $headcols[] = ['col' => $dim, 'label' => get_string('attr' . $dim, 'mod_selfselectadvanced')];
+        }
+        foreach ($headcols as $headcol) {
+            $url = new \moodle_url($groupurl, [
+                'rsort' => $headcol['col'],
+                'rdir' => ($rsort === $headcol['col'] && !$rdir) ? 1 : 0,
+            ]);
+            $rosterhead[] = [
+                'url' => $url->out(false),
+                'label' => $headcol['label'],
+                'ascending' => $rsort === $headcol['col'] && !$rdir,
+                'descending' => $rsort === $headcol['col'] && $rdir,
             ];
         }
 
@@ -348,6 +410,10 @@ class group_page implements renderable, templatable {
             'minsizenote' => get_string('minsizenote', 'mod_selfselectadvanced', $seats),
             'roster' => $roster,
             'hasroster' => !empty($roster),
+            'rosterhead' => $rosterhead,
+            'rosterfilter' => $rq,
+            'rosterfilteraction' => $groupurl->out_omit_querystring(false),
+            'groupid' => (int) $this->group->id,
             'isleader' => $isleader,
             'candelete' => $isleader && $isforming,
             'caninvite' => $caninvite,

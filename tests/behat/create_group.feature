@@ -32,7 +32,8 @@ Feature: Students create groups under the lead cap
     And I press "Create group"
     Then I should see "Team Alpha"
     And I should see "1 of 4 seats filled"
-    And I should see "Sam One"
+    And I should see "Sam" in the ".selfselectadvanced-roster" "css_element"
+    And I should see "One" in the ".selfselectadvanced-roster" "css_element"
     And I should see "Leader"
     When I am on the "Lab groups" "selfselectadvanced activity" page
     Then I should see "You lead 1 of 1 groups"

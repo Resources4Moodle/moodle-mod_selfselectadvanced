@@ -35,9 +35,15 @@
         "seatsummary": "2 of 6 seats filled, 1 invitation pending",
         "minsizenote": "Minimum group size: 4 confirmed members",
         "hasroster": true,
+        "rosterhead": [{"url": "#", "label": "First name", "ascending": false, "descending": false}],
+        "rosterfilter": "",
+        "rosterfilteraction": "https://example.com/mod/selfselectadvanced/group.php",
+        "groupid": 1,
         "roster": [
-            {"fullname": "Alice Lead", "isleader": true},
-            {"fullname": "Bob Member", "isleader": false}
+            {"fullname": "Alice Lead", "firstname": "Alice", "lastname": "Lead", "isleader": true,
+             "dims": [{"value": "Computer"}]},
+            {"fullname": "Bob Member", "firstname": "Bob", "lastname": "Member", "isleader": false,
+             "dims": [{"value": "Science"}]}
         ],
         "isleader": true,
         "caninvite": true,
@@ -239,19 +245,43 @@
 
     <h4>{{#str}} roster, mod_selfselectadvanced {{/str}}</h4>
     {{#hasroster}}
-        <ul class="list-group mb-3 selfselectadvanced-roster">
-            {{#roster}}
-                <li class="list-group-item">
-                    {{fullname}}
-                    {{#isleader}}
-                        <span class="badge bg-primary ms-2">{{#str}} leader, mod_selfselectadvanced {{/str}}</span>
-                    {{/isleader}}
-                    {{#attrline}}
-                        <span class="d-block text-muted small">{{attrline}}</span>
-                    {{/attrline}}
-                </li>
-            {{/roster}}
-        </ul>
+        <form method="get" action="{{rosterfilteraction}}" class="d-flex flex-wrap gap-2 mb-2">
+            <input type="hidden" name="id" value="{{cmid}}">
+            <input type="hidden" name="g" value="{{groupid}}">
+            <input type="text" name="rq" value="{{rosterfilter}}" class="form-control form-control-sm w-auto"
+                placeholder="{{#str}} flaggedfilter, mod_selfselectadvanced {{/str}}">
+            <button type="submit" class="btn btn-secondary btn-sm">{{#str}} filter, core {{/str}}</button>
+        </form>
+        <div class="table-responsive">
+            <table class="generaltable selfselectadvanced-roster">
+                <thead>
+                    <tr>
+                        {{#rosterhead}}
+                            <th scope="col">
+                                <a href="{{url}}">{{label}}</a>{{#ascending}} &#9650;{{/ascending}}{{#descending}} &#9660;{{/descending}}
+                            </th>
+                        {{/rosterhead}}
+                        <th scope="col">{{#str}} role, core {{/str}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#roster}}
+                        <tr>
+                            <td>{{firstname}}</td>
+                            <td>{{lastname}}</td>
+                            {{#dims}}
+                                <td>{{value}}</td>
+                            {{/dims}}
+                            <td>
+                                {{#isleader}}
+                                    <span class="badge bg-primary">{{#str}} leader, mod_selfselectadvanced {{/str}}</span>
+                                {{/isleader}}
+                            </td>
+                        </tr>
+                    {{/roster}}
+                </tbody>
+            </table>
+        </div>
     {{/hasroster}}
 
     {{#haspendinginvites}}
