@@ -236,7 +236,7 @@ final class attributes_test extends \advanced_testcase {
     /**
      * Mobile-consent surfaces: the CSV importer's optional "Share
      * consent" column (1/0/yes/no, case-insensitive) sets consent
-     * through manager::set_consent(); a column absent from the file,
+     * through the ordinary attribute write; a column absent,
      * or a blank/unrecognised cell, leaves existing consent untouched.
      */
     public function test_importer_optional_shareconsent_column(): void {
@@ -266,6 +266,13 @@ final class attributes_test extends \advanced_testcase {
 
         $csv = $header . "consenta,,,,,,,\n";
         csv_importer::run($this->reader($csv), (int) get_admin()->id, true);
+        $this->assertFalse((bool) manager::get((int) $u1->id)->shareconsent);
+
+        // Fillmissing mode ignores the column entirely: consent is
+        // binary with a meaningful default, so there is nothing
+        // "missing" for the mode to fill, and existing choices stand.
+        $csv = $header . "consenta,,,,,,,1\n";
+        csv_importer::run($this->reader($csv), (int) get_admin()->id, true, (object) ['mode' => 'fillmissing']);
         $this->assertFalse((bool) manager::get((int) $u1->id)->shareconsent);
 
         // Column absent from the file entirely: also untouched.

@@ -27,8 +27,9 @@ use stdClass;
  * space-insensitive; an optional email column acts as the fallback
  * match key when a row's username is blank). An optional "Share
  * consent" column (1/0/yes/no, case-insensitive) sets the student's
- * mobile-sharing consent through manager::set_consent(); a column
- * absent from the file, or a blank/unrecognised cell, leaves existing
+ * mobile-sharing consent through the ordinary attribute write; a
+ * column absent from the file, a blank/unrecognised cell, or
+ * fillmissing mode (consent has no missing state) leaves existing
  * consent untouched.
  *
  * Rules: rows are matched to EXISTING users by username (fallback
@@ -221,8 +222,8 @@ class csv_importer {
             // Optional "Share consent" column (1/0/yes/no, case
             // insensitive): a column absent from the file, or a blank
             // or unrecognised cell, leaves the user's existing consent
-            // untouched. Consent is a separate self-service field, not
-            // one of manager::set()'s attribute cells.
+            // untouched, and fillmissing mode ignores the column entirely
+            // (consent has no missing state; the toggle is self-service).
             $consentvalue = null;
             if (isset($map['shareconsent'])) {
                 $rawconsent = \core_text::strtolower($get('shareconsent'));
@@ -262,11 +263,16 @@ class csv_importer {
                     }
                     $set[$field] = $value;
                 }
+                if ($consentvalue !== null && $mode !== 'fillmissing') {
+                    // Routed through set() so a consent-only row still
+                    // creates the attribute record instead of crashing
+                    // on a missing one. Fillmissing mode never touches
+                    // the flag: consent is binary with a meaningful
+                    // default, so there is no "missing" state to fill.
+                    $set['shareconsent'] = $consentvalue ? 1 : 0;
+                }
                 if ($set) {
                     manager::set((int) $user->id, $set, $actorid);
-                }
-                if ($consentvalue !== null) {
-                    manager::set_consent((int) $user->id, $consentvalue, $actorid);
                 }
             }
             if ($exists) {

@@ -583,8 +583,8 @@ final class eoi_test extends \advanced_testcase {
         $first = eoi::express($activity, (int) $group->id, (int) $guides[0]->id, '<p>a</p>');
         $second = eoi::express($activity, (int) $group->id, (int) $guides[1]->id, '<p>b</p>');
         // Same-second inserts break FCFS ties by id.
-        $DB->set_field('selfselectadvanced_eoi', 'timecreated',
-            $DB->get_field('selfselectadvanced_eoi', 'timecreated', ['id' => $first]), ['id' => $second]);
+        $firsttime = $DB->get_field('selfselectadvanced_eoi', 'timecreated', ['id' => $first]);
+        $DB->set_field('selfselectadvanced_eoi', 'timecreated', $firsttime, ['id' => $second]);
 
         $this->assertSame(1, eoi::queue_position($activity, (int) $group->id, $first));
         $this->assertSame(2, eoi::queue_position($activity, (int) $group->id, $second));

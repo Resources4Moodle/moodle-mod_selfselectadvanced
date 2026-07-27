@@ -178,10 +178,26 @@ class handover {
             'newguide' => fullname(\core_user::get_user($actorid)),
             'activity' => $this->activity->name(),
         ];
-        notifier::send($this->activity, 'guidequeue', $oldguide, 'msghandoveracceptedsubject',
-            'msghandoveracceptedbody', $a, $this->guide_url(), format_string($group->name));
-        notifier::send($this->activity, 'guidechanged', (int) $group->leaderid, 'msgguidechangedsubject',
-            'msgguidechangedbody', $a, $this->group_url((int) $group->id), format_string($group->name));
+        notifier::send(
+            $this->activity,
+            'guidequeue',
+            $oldguide,
+            'msghandoveracceptedsubject',
+            'msghandoveracceptedbody',
+            $a,
+            $this->guide_url(),
+            format_string($group->name)
+        );
+        notifier::send(
+            $this->activity,
+            'guidechanged',
+            (int) $group->leaderid,
+            'msgguidechangedsubject',
+            'msgguidechangedbody',
+            $a,
+            $this->group_url((int) $group->id),
+            format_string($group->name)
+        );
     }
 
     /**

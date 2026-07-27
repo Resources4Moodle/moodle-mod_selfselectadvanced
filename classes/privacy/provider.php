@@ -67,6 +67,7 @@ class provider implements
             'leaderid' => 'privacy:metadata:group:leaderid',
             'guideid' => 'privacy:metadata:group:guideid',
             'successorid' => 'privacy:metadata:group:successorid',
+            'guidesuccessorid' => 'privacy:metadata:group:guidesuccessorid',
             'brief' => 'privacy:metadata:group:brief',
         ], 'privacy:metadata:group');
         $collection->add_database_table('selfselectadvanced_userattr', [
@@ -136,7 +137,8 @@ class provider implements
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_group} g2
                          WHERE g2.activityid = a.id
-                           AND (g2.leaderid = :userid2 OR g2.guideid = :userid3 OR g2.successorid = :userid4))
+                           AND (g2.leaderid = :userid2 OR g2.guideid = :userid3 OR g2.successorid = :userid4
+                                OR g2.guidesuccessorid = :userid8))
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_override} o
                          WHERE o.activityid = a.id AND o.userid = :userid5)
@@ -155,6 +157,7 @@ class provider implements
         $contextlist->add_from_sql($sql, [
             'modlevel' => CONTEXT_MODULE,
             'userid1' => $userid, 'userid2' => $userid, 'userid3' => $userid, 'userid4' => $userid,
+            'userid8' => $userid,
             'userid5' => $userid, 'userid6' => $userid, 'userid7' => $userid, 'userid8' => $userid,
             'userid9' => $userid, 'userid10' => $userid,
         ]);
@@ -196,6 +199,14 @@ class provider implements
             "SELECT g.leaderid AS leaderid
                FROM {selfselectadvanced_group} g
                JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid",
+            $params
+        );
+        $userlist->add_from_sql(
+            'guidesuccessorid',
+            "SELECT g.guidesuccessorid AS guidesuccessorid
+               FROM {selfselectadvanced_group} g
+               JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid
+              WHERE g.guidesuccessorid IS NOT NULL",
             $params
         );
         $userlist->add_from_sql(
@@ -435,6 +446,7 @@ class provider implements
         $DB->set_field('selfselectadvanced_group', 'leaderid', 0, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'guideid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'successorid', null, ['activityid' => $cm->instance]);
+        $DB->set_field('selfselectadvanced_group', 'guidesuccessorid', null, ['activityid' => $cm->instance]);
     }
 
     /**
@@ -558,6 +570,12 @@ class provider implements
             'successorid',
             null,
             ['activityid' => $activityid, 'successorid' => $userid]
+        );
+        $DB->set_field(
+            'selfselectadvanced_group',
+            'guidesuccessorid',
+            null,
+            ['activityid' => $activityid, 'guidesuccessorid' => $userid]
         );
         $DB->delete_records_select(
             'selfselectadvanced_move',
