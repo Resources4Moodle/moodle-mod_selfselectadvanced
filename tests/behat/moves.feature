@@ -61,4 +61,5 @@ Feature: Transactional staged moves
     And I should see "No pending moves."
     When I am on the "Lab groups" "selfselectadvanced activity" page
     And I follow "Team A"
-    Then I should see "Tara Two"
+    Then I should see "Tara" in the ".selfselectadvanced-roster" "css_element"
+    And I should see "Two" in the ".selfselectadvanced-roster" "css_element"
