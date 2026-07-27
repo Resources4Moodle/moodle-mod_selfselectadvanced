@@ -147,7 +147,7 @@ final class eoi_test extends \advanced_testcase {
         $this->assertSame((int) $group->id, (int) $row->groupid);
         $this->assertSame($guide, (int) $row->guideid);
         $this->assertSame('<p>We would love to guide this team.</p>', $row->remarks);
-        $this->assertSame(FORMAT_HTML, (int) $row->remarksformat);
+        $this->assertSame((int) FORMAT_HTML, (int) $row->remarksformat);
         $this->assertNull($row->timeresponded);
 
         $leadermsgs = array_values(array_filter(
