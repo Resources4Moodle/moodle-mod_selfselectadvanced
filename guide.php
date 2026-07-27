@@ -220,11 +220,19 @@ if (
                 $handover->cancel($hgroupid, (int) $USER->id);
                 $notice = get_string('changessaved');
         }
-        redirect(new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
-            $notice, null, \core\output\notification::NOTIFY_SUCCESS);
+        redirect(
+            new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
+            $notice,
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
     } catch (moodle_exception $e) {
-        redirect(new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
-            $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        redirect(
+            new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
 }
 
@@ -515,7 +523,11 @@ if ($incoming || $held) {
                     'from' => fullname($USER),
                     'to' => fullname(\core_user::get_user((int) $hgroup->guidesuccessorid)),
                 ]), 'text-muted');
-                echo html_writer::start_tag('form', ['method' => 'post', 'action' => $handoverurl->out(false), 'class' => 'd-inline']);
+                echo html_writer::start_tag('form', [
+                    'method' => 'post',
+                    'action' => $handoverurl->out(false),
+                    'class' => 'd-inline',
+                ]);
                 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
                 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'handovercancel']);
                 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $hgroup->id]);
@@ -527,14 +539,22 @@ if ($incoming || $held) {
                 ]);
                 echo html_writer::end_tag('form');
             } else if ($options) {
-                echo html_writer::start_tag('form', ['method' => 'post', 'action' => $handoverurl->out(false),
-                    'class' => 'd-inline-flex gap-2 align-items-center']);
+                echo html_writer::start_tag('form', [
+                    'method' => 'post',
+                    'action' => $handoverurl->out(false),
+                    'class' => 'd-inline-flex gap-2 align-items-center',
+                ]);
                 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
                 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'handoverpropose']);
                 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $hgroup->id]);
                 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
-                echo html_writer::select($options, 'nominee', '', ['' => 'choosedots'],
-                    ['class' => 'form-select form-select-sm w-auto']);
+                echo html_writer::select(
+                    $options,
+                    'nominee',
+                    '',
+                    ['' => 'choosedots'],
+                    ['class' => 'form-select form-select-sm w-auto']
+                );
                 echo html_writer::empty_tag('input', [
                     'type' => 'submit',
                     'value' => get_string('guidehandovernominate', 'mod_selfselectadvanced'),

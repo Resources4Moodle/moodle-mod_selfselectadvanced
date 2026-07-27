@@ -80,13 +80,20 @@ class group_page implements renderable, templatable {
 
         // Staff see participant attributes on the roster (spec 8.1 read
         // access). The mobile column is broader than the attribute
-        // dimensions: viewall holders always see it, and a guide
-        // (without viewall) now sees it too, but gated per member on
-        // that member's own consent (manager::mobile_visible). Students
-        // never see the column (unchanged).
+        // dimensions: viewall holders always see it; a guide (without
+        // viewall) and the group's own confirmed members — the leader
+        // and teammates the consent strings promise — see it gated per
+        // member on that member's own consent (manager::mobile_visible;
+        // no viewall bypass for any of them). Outsider students never
+        // see the column.
         $canviewall = has_capability('mod/selfselectadvanced:viewall', $context, $this->userid);
         $isguide = has_capability('mod/selfselectadvanced:guide', $context, $this->userid, false);
-        $showmobilecol = $canviewall || $isguide;
+        $isconfirmedmember = $DB->record_exists('selfselectadvanced_member', [
+            'groupid' => (int) $this->group->id,
+            'userid' => $this->userid,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        $showmobilecol = $canviewall || $isguide || $isconfirmedmember;
         $rostermembers = groups::get_roster((int) $this->group->id);
         $attrs = $showmobilecol
             ? \mod_selfselectadvanced\local\attributes\manager::get_for_users(

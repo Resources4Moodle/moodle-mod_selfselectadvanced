@@ -246,23 +246,36 @@ final class state {
             'newguide' => fullname(\core_user::get_user($guideid)),
             'activity' => $this->activity->name(),
         ];
-        if ($fresh->state === self::PENDING_GUIDE) {
-            // A queued group lands in the guide's review queue.
-            notifier::send($this->activity, 'guidequeue', $guideid, 'msgsubmittedsubject',
-                'msgsubmittedbody', $a, $this->review_url((int) $fresh->id), format_string($fresh->name));
-        } else {
-            notifier::send($this->activity, 'guidequeue', $guideid, 'msgnowguidingsubject',
-                'msgnowguidingbody', $a, $this->review_url((int) $fresh->id), format_string($fresh->name));
-        }
+        // A queued group lands in the guide's review queue; a firm or
+        // frozen one is simply theirs to guide now.
+        $newguidebody = $fresh->state === self::PENDING_GUIDE ? 'msgsubmitted' : 'msgnowguiding';
+        notifier::send(
+            $this->activity,
+            'guidequeue',
+            $guideid,
+            $newguidebody . 'subject',
+            $newguidebody . 'body',
+            $a,
+            $this->review_url((int) $fresh->id),
+            format_string($fresh->name)
+        );
         if ($oldguide && $oldguide !== (int) $guideid) {
             $groupurl = new \moodle_url('/mod/selfselectadvanced/group.php', [
                 'id' => $this->activity->cm()->id,
                 'g' => (int) $fresh->id,
             ]);
-            notifier::send($this->activity, 'guidechanged', $oldguide, 'msgguidechangedsubject',
-                'msgguidechangedbody', $a, $groupurl, format_string($fresh->name));
-            notifier::send($this->activity, 'guidechanged', (int) $fresh->leaderid, 'msgguidechangedsubject',
-                'msgguidechangedbody', $a, $groupurl, format_string($fresh->name));
+            foreach ([$oldguide, (int) $fresh->leaderid] as $told) {
+                notifier::send(
+                    $this->activity,
+                    'guidechanged',
+                    $told,
+                    'msgguidechangedsubject',
+                    'msgguidechangedbody',
+                    $a,
+                    $groupurl,
+                    format_string($fresh->name)
+                );
+            }
         }
 
         return $fresh;
@@ -298,6 +311,11 @@ final class state {
             $now = time();
             $fresh->state = self::FORMING;
             $fresh->guideid = null;
+            // A return dissolves any pending handover with it: the
+            // nomination belonged to the guide who just released the
+            // team, and must not survive into a future submission.
+            $fresh->guidesuccessorid = null;
+            $fresh->timeguidenominated = null;
             $fresh->returncomment = trim($comment);
             $fresh->usermodified = $actorid;
             $fresh->timemodified = $now;

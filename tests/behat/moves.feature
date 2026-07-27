@@ -22,6 +22,9 @@ Feature: Transactional staged moves
       | student3 | C1     | student        |
       | student4 | C1     | student        |
       | teacher1 | C1     | editingteacher |
+    And the following "role capabilities" exist:
+      | role           | moodle/user:viewalldetails |
+      | editingteacher | allow                      |
     And the following "activities" exist:
       | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership |
       | selfselectadvanced | C1     | Lab groups | ssa1     | 2       | 2       | 1       | 1             |

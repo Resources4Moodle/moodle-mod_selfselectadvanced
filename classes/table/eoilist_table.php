@@ -21,6 +21,7 @@ defined('MOODLE_INTERNAL') || die();
 require_once($CFG->libdir . '/tablelib.php');
 
 use mod_selfselectadvanced\activity;
+use mod_selfselectadvanced\local\eoi;
 use context_module;
 
 /**

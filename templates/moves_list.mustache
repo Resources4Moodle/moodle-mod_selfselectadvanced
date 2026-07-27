@@ -72,8 +72,11 @@
                         {{#rows}}
                             <tr>
                                 <td>
-                                    <input type="checkbox" name="selected[]" value="{{moveid}}" {{#allok}}checked{{/allok}}
-                                        aria-label="{{#str}} select {{/str}} {{user}}">
+                                    <input type="checkbox" name="selected[]" value="{{moveid}}"
+                                        id="moveselect-{{moveid}}" {{#allok}}checked{{/allok}}>
+                                    <label class="visually-hidden" for="moveselect-{{moveid}}">
+                                        {{#str}} select {{/str}} {{user}}
+                                    </label>
                                 </td>
                                 <td>
                                     {{user}}
