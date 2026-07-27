@@ -475,7 +475,11 @@ class group_page implements renderable, templatable {
      * @param \mod_selfselectadvanced\local\rules\refusal|null $submitrefusal the submit gate's verdict
      * @return string
      */
-    private function submit_blocked_reason(bool $isleader, bool $isforming, ?object $submitrefusal): string {
+    private function submit_blocked_reason(
+        bool $isleader,
+        bool $isforming,
+        ?\mod_selfselectadvanced\local\rules\refusal $submitrefusal
+    ): string {
         if (!$isleader || !$isforming) {
             return '';
         }
