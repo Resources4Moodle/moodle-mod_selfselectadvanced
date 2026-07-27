@@ -210,12 +210,45 @@ class moves {
         // verdict uses the user's net delta over the whole set (the
         // L3 lead verdict already aggregates the same way). A move
         // into a group where the user is already confirmed gains
-        // nothing.
+        // nothing, and a removal is only credited when the user is
+        // still confirmed in the source on the FRESH roster — a
+        // staged move can outlive the membership it was staged
+        // against, and a stale loss credit would let the commit
+        // exceed the cap behind a green verdict.
         $membershipdeltas = [];
         foreach ($moves as $move) {
             $uid = (int) $move->userid;
             $gain = in_array($uid, $confirmedin[(int) $move->targetgroupid] ?? [], true) ? 0 : 1;
-            $membershipdeltas[$uid] = ($membershipdeltas[$uid] ?? 0) + $gain - ($move->sourcegroupid ? 1 : 0);
+            $loss = $move->sourcegroupid
+                && in_array($uid, $confirmedin[(int) $move->sourcegroupid] ?? [], true) ? 1 : 0;
+            $membershipdeltas[$uid] = ($membershipdeltas[$uid] ?? 0) + $gain - $loss;
+        }
+
+        // Leadership evolves WITHIN a set (apply runs in id order): a
+        // makeleader move can hand the source crown to a user whose
+        // own move out was staged while they were plain members. SUCC
+        // must judge the leader apply() will actually see, so track
+        // each group's leader as earlier moves change it.
+        $liveleader = [];
+        $leaderatapply = [];
+        foreach ($moves as $move) {
+            if ($move->sourcegroupid) {
+                $sourceid = (int) $move->sourcegroupid;
+                if (!array_key_exists($sourceid, $liveleader)) {
+                    $liveleader[$sourceid] = (int) groups::get($this->activity, $sourceid)->leaderid;
+                }
+                $leaderatapply[(int) $move->id] = $liveleader[$sourceid];
+                if ($liveleader[$sourceid] === (int) $move->userid) {
+                    $liveleader[$sourceid] = (int) $move->successorid;
+                }
+            }
+            if ($move->makeleader) {
+                $targetid = (int) $move->targetgroupid;
+                if (!array_key_exists($targetid, $liveleader)) {
+                    $liveleader[$targetid] = (int) groups::get($this->activity, $targetid)->leaderid;
+                }
+                $liveleader[$targetid] = (int) $move->userid;
+            }
         }
 
         $result = (object) ['valid' => true, 'permove' => []];
@@ -289,25 +322,25 @@ class moves {
                 $verdicts['L3S'] = $this->leadverdict((int) $move->successorid, $moves, $bypasses);
             }
 
-            // SUCC (never bypassable): promoting a stale successor
-            // corrupts the group. Whenever the moved user currently
-            // leads the source, a successor must exist, still be a
-            // confirmed source member on the fresh roster, and not be
-            // removed from it by this same set — staged moves can
-            // outlive the roster they were staged against.
-            if ($move->sourcegroupid) {
+            // SUCC (never bypassable): promoting a stale or absent
+            // successor corrupts the group. Whenever the moved user
+            // will lead the source AT APPLY TIME (including a crown
+            // gained from an earlier move in this same set), a
+            // successor must exist, still be a confirmed source
+            // member on the fresh roster, and not be removed from it
+            // by this same set — staged moves can outlive the roster
+            // and the leadership they were staged against.
+            if ($move->sourcegroupid && $leaderatapply[(int) $move->id] === (int) $move->userid) {
                 $sourceid = (int) $move->sourcegroupid;
-                if ((int) groups::get($this->activity, $sourceid)->leaderid === (int) $move->userid) {
-                    $succid = (int) $move->successorid;
-                    $succok = $succid
-                        && in_array($succid, $confirmedin[$sourceid] ?? [], true)
-                        && !in_array($succid, $removals[$sourceid] ?? [], true);
-                    $verdicts['SUCC'] = $this->verdict(
-                        $succok,
-                        false,
-                        get_string('moveruleSUCC', 'mod_selfselectadvanced')
-                    );
-                }
+                $succid = (int) $move->successorid;
+                $succok = $succid
+                    && in_array($succid, $confirmedin[$sourceid] ?? [], true)
+                    && !in_array($succid, $removals[$sourceid] ?? [], true);
+                $verdicts['SUCC'] = $this->verdict(
+                    $succok,
+                    false,
+                    get_string('moveruleSUCC', 'mod_selfselectadvanced')
+                );
             }
 
             // Quota on both groups' net post-state rosters.
@@ -523,6 +556,11 @@ class moves {
 
             // Leadership succession on the source, atomically (B3-checked).
             if ((int) $source->leaderid === $userid) {
+                if (empty($move->successorid)) {
+                    // SUCC validation makes this unreachable; a group
+                    // must never be committed into leaderlessness.
+                    throw new \coding_exception('Leader move applied without a successor.');
+                }
                 $DB->update_record('selfselectadvanced_group', (object) [
                     'id' => $source->id,
                     'leaderid' => (int) $move->successorid,

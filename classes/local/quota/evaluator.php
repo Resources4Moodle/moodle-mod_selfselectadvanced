@@ -103,9 +103,22 @@ class evaluator {
         }
         $attrs = manager::get_for_users($memberids);
 
+        // Counting rules: an exceeded MAXIMUM can never self-heal by
+        // adding members; an unmet MINIMUM demands at least its deficit
+        // in further members, since each admitted member raises one
+        // value's count (or the distinct tally) by at most one.
         $maxexceeded = null;
+        $ruledeficit = 0;
         foreach ($rules as $rule) {
-            if ($rule->rtype === 'distinct' || $rule->maxcount === null) {
+            if ($rule->rtype === 'distinct') {
+                $distinct = [];
+                foreach ($memberids as $userid) {
+                    $value = $attrs[$userid]->{$rule->dimension} ?? null;
+                    if ($value !== null && $value !== '') {
+                        $distinct[\core_text::strtolower($value)] = true;
+                    }
+                }
+                $ruledeficit = max($ruledeficit, (int) $rule->mincount - count($distinct));
                 continue;
             }
             $target = \core_text::strtolower((string) $rule->value);
@@ -116,7 +129,7 @@ class evaluator {
                     $current++;
                 }
             }
-            if ($current > (int) $rule->maxcount) {
+            if ($rule->maxcount !== null && $current > (int) $rule->maxcount) {
                 $maxexceeded = (object) [
                     'value' => $rule->value,
                     'max' => (int) $rule->maxcount,
@@ -124,16 +137,22 @@ class evaluator {
                 ];
                 break;
             }
+            if ($rule->mincount !== null) {
+                $ruledeficit = max($ruledeficit, (int) $rule->mincount - $current);
+            }
         }
 
         $slotresult = slots::evaluate_from_data($template, $memberids, $attrs);
-        $missing = 0;
+        $slotmissing = 0;
         foreach ($slotresult->slots as $entry) {
-            $missing += (int) $entry->missing;
+            $slotmissing += (int) $entry->missing;
         }
 
         return (object) [
-            'missing' => $missing,
+            // Members still needed is bounded below by the unfilled
+            // seats AND by every rule's own deficit; the largest bound
+            // is what the free seats must cover.
+            'missing' => max($slotmissing, $ruledeficit, 0),
             'seated' => count(array_unique($memberids)),
             'maxexceeded' => $maxexceeded,
         ];
