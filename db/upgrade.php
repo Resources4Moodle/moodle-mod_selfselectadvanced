@@ -526,5 +526,60 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072435, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072436) {
+        // 1.11.0: expressions of interest. Guides pick listed teams,
+        // leaders accept or reject, full history kept for analytics.
+        $table = new xmldb_table('selfselectadvanced');
+        $newsettings = [
+            ['eoienabled', '1', '0', 'guidevolunteer'],
+            ['eoiwindow', '10', '0', 'eoienabled'],
+            ['eoimax', '5', '3', 'eoiwindow'],
+            ['eoisequential', '1', '0', 'eoimax'],
+            ['eoipeers', '1', '0', 'eoisequential'],
+        ];
+        foreach ($newsettings as [$name, $length, $default, $previous]) {
+            $field = new xmldb_field($name, XMLDB_TYPE_INTEGER, $length, null, XMLDB_NOTNULL, null, $default, $previous);
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
+
+        $table = new xmldb_table('selfselectadvanced_group');
+        $field = new xmldb_field('returncommentformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '2', 'returncomment');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('listed', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0', 'returncommentformat');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('timelisted', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'listed');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $table = new xmldb_table('selfselectadvanced_eoi');
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE);
+            $table->add_field('activityid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+            $table->add_field('groupid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+            $table->add_field('guideid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+            $table->add_field('status', XMLDB_TYPE_CHAR, '10', null, XMLDB_NOTNULL, null, 'pending');
+            $table->add_field('remarks', XMLDB_TYPE_TEXT);
+            $table->add_field('remarksformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
+            $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('timeresponded', XMLDB_TYPE_INTEGER, '10');
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_key('fk_activityid', XMLDB_KEY_FOREIGN, ['activityid'], 'selfselectadvanced', ['id']);
+            $table->add_key('fk_groupid', XMLDB_KEY_FOREIGN, ['groupid'], 'selfselectadvanced_group', ['id']);
+            $table->add_key('fk_guideid', XMLDB_KEY_FOREIGN, ['guideid'], 'user', ['id']);
+            $table->add_index('groupid_status', XMLDB_INDEX_NOTUNIQUE, ['groupid', 'status']);
+            $table->add_index('guideid_status', XMLDB_INDEX_NOTUNIQUE, ['guideid', 'status']);
+            $dbman->create_table($table);
+        }
+
+        upgrade_mod_savepoint(true, 2026072436, 'selfselectadvanced');
+    }
+
     return true;
 }

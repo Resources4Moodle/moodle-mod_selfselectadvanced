@@ -128,6 +128,22 @@ $messageproviders = [
             'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
         ],
     ],
+    // Leader-facing expression of interest traffic: new interest,
+    // withdrawal, and a pre-assigned guide stepping out.
+    'eoireceived' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
+    // Guide-facing outcomes of an expression of interest: accepted,
+    // rejected, auto-declined or expired.
+    'eoiresult' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
     // A rollup of digestible notifications for guides who opted into a
     // daily or weekly digest instead of one message per event.
     'digest' => [

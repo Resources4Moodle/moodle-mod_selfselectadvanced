@@ -64,7 +64,11 @@ final class state {
         global $DB;
 
         $leaderselects = (int) $this->activity->settings()->guidemode === 0;
-        if ($leaderselects && !$guideid) {
+        // A guide accepted through an expression of interest is already
+        // on the group row; that pre-assignment wins over the picker so
+        // the group goes straight to the guide the leader chose.
+        $preassigned = !empty($group->guideid) ? (int) $group->guideid : 0;
+        if ($leaderselects && !$guideid && !$preassigned) {
             throw new \moodle_exception('refusalguiderequired', 'mod_selfselectadvanced');
         }
 
@@ -73,16 +77,18 @@ final class state {
             $transaction = $DB->start_delegated_transaction();
 
             $fresh = groups::get($this->activity, (int) $group->id);
+            $preassigned = !empty($fresh->guideid) ? (int) $fresh->guideid : 0;
+            $target = $preassigned ?: $guideid;
             if ($refusal = $this->gatekeeper->can_submit($fresh, $actorid)) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
-            if ($leaderselects && ($refusal = $this->gatekeeper->can_take_guide($guideid))) {
+            if (($leaderselects || $preassigned) && ($refusal = $this->gatekeeper->can_take_guide($target))) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();
             $fresh->state = self::PENDING_GUIDE;
-            $fresh->guideid = $leaderselects ? $guideid : null;
+            $fresh->guideid = $preassigned ?: ($leaderselects ? $guideid : null);
             $fresh->timesubmitted = $now;
             $fresh->usermodified = $actorid;
             $fresh->timemodified = $now;
