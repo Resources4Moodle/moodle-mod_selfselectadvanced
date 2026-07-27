@@ -33,6 +33,9 @@ use templatable;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class group_page implements renderable, templatable {
+    /** @var int Cap on responded (non-pending) EOI rows shown in the panel; older rows are left out entirely. */
+    private const EOI_HISTORY_LIMIT = 20;
+
     /**
      * Constructor.
      *
@@ -196,6 +199,8 @@ class group_page implements renderable, templatable {
         $eoiassigned = $isforming && !empty($this->group->guideid);
         $eoiinterestline = '';
         $eoirows = [];
+        $showeoiempty = false;
+        $showeoisequentialnote = false;
         if ($eoienabled) {
             $allinterests = eoi::for_group($activity, (int) $this->group->id);
             $pendingcount = count(array_filter(
@@ -206,9 +211,31 @@ class group_page implements renderable, templatable {
                 $eoiinterestline = get_string('eoiinterestline', 'mod_selfselectadvanced', $pendingcount);
             }
             if ($showeoipanel) {
+                $showeoiempty = $listed && empty($allinterests);
                 $sequential = !empty($activity->settings()->eoisequential);
+
+                // Every pending row is shown (subject to the sequential
+                // one-at-a-time rule below); responded history beyond the
+                // most recent EOI_HISTORY_LIMIT rows is left out of the
+                // panel rather than growing it without bound.
+                $respondedindexes = [];
+                foreach ($allinterests as $index => $interest) {
+                    if ($interest->status !== eoi::STATUS_PENDING) {
+                        $respondedindexes[] = $index;
+                    }
+                }
+                $excludedresponded = count($respondedindexes) > self::EOI_HISTORY_LIMIT
+                    ? array_flip(array_slice(
+                        $respondedindexes,
+                        0,
+                        count($respondedindexes) - self::EOI_HISTORY_LIMIT
+                    ))
+                    : [];
+
                 $seenpending = false;
-                foreach ($allinterests as $interest) {
+                $pendingshown = 0;
+                $displayedinterests = [];
+                foreach ($allinterests as $index => $interest) {
                     $ispending = $interest->status === eoi::STATUS_PENDING;
                     if ($ispending) {
                         if ($sequential && $seenpending) {
@@ -216,16 +243,37 @@ class group_page implements renderable, templatable {
                             continue;
                         }
                         $seenpending = true;
+                        $pendingshown++;
+                    } else if (isset($excludedresponded[$index])) {
+                        continue;
                     }
+                    $displayedinterests[] = $interest;
+                }
+                $showeoisequentialnote = $sequential && $pendingcount > $pendingshown;
+
+                // One bulk lookup for every guide named in the panel,
+                // chunked defensively, instead of one get_user() per row.
+                $guideids = array_values(array_unique(array_map(
+                    static fn(\stdClass $row): int => (int) $row->guideid,
+                    $displayedinterests
+                )));
+                $guides = [];
+                foreach (array_chunk($guideids, 1000) as $chunk) {
+                    $guides += $DB->get_records_list('user', 'id', $chunk);
+                }
+
+                foreach ($displayedinterests as $interest) {
                     $eoirows[] = (object) [
                         'eoiid' => (int) $interest->id,
-                        'guidename' => fullname(\core_user::get_user((int) $interest->guideid)),
+                        'guidename' => isset($guides[(int) $interest->guideid])
+                            ? fullname($guides[(int) $interest->guideid])
+                            : '',
                         'remarks' => $interest->remarks !== null && $interest->remarks !== ''
                             ? format_text($interest->remarks, (int) $interest->remarksformat, ['context' => $context])
                             : '',
                         'timecreated' => userdate($interest->timecreated),
                         'statuslabel' => get_string('eoistatus' . $interest->status, 'mod_selfselectadvanced'),
-                        'ispending' => $ispending,
+                        'ispending' => $interest->status === eoi::STATUS_PENDING,
                         'accepturl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
                             'id' => $cmid,
                             'g' => $this->group->id,
@@ -255,6 +303,8 @@ class group_page implements renderable, templatable {
             'eoiinterestline' => $eoiinterestline,
             'eoirows' => $eoirows,
             'haseoirows' => !empty($eoirows),
+            'showeoiempty' => $showeoiempty,
+            'showeoisequentialnote' => $showeoisequentialnote,
             'canrequestleave' => $canrequestleave,
             'leaverequests' => $leaverequests,
             'hasleaverequests' => !empty($leaverequests),
@@ -279,7 +329,7 @@ class group_page implements renderable, templatable {
             'guidename' => $guidename,
             'hasguide' => $guidename !== '',
             'returncomment' => $isforming && !empty($this->group->returncomment)
-                ? format_text($this->group->returncomment, FORMAT_PLAIN, ['context' => $context])
+                ? format_text($this->group->returncomment, (int) $this->group->returncommentformat, ['context' => $context])
                 : '',
             'hasnomination' => !empty($this->group->successorid),
             'nomineename' => $nomineename,

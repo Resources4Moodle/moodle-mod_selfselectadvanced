@@ -90,9 +90,18 @@ if ($action === 'express') {
     if ($expresserror !== '') {
         echo $OUTPUT->notification($expresserror, 'error', false);
     }
+
     if (!$stilllistable) {
+        // The team stopped being pickable between the browse page and
+        // this view (unlisted, guided, or no longer forming): explain
+        // why and send the guide back, with nothing that invites a
+        // submission that eoi::express() would only have to refuse.
         echo $OUTPUT->notification(get_string('refusaleoinotlisted', 'mod_selfselectadvanced'), 'warning', false);
+        echo html_writer::link($baseurl, get_string('back'), ['class' => 'btn btn-secondary']);
+        echo $OUTPUT->footer();
+        die;
     }
+
     echo html_writer::tag('p', get_string('eoipickconfirm', 'mod_selfselectadvanced', format_string($group->name)));
 
     $expressurl = new moodle_url('/mod/selfselectadvanced/pickteam.php', [

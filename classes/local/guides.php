@@ -77,7 +77,7 @@ class guides {
                 // guides most in need of an override become unreachable.
                 continue;
             }
-            $used = groups::count_guiding($activity, (int) $user->id);
+            $used = \mod_selfselectadvanced\local\eoi::guide_commitments($activity, (int) $user->id);
             $max = $maxvalue->value;
             $entry = (object) [
                 'id' => (int) $user->id,
