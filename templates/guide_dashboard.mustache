@@ -24,6 +24,12 @@
     * hasqueue - whether the queue has entries
     * showvolunteer - whether guide volunteering is enabled for this activity
     * volunteer - hasvolunteered, statusline, callline, showgrandfathered, grandfatherline, options[]
+    * eoienabled - whether team listing and guide interest (EOI) is enabled
+    * haseoicards - whether eoicards has entries (mirrors eoienabled)
+    * eoicards - label, number, url for each of the four stat cards
+    * pickteamurl - link to the pick-a-team browse page
+    * guided[].isformingassigned - true for a still-forming team pre-assigned via EOI
+    * guided[].stepouturl - link for the step-out confirm step (isformingassigned rows only)
 
     Example context (json):
     {
@@ -41,6 +47,15 @@
                 {"value": 3, "label": "3", "selected": true}
             ]
         },
+        "eoienabled": true,
+        "haseoicards": true,
+        "eoicards": [
+            {"label": "Teams you guide", "number": 3, "url": "https://example.com/mod/selfselectadvanced/guideload.php?id=1&guide=2"},
+            {"label": "Interests awaiting a leader", "number": 1, "url": "https://example.com/mod/selfselectadvanced/eoilist.php?id=1&status=pending"},
+            {"label": "Interests timed out", "number": 0, "url": "https://example.com/mod/selfselectadvanced/eoilist.php?id=1&status=expired"},
+            {"label": "Interests declined", "number": 2, "url": "https://example.com/mod/selfselectadvanced/eoilist.php?id=1&status=rejected"}
+        ],
+        "pickteamurl": "https://example.com/mod/selfselectadvanced/pickteam.php?id=1",
         "queue": [
             {
                 "pluginuid": "SSA-C101-0001",
@@ -51,14 +66,45 @@
                 "reviewurl": "https://example.com/mod/selfselectadvanced/review.php?id=1&g=1"
             }
         ],
-        "hasguided": false,
-        "guided": [],
+        "hasguided": true,
+        "guided": [
+            {
+                "groupid": 2,
+                "name": "Team Beta",
+                "pluginuid": "SSA-C101-0002",
+                "statelabel": "Forming",
+                "size": 3,
+                "reviewurl": "https://example.com/mod/selfselectadvanced/review.php?id=1&g=2",
+                "canfreeze": false,
+                "freezeurl": "https://example.com/mod/selfselectadvanced/group.php?id=1&g=2&action=freeze",
+                "isformingassigned": true,
+                "stepouturl": "https://example.com/mod/selfselectadvanced/guide.php?id=1&action=stepout&g=2"
+            }
+        ],
         "backurl": "https://example.com/mod/selfselectadvanced/view.php?id=1",
         "actionurl": "https://example.com/mod/selfselectadvanced/guide.php?id=1"
     }
 }}
 <div class="selfselectadvanced-guidedashboard">
     <p><span class="badge bg-light text-body border">{{loadline}}</span></p>
+
+    {{#eoienabled}}
+        <div class="selfselectadvanced-eoicards mb-3">
+            {{#haseoicards}}
+                <div class="ssa-cards">
+                    {{#eoicards}}
+                        <a class="ssa-card" href="{{url}}">
+                            <div class="ssa-card-number">{{number}}</div>
+                            <div class="ssa-card-label">{{label}}</div>
+                        </a>
+                    {{/eoicards}}
+                </div>
+            {{/haseoicards}}
+            <a class="btn btn-primary btn-sm mt-2" href="{{pickteamurl}}">
+                {{#str}} eoipickteam, mod_selfselectadvanced {{/str}}
+            </a>
+        </div>
+    {{/eoienabled}}
 
     {{#showvolunteer}}
         <div class="selfselectadvanced-volunteer mb-3">
@@ -191,10 +237,15 @@
                                 <td>{{statelabel}}</td>
                                 <td>{{size}}</td>
                                 <td>
-                                    <a class="btn btn-secondary btn-sm" href="{{reviewurl}}">{{#str}} review, mod_selfselectadvanced {{/str}}</a>
-                                    {{#canfreeze}}
-                                        <a class="btn btn-primary btn-sm" href="{{freezeurl}}">{{#str}} freeze, mod_selfselectadvanced {{/str}}</a>
-                                    {{/canfreeze}}
+                                    {{^isformingassigned}}
+                                        <a class="btn btn-secondary btn-sm" href="{{reviewurl}}">{{#str}} review, mod_selfselectadvanced {{/str}}</a>
+                                        {{#canfreeze}}
+                                            <a class="btn btn-primary btn-sm" href="{{freezeurl}}">{{#str}} freeze, mod_selfselectadvanced {{/str}}</a>
+                                        {{/canfreeze}}
+                                    {{/isformingassigned}}
+                                    {{#isformingassigned}}
+                                        <a class="btn btn-secondary btn-sm" href="{{stepouturl}}">{{#str}} eoistepout, mod_selfselectadvanced {{/str}}</a>
+                                    {{/isformingassigned}}
                                 </td>
                             </tr>
                         {{/guided}}

@@ -17,7 +17,9 @@
 /**
  * Restore structure for mod_selfselectadvanced (spec 14.11): user ids
  * remapped throughout, coregroupid remapped to the restored core
- * group, snapshot rosters remapped in code.
+ * group, snapshot rosters remapped in code, guide expressions of
+ * interest (1.11.0) keyed to their restored group with guideid
+ * remapped.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -56,6 +58,10 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
             $paths[] = new restore_path_element(
                 'ssapenalty',
                 '/activity/selfselectadvanced/groups/group/penalty'
+            );
+            $paths[] = new restore_path_element(
+                'ssaeoi',
+                '/activity/selfselectadvanced/groups/group/eois/eoi'
             );
             $paths[] = new restore_path_element(
                 'ssaoverride',
@@ -221,6 +227,27 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
         $data->groupid = $this->get_new_parentid('ssagroup');
         $DB->insert_record('selfselectadvanced_penalty', $data);
+    }
+
+    /**
+     * Restore an expression of interest, keyed to its restored group.
+     * A guide that could not be mapped (removed from the site since the
+     * backup) drops the row rather than insert a not-null guideid as 0,
+     * exactly like a member row with no mappable user.
+     *
+     * @param array $data the row
+     */
+    protected function process_ssaeoi($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $data->activityid = $this->get_new_parentid('selfselectadvanced');
+        $data->groupid = $this->get_new_parentid('ssagroup');
+        $data->guideid = $this->get_mappingid('user', $data->guideid);
+        if (!$data->guideid) {
+            return;
+        }
+        $DB->insert_record('selfselectadvanced_eoi', $data);
     }
 
     /**

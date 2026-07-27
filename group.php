@@ -112,7 +112,11 @@ if ($isleaderforming && empty($group->successorid)) {
 
 $submitform = null;
 if ($isleaderforming && $api->gatekeeper()->can_submit($group, (int) $USER->id) === null) {
-    $leaderselects = (int) $activity->settings()->guidemode === 0;
+    // A guide already accepted through an expression of interest wins
+    // over the picker: the group goes straight to them on submit, so
+    // the form must not ask the leader to choose one (spec: EOI).
+    $eoipreassigned = !empty($group->guideid);
+    $leaderselects = !$eoipreassigned && (int) $activity->settings()->guidemode === 0;
     $guideoptions = [];
     if ($leaderselects) {
         foreach (
@@ -317,6 +321,80 @@ if ($action === 'confirmleave' && data_submitted() && confirm_sesskey()) {
         null,
         \core\output\notification::NOTIFY_SUCCESS
     );
+}
+
+if (($action === 'eoilist' || $action === 'eoiunlist') && data_submitted() && confirm_sesskey()) {
+    // Leader's listing toggle (spec: EOI). A plain field update: no
+    // events, no cache to purge, listing survives a guide stepping out.
+    if (!$isleaderforming) {
+        redirect(
+            $baseurl,
+            get_string('refusalwrongstate', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+    if (empty($activity->settings()->eoienabled)) {
+        redirect(
+            $baseurl,
+            get_string('refusaleoidisabled', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+    $listed = $action === 'eoilist' ? 1 : 0;
+    $update = (object) ['id' => $group->id, 'listed' => $listed];
+    if ($listed && empty($group->timelisted)) {
+        // Timelisted records only the FIRST time the team was listed.
+        $update->timelisted = time();
+    }
+    $DB->update_record('selfselectadvanced_group', $update);
+    redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
+}
+
+if ($action === 'eoirespond') {
+    // Leader (or a manage-capability holder) accepts or rejects one
+    // pending expression of interest. GET renders the confirmation
+    // page only; the decision itself arrives as the POST below.
+    $eoiid = required_param('eoiid', PARAM_INT);
+    $decision = required_param('decision', PARAM_ALPHA);
+    if (!in_array($decision, ['accept', 'reject'], true)) {
+        redirect($baseurl);
+    }
+    $ismanager = has_capability('mod/selfselectadvanced:manage', $context);
+    if ((int) $group->leaderid !== (int) $USER->id && !$ismanager) {
+        redirect($baseurl, get_string('refusalnotleader', 'mod_selfselectadvanced'), null, \core\output\notification::NOTIFY_ERROR);
+    }
+    // Ownership: the interest must belong to this group (IDOR rule, spec section 14.12).
+    $eoirow = \mod_selfselectadvanced\local\eoi::get($activity, $eoiid);
+    if ((int) $eoirow->groupid !== (int) $group->id) {
+        throw new moodle_exception('invalidparameter', 'debug');
+    }
+    if (data_submitted() && confirm_sesskey()) {
+        try {
+            \mod_selfselectadvanced\local\eoi::respond($activity, $eoiid, $decision === 'accept', (int) $USER->id);
+            $notice = $decision === 'accept'
+                ? get_string('eoistatusaccepted', 'mod_selfselectadvanced')
+                : get_string('eoistatusrejected', 'mod_selfselectadvanced');
+            redirect($baseurl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
+        } catch (moodle_exception $e) {
+            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        }
+    }
+    $guidename = fullname(\core_user::get_user((int) $eoirow->guideid));
+    echo $OUTPUT->header();
+    echo $OUTPUT->heading(get_string('guidelabel', 'mod_selfselectadvanced', $guidename), 4);
+    echo $OUTPUT->confirm(
+        get_string('areyousure'),
+        new single_button(
+            new moodle_url($baseurl, ['action' => 'eoirespond', 'eoiid' => $eoiid, 'decision' => $decision]),
+            get_string($decision === 'accept' ? 'accept' : 'decline', 'mod_selfselectadvanced'),
+            'post'
+        ),
+        $baseurl
+    );
+    echo $OUTPUT->footer();
+    die;
 }
 
 if ($action === 'freeze') {

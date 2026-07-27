@@ -408,6 +408,11 @@ function selfselectadvanced_extend_settings_navigation(settings_navigation $sett
             new moodle_url('/mod/selfselectadvanced/templates.php', ['id' => $cm->id]),
             navigation_node::TYPE_SETTING
         );
+        $node->add(
+            get_string('analyticspage', 'mod_selfselectadvanced'),
+            new moodle_url('/mod/selfselectadvanced/analytics.php', ['id' => $cm->id]),
+            navigation_node::TYPE_SETTING
+        );
     }
     if (has_capability('mod/selfselectadvanced:override', $context)) {
         $node->add(

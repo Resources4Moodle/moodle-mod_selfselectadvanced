@@ -111,6 +111,7 @@ class review_page implements renderable, templatable {
             'cmid' => $cmid,
             'groupid' => (int) $this->group->id,
             'backurl' => (new \moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cmid]))->out(false),
+            'formathtml' => FORMAT_HTML,
         ];
     }
 }

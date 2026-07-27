@@ -139,6 +139,63 @@ $PAGE->set_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
+// Step out of a pre-assigned forming team (EOI 1.11.0): GET shows the
+// confirm step naming the team, POST performs the step-out. Available
+// whenever a forming team happens to carry this guide's pre-assignment,
+// independent of the eoienabled switch - eoi::stepout() itself carries
+// no such gate, so a guide already committed can always release a team
+// even after the feature is later turned off.
+if ($action === 'stepout') {
+    $stepoutgroupid = required_param('g', PARAM_INT);
+    $stepoutgroup = \mod_selfselectadvanced\local\groups::get($activity, $stepoutgroupid);
+
+    if (
+        (int) $stepoutgroup->guideid !== (int) $USER->id
+        || $stepoutgroup->state !== \mod_selfselectadvanced\local\state::FORMING
+    ) {
+        redirect(
+            new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
+            get_string('refusaleoinotassigned', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+
+    if (data_submitted() && confirm_sesskey()) {
+        try {
+            \mod_selfselectadvanced\local\eoi::stepout($activity, $stepoutgroup->id, (int) $USER->id);
+            redirect(
+                new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
+                get_string('changessaved'),
+                null,
+                \core\output\notification::NOTIFY_SUCCESS
+            );
+        } catch (moodle_exception $e) {
+            redirect(
+                new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
+                $e->getMessage(),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        }
+    }
+
+    echo $OUTPUT->header();
+    echo $OUTPUT->confirm(
+        get_string('eoistepoutconfirm', 'mod_selfselectadvanced', format_string($stepoutgroup->name)),
+        new single_button(
+            new moodle_url('/mod/selfselectadvanced/guide.php', [
+                'id' => $cm->id, 'action' => 'stepout', 'g' => $stepoutgroup->id,
+            ]),
+            get_string('eoistepout', 'mod_selfselectadvanced'),
+            'post'
+        ),
+        new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id])
+    );
+    echo $OUTPUT->footer();
+    die;
+}
+
 $mygroups = $DB->get_records_select(
     'selfselectadvanced_group',
     'activityid = :activityid AND guideid = :guideid',
@@ -148,9 +205,51 @@ $mygroups = $DB->get_records_select(
 
 $resolver = $api->gatekeeper()->resolver();
 $load = (object) [
-    'used' => \mod_selfselectadvanced\local\groups::count_guiding($activity, (int) $USER->id),
+    // Commitments, not just guided states: a forming team whose leader
+    // accepted this guide is real load, so both the load line and the
+    // stat card quote the same figure.
+    'used' => \mod_selfselectadvanced\local\eoi::guide_commitments($activity, (int) $USER->id),
     'max' => $resolver->effective_maxguided((int) $USER->id)->value,
 ];
+
+// Pick-a-team stat cards (EOI 1.11.0): guiding links to the existing
+// guideload.php drill-down, the other three to eoilist.php filtered to
+// exactly the status the card names.
+$eoienabled = !empty($activity->settings()->eoienabled);
+$eoicards = [];
+if ($eoienabled) {
+    $eoicounts = \mod_selfselectadvanced\local\eoi::counts($activity, (int) $USER->id);
+    $eoicards = [
+        (object) [
+            'label' => get_string('eoicardguiding', 'mod_selfselectadvanced'),
+            'number' => $eoicounts->guiding,
+            'url' => (new moodle_url('/mod/selfselectadvanced/guideload.php', [
+                'id' => $cm->id, 'guide' => $USER->id,
+            ]))->out(false),
+        ],
+        (object) [
+            'label' => get_string('eoicardpending', 'mod_selfselectadvanced'),
+            'number' => $eoicounts->pending,
+            'url' => (new moodle_url('/mod/selfselectadvanced/eoilist.php', [
+                'id' => $cm->id, 'status' => 'pending',
+            ]))->out(false),
+        ],
+        (object) [
+            'label' => get_string('eoicardexpired', 'mod_selfselectadvanced'),
+            'number' => $eoicounts->expired,
+            'url' => (new moodle_url('/mod/selfselectadvanced/eoilist.php', [
+                'id' => $cm->id, 'status' => 'expired',
+            ]))->out(false),
+        ],
+        (object) [
+            'label' => get_string('eoicardrejected', 'mod_selfselectadvanced'),
+            'number' => $eoicounts->rejected,
+            'url' => (new moodle_url('/mod/selfselectadvanced/eoilist.php', [
+                'id' => $cm->id, 'status' => 'rejected',
+            ]))->out(false),
+        ],
+    ];
+}
 
 // Guide volunteering (1.7.0): own status line, call-to-action when
 // never volunteered, and the grandfathered note when the declared
@@ -264,6 +363,15 @@ foreach ($mygroups as $group) {
             'g' => $group->id,
             'action' => 'freeze',
         ]))->out(false);
+        // EOI pre-assignment (1.11.0): a forming team can now carry a
+        // guideid before it is ever submitted, via an accepted interest.
+        // It has no review to do yet, only the option to step out.
+        $row->isformingassigned = $group->state === \mod_selfselectadvanced\local\state::FORMING;
+        $row->stepouturl = (new moodle_url('/mod/selfselectadvanced/guide.php', [
+            'id' => $cm->id,
+            'action' => 'stepout',
+            'g' => $group->id,
+        ]))->out(false);
         $guided[] = $row;
     }
 }
@@ -329,6 +437,10 @@ echo $OUTPUT->render_from_template('mod_selfselectadvanced/guide_dashboard', (ob
     'loadline' => get_string('guideloadheader', 'mod_selfselectadvanced', $load),
     'showvolunteer' => $showvolunteer,
     'volunteer' => $volunteer,
+    'eoienabled' => $eoienabled,
+    'eoicards' => $eoicards,
+    'haseoicards' => !empty($eoicards),
+    'pickteamurl' => (new moodle_url('/mod/selfselectadvanced/pickteam.php', ['id' => $cm->id]))->out(false),
     'queue' => $queue,
     'hasqueue' => !empty($queue),
     'guided' => $guided,

@@ -28,6 +28,11 @@ use mod_selfselectadvanced\local\notifier;
  * message is sent; sending happens outside any transaction, exactly
  * like every other notification in this plugin.
  *
+ * Each recipient is flushed inside its own try/catch: one failure is
+ * logged and skipped (its rows stay queued for the next pass) rather
+ * than aborting every other recipient's digest in the same run. The
+ * task throws only when EVERY recipient failed.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -50,6 +55,8 @@ class send_digests extends \core\task\scheduled_task {
 
         $now = time();
         $activities = [];
+        $sent = 0;
+        $failed = 0;
         $userids = $DB->get_fieldset_sql('SELECT DISTINCT userid FROM {selfselectadvanced_digestq}');
         foreach ($userids as $userid) {
             $userid = (int) $userid;
@@ -68,9 +75,29 @@ class send_digests extends \core\task\scheduled_task {
                 continue;
             }
 
-            $this->send_one_digest($userid, $rows, $activities);
-            $DB->delete_records_list('selfselectadvanced_digestq', 'id', array_keys($rows));
-            mtrace("mod_selfselectadvanced: sent a digest of " . count($rows) . " item(s) to user $userid");
+            // One recipient's failure (a deleted account, a messaging
+            // backend hiccup) must not abort every other user's digest
+            // in the same run; the row is left queued so nothing is
+            // silently lost, and the next scheduled pass retries it.
+            try {
+                $this->send_one_digest($userid, $rows, $activities);
+                $DB->delete_records_list('selfselectadvanced_digestq', 'id', array_keys($rows));
+                $sent++;
+                mtrace("mod_selfselectadvanced: sent a digest of " . count($rows) . " item(s) to user $userid");
+            } catch (\Throwable $e) {
+                $failed++;
+                mtrace("mod_selfselectadvanced: send_digests failed to notify user $userid: " . $e->getMessage());
+            }
+        }
+
+        if ($failed > 0 && $sent === 0) {
+            // A scheduled task failing this run is not itself a
+            // problem (the next pass tries again); only escalate when
+            // NOTHING got through, so a genuinely broken run is still
+            // visible in the admin task log rather than failing silently.
+            throw new \RuntimeException(
+                "mod_selfselectadvanced: send_digests could not deliver any of $failed queued digest(s)"
+            );
         }
     }
 

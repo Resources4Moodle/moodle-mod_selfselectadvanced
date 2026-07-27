@@ -1,0 +1,77 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/pickteam
+
+    Pick a team (EOI 1.11.0): listed, still-forming, guideless teams as
+    cards, most-interested-first after listing order.
+
+    Context variables required for this template:
+    * heading - page heading string
+    * hascards - whether any team is currently listed
+    * cards - groupid, name, topic, leadername, membercount, interestline,
+      showpeers, peernames, pickurl
+    * backurl - link back to the guide dashboard
+
+    Example context (json):
+    {
+        "heading": "Team listing and guide interest",
+        "hascards": true,
+        "cards": [
+            {
+                "groupid": 1,
+                "name": "Team Alpha",
+                "topic": "Pendulums",
+                "leadername": "Amrita Iyer",
+                "membercount": 4,
+                "interestline": "2 guide(s) interested",
+                "showpeers": true,
+                "peernames": "Grace Guide, Hari Guide",
+                "pickurl": "https://example.com/mod/selfselectadvanced/pickteam.php?id=1&action=express&g=1"
+            }
+        ],
+        "backurl": "https://example.com/mod/selfselectadvanced/guide.php?id=1"
+    }
+}}
+<div class="selfselectadvanced-pickteam">
+    <h2>{{heading}}</h2>
+
+    {{#hascards}}
+        <div class="ssa-cards">
+            {{#cards}}
+                <div class="ssa-card">
+                    <h3>{{name}}</h3>
+                    <p>{{topic}}</p>
+                    <p>{{#str}} leader, mod_selfselectadvanced {{/str}}: {{leadername}}</p>
+                    <p>{{#str}} size, mod_selfselectadvanced {{/str}}: {{membercount}}</p>
+                    <p>{{interestline}}</p>
+                    {{#showpeers}}
+                        <p class="text-muted">{{peernames}}</p>
+                    {{/showpeers}}
+                    <a class="btn btn-primary btn-sm" href="{{pickurl}}">
+                        {{#str}} eoipickteam, mod_selfselectadvanced {{/str}}
+                    </a>
+                </div>
+            {{/cards}}
+        </div>
+    {{/hascards}}
+    {{^hascards}}
+        <p class="text-muted">{{#str}} nogroupsyet, mod_selfselectadvanced {{/str}}</p>
+    {{/hascards}}
+
+    <a href="{{backurl}}" class="btn btn-secondary mt-3">{{#str}} back {{/str}}</a>
+</div>

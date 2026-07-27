@@ -17,13 +17,17 @@
 /**
  * Backup structure for mod_selfselectadvanced (spec 14.11).
  *
- * Included: instance settings, quota rules; with userinfo also groups,
- * members, snapshots, user/group/guide-scope overrides, volunteered
- * guiding capacity (1.7.0), penalties and queued digest notifications
- * (1.8.0). EXCLUDED by design and documented (review item M2): agrun
- * logs (operational) and staged moves (transient manager state - a
- * restore must never replay half-staged edits). Site-wide participant
- * attributes are not course data and are never in course backups.
+ * Included: instance settings (now also guide volunteering and the
+ * team-listing/EOI settings, previously missing from this list); with
+ * userinfo also groups (now carrying returncommentformat, listed and
+ * timelisted), members, snapshots, user/group/guide-scope overrides,
+ * volunteered guiding capacity (1.7.0), penalties, queued digest
+ * notifications (1.8.0) and guide expressions of interest keyed to
+ * their group (1.11.0). EXCLUDED by design and documented (review item
+ * M2): agrun logs (operational) and staged moves (transient manager
+ * state - a restore must never replay half-staged edits). Site-wide
+ * participant attributes are not course data and are never in course
+ * backups.
  *
  * The queued digest rows are transient per-user data, carried across
  * exactly like the volunteer table: the stored contexturl and JSON
@@ -52,7 +56,9 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'name', 'intro', 'introformat', 'grade', 'minsize', 'maxsize', 'maxlead',
             'maxmembership', 'maxguided', 'timeopen', 'timedue', 'timecutoff',
             'penaltytype', 'penaltyperday', 'guidemode', 'inviteexpiry', 'autogroup', 'proposalrequired',
-            'guidewindow', 'guideautoapprove', 'minmembership', 'defaulterpenalty', 'incompletepenalty', 'leadershare',
+            'guidewindow', 'guideautoapprove', 'guidevolunteer',
+            'eoienabled', 'eoiwindow', 'eoimax', 'eoisequential', 'eoipeers',
+            'minmembership', 'defaulterpenalty', 'incompletepenalty', 'leadershare',
             'timecreated', 'timemodified',
         ]);
         $quotas = new backup_nested_element('quotas');
@@ -63,7 +69,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $group = new backup_nested_element('group', ['id'], [
             'pluginuid', 'name', 'title', 'brief', 'briefformat', 'leaderid', 'guideid',
             'state', 'autoformed', 'successorid', 'successortype', 'timenominated',
-            'returncomment', 'guidenotes', 'guidenotesformat', 'timesubmitted', 'timeapproved', 'timefrozen', 'coregroupid',
+            'returncomment', 'returncommentformat', 'listed', 'timelisted',
+            'guidenotes', 'guidenotesformat', 'timesubmitted', 'timeapproved', 'timefrozen', 'coregroupid',
             'timecreated', 'timemodified',
         ]);
         $members = new backup_nested_element('members');
@@ -100,6 +107,10 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $digestitem = new backup_nested_element('digestitem', ['id'], [
             'userid', 'groupid', 'provider', 'subjectkey', 'bodykey', 'payload', 'contexturl', 'timecreated',
         ]);
+        $eois = new backup_nested_element('eois');
+        $eoi = new backup_nested_element('eoi', ['id'], [
+            'guideid', 'status', 'remarks', 'remarksformat', 'timecreated', 'timeresponded',
+        ]);
 
         $activity->add_child($quotas);
         $quotas->add_child($quota);
@@ -114,6 +125,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $group->add_child($snapshots);
         $snapshots->add_child($snapshot);
         $group->add_child($penalty);
+        $group->add_child($eois);
+        $eois->add_child($eoi);
         $activity->add_child($overrides);
         $overrides->add_child($override);
         $activity->add_child($volunteers);
@@ -130,6 +143,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             $member->set_source_table('selfselectadvanced_member', ['groupid' => backup::VAR_PARENTID]);
             $snapshot->set_source_table('selfselectadvanced_snapshot', ['groupid' => backup::VAR_PARENTID]);
             $penalty->set_source_table('selfselectadvanced_penalty', ['groupid' => backup::VAR_PARENTID]);
+            $eoi->set_source_table('selfselectadvanced_eoi', ['groupid' => backup::VAR_PARENTID]);
             // Move-scope override rows are skipped with their moves (M2).
             $override->set_source_sql(
                 "SELECT * FROM {selfselectadvanced_override}
@@ -151,6 +165,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $override->annotate_ids('user', 'userid');
         $volunteer->annotate_ids('user', 'userid');
         $digestitem->annotate_ids('user', 'userid');
+        $eoi->annotate_ids('user', 'guideid');
 
         // Proposal documents travel with their group (itemid = group id).
         $group->annotate_files('mod_selfselectadvanced', 'proposal', 'id');

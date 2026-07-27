@@ -110,8 +110,21 @@ if ($action === 'saveaward' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'returngroup' && data_submitted() && confirm_sesskey()) {
-    $comment = required_param('comment', PARAM_TEXT);
-    $api->lifecycle()->return_group($group, $comment, (int) $USER->id);
+    // Rich-text return comment (editor element, maxfiles=0): the comment
+    // itself still goes through the core lifecycle gate in state.php, and
+    // its text format is saved as a companion field here, the same
+    // two-step pattern already used for guide notes above.
+    $comment = required_param('comment', PARAM_RAW);
+    $commentformat = optional_param('commentformat', FORMAT_HTML, PARAM_INT);
+    try {
+        $api->lifecycle()->return_group($group, $comment, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+    $DB->update_record('selfselectadvanced_group', (object) [
+        'id' => $group->id,
+        'returncommentformat' => $commentformat,
+    ]);
     redirect(
         $queueurl,
         get_string('groupreturnednotice', 'mod_selfselectadvanced', $group->pluginuid),
@@ -124,6 +137,18 @@ $page = new \mod_selfselectadvanced\output\review_page($api, $group, (int) $USER
 
 echo $OUTPUT->header();
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/review_page', $page->export_for_template($OUTPUT));
+
+// Upgrade the return-comment textarea rendered by the template above into
+// a rich-text editor. This is a no-op when the assigned-guide markup is
+// absent (the template only renders it for the assigned guide), so it is
+// safe to call unconditionally.
+editors_head_setup();
+$returneditor = editors_get_preferred_editor(FORMAT_HTML);
+$returneditor->set_text('');
+$returneditor->use_editor(
+    'selfselectadvanced-returncomment-' . $group->id,
+    ['context' => $context, 'autosave' => false]
+);
 
 // Proposal (read) + guide notes (rich text, guide/manager only).
 $fs = get_file_storage();

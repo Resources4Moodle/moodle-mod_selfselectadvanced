@@ -76,11 +76,12 @@
                                 <td>{{target}}</td>
                                 <td>
                                     {{#chips}}
-                                        <span class="badge {{#ok}}bg-success{{/ok}}{{^ok}}{{#bypassed}}bg-warning text-dark{{/bypassed}}{{^bypassed}}bg-danger{{/bypassed}}{{/ok}}"
-                                            title="{{reason}}">
-                                            {{rule}}{{#bypassed}} {{#str}} movebypassed, mod_selfselectadvanced {{/str}}{{/bypassed}}
-                                        </span>
-                                        <span class="visually-hidden">{{reason}}</span>
+                                        <div class="ssa-rulechip">
+                                            <span class="badge {{#ok}}bg-success{{/ok}}{{^ok}}{{#bypassed}}bg-warning text-dark{{/bypassed}}{{^bypassed}}bg-danger{{/bypassed}}{{/ok}}">
+                                                {{rule}}{{#bypassed}} {{#str}} movebypassed, mod_selfselectadvanced {{/str}}{{/bypassed}}
+                                            </span>
+                                            <small class="ssa-rulechip-reason d-block text-muted">{{reason}}</small>
+                                        </div>
                                     {{/chips}}
                                 </td>
                                 <td></td>

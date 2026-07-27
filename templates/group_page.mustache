@@ -48,6 +48,26 @@
             {"memberid": 3, "fullname": "Cara Invitee", "invitedon": "Wednesday, 22 July"}
         ],
         "showrespond": false,
+        "eoienabled": true,
+        "listed": true,
+        "showeoitoggle": true,
+        "showeoipanel": true,
+        "caneoirespond": true,
+        "eoiassigned": false,
+        "eoiinterestline": "2 guide(s) have shown interest in this team.",
+        "haseoirows": true,
+        "eoirows": [
+            {
+                "eoiid": 5,
+                "guidename": "Gina Guide",
+                "remarks": "<p>Happy to help with this topic.</p>",
+                "timecreated": "Wednesday, 22 July",
+                "statuslabel": "Awaiting the leader",
+                "ispending": true,
+                "accepturl": "https://example.com/mod/selfselectadvanced/group.php?...&decision=accept",
+                "rejecturl": "https://example.com/mod/selfselectadvanced/group.php?...&decision=reject"
+            }
+        ],
         "sesskey": "abc",
         "actionurl": "https://example.com/mod/selfselectadvanced/group.php",
         "cmid": 1,
@@ -85,6 +105,80 @@
             <p class="mb-0">{{{returncomment}}}</p>
         </div>
     {{/returncomment}}
+
+    {{#eoiassigned}}
+        <div class="alert alert-success selfselectadvanced-eoiassigned">
+            {{#str}} eoiassignedguide, mod_selfselectadvanced, {{guidename}} {{/str}}
+        </div>
+    {{/eoiassigned}}
+
+    {{#eoienabled}}
+        <div class="selfselectadvanced-eoi mb-3">
+            <h4>{{#str}} eoisettings, mod_selfselectadvanced {{/str}}</h4>
+            {{#listed}}
+                <span class="badge bg-success">{{#str}} eoilistedbadge, mod_selfselectadvanced {{/str}}</span>
+                {{#showeoitoggle}}
+                    <form method="post" action="{{actionurl}}" class="d-inline ms-2">
+                        <input type="hidden" name="id" value="{{cmid}}">
+                        <input type="hidden" name="g" value="{{groupid}}">
+                        <input type="hidden" name="action" value="eoiunlist">
+                        <input type="hidden" name="sesskey" value="{{sesskey}}">
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">
+                            {{#str}} eoiunlisttoggle, mod_selfselectadvanced {{/str}}
+                        </button>
+                    </form>
+                {{/showeoitoggle}}
+            {{/listed}}
+            {{^listed}}
+                {{#showeoitoggle}}
+                    <form method="post" action="{{actionurl}}" class="d-inline">
+                        <input type="hidden" name="id" value="{{cmid}}">
+                        <input type="hidden" name="g" value="{{groupid}}">
+                        <input type="hidden" name="action" value="eoilist">
+                        <input type="hidden" name="sesskey" value="{{sesskey}}">
+                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                            {{#str}} eoilisttoggle, mod_selfselectadvanced {{/str}}
+                        </button>
+                    </form>
+                {{/showeoitoggle}}
+            {{/listed}}
+
+            {{#eoiinterestline}}
+                <p class="mb-1 mt-2">{{eoiinterestline}}</p>
+            {{/eoiinterestline}}
+
+            {{#showeoipanel}}
+                {{#haseoirows}}
+                    <ul class="list-group mt-2 selfselectadvanced-eoirows">
+                        {{#eoirows}}
+                            <li class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-start flex-wrap">
+                                    <div>
+                                        <strong>{{guidename}}</strong>
+                                        <span class="badge bg-secondary ms-2">{{statuslabel}}</span>
+                                        <span class="d-block text-muted small">{{timecreated}}</span>
+                                        {{#remarks}}<div class="small mt-1">{{{remarks}}}</div>{{/remarks}}
+                                    </div>
+                                    {{#ispending}}
+                                        {{#caneoirespond}}
+                                            <div class="mt-1">
+                                                <a href="{{accepturl}}" class="btn btn-primary btn-sm">
+                                                    {{#str}} accept, mod_selfselectadvanced {{/str}}
+                                                </a>
+                                                <a href="{{rejecturl}}" class="btn btn-secondary btn-sm ms-1">
+                                                    {{#str}} decline, mod_selfselectadvanced {{/str}}
+                                                </a>
+                                            </div>
+                                        {{/caneoirespond}}
+                                    {{/ispending}}
+                                </div>
+                            </li>
+                        {{/eoirows}}
+                    </ul>
+                {{/haseoirows}}
+            {{/showeoipanel}}
+        </div>
+    {{/eoienabled}}
 
     {{#canrequestleave}}
         <form method="post" action="{{actionurl}}" class="d-inline mb-2">
@@ -230,6 +324,9 @@
 
     {{#showsubmit}}
         <h4>{{#str}} submittoguide, mod_selfselectadvanced {{/str}}</h4>
+        {{#eoiassigned}}
+            <p class="text-muted small">{{#str}} eoisubmitassigned, mod_selfselectadvanced, {{guidename}} {{/str}}</p>
+        {{/eoiassigned}}
         {{{submitformhtml}}}
     {{/showsubmit}}
     {{#submitblockedreason}}
