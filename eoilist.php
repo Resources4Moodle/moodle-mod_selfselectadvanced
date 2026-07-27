@@ -194,7 +194,8 @@ if ($viewgroup > 0) {
         }));
     }
     if (in_array($msort, $sortable, true)) {
-        usort($members, static fn($a, $b) => \core_collator::compare((string) $a->$msort, (string) $b->$msort));
+        \core_collator::asort_objects_by_property($members, $msort);
+        $members = array_values($members);
         if ($mdir) {
             $members = array_reverse($members);
         }
