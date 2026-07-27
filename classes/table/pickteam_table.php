@@ -45,6 +45,9 @@ class pickteam_table extends \table_sql {
     /** @var int The course module id, for the name/action links. */
     private int $cmid;
 
+    /** @var bool Whether the viewing guide has remaining guiding capacity (3b-iii); disables the Pick control when false. */
+    private bool $hasbandwidth;
+
     /**
      * Constructor.
      *
@@ -53,19 +56,22 @@ class pickteam_table extends \table_sql {
      * @param \moodle_url $baseurl page url (with the active filter)
      * @param string $rq keyword filter over the team name or topic, '' = none
      * @param bool $sequential the activity's eoisequential setting: omits the interested column when true
+     * @param bool $hasbandwidth the viewing guide's remaining capacity (eoi::remaining_capacity() > 0)
      */
     public function __construct(
         string $uniqueid,
         activity $activity,
         \moodle_url $baseurl,
         string $rq,
-        bool $sequential
+        bool $sequential,
+        bool $hasbandwidth = true
     ) {
         global $DB;
 
         parent::__construct($uniqueid);
 
         $this->cmid = $activity->cm()->id;
+        $this->hasbandwidth = $hasbandwidth;
 
         $columns = ['name', 'topic', 'leader', 'members'];
         $headers = [
@@ -208,10 +214,23 @@ class pickteam_table extends \table_sql {
     /**
      * Pick-this-team action, linking to the single-team pick view.
      *
+     * Disabled (3b-iii) once the viewing guide has no remaining
+     * guiding capacity: eoi::express() would only refuse it server-side,
+     * so the control is never offered live in the first place.
+     *
      * @param \stdClass $row table row
      * @return string
      */
     public function col_action($row) {
+        if (!$this->hasbandwidth) {
+            return \html_writer::tag('button', get_string('eoipickteam', 'mod_selfselectadvanced'), [
+                'type' => 'button',
+                'class' => 'btn btn-primary btn-sm',
+                'disabled' => 'disabled',
+                'aria-disabled' => 'true',
+            ]);
+        }
+
         $url = new \moodle_url('/mod/selfselectadvanced/pickteam.php', ['id' => $this->cmid, 'g' => $row->id]);
 
         return \html_writer::link(

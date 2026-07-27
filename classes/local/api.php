@@ -75,6 +75,15 @@ class api {
     }
 
     /**
+     * The guide handover engine (nominate, accept, decline, cancel).
+     *
+     * @return handover
+     */
+    public function handover(): handover {
+        return new handover($this->activity, $this->gatekeeper);
+    }
+
+    /**
      * The succession engine (transfer and step-out).
      *
      * @return succession

@@ -35,6 +35,7 @@
         "seatsummary": "2 of 6 seats filled, 1 invitation pending",
         "minsizenote": "Minimum group size: 4 confirmed members",
         "hasroster": true,
+        "showmobilecaution": false,
         "rosterhead": [{"url": "#", "label": "First name", "ascending": false, "descending": false}],
         "rosterfilter": "",
         "rosterfilteraction": "https://example.com/mod/selfselectadvanced/group.php",
@@ -282,6 +283,9 @@
                 </tbody>
             </table>
         </div>
+        {{#showmobilecaution}}
+            <p class="text-muted small">{{#str}} mobilecaution, mod_selfselectadvanced {{/str}}</p>
+        {{/showmobilecaution}}
     {{/hasroster}}
 
     {{#haspendinginvites}}

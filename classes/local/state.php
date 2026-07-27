@@ -192,23 +192,40 @@ final class state {
             $transaction = $DB->start_delegated_transaction();
 
             $fresh = groups::get($this->activity, (int) $group->id);
-            if ($fresh->state !== self::PENDING_GUIDE) {
-                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+            if (!in_array($fresh->state, [self::PENDING_GUIDE, self::FIRM, self::FROZEN], true)) {
+                throw new \moodle_exception('refusalreassignstate', 'mod_selfselectadvanced');
             }
+            $oldguide = (int) $fresh->guideid;
             // Re-assigning the guide the group already has is a no-op
             // cap-wise: their slot is held by this very group, so the
             // gate would falsely refuse a guide at capacity.
             if (
-                (int) $fresh->guideid !== (int) $guideid
+                $oldguide !== (int) $guideid
                 && ($refusal = $this->gatekeeper->can_take_guide($guideid))
             ) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $fresh->guideid = $guideid;
+            // A manager reassignment supersedes any pending handover.
+            $fresh->guidesuccessorid = null;
+            $fresh->timeguidenominated = null;
             $fresh->usermodified = $actorid;
             $fresh->timemodified = time();
             $DB->update_record('selfselectadvanced_group', $fresh);
+
+            if ($oldguide && $oldguide !== (int) $guideid) {
+                \mod_selfselectadvanced\event\guide_reassigned::create([
+                    'objectid' => $fresh->id,
+                    'context' => $this->activity->context(),
+                    'relateduserid' => $guideid,
+                    'other' => [
+                        'pluginuid' => $fresh->pluginuid,
+                        'fromguideid' => $oldguide,
+                        'via' => 'reassign',
+                    ],
+                ])->trigger();
+            }
 
             // Reset via the preferences API, not raw deletes - a
             // direct table delete leaves each guide's preference
@@ -223,20 +240,30 @@ final class state {
             $guidelock->release();
         }
 
-        notifier::send(
-            $this->activity,
-            'guidequeue',
-            $guideid,
-            'msgsubmittedsubject',
-            'msgsubmittedbody',
-            (object) [
-                'group' => format_string($fresh->name),
-                'pluginuid' => $fresh->pluginuid,
-                'activity' => $this->activity->name(),
-            ],
-            $this->review_url((int) $fresh->id),
-            format_string($fresh->name)
-        );
+        $a = (object) [
+            'group' => format_string($fresh->name),
+            'pluginuid' => $fresh->pluginuid,
+            'newguide' => fullname(\core_user::get_user($guideid)),
+            'activity' => $this->activity->name(),
+        ];
+        if ($fresh->state === self::PENDING_GUIDE) {
+            // A queued group lands in the guide's review queue.
+            notifier::send($this->activity, 'guidequeue', $guideid, 'msgsubmittedsubject',
+                'msgsubmittedbody', $a, $this->review_url((int) $fresh->id), format_string($fresh->name));
+        } else {
+            notifier::send($this->activity, 'guidequeue', $guideid, 'msgnowguidingsubject',
+                'msgnowguidingbody', $a, $this->review_url((int) $fresh->id), format_string($fresh->name));
+        }
+        if ($oldguide && $oldguide !== (int) $guideid) {
+            $groupurl = new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $this->activity->cm()->id,
+                'g' => (int) $fresh->id,
+            ]);
+            notifier::send($this->activity, 'guidechanged', $oldguide, 'msgguidechangedsubject',
+                'msgguidechangedbody', $a, $groupurl, format_string($fresh->name));
+            notifier::send($this->activity, 'guidechanged', (int) $fresh->leaderid, 'msgguidechangedsubject',
+                'msgguidechangedbody', $a, $groupurl, format_string($fresh->name));
+        }
 
         return $fresh;
     }

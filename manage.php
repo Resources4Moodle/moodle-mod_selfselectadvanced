@@ -131,6 +131,46 @@ foreach ($unassigned as $group) {
     ];
 }
 
+// UX audit item 6a: groups already holding a guide need the same
+// picker, posting through the same assignguide action — the backend
+// accepts reassignment in every submitted-or-later state (a firm or
+// frozen team's guide change is a manager act; the leader/guides are
+// notified and any pending handover is superseded).
+$reassignable = $DB->get_records_select(
+    'selfselectadvanced_group',
+    "activityid = :activityid AND state IN (:pending, :firm, :frozen) AND guideid IS NOT NULL",
+    [
+        'activityid' => $activity->id(),
+        'pending' => \mod_selfselectadvanced\local\state::PENDING_GUIDE,
+        'firm' => \mod_selfselectadvanced\local\state::FIRM,
+        'frozen' => \mod_selfselectadvanced\local\state::FROZEN,
+    ],
+    'timesubmitted ASC'
+);
+$reassignqueue = [];
+foreach ($reassignable as $group) {
+    $reassignqueue[] = (object) [
+        'groupid' => (int) $group->id,
+        'pluginuid' => $group->pluginuid,
+        'name' => format_string($group->name),
+        'title' => format_string($group->title),
+        'size' => \mod_selfselectadvanced\local\groups::count_confirmed((int) $group->id),
+    ];
+}
+
+// UX audit item 6c: the guide-loads section was a permanently empty
+// shell. $includeunavailable = true so a guide who has not volunteered
+// still shows up here (this list is informational, not a picker).
+$guideloads = [];
+foreach (\mod_selfselectadvanced\local\guides::with_load($activity, $api->gatekeeper()->resolver(), true) as $guide) {
+    $guideloads[] = (object) [
+        'fullname' => $guide->fullname,
+        'used' => $guide->used,
+        'max' => $guide->max,
+        'label' => $guide->label,
+    ];
+}
+
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('managerdashboard', 'mod_selfselectadvanced'));
 
@@ -138,12 +178,14 @@ echo $OUTPUT->heading(get_string('managerdashboard', 'mod_selfselectadvanced'));
 $links = [
     ['quotas.php', 'composition'],
     ['moves.php', 'pendingmoves'],
+    ['moveedit.php', 'movestudents'],
     ['overrides.php', 'overrides'],
     ['ledger.php', 'penaltyledger'],
     ['flagged.php', 'flaggedreport'],
     ['templates.php', 'notificationtemplates'],
     ['guidelist.php', 'guidelist'],
     ['roster.php', 'roster'],
+    ['gridreport.php', 'gridreport'],
 ];
 $linkhtml = '';
 foreach ($links as [$file, $stringkey]) {
@@ -202,13 +244,17 @@ $groupstable->out($perpage, true);
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/manage_queue', (object) [
     'queue' => $queue,
     'hasqueue' => !empty($queue),
+    'reassignqueue' => $reassignqueue,
+    'hasreassignqueue' => !empty($reassignqueue),
     'guideoptions' => $guideoptions,
     'hasguideoptions' => !empty($guideoptions),
-    'guideloads' => [],
-    'hasguideloads' => false,
+    'guideloads' => $guideloads,
+    'hasguideloads' => !empty($guideloads),
     'sesskey' => sesskey(),
     'cmid' => $cm->id,
     'actionurl' => $baseurl->out(false),
+    'overridesurl' => (new moodle_url('/mod/selfselectadvanced/overrides.php', ['id' => $cm->id]))->out(false),
+    'guidelisturl' => (new moodle_url('/mod/selfselectadvanced/guidelist.php', ['id' => $cm->id]))->out(false),
     'backurl' => (new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]))->out(false),
 ]);
 echo $OUTPUT->footer();

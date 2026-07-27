@@ -22,6 +22,14 @@
     Context variables required for this template:
     * hasrows - whether pending moves exist
     * sesskey - session key
+    * rows.allok - whether the row's commit checkbox defaults to checked
+    * rows.restageurl - the per-row "Edit and restage" link target
+
+    Each row's Cancel control is a button in the Actions cell whose
+    form="" attribute targets a same-named, empty <form> rendered AFTER
+    the main commit form (a <form> cannot nest inside the commit form's
+    <table>, so the button and its form are split apart and reconnected
+    via the HTML5 form="" attribute, which keeps the markup valid).
 
     Example context (json):
     {
@@ -29,7 +37,8 @@
         "rows": [
             {"moveid": 1, "user": "Sam One", "source": "Team A", "target": "Team B",
              "makeleader": false, "allok": true,
-             "chips": [{"rule": "L2", "ok": true, "bypassed": false, "reason": "5 of 6 after"}]}
+             "chips": [{"rule": "L2", "ok": true, "bypassed": false, "reason": "5 of 6 after"}],
+             "restageurl": "https://example.com/mod/selfselectadvanced/moveedit.php?id=1&student=2"}
         ],
         "stageurl": "https://example.com/mod/selfselectadvanced/moveedit.php?id=1",
         "actionurl": "https://example.com/mod/selfselectadvanced/moves.php?id=1",
@@ -63,7 +72,7 @@
                         {{#rows}}
                             <tr>
                                 <td>
-                                    <input type="checkbox" name="selected[]" value="{{moveid}}" checked
+                                    <input type="checkbox" name="selected[]" value="{{moveid}}" {{#allok}}checked{{/allok}}
                                         aria-label="{{#str}} select {{/str}} {{user}}">
                                 </td>
                                 <td>
@@ -84,7 +93,15 @@
                                         </div>
                                     {{/chips}}
                                 </td>
-                                <td></td>
+                                <td>
+                                    <a href="{{restageurl}}" class="btn btn-outline-primary btn-sm">
+                                        {{#str}} moveeditrestage, mod_selfselectadvanced {{/str}}
+                                    </a>
+                                    <button type="submit" form="cancelmove-{{moveid}}"
+                                        class="btn btn-outline-secondary btn-sm">
+                                        {{#str}} movecancel, mod_selfselectadvanced, {{user}} {{/str}}
+                                    </button>
+                                </td>
                             </tr>
                         {{/rows}}
                     </tbody>
@@ -93,14 +110,11 @@
             <button type="submit" class="btn btn-primary">{{#str}} movecommitselected, mod_selfselectadvanced {{/str}}</button>
         </form>
         {{#rows}}
-            <form method="post" action="{{actionurl}}" class="d-inline">
+            <form method="post" action="{{actionurl}}" id="cancelmove-{{moveid}}">
                 <input type="hidden" name="id" value="{{cmid}}">
                 <input type="hidden" name="action" value="cancel">
                 <input type="hidden" name="move" value="{{moveid}}">
                 <input type="hidden" name="sesskey" value="{{sesskey}}">
-                <button type="submit" class="btn btn-outline-secondary btn-sm mt-2">
-                    {{#str}} movecancel, mod_selfselectadvanced, {{user}} {{/str}}
-                </button>
             </form>
         {{/rows}}
     {{/hasrows}}

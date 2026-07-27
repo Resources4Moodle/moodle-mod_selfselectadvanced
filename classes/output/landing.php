@@ -81,6 +81,24 @@ class landing implements renderable, templatable {
             'actionurl' => (new \moodle_url('/mod/selfselectadvanced/group.php'))->out(false),
         ];
 
+        // Mobile-sharing consent widget: shown to any viewer who holds a
+        // userattr record with a non-empty mobile, regardless of role.
+        // No record, or a record with no mobile, renders nothing.
+        $data->showconsent = false;
+        $attr = \mod_selfselectadvanced\local\attributes\manager::get($this->userid);
+        if ($attr !== null && !empty($attr->mobile)) {
+            $data->showconsent = true;
+            $data->consentgranted = !empty($attr->shareconsent);
+            $data->consentstatus = $data->consentgranted
+                ? get_string('shareconsentgranted', 'mod_selfselectadvanced')
+                : get_string('shareconsentwithheld', 'mod_selfselectadvanced');
+            $data->consentbuttonlabel = $data->consentgranted
+                ? get_string('consentrevoke', 'mod_selfselectadvanced')
+                : get_string('consentgrant', 'mod_selfselectadvanced');
+            $data->consentaction = $data->consentgranted ? 'revoke' : 'grant';
+            $data->consentactionurl = (new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cmid]))->out(false);
+        }
+
         if (
             has_capability('mod/selfselectadvanced:creategroup', $context, $this->userid, false)
                 || has_capability('mod/selfselectadvanced:respond', $context, $this->userid, false)

@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.14.0 (2026-07-27)
+
+- Guide handover: an assigned guide leaves a submitted, firm or frozen
+  team only by nominating another guide with free capacity, and only
+  that guide's acceptance — capacity re-checked at that moment —
+  completes the exit. Proposals can be declined or cancelled; the
+  leader and both guides are notified; a team is never left guideless.
+- Managers can reassign the guide of any submitted, firm or frozen
+  team from the dashboard's new reassign section; the change is logged,
+  everyone affected is told, and any pending handover is superseded.
+- Mobile-number consent: each student decides on their landing page
+  whether leaders and teammates may see their number. Staff with full
+  view always see it; every other surface — rosters, the guide's
+  member drill-down, WhatsApp links, exports, the CSV round-trip —
+  honours the choice, and a caution notice reminds viewers numbers are
+  shared in confidence.
+- Guide waitlists: an optional per-team cap on open guide interests;
+  guides see their first-come-first-served queue position (only
+  "first in line" or "queued" when sequential reveal is on) and their
+  remaining picking bandwidth right where they pick.
+- Moving people is no longer expert-only: staging errors return to the
+  form with the reason instead of a fatal page, a blank source is
+  inferred or refused (never a silent second membership), staged moves
+  can be edited and restaged, red rows start unticked and the set
+  error names the first offender, cancel sits in the row, rosters and
+  reports link straight into a prefilled move form, and the toolbar
+  says "Move students".
+- New reports: full teams without a guide and teams whose leader is no
+  longer an active participant are flagged; under-capacity flags list
+  the member names; a new group grid shows one row per team — guide
+  first, then each member's last name in its own column — filterable
+  and exportable.
+
 ## 1.13.0 (2026-07-27)
 
 - Leaving a forming group is always possible: the minimum size gates

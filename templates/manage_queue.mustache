@@ -17,17 +17,25 @@
 {{!
     @template mod_selfselectadvanced/manage_queue
 
-    Manager view: the A5 guide-assignment queue and guide loads.
+    Manager view: the A5 guide-assignment queue, the reassign-guide
+    queue for groups already guided but stalled, and guide loads.
 
     Context variables required for this template:
     * hasqueue - whether unassigned submitted groups exist
+    * hasreassignqueue - whether guided-but-stalled groups exist
     * sesskey - session key for assignment POSTs
+    * overridesurl / guidelisturl - the fix path linked from the
+      "no guide has capacity" dead end
 
     Example context (json):
     {
         "hasqueue": true,
         "queue": [
             {"groupid": 1, "pluginuid": "SSA-C101-0001", "name": "Team Alpha", "title": "Pendulums", "size": 4}
+        ],
+        "hasreassignqueue": true,
+        "reassignqueue": [
+            {"groupid": 2, "pluginuid": "SSA-C101-0002", "name": "Team Beta", "title": "Levers", "size": 5}
         ],
         "hasguideoptions": true,
         "guideoptions": [{"id": 5, "label": "Gina Guide — Guiding 2 of 10"}],
@@ -36,6 +44,8 @@
         "sesskey": "abc",
         "cmid": 1,
         "actionurl": "https://example.com/mod/selfselectadvanced/manage.php?id=1",
+        "overridesurl": "https://example.com/mod/selfselectadvanced/overrides.php?id=1",
+        "guidelisturl": "https://example.com/mod/selfselectadvanced/guidelist.php?id=1",
         "backurl": "https://example.com/mod/selfselectadvanced/view.php?id=1"
     }
 }}
@@ -81,7 +91,12 @@
                                     </form>
                                 {{/hasguideoptions}}
                                 {{^hasguideoptions}}
-                                    <span class="text-muted">{{#str}} noguidecapacity, mod_selfselectadvanced {{/str}}</span>
+                                    <p class="text-muted mb-0">
+                                        {{#str}} noguidecapacity, mod_selfselectadvanced {{/str}}
+                                        <a href="{{overridesurl}}">{{#str}} overrides, mod_selfselectadvanced {{/str}}</a>
+                                        &middot;
+                                        <a href="{{guidelisturl}}">{{#str}} guidelist, mod_selfselectadvanced {{/str}}</a>
+                                    </p>
                                 {{/hasguideoptions}}
                             </td>
                         </tr>
@@ -93,6 +108,65 @@
     {{^hasqueue}}
         <p class="text-muted">{{#str}} queueempty, mod_selfselectadvanced {{/str}}</p>
     {{/hasqueue}}
+
+    <h3 id="reassignguide">{{#str}} reassignguide, mod_selfselectadvanced {{/str}}</h3>
+    {{#hasreassignqueue}}
+        <div class="table-responsive">
+            <table class="table generaltable">
+                <thead>
+                    <tr>
+                        <th scope="col">{{#str}} groupname, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} pluginid, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} worktitle, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} size, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} reassignguide, mod_selfselectadvanced {{/str}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#reassignqueue}}
+                        <tr>
+                            <td>{{name}}</td>
+                            <td>{{pluginuid}}</td>
+                            <td>{{title}}</td>
+                            <td>{{size}}</td>
+                            <td>
+                                {{#hasguideoptions}}
+                                    <form method="post" action="{{actionurl}}" class="d-flex gap-2 align-items-center">
+                                        <input type="hidden" name="id" value="{{cmid}}">
+                                        <input type="hidden" name="g" value="{{groupid}}">
+                                        <input type="hidden" name="action" value="assignguide">
+                                        <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                        <label class="visually-hidden" for="ssa-reassign-{{groupid}}">
+                                            {{#str}} reassignguide, mod_selfselectadvanced {{/str}}
+                                        </label>
+                                        <select name="guide" id="ssa-reassign-{{groupid}}" class="form-select form-select-sm">
+                                            {{#guideoptions}}
+                                                <option value="{{id}}">{{label}}</option>
+                                            {{/guideoptions}}
+                                        </select>
+                                        <button type="submit" class="btn btn-primary btn-sm">
+                                            {{#str}} assign, mod_selfselectadvanced {{/str}}
+                                        </button>
+                                    </form>
+                                {{/hasguideoptions}}
+                                {{^hasguideoptions}}
+                                    <p class="text-muted mb-0">
+                                        {{#str}} noguidecapacity, mod_selfselectadvanced {{/str}}
+                                        <a href="{{overridesurl}}">{{#str}} overrides, mod_selfselectadvanced {{/str}}</a>
+                                        &middot;
+                                        <a href="{{guidelisturl}}">{{#str}} guidelist, mod_selfselectadvanced {{/str}}</a>
+                                    </p>
+                                {{/hasguideoptions}}
+                            </td>
+                        </tr>
+                    {{/reassignqueue}}
+                </tbody>
+            </table>
+        </div>
+    {{/hasreassignqueue}}
+    {{^hasreassignqueue}}
+        <p class="text-muted">{{#str}} queueempty, mod_selfselectadvanced {{/str}}</p>
+    {{/hasreassignqueue}}
 
     <h3>{{#str}} guideloads, mod_selfselectadvanced {{/str}}</h3>
     {{#hasguideloads}}

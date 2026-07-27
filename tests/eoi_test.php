@@ -84,9 +84,9 @@ final class eoi_test extends \advanced_testcase {
     }
 
     /**
-     * Create a forming group and list it for guide interest, bypassing
-     * the leader-facing toggle since that surface belongs to another
-     * agent's owned files.
+     * Create a forming group and list it for guide interest directly
+     * at the data layer; the leader-facing toggle has its own Behat
+     * coverage.
      *
      * @param activity $activity the activity
      * @param int $leaderid the leader
@@ -542,5 +542,55 @@ final class eoi_test extends \advanced_testcase {
         $messagesink->close();
         $this->assertSame(state::PENDING_GUIDE, $submitted->state);
         $this->assertSame($guide, (int) $submitted->guideid);
+    }
+
+    /**
+     * The per-group waitlist cap (1.14.0): with eoigroupmax = 1 the
+     * second guide is refused while the first interest is pending, and
+     * welcome again once the leader declines it.
+     */
+    public function test_group_waitlist_cap(): void {
+        $this->resetAfterTest();
+
+        [$activity, $students, $guides] = $this->setup_activity(['eoigroupmax' => 1]);
+        $leader = (int) $students[0]->id;
+        $group = $this->listed_group($activity, $leader, 'Capped');
+
+        $first = eoi::express($activity, (int) $group->id, (int) $guides[0]->id, '<p>a</p>');
+        try {
+            eoi::express($activity, (int) $group->id, (int) $guides[1]->id, '<p>b</p>');
+            $this->fail('Expected group waitlist refusal');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusaleoigroupfull', $e->errorcode);
+        }
+
+        eoi::respond($activity, $first, false, $leader);
+        $this->assertIsInt(eoi::express($activity, (int) $group->id, (int) $guides[1]->id, '<p>b</p>'));
+    }
+
+    /**
+     * queue_position() reports strict first-come-first-served order
+     * among PENDING interests and null once a row leaves the queue.
+     */
+    public function test_queue_position(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $students, $guides] = $this->setup_activity([], 2, 3);
+        $leader = (int) $students[0]->id;
+        $group = $this->listed_group($activity, $leader, 'Queue');
+
+        $first = eoi::express($activity, (int) $group->id, (int) $guides[0]->id, '<p>a</p>');
+        $second = eoi::express($activity, (int) $group->id, (int) $guides[1]->id, '<p>b</p>');
+        // Same-second inserts break FCFS ties by id.
+        $DB->set_field('selfselectadvanced_eoi', 'timecreated',
+            $DB->get_field('selfselectadvanced_eoi', 'timecreated', ['id' => $first]), ['id' => $second]);
+
+        $this->assertSame(1, eoi::queue_position($activity, (int) $group->id, $first));
+        $this->assertSame(2, eoi::queue_position($activity, (int) $group->id, $second));
+
+        eoi::respond($activity, $first, false, $leader);
+        $this->assertNull(eoi::queue_position($activity, (int) $group->id, $first));
+        $this->assertSame(1, eoi::queue_position($activity, (int) $group->id, $second));
     }
 }

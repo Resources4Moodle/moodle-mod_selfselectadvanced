@@ -20,13 +20,21 @@ defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->libdir . '/tablelib.php');
 
+use mod_selfselectadvanced\activity;
+use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\override\resolver;
+use mod_selfselectadvanced\local\state;
+
 /**
- * The flagged report's students tab: the group anomalies section,
- * leaderless groups (M1) and out-of-limit grandfathered groups
- * (4A.8). Compliance is a PHP-only check run by the caller
- * (flagged.php), so this class mirrors flagged_quota_table: it only
- * gives that array a native sortable, paginated look instead of a
- * bare list.
+ * The flagged report's students tab: the group anomalies section -
+ * leaderless groups (M1), out-of-limit grandfathered groups (4A.8),
+ * full-but-guideless groups and groups whose leader is no longer an
+ * active participant. Every issue string and the flagged group's
+ * confirmed member names (comma-separated, appended to the issues
+ * cell) are built by build_rows() from batched queries, so the caller
+ * (flagged.php) only ever gets a ready array; this class mirrors
+ * flagged_quota_table beyond that: it gives that array a native
+ * sortable, paginated look instead of a bare list.
  *
  * Its sort and page GET parameters are remapped away from the
  * defaults so they do not collide with the groupless list's own
@@ -106,5 +114,172 @@ class flagged_anomalies_table extends \flexible_table {
             ]);
         }
         $this->finish_output();
+    }
+
+    /**
+     * Build one row per anomalous group of the activity: leaderless
+     * (M1), out-of-limit grandfathered (4A.8), full-but-guideless
+     * (item 5c) and leader-no-longer-active (item 2f) - each row's
+     * issues cell also carries its confirmed member names (item 5b),
+     * comma-separated.
+     *
+     * Exactly four queries regardless of activity size, never a query
+     * per group or per row: the bulk confirmed/seats-taken counts
+     * (groups::count_confirmed_bulk()/count_seats_taken_bulk(), already
+     * bulk helpers), one enrolment query for the whole activity's
+     * actively-enrolled respond-capability holders, one batched {user}
+     * lookup for every distinct leader's deleted/suspended account
+     * flags (chunked at 1000), and one batched member+user query for
+     * every flagged group's confirmed roster (chunked at 1000,
+     * mirroring quota\evaluator::compliance_for_activity()).
+     * effective_minsize()/effective_maxsize() stay per-group resolver
+     * calls: the shared resolver caches every override row after its
+     * first query, so they cost nothing extra here.
+     *
+     * @param activity $activity the activity
+     * @param resolver $resolver the override resolver (sole source of effective minsize/maxsize)
+     * @return \stdClass[] rows with name, pluginuid, statelabel, issues, url
+     */
+    public static function build_rows(activity $activity, resolver $resolver): array {
+        global $DB;
+
+        $context = $activity->context();
+        $allgroups = $DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()]);
+        $allgroupids = array_map(static fn($group) => (int) $group->id, $allgroups);
+        $confirmedcounts = groups::count_confirmed_bulk($allgroupids);
+        $seatstakencounts = groups::count_seats_taken_bulk($allgroupids);
+        // Forming and manager-assigns-mode pending_guide (spec A5) are
+        // the only states a group can still be legitimately guideless
+        // in; beyond those, a full group without a guide cannot recur.
+        $liveguidelessstates = [state::FORMING, state::PENDING_GUIDE];
+
+        // Item 2f: one enrolment query for the whole activity, never
+        // one per group, to know which users currently hold the
+        // respond capability with a live, unsuspended enrolment; and
+        // one batched {user} lookup (chunked at 1000) for the
+        // account-level deleted/suspended flags of every distinct
+        // leader. A leader can fail either test independently:
+        // unenrolled/role removed, or the account itself deleted or
+        // suspended.
+        [$activeenrolledsql, $activeenrolledparams] = get_enrolled_sql(
+            $context,
+            'mod/selfselectadvanced:respond',
+            0,
+            true
+        );
+        $activeenrolledset = array_flip(array_map(
+            'intval',
+            $DB->get_fieldset_sql("SELECT eu.id FROM ($activeenrolledsql) eu", $activeenrolledparams)
+        ));
+        $leaderids = array_values(array_unique(array_filter(array_map(
+            static fn($group) => (int) $group->leaderid,
+            $allgroups
+        ))));
+        $leaderaccountbad = [];
+        foreach (array_chunk($leaderids, 1000) as $leaderchunk) {
+            [$leaderinsql, $leaderparams] = $DB->get_in_or_equal($leaderchunk, SQL_PARAMS_NAMED, 'ld');
+            $leaderrows = $DB->get_records_sql(
+                "SELECT id, deleted, suspended FROM {user} WHERE id $leaderinsql",
+                $leaderparams
+            );
+            foreach ($leaderrows as $leaderrow) {
+                $leaderaccountbad[(int) $leaderrow->id] =
+                    ((int) $leaderrow->deleted === 1) || ((int) $leaderrow->suspended === 1);
+            }
+        }
+
+        // First pass: decide which groups are anomalous and why.
+        // Member names are deliberately not looked up here - see the
+        // batched query below, which runs once for exactly the
+        // flagged set instead of once per row.
+        $issuesbygroup = [];
+        foreach ($allgroups as $group) {
+            $groupid = (int) $group->id;
+            $issues = [];
+            if (empty($group->leaderid)) {
+                $issues[] = get_string('flagleaderless', 'mod_selfselectadvanced');
+            } else {
+                // The group has a leaderid, but that user may since
+                // have lost the respond capability (unenrolled,
+                // enrolment suspended or expired) or had their account
+                // deleted/suspended.
+                $leaderid = (int) $group->leaderid;
+                $leaderactive = isset($activeenrolledset[$leaderid]) && empty($leaderaccountbad[$leaderid]);
+                if (!$leaderactive) {
+                    $issues[] = get_string('flagleadergone', 'mod_selfselectadvanced');
+                }
+            }
+            $confirmed = $confirmedcounts[$groupid];
+            $seats = $seatstakencounts[$groupid];
+            $min = $resolver->effective_minsize($groupid)->value;
+            $max = $resolver->effective_maxsize($groupid)->value;
+            if ($confirmed < $min || $seats > $max) {
+                $issues[] = get_string('flagoutoflimit', 'mod_selfselectadvanced', (object) [
+                    'confirmed' => $confirmed,
+                    'seats' => $seats,
+                    'min' => $min,
+                    'max' => $max,
+                ]);
+            }
+            // Full by the confirmed headcount (L1 basis) but still
+            // without a guide, and only while the group can still
+            // legitimately be guideless.
+            if ($confirmed >= $max && empty($group->guideid) && in_array($group->state, $liveguidelessstates, true)) {
+                $issues[] = get_string('flagfullnoguide', 'mod_selfselectadvanced');
+            }
+            if ($issues) {
+                $issuesbygroup[$groupid] = $issues;
+            }
+        }
+
+        // Item 5b: confirmed member names for every flagged row, one
+        // query joining member and user for the whole flagged set
+        // (chunked at 1000 ids), never a query per anomaly row.
+        $namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
+        $membernamesbygroup = [];
+        foreach (array_chunk(array_keys($issuesbygroup), 1000) as $flaggedchunk) {
+            [$flaggedinsql, $flaggedparams] = $DB->get_in_or_equal($flaggedchunk, SQL_PARAMS_NAMED, 'fg');
+            $flaggedparams['confirmed'] = groups::STATUS_CONFIRMED;
+            $memberrows = $DB->get_records_sql(
+                "SELECT m.id, m.groupid, $namefields
+                   FROM {selfselectadvanced_member} m
+                   JOIN {user} u ON u.id = m.userid
+                  WHERE m.groupid $flaggedinsql AND m.status = :confirmed
+               ORDER BY m.groupid, u.lastname, u.firstname",
+                $flaggedparams
+            );
+            foreach ($memberrows as $memberrow) {
+                $membernamesbygroup[(int) $memberrow->groupid][] = fullname($memberrow);
+            }
+        }
+
+        // Second pass: assemble the rows now that both the issue
+        // strings and the member names are known for the flagged set.
+        $rows = [];
+        foreach ($allgroups as $group) {
+            $groupid = (int) $group->id;
+            if (!isset($issuesbygroup[$groupid])) {
+                continue;
+            }
+            $issuestext = implode(' ', $issuesbygroup[$groupid]);
+            if (!empty($membernamesbygroup[$groupid])) {
+                $issuestext .= ' ' . \html_writer::span(
+                    implode(', ', $membernamesbygroup[$groupid]),
+                    'selfselectadvanced-anomalymembers text-muted'
+                );
+            }
+            $rows[] = (object) [
+                'name' => format_string($group->name),
+                'pluginuid' => $group->pluginuid,
+                'statelabel' => get_string('state' . str_replace('_', '', $group->state), 'mod_selfselectadvanced'),
+                'issues' => $issuestext,
+                'url' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                    'id' => $activity->cm()->id,
+                    'g' => $groupid,
+                ]))->out(false),
+            ];
+        }
+
+        return $rows;
     }
 }

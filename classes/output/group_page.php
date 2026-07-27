@@ -79,10 +79,16 @@ class group_page implements renderable, templatable {
         $isforming = $this->group->state === state::FORMING;
 
         // Staff see participant attributes on the roster (spec 8.1 read
-        // access); the mobile number only with viewall (U4).
+        // access). The mobile column is broader than the attribute
+        // dimensions: viewall holders always see it, and a guide
+        // (without viewall) now sees it too, but gated per member on
+        // that member's own consent (manager::mobile_visible). Students
+        // never see the column (unchanged).
         $canviewall = has_capability('mod/selfselectadvanced:viewall', $context, $this->userid);
+        $isguide = has_capability('mod/selfselectadvanced:guide', $context, $this->userid, false);
+        $showmobilecol = $canviewall || $isguide;
         $rostermembers = groups::get_roster((int) $this->group->id);
-        $attrs = $canviewall
+        $attrs = $showmobilecol
             ? \mod_selfselectadvanced\local\attributes\manager::get_for_users(
                 array_map(static fn($m) => (int) $m->userid, $rostermembers)
             )
@@ -90,16 +96,17 @@ class group_page implements renderable, templatable {
         // The roster is a real table (2026-07-27 request): first and
         // last name as separate sortable columns plus one column per
         // composition dimension the activity uses, with a text filter.
-        // Attribute columns stay staff-only, matching the old attrline
-        // privacy split.
+        // Attribute (dimension) columns stay staff-only, matching the
+        // old attrline privacy split; only the mobile column widens.
         $useddims = $canviewall
             ? \mod_selfselectadvanced\local\attributes\manager::used_dimensions($activity)
             : [];
         $rsort = optional_param('rsort', '', PARAM_ALPHANUMEXT);
         $rdir = optional_param('rdir', 0, PARAM_INT);
         $rq = optional_param('rq', '', PARAM_RAW_TRIMMED);
-        $rostersortable = array_merge(['firstname', 'lastname'], $useddims, $canviewall ? ['mobile'] : []);
+        $rostersortable = array_merge(['firstname', 'lastname'], $useddims, $showmobilecol ? ['mobile'] : []);
 
+        $anymobileshown = false;
         $roster = [];
         foreach ($rostermembers as $member) {
             $attr = $attrs[(int) $member->userid] ?? null;
@@ -114,9 +121,14 @@ class group_page implements renderable, templatable {
                 $row->$dim = (string) ($attr->$dim ?? '');
                 $row->dims[] = ['value' => $row->$dim];
             }
-            if ($canviewall) {
-                $row->mobile = (string) ($attr->mobile ?? '');
+            if ($showmobilecol) {
+                $mobilevisible = \mod_selfselectadvanced\local\attributes\manager::mobile_visible($attr, $canviewall);
+                $rawmobile = (string) ($attr->mobile ?? '');
+                $row->mobile = $mobilevisible ? $rawmobile : get_string('mobilewithheld', 'mod_selfselectadvanced');
                 $row->dims[] = ['value' => $row->mobile];
+                if ($mobilevisible && $rawmobile !== '' && (int) $member->userid !== $this->userid) {
+                    $anymobileshown = true;
+                }
             }
             $roster[] = $row;
         }
@@ -154,7 +166,7 @@ class group_page implements renderable, templatable {
         foreach ($useddims as $dim) {
             $headcols[] = ['col' => $dim, 'label' => get_string('attr' . $dim, 'mod_selfselectadvanced')];
         }
-        if ($canviewall) {
+        if ($showmobilecol) {
             $headcols[] = ['col' => 'mobile', 'label' => get_string('attrmobile', 'mod_selfselectadvanced')];
         }
         foreach ($headcols as $headcol) {
@@ -437,6 +449,7 @@ class group_page implements renderable, templatable {
             'minsizenote' => get_string('minsizenote', 'mod_selfselectadvanced', $seats),
             'roster' => $roster,
             'hasroster' => !empty($roster),
+            'showmobilecaution' => $anymobileshown,
             'rosterhead' => $rosterhead,
             'rosterfilter' => $rq,
             'rosterfilteraction' => $groupurl->out_omit_querystring(false),

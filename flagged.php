@@ -28,6 +28,13 @@
  * that template (audit round 8 item 3), alongside the groupless list,
  * which stays hand-paginated.
  *
+ * The anomalies section additionally flags full-but-guideless groups
+ * (item 5c) and groups whose leader is no longer an active participant
+ * (item 2f), and every flagged row now carries its confirmed member
+ * names (item 5b); all of it, batched queries included, is built by
+ * flagged_anomalies_table::build_rows() so it can be exercised directly
+ * by tests without executing this page.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -109,56 +116,19 @@ foreach ($enrolled as $user) {
     }
 }
 
-// Group anomalies (leaderless, M1; out-of-limit grandfathered, 4A.8)
-// and quota-failing groups (tab) share one fetch of the activity's
-// groups. The per-group counts and the quota verdict, formerly a
-// query (or five) per group, are now each loaded in bulk once for the
-// whole set (see groups::count_confirmed_bulk(), count_seats_taken_bulk()
-// and evaluator::compliance_for_activity()); effective_minsize() and
-// effective_maxsize() stay per-group calls because the shared resolver
-// caches every override row after its first query, so they cost
-// nothing extra here.
-$allgroups = $DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()]);
-$allgroupids = array_map(static fn($group) => (int) $group->id, $allgroups);
-$confirmedcounts = \mod_selfselectadvanced\local\groups::count_confirmed_bulk($allgroupids);
-$seatstakencounts = \mod_selfselectadvanced\local\groups::count_seats_taken_bulk($allgroupids);
-
-$anomalies = [];
-foreach ($allgroups as $group) {
-    $issues = [];
-    if (empty($group->leaderid)) {
-        $issues[] = get_string('flagleaderless', 'mod_selfselectadvanced');
-    }
-    $confirmed = $confirmedcounts[(int) $group->id];
-    $seats = $seatstakencounts[(int) $group->id];
-    $min = $resolver->effective_minsize((int) $group->id)->value;
-    $max = $resolver->effective_maxsize((int) $group->id)->value;
-    if ($confirmed < $min || $seats > $max) {
-        $issues[] = get_string('flagoutoflimit', 'mod_selfselectadvanced', (object) [
-            'confirmed' => $confirmed,
-            'seats' => $seats,
-            'min' => $min,
-            'max' => $max,
-        ]);
-    }
-    if ($issues) {
-        $anomalies[] = (object) [
-            'name' => format_string($group->name),
-            'pluginuid' => $group->pluginuid,
-            'statelabel' => get_string('state' . str_replace('_', '', $group->state), 'mod_selfselectadvanced'),
-            'issues' => implode(' ', $issues),
-            'url' => (new moodle_url('/mod/selfselectadvanced/group.php', [
-                'id' => $cm->id,
-                'g' => $group->id,
-            ]))->out(false),
-        ];
-    }
-}
+// Group anomalies (leaderless M1, out-of-limit grandfathered 4A.8,
+// full-but-guideless 5c and leader-no-longer-active 2f, member names
+// on every flagged row 5b) are entirely built - batched queries and
+// all - by flagged_anomalies_table::build_rows(), which is also what
+// the anomalies regression tests exercise directly.
+$anomalies = \mod_selfselectadvanced\table\flagged_anomalies_table::build_rows($activity, $resolver);
 
 // Quota-failing groups (tab): only forming and pending-guide groups
-// are candidates. Their compliance is evaluated in one pass over the
-// whole candidate set through compliance_for_activity(), instead of
-// one is_compliant() call, about five queries, per candidate group.
+// are candidates (the only states a group can still be missing a
+// guide in - spec A5). Their compliance is evaluated in one pass over
+// the whole candidate set through compliance_for_activity(), instead
+// of one is_compliant() call, about five queries, per candidate group.
+$allgroups = $DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()]);
 $quotastates = [\mod_selfselectadvanced\local\state::FORMING, \mod_selfselectadvanced\local\state::PENDING_GUIDE];
 $quotacandidates = [];
 foreach ($allgroups as $fgroup) {

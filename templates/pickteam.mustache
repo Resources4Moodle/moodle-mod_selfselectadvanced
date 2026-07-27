@@ -22,9 +22,12 @@
 
     Context variables required for this template:
     * pickable - whether the team is still open for guide interest
+    * hasbandwidth, remainingline - 3b-iii pick-time bandwidth: remaining
+      guiding capacity banner, shown for both pickable and not-pickable
     * name, topic, leadername, membercount - the team card, shown only when pickable
     * showinterest, interestline - pending-interest count, hidden under eoisequential
     * showpeers, peernames - peer guide names, eoipeers and non-sequential only
+    * showqueue, queueline - 3b-i: this guide's own FCFS queue position, when already pending
     * confirmtext - the express-interest confirmation sentence
     * editorid, remarksvalue, remarksformat - the remarks editor
     * expressurl, sesskey, cancelurl - the express form target and cancel link
@@ -33,6 +36,8 @@
     Example context (json):
     {
         "pickable": true,
+        "hasbandwidth": true,
+        "remainingline": "You can commit to 2 more team(s).",
         "name": "Team Alpha",
         "topic": "Pendulums",
         "leadername": "Amrita Iyer",
@@ -41,6 +46,8 @@
         "interestline": "2 guide(s) interested",
         "showpeers": true,
         "peernames": "Grace Guide, Hari Guide",
+        "showqueue": false,
+        "queueline": "",
         "confirmtext": "Express interest in guiding \"Team Alpha\"? The team leader decides who guides the team; you will be notified of their decision.",
         "editorid": "ssa-eoiremarks-1",
         "remarksvalue": "",
@@ -53,6 +60,12 @@
     }
 }}
 <div class="selfselectadvanced-pickteam">
+    {{#hasbandwidth}}
+        <p class="alert alert-info">{{remainingline}}</p>
+    {{/hasbandwidth}}
+    {{^hasbandwidth}}
+        <p class="alert alert-warning">{{remainingline}}</p>
+    {{/hasbandwidth}}
     {{#pickable}}
         <div class="ssa-card">
             <h3>{{name}}</h3>
@@ -66,13 +79,17 @@
                 <p class="text-muted">{{peernames}}</p>
             {{/showpeers}}
         </div>
+        {{#showqueue}}
+            <p class="text-muted">{{queueline}}</p>
+        {{/showqueue}}
         <p>{{confirmtext}}</p>
         <form method="post" action="{{expressurl}}">
             <input type="hidden" name="sesskey" value="{{sesskey}}">
             <input type="hidden" name="remarksformat" value="{{remarksformat}}">
             <label for="{{editorid}}">{{#str}} eoiremarks, mod_selfselectadvanced {{/str}}</label>
             <textarea name="remarks" id="{{editorid}}" rows="6" class="form-control mb-2 w-100">{{remarksvalue}}</textarea>
-            <input type="submit" value="{{#str}} eoipickteam, mod_selfselectadvanced {{/str}}" class="btn btn-primary">
+            <input type="submit" value="{{#str}} eoipickteam, mod_selfselectadvanced {{/str}}" class="btn btn-primary"
+                {{^hasbandwidth}}disabled aria-disabled="true"{{/hasbandwidth}}>
             <a href="{{cancelurl}}" class="btn btn-secondary">{{#str}} cancel {{/str}}</a>
         </form>
     {{/pickable}}

@@ -29,6 +29,9 @@ use mod_selfselectadvanced\local\groups;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class roster_table extends \table_sql {
+    /** @var int Course-module id, for the per-row Move action link. */
+    private int $cmid;
+
     /**
      * Constructor.
      *
@@ -37,28 +40,45 @@ class roster_table extends \table_sql {
      * @param \moodle_url $baseurl page url (with active filters)
      * @param string $fstate group-state filter ('' = all)
      * @param string $frole 'leader'|'member'|'' filter
+     * @param bool $canmanage whether the viewer holds mod/selfselectadvanced:manage
+     *        (the page itself is visible to viewall holders, who may not be able to act,
+     *        so the per-row Move action column only renders for managers)
+     * @param bool $download whether a download is in progress (the action column is UI-only)
      */
     public function __construct(
         string $uniqueid,
         activity $activity,
         \moodle_url $baseurl,
         string $fstate,
-        string $frole
+        string $frole,
+        bool $canmanage = false,
+        bool $download = false
     ) {
         global $DB;
         parent::__construct($uniqueid);
 
-        $this->define_columns(['groupname', 'state', 'fullname', 'role', 'department', 'subdepartment']);
-        $this->define_headers([
+        $this->cmid = $activity->cm()->id;
+
+        $columns = ['groupname', 'state', 'fullname', 'role', 'department', 'subdepartment'];
+        $headers = [
             get_string('groupname', 'mod_selfselectadvanced'),
             get_string('state', 'mod_selfselectadvanced'),
             get_string('member', 'mod_selfselectadvanced'),
             get_string('rosterrole', 'mod_selfselectadvanced'),
             get_string('attrdepartment', 'mod_selfselectadvanced'),
             get_string('attrsubdepartment', 'mod_selfselectadvanced'),
-        ]);
+        ];
+        if ($canmanage && !$download) {
+            $columns[] = 'action';
+            $headers[] = get_string('actions');
+        }
+        $this->define_columns($columns);
+        $this->define_headers($headers);
         $this->define_baseurl($baseurl);
         $this->sortable(true, 'groupname');
+        if ($canmanage && !$download) {
+            $this->no_sorting('action');
+        }
         $this->is_downloadable(true);
         $this->show_download_buttons_at([TABLE_P_BOTTOM]);
 
@@ -171,5 +191,22 @@ class roster_table extends \table_sql {
      */
     public function col_subdepartment($row) {
         return $row->subdepartment !== null ? s($row->subdepartment) : '-';
+    }
+
+    /**
+     * Per-row Move action, manager-only (UX audit item 5): a link to
+     * the staged-move form pre-filled with this member, the same
+     * staged-move page the flagged report's action columns link to.
+     *
+     * @param \stdClass $row table row
+     * @return string
+     */
+    public function col_action($row) {
+        $url = new \moodle_url('/mod/selfselectadvanced/moveedit.php', [
+            'id' => $this->cmid,
+            'student' => (int) $row->userid,
+        ]);
+
+        return \html_writer::link($url, get_string('move'), ['class' => 'btn btn-outline-primary btn-sm']);
     }
 }

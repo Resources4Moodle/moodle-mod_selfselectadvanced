@@ -64,6 +64,7 @@ class templates {
         'msghandoverproposedbody' => 'msghandoverproposedsubject',
         'msghandoveracceptedbody' => 'msghandoveracceptedsubject',
         'msghandoverdeclinedbody' => 'msghandoverdeclinedsubject',
+        'msgnowguidingbody' => 'msgnowguidingsubject',
         'msgleaderreplacedbody' => 'msgleaderreplacedsubject',
         'msgleaverequestbody' => 'msgleaverequestsubject',
         'msgleaveconfirmedbody' => 'msgleaveconfirmedsubject',

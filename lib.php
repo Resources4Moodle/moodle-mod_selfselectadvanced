@@ -427,6 +427,12 @@ function selfselectadvanced_extend_settings_navigation(settings_navigation $sett
             new moodle_url('/mod/selfselectadvanced/ledger.php', ['id' => $cm->id]),
             navigation_node::TYPE_SETTING
         );
+        // Item 5d: gridreport.php shares flagged.php's viewall gate.
+        $node->add(
+            get_string('gridreport', 'mod_selfselectadvanced'),
+            new moodle_url('/mod/selfselectadvanced/gridreport.php', ['id' => $cm->id]),
+            navigation_node::TYPE_SETTING
+        );
     }
     if (has_capability('mod/selfselectadvanced:guide', $context)) {
         $node->add(
