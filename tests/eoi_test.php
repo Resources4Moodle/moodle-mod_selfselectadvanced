@@ -493,4 +493,54 @@ final class eoi_test extends \advanced_testcase {
         $this->assertSame($guide, (int) $submitted->guideid);
         $this->assertNotEmpty($submitted->timesubmitted);
     }
+
+    /**
+     * A guide filled to capacity through an accepted interest must not
+     * be offered to, or accepted for, any other group; the pre-assigned
+     * team itself still submits, because its own row is excluded from
+     * the count. Regression cover for the capacity audit finding.
+     */
+    public function test_accepted_interest_counts_against_capacity_everywhere(): void {
+        $this->resetAfterTest();
+
+        [$activity, $students, $guides] = $this->setup_activity(['maxguided' => 1], 2, 1);
+        $leadera = (int) $students[0]->id;
+        $leaderb = (int) $students[1]->id;
+        $guide = (int) $guides[0]->id;
+
+        $groupa = $this->listed_group($activity, $leadera, 'Team A');
+        $groupb = $this->listed_group($activity, $leaderb, 'Team B');
+
+        $messagesink = $this->redirectMessages();
+        $id = eoi::express($activity, (int) $groupa->id, $guide, '', FORMAT_HTML);
+        eoi::respond($activity, $id, true, $leadera);
+        $messagesink->close();
+
+        // The gatekeeper now counts the forming pre-assignment, so the
+        // other leader cannot submit to this guide.
+        $api = new api($activity);
+        $refusal = $api->gatekeeper()->can_take_guide($guide);
+        $this->assertNotNull($refusal);
+        $this->assertSame('refusalguidecap', $refusal->stringkey);
+
+        // The picker agrees: the guide has no remaining slot.
+        $loads = \mod_selfselectadvanced\local\guides::with_load($activity, $api->gatekeeper()->resolver());
+        $this->assertSame(0, $loads[$guide]->remaining);
+
+        // Submitting team B with the guide refuses outright.
+        try {
+            $api->lifecycle()->submit($groupb, $guide, $leaderb);
+            $this->fail('Expected refusalguidecap');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalguidecap', $e->errorcode);
+        }
+
+        // The pre-assigned team itself is excluded from its own count
+        // and submits cleanly.
+        $messagesink = $this->redirectMessages();
+        $submitted = $api->lifecycle()->submit(groups::get($activity, (int) $groupa->id), null, $leadera);
+        $messagesink->close();
+        $this->assertSame(state::PENDING_GUIDE, $submitted->state);
+        $this->assertSame($guide, (int) $submitted->guideid);
+    }
 }

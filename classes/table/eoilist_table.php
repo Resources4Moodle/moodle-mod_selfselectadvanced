@@ -214,4 +214,57 @@ class eoilist_table extends \table_sql {
 
         return $actions;
     }
+
+    /**
+     * The full raw-value dataset for export: the group name and status
+     * as their raw codes, the leader's plain full name, timecreated and
+     * timeresponded as raw unix timestamps, and remarks reduced to
+     * plain text (never HTML) since a spreadsheet cell is not a rich
+     * text renderer.
+     *
+     * @param activity $activity the activity
+     * @param int $guideid the guide whose interests are listed
+     * @param string $status status filter, '' = every status
+     * @return \stdClass[] rows with rawname, leader, status, timecreated, timeresponded, remarks
+     */
+    public static function export_rows(activity $activity, int $guideid, string $status): array {
+        global $DB;
+
+        $namefields = implode(', ', array_map(
+            static fn(string $field) => 'u.' . $field,
+            \core_user\fields::for_name()->get_required_fields()
+        ));
+        $where = 'e.activityid = :activityid AND e.guideid = :guideid';
+        $params = ['activityid' => $activity->id(), 'guideid' => $guideid];
+        if ($status !== '') {
+            $where .= ' AND e.status = :status';
+            $params['status'] = $status;
+        }
+        $records = $DB->get_records_sql(
+            "SELECT e.id, g.name AS rawname, $namefields,
+                    e.remarks, e.remarksformat, e.status, e.timecreated, e.timeresponded
+               FROM {selfselectadvanced_eoi} e
+               JOIN {selfselectadvanced_group} g ON g.id = e.groupid
+               JOIN {user} u ON u.id = g.leaderid
+              WHERE $where
+           ORDER BY e.timecreated ASC",
+            $params
+        );
+
+        $rows = [];
+        foreach ($records as $record) {
+            $rows[] = (object) [
+                'rawname' => $record->rawname,
+                'leader' => fullname($record),
+                'status' => $record->status,
+                'timecreated' => (int) $record->timecreated,
+                'timeresponded' => (int) $record->timeresponded,
+                'remarks' => trim((string) $record->remarks) !== ''
+                    ? format_text_email($record->remarks, (int) $record->remarksformat)
+                    : '',
+            ];
+        }
+
+        return $rows;
+    }
 }

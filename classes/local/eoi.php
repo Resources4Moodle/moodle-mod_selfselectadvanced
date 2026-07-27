@@ -76,6 +76,11 @@ class eoi {
             throw new \moodle_exception('refusaleoidisabled', 'mod_selfselectadvanced');
         }
 
+        // Two locks, always guide before group: the open-interest cap
+        // and the capacity ceiling are PER GUIDE, so two simultaneous
+        // picks of different teams must serialise on the guide, while
+        // the listing state is per group. Same ordering in respond().
+        $guidelock = locks::acquire('eoiguide:' . $guideid);
         $lock = locks::acquire('group:' . $groupid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -129,6 +134,7 @@ class eoi {
             $transaction->allow_commit();
         } finally {
             $lock->release();
+            $guidelock->release();
         }
 
         // Sends happen only after the commit; messages cannot roll back.
@@ -163,10 +169,23 @@ class eoi {
         global $DB;
 
         $row = self::get($activity, $eoiid);
-        if ((int) $row->guideid !== $guideid || $row->status !== self::STATUS_PENDING) {
-            throw new \moodle_exception('refusaleoinotpending', 'mod_selfselectadvanced');
+        $lock = locks::acquire('group:' . $row->groupid);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            // Revalidate inside the lock: the leader may have accepted
+            // or rejected this interest in the meantime, and a stale
+            // withdraw must not overwrite that decision.
+            $row = self::get($activity, $eoiid);
+            if ((int) $row->guideid !== $guideid || $row->status !== self::STATUS_PENDING) {
+                throw new \moodle_exception('refusaleoinotpending', 'mod_selfselectadvanced');
+            }
+            self::transition($activity, $row, self::STATUS_WITHDRAWN);
+
+            $transaction->allow_commit();
+        } finally {
+            $lock->release();
         }
-        self::transition($activity, $row, self::STATUS_WITHDRAWN);
 
         $group = groups::get($activity, (int) $row->groupid);
         notifier::send(
@@ -203,6 +222,8 @@ class eoi {
         $row = self::get($activity, $eoiid);
         $declined = [];
 
+        // Same ordering as express(): guide before group.
+        $guidelock = locks::acquire('eoiguide:' . $row->guideid);
         $lock = locks::acquire('group:' . $row->groupid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -245,6 +266,7 @@ class eoi {
             $transaction->allow_commit();
         } finally {
             $lock->release();
+            $guidelock->release();
         }
 
         $a = (object) [
@@ -369,11 +391,45 @@ class eoi {
                 'cutoff' => time() - $window,
             ]
         );
-        foreach ($rows as $row) {
-            self::transition($activity, $row, self::STATUS_EXPIRED);
+        if (!$rows) {
+            return 0;
         }
+
+        // Group names for the notifications, fetched once, chunked so
+        // the id list can never approach a bind-parameter ceiling.
+        $groupnames = [];
+        $groupids = array_unique(array_map(static fn($row) => (int) $row->groupid, $rows));
+        foreach (array_chunk($groupids, 1000) as $chunk) {
+            $groupnames += $DB->get_records_list(
+                'selfselectadvanced_group',
+                'id',
+                $chunk,
+                '',
+                'id, name'
+            );
+        }
+
+        $expired = [];
         foreach ($rows as $row) {
-            $group = groups::get($activity, (int) $row->groupid);
+            // Recheck under the group lock: a leader may have accepted
+            // this interest between the sweep's select and now, and an
+            // expiry must never overwrite a decision.
+            $lock = locks::acquire('group:' . $row->groupid);
+            try {
+                $fresh = self::get($activity, (int) $row->id);
+                if ($fresh->status !== self::STATUS_PENDING) {
+                    continue;
+                }
+                self::transition($activity, $fresh, self::STATUS_EXPIRED);
+                $expired[] = $fresh;
+            } finally {
+                $lock->release();
+            }
+        }
+        foreach ($expired as $row) {
+            $name = isset($groupnames[(int) $row->groupid])
+                ? format_string($groupnames[(int) $row->groupid]->name)
+                : '';
             notifier::send(
                 $activity,
                 'eoiresult',
@@ -381,15 +437,15 @@ class eoi {
                 'msgeoiexpiredsubject',
                 'msgeoiexpiredbody',
                 (object) [
-                    'group' => format_string($group->name),
+                    'group' => $name,
                     'activity' => $activity->name(),
                 ],
                 new \moodle_url('/mod/selfselectadvanced/pickteam.php', ['id' => $activity->cm()->id]),
-                format_string($group->name)
+                $name
             );
         }
 
-        return count($rows);
+        return count($expired);
     }
 
     /**

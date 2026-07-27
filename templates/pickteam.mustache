@@ -56,8 +56,8 @@
                 <div class="ssa-card">
                     <h3>{{name}}</h3>
                     <p>{{topic}}</p>
-                    <p>{{#str}} leader, mod_selfselectadvanced {{/str}}: {{leadername}}</p>
-                    <p>{{#str}} size, mod_selfselectadvanced {{/str}}: {{membercount}}</p>
+                    <p>{{#str}} eoicardleader, mod_selfselectadvanced, {{leadername}} {{/str}}</p>
+                    <p>{{#str}} eoicardsize, mod_selfselectadvanced, {{membercount}} {{/str}}</p>
                     <p>{{interestline}}</p>
                     {{#showpeers}}
                         <p class="text-muted">{{peernames}}</p>
@@ -70,7 +70,7 @@
         </div>
     {{/hascards}}
     {{^hascards}}
-        <p class="text-muted">{{#str}} nogroupsyet, mod_selfselectadvanced {{/str}}</p>
+        <p class="text-muted">{{#str}} eoinonelisted, mod_selfselectadvanced {{/str}}</p>
     {{/hascards}}
 
     <a href="{{backurl}}" class="btn btn-secondary mt-3">{{#str}} back {{/str}}</a>

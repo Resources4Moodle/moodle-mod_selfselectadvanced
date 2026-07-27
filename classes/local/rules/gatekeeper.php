@@ -399,15 +399,33 @@ class gatekeeper {
      * Used at submission (leader-selects) and at manager assignment
      * (A5): the guide's load must leave a free slot.
      *
+     * Load counts COMMITMENTS: the guided states plus forming teams the
+     * guide is already pre-assigned to through an accepted expression of
+     * interest. Without the latter, a guide at capacity through
+     * acceptances would still look free to every other leader and to
+     * the manager queue (audit 1.11.0). The group currently
+     * transitioning is excluded so its own submission is not counted
+     * against the guide twice.
+     *
      * @param int $guideid the guide
+     * @param int $excludegroupid group mid-transition to leave out of the count
      * @return refusal|null null when a slot is free
      */
-    public function can_take_guide(int $guideid): ?refusal {
+    public function can_take_guide(int $guideid, int $excludegroupid = 0): ?refusal {
+        global $DB;
+
         if (!has_capability('mod/selfselectadvanced:guide', $this->activity->context(), $guideid)) {
             return new refusal('refusalnotaguide');
         }
         $max = $this->resolver->effective_maxguided($guideid);
         $used = groups::count_guiding($this->activity, $guideid);
+        $formingsql = 'activityid = :activityid AND guideid = :guideid AND state = :forming AND id <> :exclude';
+        $used += $DB->count_records_select('selfselectadvanced_group', $formingsql, [
+            'activityid' => $this->activity->id(),
+            'guideid' => $guideid,
+            'forming' => \mod_selfselectadvanced\local\state::FORMING,
+            'exclude' => $excludegroupid,
+        ]);
         if ($used >= $max->value) {
             return new refusal('refusalguidecap', (object) ['current' => $used, 'max' => $max->value]);
         }

@@ -29,10 +29,11 @@ use mod_selfselectadvanced\local\state;
  * guides tab. Read-only, table_sql, downloaded through the exporter
  * with raw values only (never display strings, audit round 6 item 1).
  *
- * The listed groups are exactly those counted in the guiding load
- * (pending_guide, firm, frozen), mirroring groups::count_guiding() so
- * the row count here always agrees with the "used" figure it drills
- * down from.
+ * The listed groups are exactly those counted in the guide's
+ * commitments: the guided states (pending_guide, firm, frozen) plus
+ * forming teams pre-assigned through an accepted expression of
+ * interest, mirroring eoi::guide_commitments() so the row count here
+ * always agrees with the "used" figure it drills down from.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -223,8 +224,11 @@ class guideload_table extends \table_sql {
     private static function sql_parts(activity $activity, int $guideid): array {
         global $DB;
 
+        // Every commitment, matching eoi::guide_commitments(): the
+        // guided states plus forming teams the guide is pre-assigned
+        // to through an accepted expression of interest.
         [$statesql, $stateparams] = $DB->get_in_or_equal(
-            [state::PENDING_GUIDE, state::FIRM, state::FROZEN],
+            [state::PENDING_GUIDE, state::FIRM, state::FROZEN, state::FORMING],
             SQL_PARAMS_NAMED,
             'st'
         );

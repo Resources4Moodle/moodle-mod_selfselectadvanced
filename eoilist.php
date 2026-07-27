@@ -35,6 +35,7 @@ require_once($CFG->libdir . '/tablelib.php');
 $id = required_param('id', PARAM_INT);
 $status = optional_param('status', '', PARAM_ALPHA);
 $viewgroup = optional_param('viewgroup', 0, PARAM_INT);
+$download = optional_param('download', '', PARAM_ALPHA);
 
 [$course, $cm] = get_course_and_cm_from_cmid($id, 'selfselectadvanced');
 require_login($course, true, $cm);
@@ -148,7 +149,7 @@ if ($viewgroup > 0) {
 
     echo $OUTPUT->header();
     echo $OUTPUT->heading(format_string($group->name));
-    echo $OUTPUT->heading(get_string('eoimembers', 'mod_selfselectadvanced'), 4);
+    echo $OUTPUT->heading(get_string('eoimembers', 'mod_selfselectadvanced'), 3);
 
     $table = new html_table();
     $table->head = [get_string('fullname'), get_string('email')];
@@ -194,7 +195,9 @@ $statusheadings = [
     \mod_selfselectadvanced\local\eoi::STATUS_ACCEPTED => 'eoistatusaccepted',
     \mod_selfselectadvanced\local\eoi::STATUS_WITHDRAWN => 'eoistatuswithdrawn',
 ];
-$heading = isset($statusheadings[$status]) ? get_string($statusheadings[$status], 'mod_selfselectadvanced') : $activity->name();
+$heading = isset($statusheadings[$status])
+    ? get_string($statusheadings[$status], 'mod_selfselectadvanced')
+    : get_string('eoilistheading', 'mod_selfselectadvanced');
 
 $statusoptions = [];
 foreach ($validstatuses as $validstatus) {
@@ -203,6 +206,20 @@ foreach ($validstatuses as $validstatus) {
         'label' => get_string('eoistatus' . $validstatus, 'mod_selfselectadvanced'),
         'selected' => $validstatus === $status,
     ];
+}
+
+if ($download !== '') {
+    \mod_selfselectadvanced\local\exporter::download(
+        'eoi-interests',
+        [get_string('groupname', 'mod_selfselectadvanced'), get_string('leader', 'mod_selfselectadvanced'),
+            get_string('state', 'mod_selfselectadvanced'), get_string('timecreated'), get_string('lastmodified'),
+            get_string('eoiremarks', 'mod_selfselectadvanced')],
+        array_map(
+            static fn($r) => [$r->rawname, $r->leader, $r->status, $r->timecreated, $r->timeresponded, $r->remarks],
+            \mod_selfselectadvanced\table\eoilist_table::export_rows($activity, (int) $USER->id, $status)
+        ),
+        $download
+    );
 }
 
 echo $OUTPUT->header();
@@ -232,7 +249,8 @@ $table = new \mod_selfselectadvanced\table\eoilist_table('ssaeoilist', $activity
 $table->out($perpage, false);
 
 echo html_writer::div(
-    \mod_selfselectadvanced\local\perpage::controls($baseurl)
+    \mod_selfselectadvanced\local\exporter::controls($baseurl, '')
+    . \mod_selfselectadvanced\local\perpage::controls($baseurl)
     . html_writer::link($guideurl, get_string('back'), ['class' => 'btn btn-secondary ms-2']),
     'd-flex flex-wrap align-items-center gap-2 mt-2'
 );

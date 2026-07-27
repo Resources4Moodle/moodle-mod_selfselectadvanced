@@ -82,7 +82,10 @@ final class state {
             if ($refusal = $this->gatekeeper->can_submit($fresh, $actorid)) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
-            if (($leaderselects || $preassigned) && ($refusal = $this->gatekeeper->can_take_guide($target))) {
+            if (
+                ($leaderselects || $preassigned)
+                && ($refusal = $this->gatekeeper->can_take_guide($target, (int) $fresh->id))
+            ) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
