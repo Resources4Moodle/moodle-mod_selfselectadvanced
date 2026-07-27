@@ -58,6 +58,8 @@ class templates {
         'msgfrozenbody' => 'msgfrozensubject',
         'msgunfrozenbody' => 'msgunfrozensubject',
         'msgmovedbody' => 'msgmovedsubject',
+        'msgleaderpromotedbody' => 'msgleaderpromotedsubject',
+        'msggroupdeletedbody' => 'msggroupdeletedsubject',
         'msgleaderreplacedbody' => 'msgleaderreplacedsubject',
         'msgleaverequestbody' => 'msgleaverequestsubject',
         'msgleaveconfirmedbody' => 'msgleaveconfirmedsubject',
