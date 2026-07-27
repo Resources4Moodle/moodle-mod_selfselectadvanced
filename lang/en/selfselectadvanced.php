@@ -697,7 +697,7 @@ $string['quotarulemax'] = 'At most {$a->max} members with {$a->dimension} = {$a-
 $string['quotarulemin'] = 'At least {$a->min} members with {$a->dimension} = {$a->value}';
 $string['quotarules'] = 'Quota rules';
 $string['quotarulesaved'] = 'Rule saved.';
-$string['quotarulesintro'] = 'COUNTING RULES: each rule counts members with one attribute value across the whole group - \"at least 1 with Gender = Female\", \"at most 2 from Chemistry\". Rules apply in priority order (the order also drives relaxation during auto-grouping). Use these for simple per-value minimums and maximums; use the composition template below when seats must be RESERVED for combinations. A group must satisfy both to submit, be approved or freeze, unless it holds a quota exemption override.';
+$string['quotarulesintro'] = 'COUNTING RULES: each rule counts members with one attribute value across the whole group - "at least 1 with Gender = Female", "at most 2 from Chemistry". Rules apply in priority order (the order also drives relaxation during auto-grouping). Use these for simple per-value minimums and maximums; use the composition template below when seats must be RESERVED for combinations. A group must satisfy both to submit, be approved or freeze, unless it holds a quota exemption override.';
 $string['quotasatisfied'] = 'Satisfied';
 $string['quotaunknown'] = '{$a} member(s) have missing attributes and count toward no value rule.';
 $string['quotavalue'] = 'Attribute value';
@@ -777,7 +777,7 @@ $string['slotmatchvalue'] = 'Same value';
 $string['slotmincount'] = 'Members';
 $string['slotrule'] = 'Slot requirement';
 $string['slottemplate'] = 'Composition template (slots)';
-$string['slottemplateintro'] = 'SEAT PLAN: unlike the counting rules above, the template describes the group seat by seat, in order. Each slot reserves N seats: either \"N members who share one value\" (a named value, or blank = any one shared value) or \"N members with pairwise DIFFERENT values\". Every member fills at most ONE seat, so the same person can never satisfy two slots - e.g. slot 1 \"2 with Department Computer\" + slot 2 \"3 each from a distinct Sub-department\" describes a five-seat group where the two Computer members cannot also count among the three. The overlap tick decides whether values already used by earlier slots stay eligible for later ones. Compliance gates submission, approval and freezing together with the rules above.';
+$string['slottemplateintro'] = 'SEAT PLAN: unlike the counting rules above, the template describes the group seat by seat, in order. Each slot reserves N seats: either "N members who share one value" (a named value, or blank = any one shared value) or "N members with pairwise DIFFERENT values". Every member fills at most ONE seat, so the same person can never satisfy two slots - e.g. slot 1 "2 with Department Computer" + slot 2 "3 each from a distinct Sub-department" describes a five-seat group where the two Computer members cannot also count among the three. The overlap tick decides whether values already used by earlier slots stay eligible for later ones. Compliance gates submission, approval and freezing together with the rules above.';
 $string['slotvalue'] = 'Value';
 $string['slotvaluehint'] = 'blank = any one value';
 $string['state'] = 'State';
