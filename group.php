@@ -111,7 +111,12 @@ if ($isleaderforming && empty($group->successorid)) {
 }
 
 $submitform = null;
-if ($isleaderforming && $api->gatekeeper()->can_submit($group, (int) $USER->id) === null) {
+if ($isleaderforming) {
+    // The section always renders for the leader of a forming group:
+    // while any blocker stands the button is disabled with the reason
+    // beside it, never hidden (a control that may or may not exist is
+    // not a state a leader can reason about).
+    $submitrefusal = $api->gatekeeper()->can_submit($group, (int) $USER->id);
     // A guide already accepted through an expression of interest wins
     // over the picker: the group goes straight to them on submit, so
     // the form must not ask the leader to choose one (spec: EOI).
@@ -132,14 +137,13 @@ if ($isleaderforming && $api->gatekeeper()->can_submit($group, (int) $USER->id) 
             );
         }
     }
-    if (!$leaderselects || $guideoptions) {
-        $submitform = new \mod_selfselectadvanced\form\submit_form($baseurl->out(false), [
-            'cmid' => $cm->id,
-            'groupid' => (int) $group->id,
-            'leaderselects' => $leaderselects,
-            'guides' => $guideoptions,
-        ]);
-    }
+    $submitform = new \mod_selfselectadvanced\form\submit_form($baseurl->out(false), [
+        'cmid' => $cm->id,
+        'groupid' => (int) $group->id,
+        'leaderselects' => $leaderselects,
+        'guides' => $guideoptions,
+        'disabled' => $submitrefusal !== null || ($leaderselects && !$guideoptions),
+    ]);
 }
 
 if ($action === 'submit' && $submitform && ($data = $submitform->get_data())) {

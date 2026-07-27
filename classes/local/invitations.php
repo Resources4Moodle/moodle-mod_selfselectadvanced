@@ -195,11 +195,7 @@ class invitations {
 
             // Acceptance cascade (4A.4): at the cap, every other pending
             // invitation is auto-declined in this same transaction.
-            $cascaded = [];
-            $cap = $this->gatekeeper->resolver()->effective_maxmembership($userid);
-            if (groups::count_memberships($this->activity, $userid) >= $cap->value) {
-                $cascaded = $this->cascade($userid, (int) $fresh->id);
-            }
+            $cascaded = $this->cascade_at_cap($userid, (int) $fresh->id);
 
             $transaction->allow_commit();
         } finally {
@@ -218,18 +214,7 @@ class invitations {
             $this->group_url((int) $fresh->id),
             format_string($fresh->name)
         );
-        foreach ($cascaded as $row) {
-            notifier::send(
-                $this->activity,
-                'invitationresult',
-                (int) $row->leaderid,
-                'msgcascadesubject',
-                'msgcascadebody',
-                (object) ['user' => fullname(\core_user::get_user($userid)), 'group' => format_string($row->name)],
-                $this->group_url((int) $row->groupid),
-                format_string($row->name)
-            );
-        }
+        $this->notify_cascaded($cascaded, $userid);
 
         return $member;
     }
@@ -436,10 +421,59 @@ class invitations {
     }
 
     /**
+     * The cascade trigger check (4A.4), reusable by every path that can
+     * consume a confirmed membership slot for $userid - not only
+     * accept(), but also group creation and auto-placement, which
+     * previously left rival invitations pending forever. Call inside
+     * the caller's transaction while holding the activity or group
+     * lock: it re-reads the user's current membership count and
+     * effective cap, and only runs the decline sweep when the cap has
+     * actually been reached.
+     *
+     * @param int $userid the user who may have just reached their cap
+     * @param int $excludegroupid group to exempt from the decline sweep (e.g. the one just joined), 0 for none
+     * @return stdClass[] cascaded rows (groupid, leaderid, name, memberid); empty when below cap
+     */
+    public function cascade_at_cap(int $userid, int $excludegroupid = 0): array {
+        $cap = $this->gatekeeper->resolver()->effective_maxmembership($userid);
+        if (groups::count_memberships($this->activity, $userid) < $cap->value) {
+            return [];
+        }
+
+        return $this->cascade($userid, $excludegroupid);
+    }
+
+    /**
+     * Post-commit notifications for a cascade_at_cap() result: each
+     * affected leader is told their invitation to $userid was
+     * auto-declined. Call once the caller's transaction has committed
+     * and its lock released - never inside the transaction, since
+     * message_send() is not transactional.
+     *
+     * @param stdClass[] $cascaded rows returned by cascade_at_cap()
+     * @param int $userid the user whose cap triggered the cascade
+     */
+    public function notify_cascaded(array $cascaded, int $userid): void {
+        foreach ($cascaded as $row) {
+            notifier::send(
+                $this->activity,
+                'invitationresult',
+                (int) $row->leaderid,
+                'msgcascadesubject',
+                'msgcascadebody',
+                (object) ['user' => fullname(\core_user::get_user($userid)), 'group' => format_string($row->name)],
+                $this->group_url((int) $row->groupid),
+                format_string($row->name)
+            );
+        }
+    }
+
+    /**
      * The acceptance cascade (4A.4): auto-decline every other pending
      * invitation of the user in this activity, inside the caller's
      * transaction. Returns the affected rows with group identity for
-     * post-commit notifications.
+     * post-commit notifications. Only called via cascade_at_cap(),
+     * which has already established the trigger condition.
      *
      * @param int $userid the user who reached their cap
      * @param int $excludegroupid the group just accepted

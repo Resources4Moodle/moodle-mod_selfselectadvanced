@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.13.0 (2026-07-27)
+
+- Leaving a forming group is always possible: the minimum size gates
+  submission, not membership, so a team at the minimum can shrink to
+  repair its composition.
+- Admission feasibility gate: inviting or accepting a member who would
+  make the seat plan unreachable within the maximum group size — or who
+  breaks a counting-rule maximum, which adding members can never repair
+  — is refused with the reason, so a team can no longer fill itself
+  into a dead end. Quota-exempt overrides bypass the gate.
+- Submit to guide is always visible to the leader of a forming team:
+  the button disables with the blocking reason beside it and enables
+  when the team complies; a declined invitation stays visible on the
+  leader's page instead of vanishing.
+- Membership capacity is now honoured on every path: creating a group,
+  being auto-grouped or being moved by a manager auto-declines the
+  student's rival pending invitations with a message to each inviting
+  leader (previously only accepting an invitation did); staged-move
+  sets validate the membership cap jointly across the whole set.
+- Guide capacity is race-proof: submitting and assigning serialise per
+  guide (the same lock the pick-that-team flow uses), re-assigning the
+  guide a team already has no longer falsely refuses at capacity, and
+  the decision-window sweep no longer auto-approves teams that have no
+  guide to stand in for — they stay in the manager queue.
+- Manager move verdicts now evaluate the seat plan, not only counting
+  rules; a move whose successor is no longer a confirmed member of the
+  source team refuses at commit; a successor promoted by a move is
+  notified and the transfer is logged like any other leadership change.
+- Group deletion notifies every released member.
+- The pick-that-team page is a paginated, filterable, sortable table
+  built for thousands of listed teams, first come first served by
+  default; with sequential reveal on, browsing guides no longer see the
+  interest queue depth the leader cannot see.
+- Every report download filename carries its generation moment; the
+  attribute batch loader chunks its queries at scale.
+
 ## 1.12.0 (2026-07-27)
 
 - Seat-plan fix: with the overlap tick off, a member whose value in ANY

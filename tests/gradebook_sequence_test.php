@@ -156,6 +156,10 @@ final class gradebook_sequence_test extends \advanced_testcase {
         $activity = activity::from_instance((int) $instance->id);
         $leader = $generator->create_user();
         $generator->enrol_user($leader->id, $course->id, 'student');
+        // The sweep stands in for a guide who failed to decide, so the
+        // fixtures must carry one — guideless queue groups are skipped.
+        $guide = $generator->create_user();
+        $generator->enrol_user($guide->id, $course->id, 'teacher');
 
         $overdue = $plugingen->create_group([
             'activityid' => $activity->id(),
@@ -164,6 +168,7 @@ final class gradebook_sequence_test extends \advanced_testcase {
             'state' => state::PENDING_GUIDE,
         ]);
         $DB->set_field('selfselectadvanced_group', 'timesubmitted', time() - (2 * DAYSECS), ['id' => $overdue->id]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $guide->id, ['id' => $overdue->id]);
         $fresh = $plugingen->create_group([
             'activityid' => $activity->id(),
             'leaderid' => (int) $leader->id,
@@ -171,6 +176,7 @@ final class gradebook_sequence_test extends \advanced_testcase {
             'state' => state::PENDING_GUIDE,
         ]);
         $DB->set_field('selfselectadvanced_group', 'timesubmitted', time() - HOURSECS, ['id' => $fresh->id]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $guide->id, ['id' => $fresh->id]);
 
         $task = new \mod_selfselectadvanced\task\guide_autoapprove();
         $this->expectOutputRegex('/auto-approved group/');

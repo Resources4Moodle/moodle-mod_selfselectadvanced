@@ -449,10 +449,11 @@ Every gatekeeper `can_*` method carries an explicit **state precondition** check
 |---|---|---|---|---|---|---|---|---|---|
 | Group creation | `can_create_group(user)` | — | | | ✓ | ✓ | | | ✓ |
 | Invitation send | `can_invite(group, invitee)` | `forming` | | ✓ seats | | ✓ invitee | | | ✓ |
+| Admission feasibility (1.13.0) | `check_composition_feasibility()` from `can_invite`/`can_accept` | `forming` | | | | | | ✓ reachability within max seats; quota-exempt bypasses | |
 | Invitation accept | `can_accept(member)` → `invitations::accept()` | `forming` | | **✓** | | **✓** + cascade | | | ✓ |
 | Invitation withdraw/decline/expiry | `invitations::release_seat()` | any (releases only) | | frees seat | | | | | |
 | Acceptance cascade (§4A.4) | `invitations::cascade(user)` — same transaction, leaders notified, reason recorded | — | | | | ✓ | | | |
-| Leave request confirm | `can_confirm_leave(member)` | `forming` | ✓ source | | | | | | |
+| Leave request confirm | `can_confirm_leave(member)` | `forming` | no L1: forming groups may always shrink (the minimum gates submission; 1.13.0) | | | | | | |
 | Succession: nominate | `can_nominate(group, member, type)` | `forming` | ✓ (stepout) | ✓ (replacement seat) | ✓ nominee | | | | ✓ |
 | Succession: confirm | `succession::confirm()` | `forming` | **✓** | **✓** | **✓** | | | | |
 | Submit to guide | `can_submit(group)` | `forming` | ✓ | | | | ✓ guide list | ✓ | ✓ |

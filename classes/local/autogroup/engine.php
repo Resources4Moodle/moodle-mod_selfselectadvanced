@@ -253,6 +253,16 @@ class engine {
                 'SELECT COALESCE(MAX(id), 0) FROM {selfselectadvanced_group} WHERE activityid = ?',
                 [$activity->id()]
             );
+            // Auto-placement consumes a membership slot exactly like an
+            // accept does; a placed student at their cap must cascade
+            // any other pending invitations of theirs (audit: non-accept
+            // paths were leaving rivals pending forever). Rows are kept
+            // per user for the post-commit notification below.
+            $invitationservice = new \mod_selfselectadvanced\local\invitations(
+                $activity,
+                new \mod_selfselectadvanced\local\rules\gatekeeper($activity, $resolver)
+            );
+            $cascadedbyuser = [];
             foreach ($plan->groups as $index => $members) {
                 // System-designated leader: first member with a free L3 slot.
                 $leaderid = 0;
@@ -302,6 +312,10 @@ class engine {
                         'timecreated' => $now,
                         'timemodified' => $now,
                     ]);
+                    $cascaded = $invitationservice->cascade_at_cap((int) $userid, (int) $group->id);
+                    if ($cascaded) {
+                        $cascadedbyuser[(int) $userid] = $cascaded;
+                    }
                 }
                 $placed += count($members);
                 $log['groups'][] = ['pluginuid' => $group->pluginuid, 'leaderid' => $leaderid, 'members' => $members];
@@ -353,6 +367,12 @@ class engine {
                         $activity->name()
                     );
                 }
+            }
+            // Cascade notifications alongside the placement notifications
+            // above: each affected leader learns their invitation was
+            // auto-declined by the student's placement.
+            foreach ($cascadedbyuser as $placeduser => $cascaded) {
+                $invitationservice->notify_cascaded($cascaded, $placeduser);
             }
             foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $mgr) {
                 \mod_selfselectadvanced\local\notifier::send(

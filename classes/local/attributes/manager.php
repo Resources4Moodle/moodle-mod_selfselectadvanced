@@ -50,12 +50,16 @@ class manager {
         if (!$userids) {
             return [];
         }
-        [$insql, $params] = $DB->get_in_or_equal(array_map('intval', $userids));
-
-        $records = $DB->get_records_select('selfselectadvanced_userattr', "userid $insql", $params);
+        // Chunked so an activity-wide caller can never approach the
+        // bind-parameter ceiling (same discipline as the evaluator's
+        // batch path).
         $byuser = [];
-        foreach ($records as $record) {
-            $byuser[(int) $record->userid] = $record;
+        foreach (array_chunk(array_unique(array_map('intval', $userids)), 1000) as $chunk) {
+            [$insql, $params] = $DB->get_in_or_equal($chunk);
+            $records = $DB->get_records_select('selfselectadvanced_userattr', "userid $insql", $params);
+            foreach ($records as $record) {
+                $byuser[(int) $record->userid] = $record;
+            }
         }
 
         return $byuser;

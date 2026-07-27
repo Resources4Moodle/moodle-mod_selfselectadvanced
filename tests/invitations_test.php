@@ -232,6 +232,87 @@ final class invitations_test extends \advanced_testcase {
     }
 
     /**
+     * cascade_at_cap() as a standalone unit, independent of accept():
+     * below the cap it is a no-op returning [] and leaves pending
+     * invitations untouched; at the cap it runs the decline sweep and
+     * returns the affected rows.
+     */
+    public function test_cascade_at_cap_direct(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $users] = $this->setup_activity([
+            'maxsize' => 4,
+            'maxlead' => 1,
+            'maxmembership' => 2,
+        ], 5);
+        $student = (int) $users[0]->id;
+        $leadera = (int) $users[1]->id;
+        $leaderb = (int) $users[2]->id;
+        $leaderc = (int) $users[3]->id;
+
+        $groupa = $this->plugingen()->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => $leadera,
+            'name' => 'A',
+        ]);
+        $this->plugingen()->create_member([
+            'groupid' => $groupa->id,
+            'userid' => $student,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        $groupb = $this->plugingen()->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => $leaderb,
+            'name' => 'B',
+        ]);
+        $this->plugingen()->create_member([
+            'groupid' => $groupb->id,
+            'userid' => $student,
+            'status' => groups::STATUS_INVITED,
+        ]);
+
+        // Below the cap (1 confirmed of 2): no-op, invitation survives.
+        $this->assertSame(1, groups::count_memberships($activity, $student));
+        $this->assertSame([], $api->invitations()->cascade_at_cap($student));
+        $this->assertSame(
+            groups::STATUS_INVITED,
+            $DB->get_field('selfselectadvanced_member', 'status', ['groupid' => $groupb->id, 'userid' => $student])
+        );
+
+        // A second confirmed membership reaches the cap: the pending
+        // invitation in B is auto-declined and returned.
+        $groupc = $this->plugingen()->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => $leaderc,
+            'name' => 'C',
+        ]);
+        $this->plugingen()->create_member([
+            'groupid' => $groupc->id,
+            'userid' => $student,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        $this->assertSame(2, groups::count_memberships($activity, $student));
+
+        $eventsink = $this->redirectEvents();
+        $result = $api->invitations()->cascade_at_cap($student);
+        $declined = array_values(array_filter(
+            $eventsink->get_events(),
+            fn($e) => $e instanceof \mod_selfselectadvanced\event\invitation_declined
+        ));
+        $eventsink->close();
+
+        $this->assertCount(1, $result);
+        $this->assertSame((int) $groupb->id, (int) $result[0]->groupid);
+        $this->assertSame($leaderb, (int) $result[0]->leaderid);
+        $this->assertCount(1, $declined);
+        $this->assertSame(
+            groups::STATUS_DECLINED,
+            $DB->get_field('selfselectadvanced_member', 'status', ['groupid' => $groupb->id, 'userid' => $student])
+        );
+    }
+
+    /**
      * The acceptance cascade (4A.4): reaching the cap auto-declines
      * every other pending invitation in the same transaction, records
      * the reason and notifies the affected leaders.
