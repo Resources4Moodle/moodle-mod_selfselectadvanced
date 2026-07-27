@@ -72,15 +72,16 @@ Feature: Transactional staged moves
   Scenario: A refused stage keeps the form's input, and the moves list offers to edit and restage
     Given the following "mod_selfselectadvanced > moves" exist:
       | selfselectadvanced | user     | sourcegroup | targetgroup |
-      | ssa1               | student1 | Team A      | Team B      |
+      | ssa1               | student2 | Team A      | Team B      |
     When I am on the "Lab groups" "mod_selfselectadvanced > moves" page logged in as teacher1
     Then I should see "Edit and restage"
     When I click on "Edit and restage" "link"
     Then I should see "Stage a move"
-    And I should see "Sam One"
-    When I press "Stage a move"
-    Then I should see "Moving a leader out requires designating a successor in the same move."
+    And I should see "Tara Two"
+    When I set the field "To group" to "Team A"
+    And I press "Stage a move"
+    Then I should see "Source and target must differ."
     And I should see "Stage a move"
-    And I should see "Sam One"
+    And I should see "Tara Two"
     When I am on the "Lab groups" "mod_selfselectadvanced > moves" page
     Then I should see "Edit and restage"
