@@ -51,7 +51,7 @@
         "invitedisabledreason": "",
         "haspendinginvites": true,
         "pendinginvites": [
-            {"memberid": 3, "fullname": "Cara Invitee", "invitedon": "Wednesday, 22 July"}
+            {"memberid": 3, "fullname": "Cara Invitee", "invitedon": "Wednesday, 22 July", "declined": false}
         ],
         "showrespond": false,
         "eoienabled": true,
@@ -292,7 +292,11 @@
                     <span>
                         {{fullname}}
                         <span class="text-muted small ms-2">{{invitedon}}</span>
+                        {{#declined}}
+                            <span class="badge bg-secondary ms-2">{{#str}} invitedeclinedlabel, mod_selfselectadvanced {{/str}}</span>
+                        {{/declined}}
                     </span>
+                    {{^declined}}
                     {{#isleader}}
                         <form method="post" action="{{actionurl}}" class="d-inline">
                             <input type="hidden" name="id" value="{{cmid}}">
@@ -305,6 +309,7 @@
                             </button>
                         </form>
                     {{/isleader}}
+                    {{/declined}}
                 </li>
             {{/pendinginvites}}
         </ul>
@@ -365,16 +370,11 @@
         {{#eoiassigned}}
             <p class="text-muted small">{{#str}} eoisubmitassigned, mod_selfselectadvanced, {{guidename}} {{/str}}</p>
         {{/eoiassigned}}
+        {{#submitblockedreason}}
+            <p class="text-muted selfselectadvanced-submitblocked">{{submitblockedreason}}</p>
+        {{/submitblockedreason}}
         {{{submitformhtml}}}
     {{/showsubmit}}
-    {{#submitblockedreason}}
-        <p>
-            <button type="button" class="btn btn-secondary" disabled aria-disabled="true">
-                {{#str}} submittoguide, mod_selfselectadvanced {{/str}}
-            </button>
-            <span class="ms-2 text-muted">{{submitblockedreason}}</span>
-        </p>
-    {{/submitblockedreason}}
 
     {{#caninvite}}
         <h4>{{#str}} invitemembers, mod_selfselectadvanced {{/str}}</h4>

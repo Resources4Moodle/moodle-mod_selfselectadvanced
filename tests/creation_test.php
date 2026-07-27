@@ -231,6 +231,89 @@ final class creation_test extends \advanced_testcase {
     }
 
     /**
+     * delete_group() notifies confirmed members other than the acting
+     * leader (provider 'groupdeleted'), making good the docblock's
+     * long-standing but previously unmet notification promise.
+     */
+    public function test_delete_group_notifies_confirmed_members(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [, $api, $users] = $this->setup_activity(['maxlead' => 2, 'maxmembership' => 2]);
+        /** @var \mod_selfselectadvanced_generator $plugingen */
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $leader = (int) $users[0]->id;
+        $other = (int) $users[1]->id;
+
+        $group = $api->create_group($leader, 'Doomed2', 'T', '<p>b</p>', FORMAT_HTML);
+        $row = $DB->get_record('selfselectadvanced_group', ['id' => $group->id], '*', MUST_EXIST);
+        $plugingen->create_member([
+            'groupid' => $row->id,
+            'userid' => $other,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+
+        $messagesink = $this->redirectMessages();
+        $api->delete_group($row, $leader);
+        $messages = $messagesink->get_messages();
+        $messagesink->close();
+
+        $othermsgs = array_values(array_filter(
+            $messages,
+            fn($m) => (int) $m->useridto === $other && $m->eventtype === 'groupdeleted'
+        ));
+        $this->assertNotEmpty($othermsgs);
+        $this->assertStringContainsString('deleted', $othermsgs[0]->fullmessage);
+        // The acting leader does not notify themselves.
+        $this->assertEmpty(array_filter($messages, fn($m) => (int) $m->useridto === $leader));
+    }
+
+    /**
+     * Creating a group can itself reach the leader-to-be's own
+     * membership cap (a non-accept path): the resulting cascade
+     * auto-declines their other pending invitations and notifies the
+     * affected leader, exactly as an acceptance would (audit: capacity
+     * consumed outside accept() previously left rivals pending forever).
+     */
+    public function test_create_group_cascades_pending_invitation(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $users] = $this->setup_activity(['maxlead' => 2, 'maxmembership' => 1]);
+        $inviter = (int) $users[0]->id;
+        $student = (int) $users[1]->id;
+
+        $invitinggroup = $api->create_group($inviter, 'Inviter', 'T', '<p>b</p>', FORMAT_HTML);
+        $invitinggroup = groups::get($activity, (int) $invitinggroup->id);
+        $api->invitations()->send($invitinggroup, $student, $inviter);
+
+        $eventsink = $this->redirectEvents();
+        $messagesink = $this->redirectMessages();
+        $api->create_group($student, 'Own', 'T', '<p>b</p>', FORMAT_HTML);
+        $declined = array_values(array_filter(
+            $eventsink->get_events(),
+            fn($e) => $e instanceof \mod_selfselectadvanced\event\invitation_declined
+        ));
+        $eventsink->close();
+        $messages = $messagesink->get_messages();
+        $messagesink->close();
+
+        $this->assertCount(1, $declined);
+        $this->assertSame('membershipcap', $declined[0]->get_data()['other']['reason']);
+        $this->assertSame(
+            groups::STATUS_DECLINED,
+            $DB->get_field(
+                'selfselectadvanced_member',
+                'status',
+                ['groupid' => $invitinggroup->id, 'userid' => $student]
+            )
+        );
+        $invitermsgs = array_values(array_filter($messages, fn($m) => (int) $m->useridto === $inviter));
+        $this->assertNotEmpty($invitermsgs);
+        $this->assertStringContainsString('automatically declined', $invitermsgs[0]->fullmessage);
+    }
+
+    /**
      * Counting bases: L3 counts current leadership across live states;
      * L4 counts confirmed rows only; seats count confirmed plus invited.
      */

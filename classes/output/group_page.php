@@ -189,6 +189,28 @@ class group_page implements renderable, templatable {
                     'memberid' => (int) $invite->memberid,
                     'fullname' => fullname($invite),
                     'invitedon' => $invite->timeinvited ? userdate($invite->timeinvited) : '',
+                    'declined' => false,
+                ];
+            }
+            // Declined invitations stay visible (capped at ten): an
+            // invitation auto-declined at the invitee's membership cap
+            // must not simply vanish from the leader's page.
+            $declinedsql = "SELECT m.id AS memberid, m.userid, m.timeresponded, $namefields
+                              FROM {selfselectadvanced_member} m
+                              JOIN {user} u ON u.id = m.userid
+                             WHERE m.groupid = :groupid AND m.status = :status
+                          ORDER BY m.timemodified DESC";
+            foreach (
+                $DB->get_records_sql($declinedsql, [
+                    'groupid' => $this->group->id,
+                    'status' => groups::STATUS_DECLINED,
+                ], 0, 10) as $invite
+            ) {
+                $pendinginvites[] = (object) [
+                    'memberid' => (int) $invite->memberid,
+                    'fullname' => fullname($invite),
+                    'invitedon' => $invite->timeresponded ? userdate($invite->timeresponded) : '',
+                    'declined' => true,
                 ];
             }
         }
@@ -392,9 +414,7 @@ class group_page implements renderable, templatable {
             'quota' => $quota,
             'showsubmit' => $this->submitform !== null,
             'submitformhtml' => $this->submitform?->render() ?? '',
-            'submitblockedreason' => $isleader && $isforming && $submitrefusal !== null
-                ? $submitrefusal->get_message()
-                : '',
+            'submitblockedreason' => $this->submit_blocked_reason($isleader, $isforming, $submitrefusal),
             'guidename' => $guidename,
             'hasguide' => $guidename !== '',
             'returncomment' => $isforming && !empty($this->group->returncomment)
@@ -441,5 +461,36 @@ class group_page implements renderable, templatable {
             ]))->out(false),
             'backurl' => (new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cmid]))->out(false),
         ];
+    }
+
+    /**
+     * The reason the submit button is disabled, or '' when it is live.
+     *
+     * The gate's refusal wins; with no refusal the remaining reason a
+     * leader can face is leader-selects mode with no guide currently
+     * holding free capacity.
+     *
+     * @param bool $isleader the viewer leads the group
+     * @param bool $isforming the group is forming
+     * @param \mod_selfselectadvanced\local\rules\refusal|null $submitrefusal the submit gate's verdict
+     * @return string
+     */
+    private function submit_blocked_reason(bool $isleader, bool $isforming, ?object $submitrefusal): string {
+        if (!$isleader || !$isforming) {
+            return '';
+        }
+        if ($submitrefusal !== null) {
+            return $submitrefusal->get_message();
+        }
+        $activity = $this->api->activity();
+        $leaderselects = empty($this->group->guideid) && (int) $activity->settings()->guidemode === 0;
+        if (
+            $leaderselects
+            && !\mod_selfselectadvanced\local\guides::selectable($activity, $this->api->gatekeeper()->resolver())
+        ) {
+            return get_string('submitnoguides', 'mod_selfselectadvanced');
+        }
+
+        return '';
     }
 }

@@ -61,8 +61,17 @@ class submit_form extends \moodleform {
 
         // Named button rather than add_action_buttons(): several forms
         // share the group page, and a fixed name keeps this button's id
-        // the same no matter which of the others are on the page.
-        $mform->addElement('submit', 'submitguide', get_string('submittoguide', 'mod_selfselectadvanced'));
+        // the same no matter which of the others are on the page. While
+        // a blocker stands, the button renders disabled (the reason is
+        // shown beside it); the guide picker stays interactive so the
+        // leader can still browse guides. The state machine re-checks
+        // on POST, so the attribute is presentation, not protection.
+        $mform->addElement(
+            'submit',
+            'submitguide',
+            get_string('submittoguide', 'mod_selfselectadvanced'),
+            !empty($this->_customdata['disabled']) ? ['disabled' => 'disabled'] : null
+        );
         $mform->closeHeaderBefore('submitguide');
     }
 }

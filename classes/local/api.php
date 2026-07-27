@@ -164,6 +164,12 @@ class api {
                 'timemodified' => $now,
             ]);
 
+            // Leading a new group consumes a membership slot too; when
+            // it reaches the leader's cap, any other pending invitations
+            // of theirs must cascade the same as an accept would (audit:
+            // non-accept paths were leaving rivals pending forever).
+            $cascaded = $this->invitations()->cascade_at_cap($userid);
+
             $event = \mod_selfselectadvanced\event\group_created::create([
                 'objectid' => $group->id,
                 'context' => $this->activity->context(),
@@ -176,15 +182,17 @@ class api {
             $lock->release();
         }
 
+        $this->invitations()->notify_cascaded($cascaded, $userid);
+
         return $group;
     }
 
     /**
      * Delete a forming group (transition T7).
      *
-     * Members are notified from slice 2 onward via the notifier; in the
-     * forming state before invitations exist the leader is the only
-     * member.
+     * Confirmed members are notified (provider 'groupdeleted'), the
+     * acting user excepted; in the forming state before invitations
+     * exist the leader is typically the only confirmed member.
      *
      * @param stdClass $group group row
      * @param int $userid the acting user (must be the leader)
@@ -206,6 +214,15 @@ class api {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
+            // Confirmed roster captured before the rows disappear, for
+            // the post-commit notification below.
+            $confirmed = $DB->get_fieldset_select(
+                'selfselectadvanced_member',
+                'userid',
+                'groupid = ? AND status = ?',
+                [$fresh->id, groups::STATUS_CONFIRMED]
+            );
+
             $DB->delete_records('selfselectadvanced_member', ['groupid' => $fresh->id]);
             $DB->delete_records('selfselectadvanced_group', ['id' => $fresh->id]);
 
@@ -219,6 +236,23 @@ class api {
             $transaction->allow_commit();
         } finally {
             $lock->release();
+        }
+
+        $url = new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $this->activity->cm()->id]);
+        foreach ($confirmed as $memberid) {
+            if ((int) $memberid === $userid) {
+                continue;
+            }
+            notifier::send(
+                $this->activity,
+                'groupdeleted',
+                (int) $memberid,
+                'msggroupdeletedsubject',
+                'msggroupdeletedbody',
+                (object) ['group' => format_string($fresh->name), 'activity' => $this->activity->name()],
+                $url,
+                $this->activity->name()
+            );
         }
     }
 }

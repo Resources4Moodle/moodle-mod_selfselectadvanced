@@ -94,23 +94,19 @@ final class compliance_test extends \advanced_testcase {
             $api->gatekeeper()->can_confirm_leave($group, $member, $leader)?->stringkey
         );
 
-        // Request filed; L1 blocks (2 -> 1 < min 2).
+        // Request filed. Only the leader confirms.
         $DB->set_field('selfselectadvanced_member', 'leaverequested', time(), ['id' => $member->id]);
         $member = $DB->get_record('selfselectadvanced_member', ['id' => $member->id]);
-        $this->assertSame(
-            'refusalbelowminsize',
-            $api->gatekeeper()->can_confirm_leave($group, $member, $leader)?->stringkey
-        );
-        // Only the leader confirms.
         $this->assertSame(
             'refusalnotleader',
             $api->gatekeeper()->can_confirm_leave($group, $member, (int) $students[1]->id)?->stringkey
         );
 
-        // With min 1 (override) the leave is allowed.
-        \mod_selfselectadvanced\local\override\store::save($activity, 'group', (int) $group->id, ['minsize' => 1], 0);
-        $api2 = new api($activity);
-        $this->assertNull($api2->gatekeeper()->can_confirm_leave($group, $member, $leader));
+        // Leaving a FORMING group is allowed even when it drops the
+        // roster below the effective minimum (2 -> 1 < min 2): the
+        // minimum gates SUBMISSION, never membership — a group at the
+        // minimum must be able to shrink to repair its composition.
+        $this->assertNull($api->gatekeeper()->can_confirm_leave($group, $member, $leader));
     }
 
     /**

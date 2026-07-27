@@ -174,6 +174,41 @@ class gatekeeper {
             return new refusal('refusalnoseats');
         }
 
+        return $this->check_composition_feasibility($group, $inviteeid);
+    }
+
+    /**
+     * Whether admitting a member leaves the composition reachable: an
+     * exceeded counting-rule maximum can never self-heal by adding
+     * members, and a seat-plan deficiency larger than the free seats
+     * below the effective maximum can never be filled. Quota-exempt
+     * groups skip the gate, exactly as the submit gate does.
+     *
+     * @param \stdClass $group group row
+     * @param int|null $candidateid prospective member, null when already seated
+     * @return refusal|null null when compliance stays reachable
+     */
+    protected function check_composition_feasibility(stdClass $group, ?int $candidateid): ?refusal {
+        if ($this->resolver->is_quota_exempt((int) $group->id)->enabled) {
+            return null;
+        }
+        $feasibility = \mod_selfselectadvanced\local\quota\evaluator::feasibility(
+            $this->activity,
+            (int) $group->id,
+            $candidateid
+        );
+        if ($feasibility->maxexceeded !== null) {
+            return new refusal('refusalcompositionmax', $feasibility->maxexceeded);
+        }
+        $max = $this->resolver->effective_maxsize((int) $group->id);
+        $free = max(0, $max->value - $feasibility->seated);
+        if ($feasibility->missing > $free) {
+            return new refusal('refusalcompositionunreachable', (object) [
+                'missing' => $feasibility->missing,
+                'free' => $free,
+            ]);
+        }
+
         return null;
     }
 
@@ -216,7 +251,10 @@ class gatekeeper {
             return new refusal('refusalnoseats');
         }
 
-        return null;
+        // The roster may have changed since the invitation: re-check
+        // that this acceptance keeps the composition reachable (the
+        // acceptor already sits in the invited basis, so no candidate).
+        return $this->check_composition_feasibility($group, null);
     }
 
     /**
@@ -538,8 +576,9 @@ class gatekeeper {
     }
 
     /**
-     * May the leader confirm this member's leave request? (Spec 6.3,
-     * limit 4A.1: the source must keep its effective minimum.)
+     * May the leader confirm this member's leave request? (Spec 6.3.
+     * Limit 4A.1 applies to manager moves, not here: leaving a FORMING
+     * group is always possible, since the minimum size gates submission.)
      *
      * @param \stdClass $group group row
      * @param \stdClass $member the leaving member row
@@ -556,12 +595,12 @@ class gatekeeper {
         if ($member->status !== groups::STATUS_CONFIRMED || empty($member->leaverequested)) {
             return new refusal('refusalnoleaverequest');
         }
-        $min = $this->resolver->effective_minsize((int) $group->id);
-        $after = groups::count_confirmed((int) $group->id) - 1;
-        if ($after < $min->value) {
-            return new refusal('refusalbelowminsize', (object) ['current' => $after, 'min' => $min->value]);
-        }
 
+        // No minimum-size floor here: forming groups are created below
+        // the minimum, so the minimum is a SUBMIT precondition, never a
+        // membership invariant — a group must always be able to shrink
+        // while forming (firm/frozen membership only moves via manager
+        // staged moves, where L1 is a per-move verdict).
         return null;
     }
 

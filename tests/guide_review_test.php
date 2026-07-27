@@ -317,4 +317,51 @@ final class guide_review_test extends \advanced_testcase {
         // The assigned guide can approve.
         $this->assertNull($api->gatekeeper()->can_approve($assigned, $guide));
     }
+
+    /**
+     * assign_guide refuses a guide at capacity (under the per-guide
+     * lock), but re-assigning the guide a group ALREADY has is a
+     * cap-neutral no-op and must not be refused — that guide's slot is
+     * held by this very group.
+     */
+    public function test_assign_guide_capacity_and_reassign(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $guideusers] = $this->setup_activity([
+            'guidemode' => 1,
+            'maxguided' => 1,
+            'maxlead' => 2,
+            'maxmembership' => 2,
+        ], 3, 2);
+        $manager = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($manager->id, $activity->courseid(), 'editingteacher');
+        $guide = (int) $guideusers[0]->id;
+
+        $held = $this->plugingen()->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[1]->id,
+            'name' => 'Holds',
+            'state' => state::PENDING_GUIDE,
+            'guideid' => $guide,
+        ]);
+        $queued = $this->plugingen()->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[0]->id,
+            'name' => 'Queued',
+            'state' => state::PENDING_GUIDE,
+        ]);
+
+        // A second group cannot be assigned to the full guide.
+        try {
+            $api->lifecycle()->assign_guide(groups::get($activity, (int) $queued->id), $guide, (int) $manager->id);
+            $this->fail('Expected guide-capacity refusal');
+        } catch (\moodle_exception $e) {
+            $this->assertStringContainsString('already guiding', $e->getMessage());
+        }
+
+        // Re-assigning the same guide to the group they already hold
+        // succeeds even at capacity.
+        $again = $api->lifecycle()->assign_guide(groups::get($activity, (int) $held->id), $guide, (int) $manager->id);
+        $this->assertEquals($guide, $again->guideid);
+    }
 }

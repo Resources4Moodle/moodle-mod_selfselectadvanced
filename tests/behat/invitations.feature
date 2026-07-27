@@ -66,6 +66,10 @@ Feature: Invitation-only joining with reserved seats
     Then I should see "You have joined the group \"Team Blue\"."
     When I am on the "Lab groups" "selfselectadvanced activity" page
     Then I should see "No pending invitations"
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student3
+    And I follow "Team Green"
+    Then I should see "Sam One" in the ".selfselectadvanced-pendinginvites" "css_element"
+    And I should see "Declined" in the ".selfselectadvanced-pendinginvites" "css_element"
 
   @javascript
   Scenario: The leader finds an invitee by email in the native selector

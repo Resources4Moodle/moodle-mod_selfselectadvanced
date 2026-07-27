@@ -303,4 +303,134 @@ final class moves_test extends \advanced_testcase {
         $this->expectException(\dml_missing_record_exception::class);
         $api->moves()->cancel((int) $move->id, 99);
     }
+
+    /**
+     * L4 holds JOINTLY across a set: two staged moves adding the same
+     * user to two different groups each look fine alone but together
+     * exceed the membership cap, so the set refuses.
+     */
+    public function test_l4_validated_jointly_across_the_set(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups(['maxsize' => 3]);
+        $free = (int) $students[4]->id;
+
+        $move1 = $api->moves()->stage($free, null, (int) $a->id, false, null, 99);
+        $move2 = $api->moves()->stage($free, null, (int) $b->id, false, null, 99);
+
+        $single = $api->moves()->validate_set([(int) $move1->id]);
+        $this->assertTrue($single->permove[(int) $move1->id]['L4']['ok']);
+
+        $joint = $api->moves()->validate_set([(int) $move1->id, (int) $move2->id]);
+        $this->assertFalse($joint->valid);
+        $this->assertFalse($joint->permove[(int) $move1->id]['L4']['ok']);
+        $this->assertFalse($joint->permove[(int) $move2->id]['L4']['ok']);
+    }
+
+    /**
+     * SUCC: a staged leader-out move whose successor has since left
+     * the source group refuses at validation, and the verdict is not
+     * bypassable — a stale successor is corruption, not policy.
+     */
+    public function test_stale_successor_refused(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'maxsize' => 3, 'minsize' => 1, 'maxmembership' => 2,
+        ]);
+        $leadera = (int) $students[0]->id;
+        $succ = (int) $students[1]->id;
+
+        $move = $api->moves()->stage($leadera, (int) $a->id, (int) $b->id, false, $succ, 99);
+        $this->assertTrue($api->moves()->validate_set([(int) $move->id])->valid);
+
+        // The successor leaves the source after staging.
+        $DB->set_field('selfselectadvanced_member', 'status', groups::STATUS_REMOVED, [
+            'groupid' => (int) $a->id,
+            'userid' => $succ,
+        ]);
+        $verdicts = $api->moves()->validate_set([(int) $move->id]);
+        $this->assertFalse($verdicts->valid);
+        $this->assertFalse($verdicts->permove[(int) $move->id]['SUCC']['ok']);
+        $this->assertFalse($verdicts->permove[(int) $move->id]['SUCC']['bypassed']);
+    }
+
+    /**
+     * A successor removed by the SAME set cannot inherit leadership:
+     * the pair "leader out with successor S" + "S out" refuses.
+     */
+    public function test_successor_removed_by_same_set_refused(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'maxsize' => 4, 'minsize' => 1, 'maxmembership' => 2,
+        ]);
+        $leadera = (int) $students[0]->id;
+        $succ = (int) $students[1]->id;
+
+        $move1 = $api->moves()->stage($leadera, (int) $a->id, (int) $b->id, false, $succ, 99);
+        $move2 = $api->moves()->stage($succ, (int) $a->id, (int) $b->id, false, null, 99);
+
+        $verdicts = $api->moves()->validate_set([(int) $move1->id, (int) $move2->id]);
+        $this->assertFalse($verdicts->valid);
+        $this->assertFalse($verdicts->permove[(int) $move1->id]['SUCC']['ok']);
+    }
+
+    /**
+     * Committing a leader-out move promotes the successor with a
+     * message and a leadership_transferred event — the manager path
+     * writes the same audit trail as succession.
+     */
+    public function test_promoted_successor_notified_and_logged(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'maxsize' => 3, 'minsize' => 1, 'maxmembership' => 2,
+        ]);
+        $leadera = (int) $students[0]->id;
+        $succ = (int) $students[1]->id;
+
+        $move = $api->moves()->stage($leadera, (int) $a->id, (int) $b->id, false, $succ, 99);
+
+        $sink = $this->redirectMessages();
+        $events = $this->redirectEvents();
+        $api->moves()->commit_set([(int) $move->id], 99);
+        $events->close();
+
+        $this->assertEquals($succ, $DB->get_field('selfselectadvanced_group', 'leaderid', ['id' => $a->id]));
+        $transfers = array_values(array_filter(
+            $events->get_events(),
+            static fn($e) => $e instanceof \mod_selfselectadvanced\event\leadership_transferred
+        ));
+        $this->assertCount(1, $transfers);
+        $this->assertSame('movesuccession', $transfers[0]->get_data()['other']['type']);
+
+        $promoted = array_values(array_filter(
+            $sink->get_messages(),
+            static fn($m) => (int) $m->useridto === $succ && str_contains($m->subject, 'You now lead')
+        ));
+        $sink->close();
+        $this->assertCount(1, $promoted);
+    }
+
+    /**
+     * The QUOTA verdict evaluates the SEAT PLAN, not only counting
+     * rules: with a slot template no roster here can satisfy, every
+     * move set shows QUOTA not-ok instead of a false green.
+     */
+    public function test_quota_verdict_covers_seat_plan(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups(['maxsize' => 3]);
+        \mod_selfselectadvanced\local\quota\slots::create($activity, (object) [
+            'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value',
+            'value' => 'Computer', 'allowoverlap' => 0,
+        ]);
+
+        $move = $api->moves()->stage((int) $students[4]->id, null, (int) $a->id, false, null, 99);
+        $verdicts = $api->moves()->validate_set([(int) $move->id]);
+        $this->assertFalse($verdicts->permove[(int) $move->id]['QUOTA']['ok']);
+    }
 }

@@ -42,6 +42,25 @@ Feature: Composition quotas with a live deficiency panel
     Then I should see "Rule saved."
     And I should see "At least 1 members with Gender = Female"
 
+  Scenario: The submit control is visible but disabled while the composition is unmet
+    Given the following "mod_selfselectadvanced > quotas" exist:
+      | selfselectadvanced | dimension | value  | mincount |
+      | ssa1               | gender    | Female | 1        |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    And I follow "Team Blue"
+    Then I should see "Submit to guide"
+    And the "Submit to guide" "button" should be disabled
+    And I should see "The group does not yet satisfy the composition quota rules."
+
+  Scenario: A declined invitation stays visible to the leader
+    Given the following "mod_selfselectadvanced > members" exist:
+      | ssagroup  | user     | status   |
+      | Team Blue | student2 | declined |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    And I follow "Team Blue"
+    Then I should see "Tara Two" in the ".selfselectadvanced-pendinginvites" "css_element"
+    And I should see "Declined" in the ".selfselectadvanced-pendinginvites" "css_element"
+
   Scenario: The leader sees the deficiency bucket and satisfies it
     Given the following "mod_selfselectadvanced > quotas" exist:
       | selfselectadvanced | dimension | value  | mincount |

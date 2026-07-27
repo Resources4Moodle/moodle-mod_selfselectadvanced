@@ -17,61 +17,67 @@
 {{!
     @template mod_selfselectadvanced/pickteam
 
-    Pick a team (EOI 1.11.0): listed, still-forming, guideless teams as
-    cards, most-interested-first after listing order.
+    Pick a team (scalability rework): the single-team pick view only -
+    the browse listing moved to a native table_sql (pickteam_table).
 
     Context variables required for this template:
-    * heading - page heading string
-    * hascards - whether any team is currently listed
-    * cards - groupid, name, topic, leadername, membercount, interestline,
-      showpeers, peernames, pickurl
-    * backurl - link back to the guide dashboard
+    * pickable - whether the team is still open for guide interest
+    * name, topic, leadername, membercount - the team card, shown only when pickable
+    * showinterest, interestline - pending-interest count, hidden under eoisequential
+    * showpeers, peernames - peer guide names, eoipeers and non-sequential only
+    * confirmtext - the express-interest confirmation sentence
+    * editorid, remarksvalue, remarksformat - the remarks editor
+    * expressurl, sesskey, cancelurl - the express form target and cancel link
+    * notlistablemessage, backurl - shown instead of the card when not pickable
 
     Example context (json):
     {
-        "heading": "Team listing and guide interest",
-        "hascards": true,
-        "cards": [
-            {
-                "groupid": 1,
-                "name": "Team Alpha",
-                "topic": "Pendulums",
-                "leadername": "Amrita Iyer",
-                "membercount": 4,
-                "interestline": "2 guide(s) interested",
-                "showpeers": true,
-                "peernames": "Grace Guide, Hari Guide",
-                "pickurl": "https://example.com/mod/selfselectadvanced/pickteam.php?id=1&action=express&g=1"
-            }
-        ],
-        "backurl": "https://example.com/mod/selfselectadvanced/guide.php?id=1"
+        "pickable": true,
+        "name": "Team Alpha",
+        "topic": "Pendulums",
+        "leadername": "Amrita Iyer",
+        "membercount": 4,
+        "showinterest": true,
+        "interestline": "2 guide(s) interested",
+        "showpeers": true,
+        "peernames": "Grace Guide, Hari Guide",
+        "confirmtext": "Express interest in guiding \"Team Alpha\"? The team leader decides who guides the team; you will be notified of their decision.",
+        "editorid": "ssa-eoiremarks-1",
+        "remarksvalue": "",
+        "remarksformat": 1,
+        "expressurl": "https://example.com/mod/selfselectadvanced/pickteam.php?id=1&g=1",
+        "sesskey": "abcdef1234",
+        "cancelurl": "https://example.com/mod/selfselectadvanced/pickteam.php?id=1",
+        "notlistablemessage": "This team is not open for guide interest: it must be listed, still forming, and without an accepted guide.",
+        "backurl": "https://example.com/mod/selfselectadvanced/pickteam.php?id=1"
     }
 }}
 <div class="selfselectadvanced-pickteam">
-    <h2>{{heading}}</h2>
-
-    {{#hascards}}
-        <div class="ssa-cards">
-            {{#cards}}
-                <div class="ssa-card">
-                    <h3>{{name}}</h3>
-                    <p>{{topic}}</p>
-                    <p>{{#str}} eoicardleader, mod_selfselectadvanced, {{leadername}} {{/str}}</p>
-                    <p>{{#str}} eoicardsize, mod_selfselectadvanced, {{membercount}} {{/str}}</p>
-                    <p>{{interestline}}</p>
-                    {{#showpeers}}
-                        <p class="text-muted">{{peernames}}</p>
-                    {{/showpeers}}
-                    <a class="btn btn-primary btn-sm" href="{{pickurl}}">
-                        {{#str}} eoipickteam, mod_selfselectadvanced {{/str}}
-                    </a>
-                </div>
-            {{/cards}}
+    {{#pickable}}
+        <div class="ssa-card">
+            <h3>{{name}}</h3>
+            <p>{{topic}}</p>
+            <p>{{#str}} eoicardleader, mod_selfselectadvanced, {{leadername}} {{/str}}</p>
+            <p>{{#str}} eoicardsize, mod_selfselectadvanced, {{membercount}} {{/str}}</p>
+            {{#showinterest}}
+                <p>{{interestline}}</p>
+            {{/showinterest}}
+            {{#showpeers}}
+                <p class="text-muted">{{peernames}}</p>
+            {{/showpeers}}
         </div>
-    {{/hascards}}
-    {{^hascards}}
-        <p class="text-muted">{{#str}} eoinonelisted, mod_selfselectadvanced {{/str}}</p>
-    {{/hascards}}
-
-    <a href="{{backurl}}" class="btn btn-secondary mt-3">{{#str}} back {{/str}}</a>
+        <p>{{confirmtext}}</p>
+        <form method="post" action="{{expressurl}}">
+            <input type="hidden" name="sesskey" value="{{sesskey}}">
+            <input type="hidden" name="remarksformat" value="{{remarksformat}}">
+            <label for="{{editorid}}">{{#str}} eoiremarks, mod_selfselectadvanced {{/str}}</label>
+            <textarea name="remarks" id="{{editorid}}" rows="6" class="form-control mb-2 w-100">{{remarksvalue}}</textarea>
+            <input type="submit" value="{{#str}} eoipickteam, mod_selfselectadvanced {{/str}}" class="btn btn-primary">
+            <a href="{{cancelurl}}" class="btn btn-secondary">{{#str}} cancel {{/str}}</a>
+        </form>
+    {{/pickable}}
+    {{^pickable}}
+        <p class="text-muted">{{notlistablemessage}}</p>
+        <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>
+    {{/pickable}}
 </div>

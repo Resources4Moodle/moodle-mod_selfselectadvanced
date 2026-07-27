@@ -181,4 +181,79 @@ final class autogroup_test extends \advanced_testcase {
         $lastrun = $DB->get_records('selfselectadvanced_agrun', [], 'id DESC', '*', 0, 1);
         $this->assertSame(1, (int) reset($lastrun)->unplaced);
     }
+
+    /**
+     * Auto-placement is a non-accept path that can also reach a
+     * student's membership cap: when it does, any pending invitation of
+     * theirs cascades exactly as an acceptance would, and the affected
+     * leader is notified (audit: capacity consumed by placement
+     * previously left rivals pending forever).
+     */
+    public function test_placement_cascades_pending_invitation(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $now = time();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 2,
+            'maxsize' => 3,
+            'maxlead' => 1,
+            'maxmembership' => 1,
+            'autogroup' => 2,
+            'timecutoff' => $now - 100,
+        ]);
+        $students = [];
+        for ($i = 0; $i < 4; $i++) {
+            $user = $generator->create_user();
+            $generator->enrol_user($user->id, $course->id, 'student');
+            $students[] = (int) $user->id;
+        }
+        $activity = activity::from_instance((int) $instance->id);
+
+        /** @var \mod_selfselectadvanced_generator $plugingen */
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $externalleader = $generator->create_user();
+        $generator->enrol_user($externalleader->id, $course->id, 'student');
+        // The external leader's own confirmed leadership keeps them out
+        // of the pool; one pool student holds a pending invitation from
+        // them - pending invitations do not exclude a student from the
+        // pool (B4 only excludes confirmed memberships).
+        $rival = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $externalleader->id,
+            'name' => 'Rival',
+        ]);
+        $plugingen->create_member([
+            'groupid' => $rival->id,
+            'userid' => $students[0],
+            'status' => groups::STATUS_INVITED,
+        ]);
+
+        $eventsink = $this->redirectEvents();
+        $messagesink = $this->redirectMessages();
+        engine::run($activity, 0, 777);
+        $declined = array_values(array_filter(
+            $eventsink->get_events(),
+            fn($e) => $e instanceof \mod_selfselectadvanced\event\invitation_declined
+        ));
+        $eventsink->close();
+        $messages = $messagesink->get_messages();
+        $messagesink->close();
+
+        $this->assertCount(1, $declined);
+        $this->assertSame('membershipcap', $declined[0]->get_data()['other']['reason']);
+        $this->assertSame(
+            groups::STATUS_DECLINED,
+            $DB->get_field('selfselectadvanced_member', 'status', ['groupid' => $rival->id, 'userid' => $students[0]])
+        );
+        $leadermsgs = array_values(array_filter(
+            $messages,
+            fn($m) => (int) $m->useridto === (int) $externalleader->id && $m->eventtype === 'invitationresult'
+        ));
+        $this->assertNotEmpty($leadermsgs);
+        $this->assertStringContainsString('automatically declined', $leadermsgs[0]->fullmessage);
+    }
 }

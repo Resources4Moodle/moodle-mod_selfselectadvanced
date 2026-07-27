@@ -72,13 +72,29 @@ final class state {
             throw new \moodle_exception('refusalguiderequired', 'mod_selfselectadvanced');
         }
 
+        // The guide's capacity gate below only holds under per-guide
+        // serialisation: two groups submitting to the same guide from
+        // under their own group locks would each read a free slot and
+        // jointly exceed the cap. Same resource and same ordering as
+        // the EOI paths: guide lock BEFORE group lock.
+        $pretarget = $preassigned ?: (int) $guideid;
+        $guidelock = $pretarget ? locks::acquire('eoiguide:' . $pretarget) : null;
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
 
             $fresh = groups::get($this->activity, (int) $group->id);
             $preassigned = !empty($fresh->guideid) ? (int) $fresh->guideid : 0;
-            $target = $preassigned ?: $guideid;
+            $target = $preassigned ?: (int) $guideid;
+            if ($target !== $pretarget) {
+                // An EOI decision changed the group's guide between the
+                // pre-lock read and now: the lock held is the wrong
+                // guide's, so the leader must review and resubmit.
+                throw new \moodle_exception('refusalguidechanged', 'mod_selfselectadvanced');
+            }
+            if ($leaderselects && !$target) {
+                throw new \moodle_exception('refusalguiderequired', 'mod_selfselectadvanced');
+            }
             if ($refusal = $this->gatekeeper->can_submit($fresh, $actorid)) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
@@ -114,6 +130,9 @@ final class state {
             $transaction->allow_commit();
         } finally {
             $lock->release();
+            if ($guidelock) {
+                $guidelock->release();
+            }
         }
 
         $url = $this->review_url((int) $fresh->id);
@@ -164,6 +183,10 @@ final class state {
     public function assign_guide(stdClass $group, int $guideid, int $actorid): stdClass {
         global $DB;
 
+        // Per-guide serialisation before the group lock (same resource
+        // and ordering as the EOI paths), or two concurrent assigns
+        // could jointly exceed the guide's cap.
+        $guidelock = locks::acquire('eoiguide:' . $guideid);
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -172,7 +195,13 @@ final class state {
             if ($fresh->state !== self::PENDING_GUIDE) {
                 throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
             }
-            if ($refusal = $this->gatekeeper->can_take_guide($guideid)) {
+            // Re-assigning the guide the group already has is a no-op
+            // cap-wise: their slot is held by this very group, so the
+            // gate would falsely refuse a guide at capacity.
+            if (
+                (int) $fresh->guideid !== (int) $guideid
+                && ($refusal = $this->gatekeeper->can_take_guide($guideid))
+            ) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
@@ -191,6 +220,7 @@ final class state {
             $transaction->allow_commit();
         } finally {
             $lock->release();
+            $guidelock->release();
         }
 
         notifier::send(

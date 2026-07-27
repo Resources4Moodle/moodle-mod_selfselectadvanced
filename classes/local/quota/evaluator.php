@@ -49,11 +49,94 @@ class evaluator {
 
         $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $activity->id()], 'priority ASC');
         $template = slots::get_all($activity);
-        $roster = groups::get_roster($groupid);
-        $memberids = array_map(static fn($member) => (int) $member->userid, $roster);
+        $memberids = array_map('intval', $DB->get_fieldset_select(
+            'selfselectadvanced_member',
+            'userid',
+            'groupid = ? AND status = ?',
+            [$groupid, groups::STATUS_CONFIRMED]
+        ));
         $attrs = manager::get_for_users($memberids);
 
         return self::build_report($rules, $template, $memberids, $attrs);
+    }
+
+    /**
+     * Whether the composition can still be completed if this roster
+     * grows to the group's maximum size — the admission gate behind
+     * inviting and accepting (a member who makes compliance
+     * unreachable is refused before a seat is wasted on them).
+     *
+     * The basis roster is confirmed PLUS invited members (invited
+     * members already hold reserved seats, L2), plus the candidate
+     * when they are not seated yet. Two unreachability conditions:
+     * an exceeded counting-rule MAXIMUM (adding members can never
+     * repair it), and a seat-plan deficiency larger than the free
+     * seats left below the effective maximum. The same greedy booking
+     * that gates submission measures the deficiency, so this gate can
+     * never admit a roster the submit gate would call unreachable.
+     *
+     * @param activity $activity the activity
+     * @param int $groupid the group
+     * @param int|null $candidateid prospective member, null when already seated
+     * @return stdClass {missing, seated, maxexceeded: ?rule entry}
+     */
+    public static function feasibility(activity $activity, int $groupid, ?int $candidateid): stdClass {
+        global $DB;
+
+        $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $activity->id()], 'priority ASC');
+        $template = slots::get_all($activity);
+
+        [$insql, $params] = $DB->get_in_or_equal(
+            [groups::STATUS_CONFIRMED, groups::STATUS_INVITED],
+            SQL_PARAMS_NAMED,
+            'st'
+        );
+        $params['groupid'] = $groupid;
+        $memberids = array_map('intval', $DB->get_fieldset_select(
+            'selfselectadvanced_member',
+            'userid',
+            "groupid = :groupid AND status $insql",
+            $params
+        ));
+        if ($candidateid !== null && !in_array((int) $candidateid, $memberids, true)) {
+            $memberids[] = (int) $candidateid;
+        }
+        $attrs = manager::get_for_users($memberids);
+
+        $maxexceeded = null;
+        foreach ($rules as $rule) {
+            if ($rule->rtype === 'distinct' || $rule->maxcount === null) {
+                continue;
+            }
+            $target = \core_text::strtolower((string) $rule->value);
+            $current = 0;
+            foreach ($memberids as $userid) {
+                $value = $attrs[$userid]->{$rule->dimension} ?? null;
+                if ($value !== null && $value !== '' && \core_text::strtolower($value) === $target) {
+                    $current++;
+                }
+            }
+            if ($current > (int) $rule->maxcount) {
+                $maxexceeded = (object) [
+                    'value' => $rule->value,
+                    'max' => (int) $rule->maxcount,
+                    'current' => $current,
+                ];
+                break;
+            }
+        }
+
+        $slotresult = slots::evaluate_from_data($template, $memberids, $attrs);
+        $missing = 0;
+        foreach ($slotresult->slots as $entry) {
+            $missing += (int) $entry->missing;
+        }
+
+        return (object) [
+            'missing' => $missing,
+            'seated' => count(array_unique($memberids)),
+            'maxexceeded' => $maxexceeded,
+        ];
     }
 
     /**
@@ -66,6 +149,28 @@ class evaluator {
      */
     public static function is_compliant(activity $activity, int $groupid): bool {
         return self::evaluate($activity, $groupid)->compliant;
+    }
+
+    /**
+     * Compliance of a hypothetical roster: the full report — counting
+     * rules AND the seat plan — evaluated over an explicit member set,
+     * for callers that reason about net post-states (the staged-move
+     * QUOTA verdict). Funnels through the same build_report() as every
+     * other gate, so verdicts can never drift apart.
+     *
+     * @param activity $activity the activity
+     * @param int[] $memberids the hypothetical confirmed member ids
+     * @return bool compliant (vacuously true with no rules and no seats)
+     */
+    public static function compliant_for_members(activity $activity, array $memberids): bool {
+        global $DB;
+
+        $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $activity->id()], 'priority ASC');
+        $template = slots::get_all($activity);
+        $memberids = array_values(array_unique(array_map('intval', $memberids)));
+        $attrs = manager::get_for_users($memberids);
+
+        return self::build_report($rules, $template, $memberids, $attrs)->compliant;
     }
 
     /**

@@ -53,9 +53,14 @@ class guide_autoapprove extends \core\task\scheduled_task {
         foreach ($activities as $instance) {
             $activity = activity::from_instance((int) $instance->id);
             $api = new api($activity);
+            // Guideless queue groups are excluded: the deadline stands
+            // in for a guide who failed to decide, and a group no guide
+            // holds has no decider to stand in for — it stays in the
+            // manager assignment queue.
             $overdue = $DB->get_records_select(
                 'selfselectadvanced_group',
-                'activityid = :activityid AND state = :state AND timesubmitted > 0 AND timesubmitted + :window < :now',
+                'activityid = :activityid AND state = :state AND timesubmitted > 0 AND guideid IS NOT NULL'
+                    . ' AND timesubmitted + :window < :now',
                 [
                     'activityid' => $instance->id,
                     'state' => state::PENDING_GUIDE,

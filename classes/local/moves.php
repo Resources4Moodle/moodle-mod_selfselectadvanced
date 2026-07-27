@@ -205,6 +205,19 @@ class moves {
                 - count(array_intersect($rem, $seatsin[$gid] ?? []));
         };
 
+        // L4 must hold JOINTLY across the set: two moves adding the
+        // same user to different groups each look fine alone, so the
+        // verdict uses the user's net delta over the whole set (the
+        // L3 lead verdict already aggregates the same way). A move
+        // into a group where the user is already confirmed gains
+        // nothing.
+        $membershipdeltas = [];
+        foreach ($moves as $move) {
+            $uid = (int) $move->userid;
+            $gain = in_array($uid, $confirmedin[(int) $move->targetgroupid] ?? [], true) ? 0 : 1;
+            $membershipdeltas[$uid] = ($membershipdeltas[$uid] ?? 0) + $gain - ($move->sourcegroupid ? 1 : 0);
+        }
+
         $result = (object) ['valid' => true, 'permove' => []];
         foreach ($moves as $move) {
             $moveid = (int) $move->id;
@@ -233,9 +246,9 @@ class moves {
                 get_string('moveruleL2', 'mod_selfselectadvanced', (object) ['after' => $seatsafter, 'max' => $max])
             );
 
-            // L4 for the moved user's net memberships.
-            $membershipdelta = 1 - ($move->sourcegroupid ? 1 : 0);
-            $membershipsafter = groups::count_memberships($this->activity, (int) $move->userid) + $membershipdelta;
+            // L4 for the moved user's net memberships across the SET.
+            $membershipsafter = groups::count_memberships($this->activity, (int) $move->userid)
+                + $membershipdeltas[(int) $move->userid];
             $capvalue = $resolver->effective_maxmembership((int) $move->userid)->value;
             $verdicts['L4'] = $this->verdict(
                 $membershipsafter <= $capvalue,
@@ -274,6 +287,27 @@ class moves {
             }
             if ($move->successorid) {
                 $verdicts['L3S'] = $this->leadverdict((int) $move->successorid, $moves, $bypasses);
+            }
+
+            // SUCC (never bypassable): promoting a stale successor
+            // corrupts the group. Whenever the moved user currently
+            // leads the source, a successor must exist, still be a
+            // confirmed source member on the fresh roster, and not be
+            // removed from it by this same set — staged moves can
+            // outlive the roster they were staged against.
+            if ($move->sourcegroupid) {
+                $sourceid = (int) $move->sourcegroupid;
+                if ((int) groups::get($this->activity, $sourceid)->leaderid === (int) $move->userid) {
+                    $succid = (int) $move->successorid;
+                    $succok = $succid
+                        && in_array($succid, $confirmedin[$sourceid] ?? [], true)
+                        && !in_array($succid, $removals[$sourceid] ?? [], true);
+                    $verdicts['SUCC'] = $this->verdict(
+                        $succok,
+                        false,
+                        get_string('moveruleSUCC', 'mod_selfselectadvanced')
+                    );
+                }
             }
 
             // Quota on both groups' net post-state rosters.
@@ -324,8 +358,9 @@ class moves {
             $moves = $this->load_pending($moveids);
 
             $now = time();
+            $leaderchanges = [];
             foreach ($moves as $move) {
-                $this->apply($move, $actorid, $now);
+                $leaderchanges = array_merge($leaderchanges, $this->apply($move, $actorid, $now));
                 $DB->update_record('selfselectadvanced_move', (object) [
                     'id' => $move->id,
                     'status' => 'committed',
@@ -345,9 +380,65 @@ class moves {
                 ])->trigger();
             }
 
+            // Leadership changed by a move must reach the same audit
+            // trail as succession, or the manager path is invisible to
+            // anyone asking who led a group when.
+            foreach ($leaderchanges as $change) {
+                \mod_selfselectadvanced\event\leadership_transferred::create([
+                    'objectid' => $change->groupid,
+                    'context' => $this->activity->context(),
+                    'relateduserid' => $change->to,
+                    'other' => [
+                        'fromuserid' => $change->from,
+                        'pluginuid' => groups::get($this->activity, $change->groupid)->pluginuid,
+                        'type' => $change->type,
+                    ],
+                ])->trigger();
+            }
+
+            // A move can exhaust the moved user's membership capacity:
+            // their rival pending invitations auto-decline here exactly
+            // as they do on an invitation accept.
+            $invitations = new invitations($this->activity, $this->gatekeeper);
+            $cascaded = [];
+            foreach (array_unique(array_map(static fn($m) => (int) $m->userid, $moves)) as $moveduser) {
+                $rows = $invitations->cascade_at_cap($moveduser);
+                if ($rows) {
+                    $cascaded[$moveduser] = $rows;
+                }
+            }
+
             $transaction->allow_commit();
         } finally {
             $lock->release();
+        }
+
+        // Post-commit: the promoted source successors (they gained a
+        // group silently before this), then the cascade signals.
+        foreach ($leaderchanges as $change) {
+            if ($change->type !== 'movesuccession') {
+                continue;
+            }
+            $sourcegroup = groups::get($this->activity, $change->groupid);
+            notifier::send(
+                $this->activity,
+                'movecommitted',
+                $change->to,
+                'msgleaderpromotedsubject',
+                'msgleaderpromotedbody',
+                (object) [
+                    'group' => format_string($sourcegroup->name),
+                    'activity' => $this->activity->name(),
+                ],
+                new \moodle_url('/mod/selfselectadvanced/group.php', [
+                    'id' => $this->activity->cm()->id,
+                    'g' => $change->groupid,
+                ]),
+                format_string($sourcegroup->name)
+            );
+        }
+        foreach ($cascaded as $moveduser => $rows) {
+            $invitations->notify_cascaded($rows, (int) $moveduser);
         }
 
         // Post-commit notifications.
@@ -411,10 +502,12 @@ class moves {
      * @param stdClass $move the move row
      * @param int $actorid the acting manager
      * @param int $now the commit time
+     * @return array leadership changes performed: {groupid, from, to, type}
      */
-    private function apply(stdClass $move, int $actorid, int $now): void {
+    private function apply(stdClass $move, int $actorid, int $now): array {
         global $DB;
 
+        $changes = [];
         $userid = (int) $move->userid;
 
         if ($move->sourcegroupid) {
@@ -440,6 +533,12 @@ class moves {
                     'groupid' => $source->id,
                     'userid' => (int) $move->successorid,
                 ]);
+                $changes[] = (object) [
+                    'groupid' => (int) $source->id,
+                    'from' => $userid,
+                    'to' => (int) $move->successorid,
+                    'type' => 'movesuccession',
+                ];
             }
             freeze::sync_membership_change(
                 $this->activity,
@@ -487,6 +586,14 @@ class moves {
                 'groupid' => $target->id,
                 'userid' => $userid,
             ]);
+            if ($demoted !== $userid) {
+                $changes[] = (object) [
+                    'groupid' => (int) $target->id,
+                    'from' => $demoted,
+                    'to' => $userid,
+                    'type' => 'movemakeleader',
+                ];
+            }
             if ($demoted && $demoted !== $userid) {
                 notifier::send(
                     $this->activity,
@@ -514,6 +621,8 @@ class moves {
             true,
             $actorid
         );
+
+        return $changes;
     }
 
     /**
@@ -588,12 +697,10 @@ class moves {
     private function quota_after(int $groupid, array $add, array $remove): bool {
         global $DB;
 
-        $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $this->activity->id()]);
-        if (!$rules) {
-            return true;
-        }
-
-        // Evaluate against the virtual roster.
+        // The full evaluator — counting rules AND the seat plan — on
+        // the virtual roster; a hand-rolled rules-only loop here once
+        // let managers commit moves that broke slot compliance of
+        // firm groups behind a green QUOTA verdict.
         $current = $DB->get_fieldset_select(
             'selfselectadvanced_member',
             'userid',
@@ -601,35 +708,8 @@ class moves {
             [$groupid, groups::STATUS_CONFIRMED]
         );
         $virtual = array_diff(array_merge(array_map('intval', $current), $add), $remove);
-        $attrs = attributes\manager::get_for_users($virtual);
 
-        foreach ($rules as $rule) {
-            $values = [];
-            foreach ($virtual as $userid) {
-                $value = $attrs[(int) $userid]->{$rule->dimension} ?? null;
-                if ($value !== null && $value !== '') {
-                    $values[] = \core_text::strtolower($value);
-                }
-            }
-            if ($rule->rtype === 'distinct') {
-                if (count(array_unique($values)) < (int) $rule->mincount) {
-                    return false;
-                }
-            } else {
-                $count = count(array_filter(
-                    $values,
-                    static fn($v) => $v === \core_text::strtolower((string) $rule->value)
-                ));
-                if ($rule->mincount !== null && $count < (int) $rule->mincount) {
-                    return false;
-                }
-                if ($rule->maxcount !== null && $count > (int) $rule->maxcount) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
+        return \mod_selfselectadvanced\local\quota\evaluator::compliant_for_members($this->activity, $virtual);
     }
 
     /**
