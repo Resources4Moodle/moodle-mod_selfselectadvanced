@@ -49,7 +49,7 @@ $table = new \mod_selfselectadvanced\table\ledger_table(
     $download !== ''
 );
 if ($download !== '') {
-    $table->is_downloading($download, 'penalty-ledger');
+    $table->is_downloading($download, \mod_selfselectadvanced\local\exporter::stamp('penalty-ledger'));
     // Download ignores paging and dumps the full recordset; left unchanged.
     $table->out(50, false);
     die;

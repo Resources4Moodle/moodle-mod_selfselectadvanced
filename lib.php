@@ -389,7 +389,7 @@ function selfselectadvanced_extend_settings_navigation(settings_navigation $sett
     $context = $cm->context;
     if (has_capability('mod/selfselectadvanced:manage', $context)) {
         $node->add(
-            get_string('quotarules', 'mod_selfselectadvanced'),
+            get_string('composition', 'mod_selfselectadvanced'),
             new moodle_url('/mod/selfselectadvanced/quotas.php', ['id' => $cm->id]),
             navigation_node::TYPE_SETTING
         );

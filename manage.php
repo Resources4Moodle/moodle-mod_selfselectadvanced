@@ -93,7 +93,7 @@ $groupstable = new \mod_selfselectadvanced\table\groups_table(
     $download !== ''
 );
 if ($download !== '') {
-    $groupstable->is_downloading($download, 'groups');
+    $groupstable->is_downloading($download, \mod_selfselectadvanced\local\exporter::stamp('groups'));
     // Download ignores paging and dumps the full recordset; left unchanged.
     $groupstable->out(50, false);
     die;
@@ -136,7 +136,7 @@ echo $OUTPUT->heading(get_string('managerdashboard', 'mod_selfselectadvanced'));
 
 // Tool links.
 $links = [
-    ['quotas.php', 'quotarules'],
+    ['quotas.php', 'composition'],
     ['moves.php', 'pendingmoves'],
     ['overrides.php', 'overrides'],
     ['ledger.php', 'penaltyledger'],
@@ -184,7 +184,8 @@ $options = ['' => get_string('all')];
 foreach (\mod_selfselectadvanced\local\state::all() as $stateoption) {
     $options[$stateoption] = get_string('state' . str_replace('_', '', $stateoption), 'mod_selfselectadvanced');
 }
-echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(), 'class' => 'mb-3']);
+echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
+    'class' => 'd-inline-flex gap-2 align-items-center flex-wrap mb-3']);
 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
 echo html_writer::label(get_string('state', 'mod_selfselectadvanced'), 'ssa-statefilter', true, ['class' => 'me-2']);
 echo html_writer::select($options, 'statefilter', $statefilter, false, ['id' => 'ssa-statefilter', 'class' => 'me-2']);

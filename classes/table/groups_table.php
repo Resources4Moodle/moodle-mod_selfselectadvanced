@@ -158,8 +158,16 @@ class groups_table extends \table_sql {
      */
     public function col_size($row) {
         $seats = $this->gatekeeper->seat_position($row);
+        $key = (int) $seats->min === (int) $seats->max ? 'sizecellexact' : 'sizecellrange';
+        $cell = get_string($key, 'mod_selfselectadvanced', $seats);
+        if ($seats->invited > 0) {
+            $cell = get_string('sizecellinvited', 'mod_selfselectadvanced', (object) [
+                'core' => $cell,
+                'invited' => $seats->invited,
+            ]);
+        }
 
-        return get_string('sizecell', 'mod_selfselectadvanced', $seats);
+        return $cell;
     }
 
     /**

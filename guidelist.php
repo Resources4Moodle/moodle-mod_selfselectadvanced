@@ -52,7 +52,7 @@ $table = new \mod_selfselectadvanced\table\guides_table(
     new moodle_url($baseurl, ['perpage' => $perpage]),
     $fdept
 );
-$table->is_downloading($download, 'guides');
+$table->is_downloading($download, \mod_selfselectadvanced\local\exporter::stamp('guides'));
 
 if (!$table->is_downloading()) {
     echo $OUTPUT->header();

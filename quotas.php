@@ -247,6 +247,12 @@ if ($slotrows) {
     $slottable->attributes['class'] = 'generaltable selfselectadvanced-slots';
     echo html_writer::table($slottable);
 }
+echo $OUTPUT->heading(
+    $editslot
+        ? get_string('slotediting', 'mod_selfselectadvanced', (int) $editslot->slotno)
+        : get_string('slotadd', 'mod_selfselectadvanced'),
+    4
+);
 $slotform->display();
 
 echo $OUTPUT->footer();

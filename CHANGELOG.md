@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.12.0 (2026-07-27)
+
+- Seat-plan fix: with the overlap tick off, a member whose value in ANY
+  attribute was consumed by an earlier seat rule is excluded from later
+  seats — after "2 with Department Computer", a third Computer student
+  can no longer fill a distinct-sub-department seat.
+- One vocabulary for composition: the page is "Composition", counting
+  rules are "Counting rules" and the template is the "Seat plan" with
+  "seat rules", in every heading, intro, label and clash message.
+- The seat-rule form announces its mode: "Editing seat rule N" when
+  editing, "Add seat rule" otherwise.
+- The manager dashboard's state filter sits on one line with its button.
+- Group size cells read plainly: "5 of exactly 5", "3 of 2 to 6,
+  1 invited".
+- Every report download is suffixed with its generation moment
+  (_YYYYMMDDHHMMSS), so successive downloads never overwrite each other.
+
 ## 1.11.1 (2026-07-27)
 
 - The team member drill-down shows first and last name separately, the
