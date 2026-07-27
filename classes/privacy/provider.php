@@ -138,7 +138,7 @@ class provider implements
                         SELECT 1 FROM {selfselectadvanced_group} g2
                          WHERE g2.activityid = a.id
                            AND (g2.leaderid = :userid2 OR g2.guideid = :userid3 OR g2.successorid = :userid4
-                                OR g2.guidesuccessorid = :userid8))
+                                OR g2.guidesuccessorid = :userid11))
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_override} o
                          WHERE o.activityid = a.id AND o.userid = :userid5)
@@ -157,9 +157,8 @@ class provider implements
         $contextlist->add_from_sql($sql, [
             'modlevel' => CONTEXT_MODULE,
             'userid1' => $userid, 'userid2' => $userid, 'userid3' => $userid, 'userid4' => $userid,
-            'userid8' => $userid,
             'userid5' => $userid, 'userid6' => $userid, 'userid7' => $userid, 'userid8' => $userid,
-            'userid9' => $userid, 'userid10' => $userid,
+            'userid9' => $userid, 'userid10' => $userid, 'userid11' => $userid,
         ]);
 
         global $DB;
