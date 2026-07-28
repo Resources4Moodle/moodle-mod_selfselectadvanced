@@ -314,16 +314,27 @@ class groups {
 
     /**
      * Build the plugin-scoped unique group id (decision A1):
-     * SSA-{COURSESHORT sanitised to [A-Z0-9], max 12 chars}-{group id, 4+ digits}.
+     * {prefix}-{COURSESHORT sanitised to [A-Z0-9], max 12 chars}-{group id, 4+ digits}.
      *
-     * Unique plugin-wide forever because the group's own DB id carries
-     * the uniqueness. Distinct from any core group id (decision D3).
+     * The prefix is the manager-controlled activity setting `uidprefix`
+     * (default SSA); it stamps groups created AFTER a change - a
+     * pluginuid is minted once and never rewritten. Unique plugin-wide
+     * forever because the group's own DB id carries the uniqueness.
+     * Distinct from any core group id (decision D3).
      *
      * @param activity $activity the activity
      * @param int $groupid the group's DB id
      * @return string
      */
     public static function build_pluginuid(activity $activity, int $groupid): string {
+        $prefix = preg_replace(
+            '/[^A-Z0-9]/',
+            '',
+            strtoupper((string) ($activity->settings()->uidprefix ?? ''))
+        );
+        if ($prefix === '') {
+            $prefix = 'SSA';
+        }
         $short = get_course($activity->courseid())->shortname;
         $short = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $short));
         if ($short === '') {
@@ -331,6 +342,6 @@ class groups {
         }
         $short = substr($short, 0, 12);
 
-        return sprintf('SSA-%s-%04d', $short, $groupid);
+        return sprintf('%s-%s-%04d', substr($prefix, 0, 8), $short, $groupid);
     }
 }

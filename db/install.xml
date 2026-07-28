@@ -17,6 +17,7 @@
         <FIELD NAME="maxlead" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="L3: maximum groups a student may lead in this activity"/>
         <FIELD NAME="maxmembership" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="L4: maximum groups a student may belong to (led plus joined)"/>
         <FIELD NAME="maxguided" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="10" SEQUENCE="false" COMMENT="L5: default maximum groups per guide"/>
+        <FIELD NAME="uidprefix" TYPE="char" LENGTH="8" NOTNULL="true" DEFAULT="SSA" SEQUENCE="false" COMMENT="Prefix of every group's plugin id; applies to groups created after a change"/>
         <FIELD NAME="timeopen" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Formation window opens (0 = not set)"/>
         <FIELD NAME="timedue" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Penalty-free deadline (0 = not set)"/>
         <FIELD NAME="timecutoff" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Hard stop (0 = not set)"/>

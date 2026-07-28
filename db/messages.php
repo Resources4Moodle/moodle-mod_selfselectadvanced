@@ -158,6 +158,16 @@ $messageproviders = [
             'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
         ],
     ],
+    // Good-neighbour flag to managers: a freeze was refused because a
+    // member is over their membership cap, and the push to the
+    // course's groups waits for the manager to raise the cap or grant
+    // an override.
+    'capaudit' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
     // A rollup of digestible notifications for guides who opted into a
     // daily or weekly digest instead of one message per event.
     'digest' => [
