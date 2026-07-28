@@ -170,8 +170,14 @@ final class scale_regressions_test extends \advanced_testcase {
                 'userid' => (int) $extra->id, 'status' => groups::STATUS_CONFIRMED]);
         }
 
-        $table = new \mod_selfselectadvanced\table\groups_table('scaletest', $activity,
-            $api->gatekeeper(), new \moodle_url('/'), '', true);
+        $table = new \mod_selfselectadvanced\table\groups_table(
+            'scaletest',
+            $activity,
+            $api->gatekeeper(),
+            new \moodle_url('/'),
+            '',
+            true
+        );
         $rows = $DB->get_records_sql(
             "SELECT {$table->sql->fields} FROM {$table->sql->from} WHERE {$table->sql->where}",
             $table->sql->params
@@ -180,8 +186,11 @@ final class scale_regressions_test extends \advanced_testcase {
         $row = reset($rows);
         $this->assertSame(2, (int) $row->confirmedcount);
         $this->assertSame(1, (int) $row->invitedcount);
-        $this->assertEquals($counted, $api->gatekeeper()->seat_position(
-            $row, (int) $row->confirmedcount, (int) $row->invitedcount
-        ));
+        $fromrow = $api->gatekeeper()->seat_position(
+            $row,
+            (int) $row->confirmedcount,
+            (int) $row->invitedcount
+        );
+        $this->assertEquals($counted, $fromrow);
     }
 }
