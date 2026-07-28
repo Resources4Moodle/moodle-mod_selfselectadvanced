@@ -673,11 +673,15 @@ class gatekeeper {
      * the section 4A.6 displays ("4 of 6 seats filled, 1 invitation pending").
      *
      * @param stdClass $group group row
+     * @param int|null $confirmed preloaded confirmed count, null to count
+     * @param int|null $invited preloaded invited count, null to count
      * @return stdClass with confirmed, invited, taken, max, free
      */
-    public function seat_position(stdClass $group): stdClass {
-        $confirmed = groups::count_confirmed((int) $group->id);
-        $invited = groups::count_invited((int) $group->id);
+    public function seat_position(stdClass $group, ?int $confirmed = null, ?int $invited = null): stdClass {
+        // Callers rendering many rows pass preloaded counts (RCA-1);
+        // everyone else keeps the counted path unchanged.
+        $confirmed = $confirmed ?? groups::count_confirmed((int) $group->id);
+        $invited = $invited ?? groups::count_invited((int) $group->id);
         $max = $this->resolver->effective_maxsize((int) $group->id)->value;
 
         return (object) [

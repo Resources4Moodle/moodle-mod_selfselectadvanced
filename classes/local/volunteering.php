@@ -100,4 +100,24 @@ class volunteering {
             'other' => ['capacity' => $capacity],
         ])->trigger();
     }
+
+    /**
+     * Every volunteer row of the activity in one query, keyed by
+     * guide id (RCA-2, 10k probe): the bulk companion of get() for
+     * list builders; the per-guide gates keep using get().
+     *
+     * @param \mod_selfselectadvanced\activity $activity the activity
+     * @return \stdClass[] volunteer rows keyed by userid
+     */
+    public static function all_for_activity(\mod_selfselectadvanced\activity $activity): array {
+        global $DB;
+
+        $rows = $DB->get_records('selfselectadvanced_volunteer', ['activityid' => $activity->id()]);
+        $byguide = [];
+        foreach ($rows as $row) {
+            $byguide[(int) $row->userid] = $row;
+        }
+
+        return $byguide;
+    }
 }

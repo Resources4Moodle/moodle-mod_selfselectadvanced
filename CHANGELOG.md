@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.14.1 (2026-07-28)
+
+- Measured at 10,000 students on the maintainer testbed
+  (docs/tools/scale_scenarios.php, findings in
+  docs/audits/rca-scale-10k.md): the manager team table now preloads
+  its seat counts (a 1,900-row export drops from ~3,800 queries to 3),
+  and guide loads batch their volunteering and commitment lookups
+  (200 guides drop from ~600 queries to 5). Same numbers, same
+  precedence, pinned by equivalence tests; every capacity gate keeps
+  its per-guide locked path.
+
+
 ## 1.14.0 (2026-07-27)
 
 - Guide handover: an assigned guide leaves a submitted, firm or frozen

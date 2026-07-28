@@ -469,6 +469,52 @@ class eoi {
      * @param int $guideid the guide
      * @return int
      */
+    /**
+     * Commitments for EVERY guide of the activity in two grouped
+     * queries (RCA-2, 10k probe): the bulk companion of
+     * guide_commitments() with the identical definition — guided
+     * states plus forming preassignments. List builders consume this;
+     * the per-guide capacity gates keep using the scalar under their
+     * locks.
+     *
+     * @param activity $activity the activity
+     * @return int[] commitment counts keyed by guide id
+     */
+    public static function guide_commitments_all(activity $activity): array {
+        global $DB;
+
+        $bystate = $DB->get_records_sql(
+            "SELECT guideid, COUNT(1) AS committed
+               FROM {selfselectadvanced_group}
+              WHERE activityid = :activityid AND guideid IS NOT NULL
+                AND state IN (:pending, :firm, :frozen)
+           GROUP BY guideid",
+            [
+                'activityid' => $activity->id(),
+                'pending' => state::PENDING_GUIDE,
+                'firm' => state::FIRM,
+                'frozen' => state::FROZEN,
+            ]
+        );
+        $forming = $DB->get_records_sql(
+            "SELECT guideid, COUNT(1) AS committed
+               FROM {selfselectadvanced_group}
+              WHERE activityid = :activityid AND guideid IS NOT NULL AND state = :forming
+           GROUP BY guideid",
+            ['activityid' => $activity->id(), 'forming' => state::FORMING]
+        );
+
+        $totals = [];
+        foreach ($bystate as $row) {
+            $totals[(int) $row->guideid] = (int) $row->committed;
+        }
+        foreach ($forming as $row) {
+            $totals[(int) $row->guideid] = ($totals[(int) $row->guideid] ?? 0) + (int) $row->committed;
+        }
+
+        return $totals;
+    }
+
     public static function guide_commitments(activity $activity, int $guideid): int {
         global $DB;
 

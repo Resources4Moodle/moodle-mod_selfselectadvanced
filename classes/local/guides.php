@@ -59,13 +59,33 @@ class guides {
             'u.id, ' . $namefields
         );
 
+        // Bulk maps (RCA-2, 10k probe): one volunteering query and two
+        // grouped commitment queries replace three reads per guide.
+        // The precedence stays with the resolver: only the volunteer
+        // lookup is fed from the preloaded map, through the same
+        // min(n, ceiling) rule effective_maxguided() applies.
+        $volunteers = \mod_selfselectadvanced\local\volunteering::all_for_activity($activity);
+        $commitments = \mod_selfselectadvanced\local\eoi::guide_commitments_all($activity);
+        $volunteeringon = !empty($activity->settings()->guidevolunteer);
+
         $result = [];
         foreach ($users as $user) {
             if ($resolver->is_guide_hidden((int) $user->id)) {
                 // 1.5.0: overridden out of every guide picker.
                 continue;
             }
-            $maxvalue = $resolver->effective_maxguided((int) $user->id);
+            $ceiling = $resolver->guide_capacity_ceiling((int) $user->id);
+            if ($ceiling->source === \mod_selfselectadvanced\local\override\effective_value::SOURCE_GUIDE
+                    || !$volunteeringon) {
+                $maxvalue = $ceiling;
+            } else {
+                $row = $volunteers[(int) $user->id] ?? null;
+                $n = $row !== null ? (int) $row->capacity : 0;
+                $maxvalue = new \mod_selfselectadvanced\local\override\effective_value(
+                    min($n, $ceiling->value),
+                    \mod_selfselectadvanced\local\override\effective_value::SOURCE_VOLUNTEER
+                );
+            }
             if (
                 !$includeunavailable
                 && $maxvalue->source === effective_value::SOURCE_VOLUNTEER && $maxvalue->value === 0
@@ -77,7 +97,7 @@ class guides {
                 // guides most in need of an override become unreachable.
                 continue;
             }
-            $used = \mod_selfselectadvanced\local\eoi::guide_commitments($activity, (int) $user->id);
+            $used = $commitments[(int) $user->id] ?? 0;
             $max = $maxvalue->value;
             $entry = (object) [
                 'id' => (int) $user->id,

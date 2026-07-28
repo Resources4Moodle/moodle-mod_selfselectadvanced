@@ -98,13 +98,25 @@ class groups_table extends \table_sql {
             static fn(string $f) => "gu.$f AS guide$f",
             $namefields
         ));
+        // Seat counts ride along as aggregates (RCA-1, 10k probe):
+        // without them col_size costs two COUNT queries per rendered
+        // row, and the export walks the whole activity.
         $this->set_sql(
             "g.id, g.name, g.pluginuid, g.state, g.leaderid, g.guideid, p.penaltyvalue,
+             COALESCE(mc.confirmedcount, 0) AS confirmedcount,
+             COALESCE(mc.invitedcount, 0) AS invitedcount,
              $leaderfields, $guidefields",
-            '{selfselectadvanced_group} g
+            "{selfselectadvanced_group} g
              JOIN {user} l ON l.id = g.leaderid
              LEFT JOIN {user} gu ON gu.id = g.guideid
-             LEFT JOIN {selfselectadvanced_penalty} p ON p.groupid = g.id',
+             LEFT JOIN {selfselectadvanced_penalty} p ON p.groupid = g.id
+             LEFT JOIN (
+                 SELECT groupid,
+                        SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) AS confirmedcount,
+                        SUM(CASE WHEN status = 'invited' THEN 1 ELSE 0 END) AS invitedcount
+                   FROM {selfselectadvanced_member}
+               GROUP BY groupid
+             ) mc ON mc.groupid = g.id",
             $where,
             $params
         );
@@ -157,7 +169,11 @@ class groups_table extends \table_sql {
      * @return string
      */
     public function col_size($row) {
-        $seats = $this->gatekeeper->seat_position($row);
+        $seats = $this->gatekeeper->seat_position(
+            $row,
+            isset($row->confirmedcount) ? (int) $row->confirmedcount : null,
+            isset($row->invitedcount) ? (int) $row->invitedcount : null
+        );
         $key = (int) $seats->min === (int) $seats->max ? 'sizecellexact' : 'sizecellrange';
         $cell = get_string($key, 'mod_selfselectadvanced', $seats);
         if ($seats->invited > 0) {
