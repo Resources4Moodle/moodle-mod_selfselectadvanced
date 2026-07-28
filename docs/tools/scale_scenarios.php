@@ -634,6 +634,92 @@ probe('service: handover propose + accept', function () use ($api, $activity, $D
     return true;
 });
 
+// ---------------------------------------------------------------------
+// 1.15.0 probes (RCA docs/audits/rca-core-sync-caps-prefix.md): the
+// core push, the good-neighbour membership audit, the deleted-account
+// roster cleanup, and the manager-controlled id prefix.
+probe('service: freeze - push 5 members to core groups', function () use ($DB, $activity, $groupids, $guideids, $now) {
+    $gid = (int) $groupids[10];
+    $DB->set_field('selfselectadvanced_group', 'state', 'firm', ['id' => $gid]);
+    $DB->set_field('selfselectadvanced_group', 'guideid', (int) $guideids[2], ['id' => $gid]);
+    $DB->set_field('selfselectadvanced_group', 'timeapproved', $now, ['id' => $gid]);
+    $frozen = \mod_selfselectadvanced\local\freeze::freeze_group(
+        $activity,
+        groups::get($activity, $gid),
+        (int) $guideids[2]
+    );
+
+    return 'coregroup ' . $frozen->coregroupid;
+});
+
+probe('service: freeze audit refusal at lowered cap', function () use ($DB, $activity, $groupids, $guideids, $now) {
+    $gid = (int) $groupids[11];
+    $DB->set_field('selfselectadvanced_group', 'state', 'firm', ['id' => $gid]);
+    $DB->set_field('selfselectadvanced_group', 'guideid', (int) $guideids[3], ['id' => $gid]);
+    $DB->set_field('selfselectadvanced_group', 'timeapproved', $now, ['id' => $gid]);
+    $origcap = (int) $DB->get_field('selfselectadvanced', 'maxmembership', ['id' => $activity->id()]);
+    $DB->set_field('selfselectadvanced', 'maxmembership', 0, ['id' => $activity->id()]);
+    $freshactivity = activity::from_instance($activity->id());
+    $refused = false;
+    try {
+        \mod_selfselectadvanced\local\freeze::freeze_group(
+            $freshactivity,
+            groups::get($freshactivity, $gid),
+            (int) $guideids[3]
+        );
+    } catch (moodle_exception $e) {
+        $refused = $e->errorcode === 'refusalmembershipaudit';
+    }
+    $DB->set_field('selfselectadvanced', 'maxmembership', $origcap, ['id' => $activity->id()]);
+    if (!$refused) {
+        throw new coding_exception('the membership audit MUST refuse a roster over a cap of zero');
+    }
+
+    return 'refused as designed, cap restored to ' . $origcap;
+});
+
+probe('observer: delete a frozen member account', function () use ($DB, $activity, $groupids) {
+    $gid = (int) $groupids[10];
+    $member = $DB->get_record_sql(
+        "SELECT u.*
+           FROM {user} u
+           JOIN {selfselectadvanced_member} m ON m.userid = u.id
+          WHERE m.groupid = :gid AND m.isleader = 0 AND m.status = :confirmed",
+        ['gid' => $gid, 'confirmed' => groups::STATUS_CONFIRMED],
+        IGNORE_MULTIPLE
+    );
+    delete_user($member);
+    if (groups::count_memberships($activity, (int) $member->id) !== 0) {
+        throw new coding_exception('a deleted account MUST leave every roster');
+    }
+    $snapshot = \mod_selfselectadvanced\local\freeze::latest_snapshot($gid);
+    foreach (json_decode($snapshot->roster, true) as $entry) {
+        if ((int) $entry['userid'] === (int) $member->id) {
+            throw new coding_exception('the frozen snapshot MUST NOT carry the ghost');
+        }
+    }
+
+    return 'roster and snapshot clean';
+});
+
+probe('service: uidprefix stamps new groups', function () use ($DB, $activity, &$groupless) {
+    $DB->set_field('selfselectadvanced', 'uidprefix', 'VIT', ['id' => $activity->id()]);
+    $freshactivity = activity::from_instance($activity->id());
+    $group = (new api($freshactivity))->create_group(
+        (int) array_shift($groupless),
+        'Prefix probe',
+        'T',
+        '<p>b</p>',
+        FORMAT_HTML
+    );
+    $DB->set_field('selfselectadvanced', 'uidprefix', 'SSA', ['id' => $activity->id()]);
+    if (strpos($group->pluginuid, 'VIT-') !== 0) {
+        throw new coding_exception('uidprefix was not applied: ' . $group->pluginuid);
+    }
+
+    return $group->pluginuid;
+});
+
 cli_writeln('');
 cli_writeln('=== SUMMARY (worst first) ===');
 usort($probes, static fn($a, $b) => $b[1] <=> $a[1]);
