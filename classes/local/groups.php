@@ -49,6 +49,15 @@ class groups {
     /** @var string Member row status: removed from the group. */
     public const STATUS_REMOVED = 'removed';
 
+    /** @var int Narrowest project-number width a manager may choose. */
+    public const UID_DIGITS_MIN = 2;
+
+    /** @var int Widest project-number width a manager may choose. */
+    public const UID_DIGITS_MAX = 10;
+
+    /** @var int Project-number width when the activity does not say. */
+    public const UID_DIGITS_DEFAULT = 4;
+
     /**
      * Fetch a group row, asserting it belongs to the activity.
      *
@@ -335,13 +344,26 @@ class groups {
         if ($prefix === '') {
             $prefix = 'SSA';
         }
-        $short = get_course($activity->courseid())->shortname;
-        $short = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $short));
+        // The middle part names the course: its short name, or its
+        // full name when the short name is empty or has no letters or
+        // digits at all, and the course id only if both fail.
+        $course = get_course($activity->courseid());
+        $short = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $course->shortname));
+        if ($short === '') {
+            $short = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $course->fullname));
+        }
         if ($short === '') {
             $short = 'C' . $activity->courseid();
         }
         $short = substr($short, 0, 12);
 
-        return sprintf('%s-%s-%04d', substr($prefix, 0, 8), $short, $groupid);
+        $digits = (int) ($activity->settings()->uiddigits ?? self::UID_DIGITS_DEFAULT);
+        if ($digits < self::UID_DIGITS_MIN || $digits > self::UID_DIGITS_MAX) {
+            $digits = self::UID_DIGITS_DEFAULT;
+        }
+
+        // A group id longer than the chosen width keeps all its digits:
+        // the number is an identity, never truncated to fit a format.
+        return sprintf('%s-%s-%0' . $digits . 'd', substr($prefix, 0, 8), $short, $groupid);
     }
 }

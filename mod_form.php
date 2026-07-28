@@ -95,6 +95,10 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setType('uidprefix', PARAM_ALPHANUM);
         $mform->setDefault('uidprefix', 'SSA');
         $mform->addHelpButton('uidprefix', 'uidprefix', 'mod_selfselectadvanced');
+        $mform->addElement('text', 'uiddigits', get_string('uiddigits', 'mod_selfselectadvanced'), ['size' => 4]);
+        $mform->setType('uiddigits', PARAM_INT);
+        $mform->setDefault('uiddigits', \mod_selfselectadvanced\local\groups::UID_DIGITS_DEFAULT);
+        $mform->addHelpButton('uiddigits', 'uiddigits', 'mod_selfselectadvanced');
 
         // Guides (L5).
         $mform->addElement('header', 'guidesheading', get_string('guidesheading', 'mod_selfselectadvanced'));
@@ -320,6 +324,15 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
 
         if (!preg_match('/^[A-Za-z0-9]{2,8}$/', trim((string) ($data['uidprefix'] ?? '')))) {
             $errors['uidprefix'] = get_string('erruidprefix', 'mod_selfselectadvanced');
+        }
+
+        $digits = (int) ($data['uiddigits'] ?? 0);
+        if ($digits < \mod_selfselectadvanced\local\groups::UID_DIGITS_MIN
+                || $digits > \mod_selfselectadvanced\local\groups::UID_DIGITS_MAX) {
+            $errors['uiddigits'] = get_string('erruiddigits', 'mod_selfselectadvanced', (object) [
+                'min' => \mod_selfselectadvanced\local\groups::UID_DIGITS_MIN,
+                'max' => \mod_selfselectadvanced\local\groups::UID_DIGITS_MAX,
+            ]);
         }
 
         return $errors;

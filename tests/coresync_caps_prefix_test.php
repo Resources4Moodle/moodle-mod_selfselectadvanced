@@ -145,6 +145,71 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
     }
 
     /**
+     * The number width is the manager's choice, an out-of-range value
+     * falls back to the default, and a number too large for the width
+     * keeps all its digits rather than being cut short.
+     */
+    public function test_uiddigits_controls_the_number_width(): void {
+        global $DB;
+        $generator = $this->getDataGenerator();
+        $this->resetAfterTest();
+
+        $course = $generator->create_course(['shortname' => 'DIG']);
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id, 'minsize' => 1, 'maxlead' => 5, 'maxmembership' => 5,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+        $student = $generator->create_user();
+        $generator->enrol_user($student->id, $course->id, 'student');
+
+        $narrow = (new api($activity))->create_group((int) $student->id, 'Four', 'T', '<p>b</p>', FORMAT_HTML);
+        $this->assertMatchesRegularExpression('/^SSA-DIG-\d{4}$/', $narrow->pluginuid);
+
+        $DB->set_field('selfselectadvanced', 'uiddigits', 6, ['id' => $activity->id()]);
+        $wide = (new api(activity::from_instance($activity->id())))
+            ->create_group((int) $student->id, 'Six', 'T', '<p>b</p>', FORMAT_HTML);
+        $this->assertMatchesRegularExpression('/^SSA-DIG-\d{6}$/', $wide->pluginuid);
+
+        // Out of range: the default width serves instead.
+        $DB->set_field('selfselectadvanced', 'uiddigits', 99, ['id' => $activity->id()]);
+        $silly = (new api(activity::from_instance($activity->id())))
+            ->create_group((int) $student->id, 'Silly', 'T', '<p>b</p>', FORMAT_HTML);
+        $this->assertMatchesRegularExpression('/^SSA-DIG-\d{4}$/', $silly->pluginuid);
+
+        // A group id wider than the chosen width is never truncated.
+        $DB->set_field('selfselectadvanced', 'uiddigits', 2, ['id' => $activity->id()]);
+        $freshactivity = activity::from_instance($activity->id());
+        $this->assertSame(
+            'SSA-DIG-123456',
+            groups::build_pluginuid($freshactivity, 123456)
+        );
+    }
+
+    /**
+     * The middle part of a group id names the course: its short name,
+     * or its full name when the short name carries nothing usable.
+     */
+    public function test_pluginuid_falls_back_to_the_course_name(): void {
+        global $DB;
+        $generator = $this->getDataGenerator();
+        $this->resetAfterTest();
+
+        $course = $generator->create_course([
+            'shortname' => '---',
+            'fullname' => 'Design Thinking 2026',
+        ]);
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id, 'minsize' => 1,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+        $student = $generator->create_user();
+        $generator->enrol_user($student->id, $course->id, 'student');
+
+        $group = (new api($activity))->create_group((int) $student->id, 'Named', 'T', '<p>b</p>', FORMAT_HTML);
+        $this->assertStringStartsWith('SSA-DESIGNTHINKIN-', $group->pluginuid);
+    }
+
+    /**
      * A grandfathered over-cap member refuses the freeze, flags every
      * manager with the names and counts, and shows in the flagged
      * report; a per-user override then clears the push.
