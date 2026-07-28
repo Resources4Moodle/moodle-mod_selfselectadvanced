@@ -903,6 +903,7 @@ $string['timeopen'] = 'Open from';
 $string['timeopen_help'] = 'Group formation opens at this time. Before it, students cannot create groups or respond to invitations.';
 $string['tplmsgacceptedbody'] = 'Invitation accepted (to the leader)';
 $string['tplmsgapprovedbody'] = 'Group approved (to the members)';
+$string['tplmsgcapauditbody'] = 'Membership-cap flag (to the managers)';
 $string['tplmsgcascadebody'] = 'Invitation auto-declined at membership cap (to the leader)';
 $string['tplmsgdeclinedbody'] = 'Invitation declined (to the leader)';
 $string['tplmsgexpiredinviteebody'] = 'Invitation expired (to the invitee)';
