@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.15.1 (2026-07-28)
+
+- The number at the end of a group id has a configurable width: the
+  new "Group id digits" setting takes 2 to 10, so ids read
+  MDP-COURSE-042 or MDP-COURSE-000042 as the school prefers. A number
+  too large for the width keeps all its digits rather than being cut
+  short, and like the prefix the setting stamps groups created
+  afterwards only.
+- A course whose short name carries no letters or digits now names its
+  group ids from the course full name instead of falling straight to
+  the course number.
+
+
 ## 1.15.0 (2026-07-28)
 
 - Frozen teams stay true in Moodle's own groups: the mirror already
