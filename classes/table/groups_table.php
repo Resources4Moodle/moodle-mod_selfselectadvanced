@@ -100,7 +100,12 @@ class groups_table extends \table_sql {
         ));
         // Seat counts ride along as aggregates (RCA-1, 10k probe):
         // without them col_size costs two COUNT queries per rendered
-        // row, and the export walks the whole activity.
+        // row, and the export walks the whole activity. The derived
+        // table is scoped to THIS activity (its own named param - the
+        // outer one may not repeat), because the planner cannot push
+        // the join qualifier through the GROUP BY, and an unscoped
+        // aggregate would scan every activity's members on every page.
+        $params['mcactivityid'] = $activity->id();
         $this->set_sql(
             "g.id, g.name, g.pluginuid, g.state, g.leaderid, g.guideid, p.penaltyvalue,
              COALESCE(mc.confirmedcount, 0) AS confirmedcount,
@@ -111,11 +116,13 @@ class groups_table extends \table_sql {
              LEFT JOIN {user} gu ON gu.id = g.guideid
              LEFT JOIN {selfselectadvanced_penalty} p ON p.groupid = g.id
              LEFT JOIN (
-                 SELECT groupid,
-                        SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) AS confirmedcount,
-                        SUM(CASE WHEN status = 'invited' THEN 1 ELSE 0 END) AS invitedcount
-                   FROM {selfselectadvanced_member}
-               GROUP BY groupid
+                 SELECT m.groupid,
+                        SUM(CASE WHEN m.status = 'confirmed' THEN 1 ELSE 0 END) AS confirmedcount,
+                        SUM(CASE WHEN m.status = 'invited' THEN 1 ELSE 0 END) AS invitedcount
+                   FROM {selfselectadvanced_member} m
+                   JOIN {selfselectadvanced_group} mg ON mg.id = m.groupid
+                  WHERE mg.activityid = :mcactivityid
+               GROUP BY m.groupid
              ) mc ON mc.groupid = g.id",
             $where,
             $params

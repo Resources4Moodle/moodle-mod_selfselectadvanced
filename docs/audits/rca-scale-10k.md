@@ -36,6 +36,37 @@ Every other probe repeated its baseline number; no probe regressed and
 none threw. The refusal tripwire (a same-department leftover MUST be
 refused) and the four unguarded accepts both held.
 
+## Post-verification audit hardening (2026-07-28)
+
+An adversarial audit of the whole diff (three lenses, two independent
+skeptics per finding) confirmed one defect and endorsed two
+hardenings, all applied:
+
+- **Harness fill-loop liveness (confirmed, harness-only).** The
+  group-fill top-up loop exited on "all pools empty", but the SCOPE
+  pool is only ever drawn in pairs, so a stranded odd SCOPE remainder
+  kept the test truthy and legal inputs such as
+  `--students=10000 --groups=2000` spun forever (the defaults had
+  ~500 users of slack). The loop now breaks when a full pass adds no
+  member.
+- **Activity-scoped seat aggregates.** The RCA-1 derived table
+  aggregated the plugin's ENTIRE member table — correct results
+  (group ids are globally unique), and invisible on the
+  single-activity testbed, but on a multi-activity site every page
+  render would scan every activity's members, twice with the paging
+  count query. The subquery now joins to the group table and filters
+  on the activity inside the GROUP BY, under its own named parameter.
+- **The equivalence test executes the real SQL.** The unit test now
+  runs the table's own query and asserts the aggregate counts, the
+  seat-position equivalence on the returned row, and that a busier
+  team in another activity neither leaks into the counts nor into the
+  row set.
+
+The 10k course is retained on the testbed (no `--reset`) for the
+maintainer's follow-up verification, so these hardenings are pinned
+by the unit tests on both databases rather than a fourth probe run;
+the query COUNT is unchanged by the scoping, only the rows scanned.
+
 ## RCA-1 — groups_table seat counts are per-row queries
 
 **Symptom.** The manager team table costs ~2 reads per row: 102 reads
