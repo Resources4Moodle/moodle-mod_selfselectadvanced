@@ -107,7 +107,7 @@ class search_participants extends external_api {
 
         $selects = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
         $rows = $DB->get_records_sql(
-            "SELECT u.id, u.email $selects
+            "SELECT u.id, u.email, $selects
                FROM {user} u
                JOIN ($enrolsql) eu ON eu.id = u.id
               WHERE u.deleted = 0 AND (" . implode(' OR ', $conditions) . ")
