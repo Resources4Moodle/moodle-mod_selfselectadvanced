@@ -56,10 +56,9 @@ final class search_participants_test extends \advanced_testcase {
         $outsider = $generator->create_user(['firstname' => 'Student SMEC', 'lastname' => '26BME0003']);
         $generator->enrol_user($outsider->id, $othercourse->id, 'student');
 
-        $group = $plugingen->create_group(['activityid' => $activity->id(),
+        // The generator gives the group its leader's membership row.
+        $plugingen->create_group(['activityid' => $activity->id(),
             'leaderid' => (int) $leader->id, 'name' => 'Alpha', 'state' => state::FORMING]);
-        $plugingen->create_member(['groupid' => $group->id, 'userid' => (int) $leader->id,
-            'status' => groups::STATUS_CONFIRMED, 'isleader' => 1]);
 
         // The coordinator holds their role in the COURSE only - exactly
         // the case core's selector could not serve.

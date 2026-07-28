@@ -235,17 +235,12 @@ final class freeze_test extends \advanced_testcase {
 
         // A second team receives them.
         $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        // The generator gives the group its leader's membership row.
         $target = $plugingen->create_group([
             'activityid' => $activity->id(),
             'leaderid' => (int) $students[2]->id,
             'name' => 'Receiving',
             'state' => state::FORMING,
-        ]);
-        $plugingen->create_member([
-            'groupid' => $target->id,
-            'userid' => (int) $students[2]->id,
-            'status' => groups::STATUS_CONFIRMED,
-            'isleader' => 1,
         ]);
 
         $move = $api->moves()->stage($leaving, (int) $frozen->id, (int) $target->id, false, null, 99);
