@@ -162,27 +162,41 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
         $student = $generator->create_user();
         $generator->enrol_user($student->id, $course->id, 'student');
 
-        $narrow = (new api($activity))->create_group((int) $student->id, 'Four', 'T', '<p>b</p>', FORMAT_HTML);
-        $this->assertMatchesRegularExpression('/^SSA-DIG-\d{4}$/', $narrow->pluginuid);
+        // The default width pads a small number to four digits.
+        $this->assertSame('SSA-DIG-0042', groups::build_pluginuid($activity, 42));
 
         $DB->set_field('selfselectadvanced', 'uiddigits', 6, ['id' => $activity->id()]);
-        $wide = (new api(activity::from_instance($activity->id())))
-            ->create_group((int) $student->id, 'Six', 'T', '<p>b</p>', FORMAT_HTML);
-        $this->assertMatchesRegularExpression('/^SSA-DIG-\d{6}$/', $wide->pluginuid);
+        $this->assertSame(
+            'SSA-DIG-000042',
+            groups::build_pluginuid(activity::from_instance($activity->id()), 42)
+        );
 
         // Out of range: the default width serves instead.
         $DB->set_field('selfselectadvanced', 'uiddigits', 99, ['id' => $activity->id()]);
-        $silly = (new api(activity::from_instance($activity->id())))
-            ->create_group((int) $student->id, 'Silly', 'T', '<p>b</p>', FORMAT_HTML);
-        $this->assertMatchesRegularExpression('/^SSA-DIG-\d{4}$/', $silly->pluginuid);
+        $this->assertSame(
+            'SSA-DIG-0042',
+            groups::build_pluginuid(activity::from_instance($activity->id()), 42)
+        );
 
-        // A group id wider than the chosen width is never truncated.
+        // A number wider than the chosen width keeps all its digits.
         $DB->set_field('selfselectadvanced', 'uiddigits', 2, ['id' => $activity->id()]);
-        $freshactivity = activity::from_instance($activity->id());
         $this->assertSame(
             'SSA-DIG-123456',
-            groups::build_pluginuid($freshactivity, 123456)
+            groups::build_pluginuid(activity::from_instance($activity->id()), 123456)
         );
+
+        // The service stamps a real group with exactly that id.
+        $DB->set_field('selfselectadvanced', 'uiddigits', 6, ['id' => $activity->id()]);
+        $freshactivity = activity::from_instance($activity->id());
+        $group = (new api($freshactivity))->create_group(
+            (int) $student->id,
+            'Six wide',
+            'T',
+            '<p>b</p>',
+            FORMAT_HTML
+        );
+        $this->assertSame(groups::build_pluginuid($freshactivity, (int) $group->id), $group->pluginuid);
+        $this->assertStringStartsWith('SSA-DIG-', $group->pluginuid);
     }
 
     /**
@@ -205,8 +219,9 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
         $student = $generator->create_user();
         $generator->enrol_user($student->id, $course->id, 'student');
 
+        // The course part is capped at twelve characters.
         $group = (new api($activity))->create_group((int) $student->id, 'Named', 'T', '<p>b</p>', FORMAT_HTML);
-        $this->assertStringStartsWith('SSA-DESIGNTHINKIN-', $group->pluginuid);
+        $this->assertStringStartsWith('SSA-DESIGNTHINKI-', $group->pluginuid);
     }
 
     /**
