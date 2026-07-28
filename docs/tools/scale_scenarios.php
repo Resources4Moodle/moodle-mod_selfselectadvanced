@@ -211,6 +211,14 @@ $ids = $DB->get_fieldset_select('user', 'id', "username LIKE ?", [$prefix . '%']
 sort($ids);
 $studentids = array_slice($ids, 0, $nstudents);
 $guideids = array_slice($ids, $nstudents, $nguides);
+// Reserved invite candidates (2 x SCOPE + two distinct others; seeding
+// index i means department i % 7): the group-fill loop below drains
+// the department pools front-first, so the eventual groupless
+// leftovers ALL share the last department and can never complete a
+// compliant team - the invite probe needs candidates that can. These
+// four are kept out of the pools and out of the leftover list.
+$invitereserve = [(int) $studentids[0], (int) $studentids[7],
+    (int) $studentids[1], (int) $studentids[2]];
 
 // The activity: the demonstration-matrix shape at scale.
 $module = $DB->get_record('modules', ['name' => 'selfselectadvanced'], '*', MUST_EXIST);
@@ -241,7 +249,7 @@ cli_writeln("Activity cmid {$cm->id}");
 // Students were seeded round-robin across 7 departments, so taking
 // them in seeded order per group of five yields the compliant mix
 // (2 x SCOPE arrives via index arithmetic below).
-probe("seed: {$ngroups} groups of five (raw)", function () use ($DB, $activity, $studentids, $ngroups, $now, $shortname) {
+probe("seed: {$ngroups} groups of five (raw)", function () use ($DB, $activity, $studentids, $ngroups, $now, $shortname, $invitereserve) {
     $grouprows = [];
     for ($g = 0; $g < $ngroups; $g++) {
         $grouprows[] = (object) [
@@ -268,6 +276,11 @@ probe("seed: {$ngroups} groups of five (raw)", function () use ($DB, $activity, 
     // seats — the compliance sweeps must price those too).
     $pools = [];
     foreach ($studentids as $index => $userid) {
+        // The reserve stays groupless; the index keeps its meaning
+        // (index % 7 IS the department) for everyone else.
+        if (in_array((int) $userid, $invitereserve, true)) {
+            continue;
+        }
         $pools[$index % 7][] = (int) $userid;
     }
     $others = [1, 2, 3, 4, 5, 6];
@@ -353,15 +366,19 @@ probe('seed: 2500 pending guide interests (raw)', function () use ($DB, $activit
 $api = new api($activity);
 $gatekeeper = $api->gatekeeper();
 // Reserve users for the moves probe BEFORE the invite churn consumes
-// the leftover pool (RCA-3).
+// the leftover pool (RCA-3). Ordered by userid: students were seeded
+// round-robin across departments, so consecutive leftovers rotate
+// departments and the invite probe meets feasible candidates.
 $groupless = array_map('intval', $DB->get_fieldset_sql(
     "SELECT ua.userid FROM {selfselectadvanced_userattr} ua
       WHERE ua.userid IN (SELECT id FROM {user} WHERE username LIKE :pfx)
         AND NOT EXISTS (SELECT 1 FROM {selfselectadvanced_member} m
                           JOIN {selfselectadvanced_group} g ON g.id = m.groupid
-                         WHERE g.activityid = :aid AND m.userid = ua.userid)",
+                         WHERE g.activityid = :aid AND m.userid = ua.userid)
+   ORDER BY ua.userid",
     ['pfx' => $prefix . '%', 'aid' => $activity->id()]
 ));
+$groupless = array_values(array_diff($groupless, $invitereserve));
 $movesreserve = array_splice($groupless, 0, 25);
 $freshleader = (int) array_shift($groupless);
 
@@ -369,32 +386,48 @@ $freshgroup = probe('service: create_group (cascade check inside)', function () 
     return $api->create_group($freshleader, 'Probe team', 'T', '<p>b</p>', FORMAT_HTML);
 });
 
-probe('service: 4 x invite + accept (feasibility gate each)', function () use ($api, $activity, $freshgroup, $freshleader, &$groupless, $DB) {
-    $done = 0;
-    $attempts = 0;
-    while ($done < 4 && $groupless && $attempts < 20) {
-        $attempts++;
+probe('service: 10 gate refusals + 4 x invite + accept', function () use ($api, $activity, $freshgroup, $freshleader, $invitereserve, &$groupless, $DB) {
+    // Refusal pricing first, while seats remain: every leftover shares
+    // the leader's department, so the admission gate must refuse each
+    // one (composition unreachable) - the cheap path, priced 10 times.
+    $refused = 0;
+    for ($i = 0; $i < 10 && $groupless; $i++) {
         $candidate = (int) array_shift($groupless);
+        $sent = false;
         try {
             $api->invitations()->send($freshgroup, $candidate, $freshleader);
-            $api->invitations()->accept($freshgroup, $candidate);
-            $done++;
+            $sent = true;
         } catch (moodle_exception $e) {
-            // Infeasible candidate refused: the gate at work. The
-            // service threw from inside its transaction; roll it back
-            // before continuing the probe loop.
+            // The service threw from inside its transaction; roll it
+            // back before continuing the probe loop.
             $DB->force_transaction_rollback();
-            continue;
+            $refused++;
+        }
+        if ($sent) {
+            throw new coding_exception('gate MUST refuse a same-department leftover');
         }
     }
+    // Then the reserved compliant candidates: 2 x SCOPE + two distinct
+    // others complete the leader's team, so all four accepts must
+    // succeed - unguarded, a refusal here fails the probe loudly.
+    $done = 0;
+    foreach ($invitereserve as $candidate) {
+        $api->invitations()->send($freshgroup, $candidate, $freshleader);
+        $api->invitations()->accept($freshgroup, $candidate);
+        $done++;
+    }
 
-    return $done;
+    return "refused {$refused}, accepted {$done}";
 });
 
 probe('service: cascade - accept with 5 rival invites', function () use ($api, $activity, $DB, &$groupless, $groupids, $now) {
     $star = (int) array_shift($groupless);
     $stardept = $DB->get_field('selfselectadvanced_userattr', 'department', ['userid' => $star]);
-    $rivals = array_slice($groupids, max(0, count($groupids) - 5), 5);
+    // Rivals come from the HEAD of the list — the seat-plan-compliant
+    // groups — because a same-department swap is composition-neutral
+    // only there; the tail groups are the intentionally non-compliant
+    // ones the admission gate must keep refusing to fill.
+    $rivals = array_slice($groupids, 0, 5);
     // Free a seat in the FIRST rival that holds a member of the star's
     // own department (so the acceptance stays composition-feasible);
     // the other rivals hold pending invitations that must cascade.
@@ -480,13 +513,16 @@ probe('table: groups_table page of 50', function () use ($activity, $gatekeeper,
 });
 
 probe('table: groups_table DOWNLOAD cost (col_size x all rows)', function () use ($activity, $gatekeeper, $cm, $DB) {
-    // The download dumps every row; its per-row cost is dominated by
-    // col_size (seat position). Walk every group row through the real
-    // column callback, exactly as the export renderer does.
+    // The download dumps every row through the table's OWN query, so
+    // the preloaded seat aggregates ride along (RCA-1). Walk every row
+    // through the real column callback, exactly as the export does.
     $table = new \mod_selfselectadvanced\table\groups_table('scaleprobe3', $activity, $gatekeeper,
         new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]), '', true);
     $rows = 0;
-    $rs = $DB->get_recordset('selfselectadvanced_group', ['activityid' => $activity->id()]);
+    $rs = $DB->get_recordset_sql(
+        "SELECT {$table->sql->fields} FROM {$table->sql->from} WHERE {$table->sql->where}",
+        $table->sql->params
+    );
     foreach ($rs as $row) {
         $table->col_size($row);
         $rows++;

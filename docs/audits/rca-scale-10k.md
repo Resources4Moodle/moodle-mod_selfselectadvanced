@@ -20,7 +20,21 @@ table classes with wall-clock and exact read/write counts.
 | handover propose+accept | 0.04s | 132 | healthy (messaging included) |
 | groups_table page of 50 | 0.03s | 102 | RCA-1's page-bounded face |
 | 10 × eoi::express | 0.01s | 89 | healthy |
-| cascade accept w/ 5 rivals | 0.00s | 6 | healthy |
+| cascade accept w/ 5 rivals | 0.00s | 6 | probe skip path — see RCA-3 |
+
+## Verified after fix (clean 10k re-run, 2026-07-28)
+
+| Step | Before | After | Note |
+|---|---|---|---|
+| groups_table download, 1,901 rows | 3,805 reads / 0.90s | **3 reads / 0.20s** | RCA-1 |
+| groups_table page of 50 | 102 reads | **2 reads** | RCA-1 |
+| guides with_load, 200 guides | 602 reads | **5 reads** | RCA-2 |
+| 10 gate refusals + 4 invite+accept | churn artefact | 511 reads / 42 writes | real ops: ~8 reads per refusal, ~110 per accepted member incl. messaging |
+| cascade accept w/ 5 rival invites | skip path | 204 reads / 32 writes | four rival invitations auto-declined with messages |
+
+Every other probe repeated its baseline number; no probe regressed and
+none threw. The refusal tripwire (a same-department leftover MUST be
+refused) and the four unguarded accepts both held.
 
 ## RCA-1 — groups_table seat counts are per-row queries
 
@@ -86,8 +100,27 @@ its infeasible tail state, every remaining candidate was correctly
 refused by the admission gate and the probe churned the entire
 leftover list. Per successful operation the cost is ~65 reads
 (messaging included); per REFUSAL it is ~8 reads — the gate is cheap
-exactly where it must be. No plugin change; the probe now caps its
-candidate attempts and reserves users for the moves step.
+exactly where it must be. No plugin change; three probe corrections:
+
+- The seeding's group-fill loop drains the department pools
+  front-first, so the groupless leftovers ALL share the last
+  department and can never complete a compliant team — the original
+  churn was one long, correct refusal parade. The probe now reserves
+  four compliant candidates (2 × SCOPE + two distinct others) during
+  seeding, prices ten same-department gate refusals first (each MUST
+  refuse — an acceptance fails the probe), then performs four real,
+  unguarded invite+accepts.
+- The cascade rivals moved from the tail groups (intentionally
+  non-compliant, which the admission gate must keep refusing to fill)
+  to the compliant head groups, where a same-department swap is
+  composition-neutral. The original run's "6-read cascade" was in
+  fact the probe's skip path — the churn had drained the candidate
+  pool before the cascade step; the real cascade measures ~207 reads
+  including four auto-declined rival invitations and their messages,
+  which is healthy.
+- The download probe now walks the table's OWN query (as the real
+  export renderer does) instead of a raw recordset that lacked the
+  preloaded aggregates.
 
 ## Observations, no code change
 
