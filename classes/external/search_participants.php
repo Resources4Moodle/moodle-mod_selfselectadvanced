@@ -124,15 +124,16 @@ class search_participants extends external_api {
             [$insql, $inparams] = $DB->get_in_or_equal(array_keys($rows), SQL_PARAMS_NAMED, 'mv');
             $inparams['spactivityid'] = $activity->id();
             $inparams['spconfirmed'] = \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED;
-            foreach ($DB->get_records_sql(
+            $memberships = $DB->get_records_sql(
                 "SELECT m.userid, g.name
                    FROM {selfselectadvanced_member} m
                    JOIN {selfselectadvanced_group} g ON g.id = m.groupid
                   WHERE g.activityid = :spactivityid AND m.status = :spconfirmed
                     AND m.userid $insql",
                 $inparams
-            ) as $row) {
-                $teams[(int) $row->userid] = $row->name;
+            );
+            foreach ($memberships as $membership) {
+                $teams[(int) $membership->userid] = $membership->name;
             }
         }
 
