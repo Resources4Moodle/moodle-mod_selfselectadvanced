@@ -615,5 +615,15 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072440, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072450) {
+        $table = new xmldb_table('selfselectadvanced');
+        $field = new xmldb_field('uidprefix', XMLDB_TYPE_CHAR, '8', null, XMLDB_NOTNULL, null, 'SSA', 'maxguided');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 2026072450, 'selfselectadvanced');
+    }
+
     return true;
 }

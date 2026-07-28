@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.15.0 (2026-07-28)
+
+- Frozen teams stay true in Moodle's own groups: the mirror already
+  followed every manager move, freeze and unfreeze; now a deleted user
+  account also leaves every roster immediately, with frozen teams
+  re-snapshotted so an unfreeze or repair can never resurrect the
+  ghost. Out-of-band edits to the core group are still reported as
+  drift, never overwritten.
+- Good-neighbour membership audit: freezing is the moment a team is
+  pushed into the course's groups and groupings, so a roster carrying
+  a member over their membership cap (possible only when caps were
+  lowered after people joined) is refused at that gate, every manager
+  is notified with the member names and counts, and the flagged
+  report shows the condition proactively. The plugin never raises a
+  cap by itself - that decision stays with the manager, via the
+  activity setting or a per-user override.
+- The group id prefix (the SSA in SSA-COURSE-0042) is now an activity
+  setting: 2-8 letters or digits, upper-cased, applied to groups
+  created after the change; existing ids are never rewritten. The
+  mirrored core group's name prefix remains the module ID number (or
+  activity name) from the common settings.
+
+
 ## 1.14.1 (2026-07-28)
 
 - Measured at 10,000 students on the maintainer testbed

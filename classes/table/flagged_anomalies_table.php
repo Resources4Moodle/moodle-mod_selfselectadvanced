@@ -188,6 +188,58 @@ class flagged_anomalies_table extends \flexible_table {
             }
         }
 
+        // Good-neighbour cap audit (RCA Q3): members over their L4
+        // membership cap - possible only by grandfathering - flagged
+        // proactively on every group that carries one, BEFORE a freeze
+        // pushes that roster into the course's groups. Two bulk
+        // queries for the whole activity; the resolver serves each
+        // per-user cap from its activity-wide override cache.
+        $capnamefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
+        $membershipcounts = $DB->get_records_sql(
+            "SELECT m.userid, COUNT(1) AS memberships
+               FROM {selfselectadvanced_member} m
+               JOIN {selfselectadvanced_group} cg ON cg.id = m.groupid
+              WHERE cg.activityid = :capactivityid AND m.status = :capconfirmed
+           GROUP BY m.userid",
+            ['capactivityid' => $activity->id(), 'capconfirmed' => groups::STATUS_CONFIRMED]
+        );
+        $overcap = [];
+        foreach ($membershipcounts as $membershipcount) {
+            $cap = $resolver->effective_maxmembership((int) $membershipcount->userid)->value;
+            if ((int) $membershipcount->memberships > $cap) {
+                $overcap[(int) $membershipcount->userid] = (object) [
+                    'current' => (int) $membershipcount->memberships,
+                    'max' => $cap,
+                ];
+            }
+        }
+        $overcapbygroup = [];
+        foreach (array_chunk(array_keys($overcap), 1000) as $overcapchunk) {
+            [$ocinsql, $ocparams] = $DB->get_in_or_equal($overcapchunk, SQL_PARAMS_NAMED, 'oc');
+            $ocparams['ocactivityid'] = $activity->id();
+            $ocparams['occonfirmed'] = groups::STATUS_CONFIRMED;
+            $ocrows = $DB->get_records_sql(
+                "SELECT m.id, m.groupid, m.userid, $capnamefields
+                   FROM {selfselectadvanced_member} m
+                   JOIN {selfselectadvanced_group} cg ON cg.id = m.groupid
+                   JOIN {user} u ON u.id = m.userid
+                  WHERE cg.activityid = :ocactivityid AND m.status = :occonfirmed
+                    AND m.userid $ocinsql",
+                $ocparams
+            );
+            foreach ($ocrows as $ocrow) {
+                $overcapbygroup[(int) $ocrow->groupid][] = get_string(
+                    'membershipauditmember',
+                    'mod_selfselectadvanced',
+                    (object) [
+                        'fullname' => fullname($ocrow),
+                        'current' => $overcap[(int) $ocrow->userid]->current,
+                        'max' => $overcap[(int) $ocrow->userid]->max,
+                    ]
+                );
+            }
+        }
+
         // First pass: decide which groups are anomalous and why.
         // Member names are deliberately not looked up here - see the
         // batched query below, which runs once for exactly the
@@ -226,6 +278,13 @@ class flagged_anomalies_table extends \flexible_table {
             // legitimately be guideless.
             if ($confirmed >= $max && empty($group->guideid) && in_array($group->state, $liveguidelessstates, true)) {
                 $issues[] = get_string('flagfullnoguide', 'mod_selfselectadvanced');
+            }
+            if (isset($overcapbygroup[$groupid])) {
+                $issues[] = get_string(
+                    'flagovercap',
+                    'mod_selfselectadvanced',
+                    implode(', ', $overcapbygroup[$groupid])
+                );
             }
             if ($issues) {
                 $issuesbygroup[$groupid] = $issues;

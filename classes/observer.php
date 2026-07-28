@@ -26,13 +26,44 @@ namespace mod_selfselectadvanced;
 class observer {
     /**
      * A user was deleted: remove their site-wide attribute record and
-     * purge the distinct-value cache (M3). Group membership rows are
-     * course data handled by the plugin's own lifecycle and privacy
-     * paths.
+     * purge the distinct-value cache (M3), then clear their live
+     * memberships so no roster keeps counting a ghost (RCA Q1): core
+     * has already dropped their core-group rows itself, so each
+     * affected FROZEN group gets a fresh snapshot recording the true
+     * roster - otherwise a later unfreeze or re-freeze reconciliation
+     * would resurrect the deleted account. A deleted leader or guide
+     * is surfaced by the existing flagged reports.
      *
      * @param \core\event\user_deleted $event the core event
      */
     public static function user_deleted(\core\event\user_deleted $event): void {
-        \mod_selfselectadvanced\local\attributes\manager::delete_for_user((int) $event->objectid);
+        global $DB;
+
+        $userid = (int) $event->objectid;
+        \mod_selfselectadvanced\local\attributes\manager::delete_for_user($userid);
+
+        $rows = $DB->get_records_sql(
+            "SELECT m.id AS memberid, g.*
+               FROM {selfselectadvanced_member} m
+               JOIN {selfselectadvanced_group} g ON g.id = m.groupid
+              WHERE m.userid = :userid AND m.status IN (:confirmed, :invited)",
+            [
+                'userid' => $userid,
+                'confirmed' => local\groups::STATUS_CONFIRMED,
+                'invited' => local\groups::STATUS_INVITED,
+            ]
+        );
+        $now = time();
+        foreach ($rows as $row) {
+            $DB->set_field('selfselectadvanced_member', 'status', local\groups::STATUS_REMOVED, [
+                'id' => (int) $row->memberid,
+            ]);
+            $DB->set_field('selfselectadvanced_member', 'timemodified', $now, [
+                'id' => (int) $row->memberid,
+            ]);
+            if ($row->state === local\state::FROZEN) {
+                local\freeze::append_snapshot($row, (int) ($event->userid ?: get_admin()->id));
+            }
+        }
     }
 }

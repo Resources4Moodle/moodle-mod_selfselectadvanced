@@ -69,6 +69,7 @@ class templates {
         'msgleaverequestbody' => 'msgleaverequestsubject',
         'msgleaveconfirmedbody' => 'msgleaveconfirmedsubject',
         'msgreminderbody' => 'msgremindersubject',
+        'msgcapauditbody' => 'msgcapauditsubject',
     ];
 
     /**

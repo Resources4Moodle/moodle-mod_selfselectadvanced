@@ -95,8 +95,10 @@ class freeze {
 
         $lock = locks::acquire('group:' . $group->id);
         try {
-            $transaction = $DB->start_delegated_transaction();
-
+            // Gates run under the lock but BEFORE the transaction, so
+            // the good-neighbour flag below reaches the managers even
+            // though the freeze itself is refused (messages buffered
+            // inside a transaction die with its rollback).
             $fresh = groups::get($activity, (int) $group->id);
             $isrepair = $fresh->state === state::FROZEN
                 && (empty($fresh->coregroupid) || !groups_group_exists((int) $fresh->coregroupid));
@@ -107,7 +109,29 @@ class freeze {
                 if ((int) $fresh->guideid !== $actorid) {
                     throw new \moodle_exception('refusalnotassignedguide', 'mod_selfselectadvanced');
                 }
+                // Good-neighbour membership audit (RCA Q3): freezing
+                // is the moment this plugin pushes into the course's
+                // groups/grouping mechanism, so a roster carrying a
+                // member over their L4 cap (possible only by
+                // grandfathering - caps lowered after people joined)
+                // is refused, and the managers are flagged to raise
+                // the cap or grant overrides first. Repairs of an
+                // already-frozen mirror stay grandfathered.
+                $violators = self::membership_cap_violators($activity, $fresh);
+                if ($violators) {
+                    self::flag_membership_audit($activity, $fresh, $violators, $actorid);
+                    throw new \moodle_exception(
+                        'refusalmembershipaudit',
+                        'mod_selfselectadvanced',
+                        '',
+                        implode(', ', array_map(
+                            static fn(stdClass $v) => get_string('membershipauditmember', 'mod_selfselectadvanced', $v),
+                            $violators
+                        ))
+                    );
+                }
             }
+            $transaction = $DB->start_delegated_transaction();
 
             // Create or reconcile the owned core group (official API only).
             $coregroupid = (int) ($fresh->coregroupid ?? 0);
@@ -312,6 +336,85 @@ class freeze {
         $fresh->drift = $drift;
 
         return $fresh;
+    }
+
+    /**
+     * Confirmed members of the group whose plugin membership count
+     * exceeds their effective L4 cap (RCA Q3). Violations only arise
+     * by grandfathering - the cap was lowered, or an override removed,
+     * after people had already joined; every join path enforces L4.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the group row
+     * @return stdClass[] objects with userid, fullname, current, max
+     */
+    public static function membership_cap_violators(activity $activity, stdClass $group): array {
+        global $DB;
+
+        $resolver = new override\resolver($activity);
+        $namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
+        $members = $DB->get_records_sql(
+            "SELECT u.id, $namefields
+               FROM {selfselectadvanced_member} m
+               JOIN {user} u ON u.id = m.userid
+              WHERE m.groupid = :groupid AND m.status = :confirmed
+           ORDER BY u.lastname, u.firstname",
+            ['groupid' => $group->id, 'confirmed' => groups::STATUS_CONFIRMED]
+        );
+        $violators = [];
+        foreach ($members as $member) {
+            $cap = $resolver->effective_maxmembership((int) $member->id)->value;
+            $count = groups::count_memberships($activity, (int) $member->id);
+            if ($count > $cap) {
+                $violators[] = (object) [
+                    'userid' => (int) $member->id,
+                    'fullname' => fullname($member),
+                    'current' => $count,
+                    'max' => $cap,
+                ];
+            }
+        }
+
+        return $violators;
+    }
+
+    /**
+     * Flag a refused push to every manager (provider capaudit): the
+     * group stays unpushed until they raise the activity cap or grant
+     * per-user overrides - the plugin never raises a cap itself.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the group row
+     * @param stdClass[] $violators from membership_cap_violators()
+     * @param int $actorid the guide whose freeze was refused
+     */
+    public static function flag_membership_audit(
+        activity $activity,
+        stdClass $group,
+        array $violators,
+        int $actorid
+    ): void {
+        $memberlist = implode(', ', array_map(
+            static fn(stdClass $v) => get_string('membershipauditmember', 'mod_selfselectadvanced', $v),
+            $violators
+        ));
+        $guide = \core_user::get_user($actorid);
+        foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $manager) {
+            notifier::send(
+                $activity,
+                'capaudit',
+                (int) $manager->id,
+                'msgcapauditsubject',
+                'msgcapauditbody',
+                (object) [
+                    'group' => format_string($group->name),
+                    'members' => $memberlist,
+                    'guide' => $guide ? fullname($guide) : '',
+                ],
+                new \moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $activity->cm()->id]),
+                format_string($group->name)
+            );
+        }
     }
 
     /**

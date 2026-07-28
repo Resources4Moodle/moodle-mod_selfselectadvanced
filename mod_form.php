@@ -91,6 +91,10 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setType('maxmembership', PARAM_INT);
         $mform->setDefault('maxmembership', 1);
         $mform->addHelpButton('maxmembership', 'maxmembership', 'mod_selfselectadvanced');
+        $mform->addElement('text', 'uidprefix', get_string('uidprefix', 'mod_selfselectadvanced'), ['size' => 8]);
+        $mform->setType('uidprefix', PARAM_ALPHANUM);
+        $mform->setDefault('uidprefix', 'SSA');
+        $mform->addHelpButton('uidprefix', 'uidprefix', 'mod_selfselectadvanced');
 
         // Guides (L5).
         $mform->addElement('header', 'guidesheading', get_string('guidesheading', 'mod_selfselectadvanced'));
@@ -314,6 +318,23 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
             $errors['grade'] = get_string('errpointsonly', 'mod_selfselectadvanced');
         }
 
+        if (!preg_match('/^[A-Za-z0-9]{2,8}$/', trim((string) ($data['uidprefix'] ?? '')))) {
+            $errors['uidprefix'] = get_string('erruidprefix', 'mod_selfselectadvanced');
+        }
+
         return $errors;
+    }
+
+    /**
+     * The plugin id prefix is stored upper-case, exactly as it will
+     * stamp new groups.
+     *
+     * @param stdClass $data the submitted form data
+     */
+    public function data_postprocessing($data) {
+        parent::data_postprocessing($data);
+        if (isset($data->uidprefix)) {
+            $data->uidprefix = strtoupper(trim($data->uidprefix));
+        }
     }
 }
