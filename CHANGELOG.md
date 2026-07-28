@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.15.2 (2026-07-28)
+
+- The coordinator's move form now searches this activity's own
+  participants, authorised by the plugin's manage capability in the
+  activity. Previously it used Moodle's site-wide user selector, which
+  requires "view full user information" at site level - a capability a
+  coordinator holding their role inside one course never has, so the
+  form could not be used at all on a stock site. Each result also
+  shows the team the student is currently in, or that they have none.
+- Pinned in tests: a move OUT of a frozen team removes the member from
+  the mirrored course group as well, so the course's own group data
+  follows the roster in both directions.
+
+
 ## 1.15.1 (2026-07-28)
 
 - The number at the end of a group id has a configurable width: the

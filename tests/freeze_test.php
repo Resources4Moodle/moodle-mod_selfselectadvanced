@@ -217,6 +217,55 @@ final class freeze_test extends \advanced_testcase {
     }
 
     /**
+     * A move OUT of a frozen group takes the member out of the course
+     * group too: the mirror follows the roster in both directions, so
+     * the course's own group data never drifts from the plugin's.
+     */
+    public function test_move_out_of_a_frozen_group_updates_the_course_group(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $group, $students, $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $leaving = (int) $students[1]->id;
+
+        // Both members are in the course group to begin with.
+        $before = array_map('intval', array_keys(groups_get_members((int) $frozen->coregroupid, 'u.id')));
+        $this->assertContains($leaving, $before);
+        $this->assertCount(2, $before);
+
+        // A second team receives them.
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $target = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[2]->id,
+            'name' => 'Receiving',
+            'state' => state::FORMING,
+        ]);
+        $plugingen->create_member([
+            'groupid' => $target->id,
+            'userid' => (int) $students[2]->id,
+            'status' => groups::STATUS_CONFIRMED,
+            'isleader' => 1,
+        ]);
+
+        $move = $api->moves()->stage($leaving, (int) $frozen->id, (int) $target->id, false, null, 99);
+        $api->moves()->commit_set([(int) $move->id], 99);
+
+        // Gone from the course group, and from the newest snapshot, so
+        // an unfreeze restores the roster as it now stands.
+        $after = array_map('intval', array_keys(groups_get_members((int) $frozen->coregroupid, 'u.id')));
+        $this->assertNotContains($leaving, $after);
+        $this->assertCount(1, $after);
+        $snapshot = json_decode(freeze::latest_snapshot((int) $frozen->id)->roster, true);
+        $this->assertCount(1, $snapshot);
+        $this->assertNotContains($leaving, array_map(
+            static fn(array $entry) => (int) $entry['userid'],
+            $snapshot
+        ));
+        $this->assertSame(1, groups::count_confirmed((int) $frozen->id));
+    }
+
+    /**
      * Externally-deleted core groups are recreated by re-freezing; the
      * restriction check lists referencing activities before unfreeze;
      * restore is grandfathered past tightened limits (4A.8).
