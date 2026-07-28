@@ -328,6 +328,7 @@ $string['flagnonegroupless'] = 'Every student is in a group.';
 $string['flagnonemissing'] = 'No students with missing attributes.';
 $string['flagoutoflimit'] = 'Out of limits (grandfathered): {$a->confirmed} confirmed / {$a->seats} seats vs {$a->min} to {$a->max}.';
 $string['flagovercap'] = 'Over membership cap: {$a}. The group cannot be frozen until a manager raises the cap or grants an override.';
+$string['flagovercapfrozen'] = 'Over membership cap: {$a}. Grandfathered in its frozen course group; after unfreezing, a new push will wait until a manager raises the cap or grants an override.';
 $string['flagplace'] = 'Stage placement';
 $string['formationwindow'] = 'Formation window';
 $string['freeze'] = 'Freeze';

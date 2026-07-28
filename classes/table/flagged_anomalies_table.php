@@ -280,8 +280,11 @@ class flagged_anomalies_table extends \flexible_table {
                 $issues[] = get_string('flagfullnoguide', 'mod_selfselectadvanced');
             }
             if (isset($overcapbygroup[$groupid])) {
+                // A frozen group is already pushed and grandfathered -
+                // "cannot be frozen" would be wrong there; the audit
+                // bites again only at the next push after unfreezing.
                 $issues[] = get_string(
-                    'flagovercap',
+                    $group->state === state::FROZEN ? 'flagovercapfrozen' : 'flagovercap',
                     'mod_selfselectadvanced',
                     implode(', ', $overcapbygroup[$groupid])
                 );

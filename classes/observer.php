@@ -41,9 +41,16 @@ class observer {
 
         $userid = (int) $event->objectid;
         \mod_selfselectadvanced\local\attributes\manager::delete_for_user($userid);
+        $actorid = (int) ($event->userid ?: get_admin()->id);
 
+        // Each group's flip + snapshot runs under the group lock in
+        // one transaction, exactly like every other roster mutation
+        // (A7) - otherwise a concurrent unfreeze can re-confirm the
+        // ghost from the pre-deletion snapshot, and a crash between
+        // the flip and the snapshot leaves a frozen mirror that would
+        // resurrect it.
         $rows = $DB->get_records_sql(
-            "SELECT m.id AS memberid, g.*
+            "SELECT m.id AS memberid, g.id AS groupid
                FROM {selfselectadvanced_member} m
                JOIN {selfselectadvanced_group} g ON g.id = m.groupid
               WHERE m.userid = :userid AND m.status IN (:confirmed, :invited)",
@@ -55,14 +62,53 @@ class observer {
         );
         $now = time();
         foreach ($rows as $row) {
-            $DB->set_field('selfselectadvanced_member', 'status', local\groups::STATUS_REMOVED, [
-                'id' => (int) $row->memberid,
-            ]);
-            $DB->set_field('selfselectadvanced_member', 'timemodified', $now, [
-                'id' => (int) $row->memberid,
-            ]);
-            if ($row->state === local\state::FROZEN) {
-                local\freeze::append_snapshot($row, (int) ($event->userid ?: get_admin()->id));
+            $lock = local\locks::acquire('group:' . (int) $row->groupid);
+            try {
+                $transaction = $DB->start_delegated_transaction();
+                $member = $DB->get_record('selfselectadvanced_member', ['id' => (int) $row->memberid]);
+                $live = [local\groups::STATUS_CONFIRMED, local\groups::STATUS_INVITED];
+                if ($member && in_array($member->status, $live, true)) {
+                    $member->status = local\groups::STATUS_REMOVED;
+                    $member->timemodified = $now;
+                    $DB->update_record('selfselectadvanced_member', $member);
+                    $group = $DB->get_record('selfselectadvanced_group', ['id' => (int) $row->groupid]);
+                    if ($group && $group->state === local\state::FROZEN) {
+                        local\freeze::append_snapshot($group, $actorid);
+                    }
+                }
+                $transaction->allow_commit();
+            } finally {
+                $lock->release();
+            }
+        }
+
+        // The student's PENDING staged moves would re-insert the ghost
+        // at commit; cancel them under each activity's lock - the lock
+        // commit_set itself holds.
+        $activityids = $DB->get_fieldset_sql(
+            "SELECT DISTINCT activityid
+               FROM {selfselectadvanced_move}
+              WHERE userid = :userid AND status = :pending",
+            ['userid' => $userid, 'pending' => 'pending']
+        );
+        foreach ($activityids as $activityid) {
+            $lock = local\locks::acquire('activity:' . (int) $activityid);
+            try {
+                $transaction = $DB->start_delegated_transaction();
+                $moveids = $DB->get_fieldset_select(
+                    'selfselectadvanced_move',
+                    'id',
+                    'activityid = ? AND userid = ? AND status = ?',
+                    [(int) $activityid, $userid, 'pending']
+                );
+                if ($moveids) {
+                    [$insql, $inparams] = $DB->get_in_or_equal($moveids);
+                    $DB->set_field_select('selfselectadvanced_move', 'status', 'cancelled', "id $insql", $inparams);
+                    $DB->set_field_select('selfselectadvanced_move', 'timemodified', $now, "id $insql", $inparams);
+                }
+                $transaction->allow_commit();
+            } finally {
+                $lock->release();
             }
         }
     }
