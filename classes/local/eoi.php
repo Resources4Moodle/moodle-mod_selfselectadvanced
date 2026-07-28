@@ -515,6 +515,14 @@ class eoi {
         return $totals;
     }
 
+    /**
+     * How many teams currently consume this guide's capacity: guided
+     * pending/firm/frozen teams plus forming pre-assignments.
+     *
+     * @param activity $activity the activity
+     * @param int $guideid the guide
+     * @return int committed team count
+     */
     public static function guide_commitments(activity $activity, int $guideid): int {
         global $DB;
 

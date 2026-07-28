@@ -131,7 +131,6 @@ cli_writeln("Course {$shortname} id {$course->id}");
 
 // ---------------------------------------------------------------------
 // Raw seeding (not the SUT): users, enrolments, attributes, guides.
-// ---------------------------------------------------------------------
 $hash = password_hash('Scale#2026', PASSWORD_DEFAULT);
 $now = time();
 $studentrole = $DB->get_record('role', ['shortname' => 'student'], '*', MUST_EXIST);
@@ -143,8 +142,19 @@ $subs = ['SCOPE' => ['BCE', 'BIT', 'BAI'], 'SENSE' => ['BEC'], 'SMEC' => ['BME']
     'SCE' => ['BCL'], 'SELECT' => ['BEE'], 'SCHEME' => ['BCM'], 'SBST' => ['BBT']];
 
 probe('seed: 10k users + enrolments + attributes', function () use (
-    $DB, $CFG, $hash, $now, $nstudents, $nguides, $studentrole, $teacherrole,
-    $manual, $context, $depts, $subs, $prefix
+    $DB,
+    $CFG,
+    $hash,
+    $now,
+    $nstudents,
+    $nguides,
+    $studentrole,
+    $teacherrole,
+    $manual,
+    $context,
+    $depts,
+    $subs,
+    $prefix
 ) {
     $firstids = [];
     for ($batchstart = 0; $batchstart < $nstudents + $nguides; $batchstart += 500) {
@@ -249,7 +259,15 @@ cli_writeln("Activity cmid {$cm->id}");
 // Students were seeded round-robin across 7 departments, so taking
 // them in seeded order per group of five yields the compliant mix
 // (2 x SCOPE arrives via index arithmetic below).
-probe("seed: {$ngroups} groups of five (raw)", function () use ($DB, $activity, $studentids, $ngroups, $now, $shortname, $invitereserve) {
+probe("seed: {$ngroups} groups of five (raw)", function () use (
+    $DB,
+    $activity,
+    $studentids,
+    $ngroups,
+    $now,
+    $shortname,
+    $invitereserve
+) {
     $grouprows = [];
     for ($g = 0; $g < $ngroups; $g++) {
         $grouprows[] = (object) [
@@ -264,8 +282,12 @@ probe("seed: {$ngroups} groups of five (raw)", function () use ($DB, $activity, 
         ];
     }
     $DB->insert_records('selfselectadvanced_group', $grouprows);
-    $groupids = $DB->get_fieldset_select('selfselectadvanced_group', 'id',
-        'activityid = ?', [$activity->id()]);
+    $groupids = $DB->get_fieldset_select(
+        'selfselectadvanced_group',
+        'id',
+        'activityid = ?',
+        [$activity->id()]
+    );
     sort($groupids);
 
     // Membership: five per group, composed from per-department pools
@@ -362,7 +384,6 @@ probe('seed: 2500 pending guide interests (raw)', function () use ($DB, $activit
 
 // ---------------------------------------------------------------------
 // Measured scenarios: the real services and table classes.
-// ---------------------------------------------------------------------
 $api = new api($activity);
 $gatekeeper = $api->gatekeeper();
 // Reserve users for the moves probe BEFORE the invite churn consumes
@@ -386,7 +407,15 @@ $freshgroup = probe('service: create_group (cascade check inside)', function () 
     return $api->create_group($freshleader, 'Probe team', 'T', '<p>b</p>', FORMAT_HTML);
 });
 
-probe('service: 10 gate refusals + 4 x invite + accept', function () use ($api, $activity, $freshgroup, $freshleader, $invitereserve, &$groupless, $DB) {
+probe('service: 10 gate refusals + 4 x invite + accept', function () use (
+    $api,
+    $activity,
+    $freshgroup,
+    $freshleader,
+    $invitereserve,
+    &$groupless,
+    $DB
+) {
     // Refusal pricing first, while seats remain: every leftover shares
     // the leader's department, so the admission gate must refuse each
     // one (composition unreachable) - the cheap path, priced 10 times.
@@ -438,7 +467,8 @@ probe('service: cascade - accept with 5 rival invites', function () use ($api, $
                JOIN {selfselectadvanced_userattr} a ON a.userid = m.userid
               WHERE m.groupid = :g AND m.isleader = 0 AND m.status = 'confirmed'
                 AND a.department = :d",
-            ['g' => $rgid, 'd' => $stardept], IGNORE_MULTIPLE
+            ['g' => $rgid, 'd' => $stardept],
+            IGNORE_MULTIPLE
         );
         if ($victim && $accepttarget === null) {
             $DB->set_field('selfselectadvanced_member', 'status', 'removed', ['id' => $victim->id]);
@@ -466,8 +496,12 @@ probe('service: 10 x eoi::express (groupmax + caps)', function () use ($activity
     $done = 0;
     for ($i = 0; $i < 10; $i++) {
         try {
-            eoi::express($activity, (int) $listedids[($i * 7) % count($listedids)],
-                (int) $guideids[$i % count($guideids)], '<p>x</p>');
+            eoi::express(
+                $activity,
+                (int) $listedids[($i * 7) % count($listedids)],
+                (int) $guideids[$i % count($guideids)],
+                '<p>x</p>'
+            );
             $done++;
         } catch (moodle_exception $e) {
             $DB->force_transaction_rollback();
@@ -493,8 +527,14 @@ $PAGE->set_url(new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm
 $PAGE->set_context($activity->context());
 
 probe('table: pickteam_table page of 50 (1500 listed)', function () use ($activity, $cm) {
-    $table = new \mod_selfselectadvanced\table\pickteam_table('scaleprobe1', $activity,
-        new moodle_url('/mod/selfselectadvanced/pickteam.php', ['id' => $cm->id]), '', false, true);
+    $table = new \mod_selfselectadvanced\table\pickteam_table(
+        'scaleprobe1',
+        $activity,
+        new moodle_url('/mod/selfselectadvanced/pickteam.php', ['id' => $cm->id]),
+        '',
+        false,
+        true
+    );
     ob_start();
     $table->out(50, false);
     $html = ob_get_clean();
@@ -503,8 +543,14 @@ probe('table: pickteam_table page of 50 (1500 listed)', function () use ($activi
 });
 
 probe('table: groups_table page of 50', function () use ($activity, $gatekeeper, $cm) {
-    $table = new \mod_selfselectadvanced\table\groups_table('scaleprobe2', $activity, $gatekeeper,
-        new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]), '', false);
+    $table = new \mod_selfselectadvanced\table\groups_table(
+        'scaleprobe2',
+        $activity,
+        $gatekeeper,
+        new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]),
+        '',
+        false
+    );
     ob_start();
     $table->out(50, false);
     $html = ob_get_clean();
@@ -516,8 +562,14 @@ probe('table: groups_table DOWNLOAD cost (col_size x all rows)', function () use
     // The download dumps every row through the table's OWN query, so
     // the preloaded seat aggregates ride along (RCA-1). Walk every row
     // through the real column callback, exactly as the export does.
-    $table = new \mod_selfselectadvanced\table\groups_table('scaleprobe3', $activity, $gatekeeper,
-        new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]), '', true);
+    $table = new \mod_selfselectadvanced\table\groups_table(
+        'scaleprobe3',
+        $activity,
+        $gatekeeper,
+        new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]),
+        '',
+        true
+    );
     $rows = 0;
     $rs = $DB->get_recordset_sql(
         "SELECT {$table->sql->fields} FROM {$table->sql->from} WHERE {$table->sql->where}",
@@ -534,7 +586,8 @@ probe('table: groups_table DOWNLOAD cost (col_size x all rows)', function () use
 
 probe('report: flagged anomalies build_rows', function () use ($activity, $gatekeeper) {
     return count(\mod_selfselectadvanced\table\flagged_anomalies_table::build_rows(
-        $activity, $gatekeeper->resolver()
+        $activity,
+        $gatekeeper->resolver()
     ));
 });
 
