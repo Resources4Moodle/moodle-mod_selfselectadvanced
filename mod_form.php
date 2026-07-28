@@ -327,8 +327,10 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         }
 
         $digits = (int) ($data['uiddigits'] ?? 0);
-        if ($digits < \mod_selfselectadvanced\local\groups::UID_DIGITS_MIN
-                || $digits > \mod_selfselectadvanced\local\groups::UID_DIGITS_MAX) {
+        if (
+            $digits < \mod_selfselectadvanced\local\groups::UID_DIGITS_MIN
+            || $digits > \mod_selfselectadvanced\local\groups::UID_DIGITS_MAX
+        ) {
             $errors['uiddigits'] = get_string('erruiddigits', 'mod_selfselectadvanced', (object) [
                 'min' => \mod_selfselectadvanced\local\groups::UID_DIGITS_MIN,
                 'max' => \mod_selfselectadvanced\local\groups::UID_DIGITS_MAX,
