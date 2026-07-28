@@ -75,8 +75,10 @@ class guides {
                 continue;
             }
             $ceiling = $resolver->guide_capacity_ceiling((int) $user->id);
-            if ($ceiling->source === \mod_selfselectadvanced\local\override\effective_value::SOURCE_GUIDE
-                    || !$volunteeringon) {
+            if (
+                $ceiling->source === \mod_selfselectadvanced\local\override\effective_value::SOURCE_GUIDE
+                || !$volunteeringon
+            ) {
                 $maxvalue = $ceiling;
             } else {
                 $row = $volunteers[(int) $user->id] ?? null;
