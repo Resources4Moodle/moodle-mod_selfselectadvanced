@@ -322,6 +322,7 @@ probe("seed: {$ngroups} groups of five (raw)", function () use (
             $rotation++;
         }
         while (count($five) < 5) {
+            $before = count($five);
             foreach ($others as $dept) {
                 if (count($five) >= 5) {
                     break;
@@ -330,7 +331,11 @@ probe("seed: {$ngroups} groups of five (raw)", function () use (
                     $five[] = array_pop($pools[$dept]);
                 }
             }
-            if (!array_filter($pools, 'count')) {
+            if (count($five) === $before) {
+                // A full pass added nobody: the non-SCOPE pools are
+                // dry. Checking the pools directly would count a
+                // stranded odd SCOPE remainder (only ever drawn in
+                // pairs) and spin forever.
                 break;
             }
         }

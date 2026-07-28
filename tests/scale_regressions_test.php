@@ -149,5 +149,39 @@ final class scale_regressions_test extends \advanced_testcase {
         $counted = $api->gatekeeper()->seat_position($group);
         $preloaded = $api->gatekeeper()->seat_position($group, 2, 1);
         $this->assertEquals($counted, $preloaded);
+
+        // The table's OWN query must carry the same counts - and only
+        // this activity's: a busier team in another activity must not
+        // leak into the aggregates or the row set.
+        global $DB;
+        $othercourse = $generator->create_course();
+        $otherinstance = $generator->create_module('selfselectadvanced', [
+            'course' => $othercourse->id, 'minsize' => 2, 'maxsize' => 6,
+        ]);
+        $otheractivity = activity::from_instance((int) $otherinstance->id);
+        $otherleader = $generator->create_user();
+        $generator->enrol_user($otherleader->id, $othercourse->id, 'student');
+        $othergroup = $plugingen->create_group(['activityid' => $otheractivity->id(),
+            'leaderid' => (int) $otherleader->id, 'name' => 'O', 'state' => state::FORMING]);
+        foreach (range(1, 3) as $i) {
+            $extra = $generator->create_user();
+            $generator->enrol_user($extra->id, $othercourse->id, 'student');
+            $plugingen->create_member(['groupid' => $othergroup->id,
+                'userid' => (int) $extra->id, 'status' => groups::STATUS_CONFIRMED]);
+        }
+
+        $table = new \mod_selfselectadvanced\table\groups_table('scaletest', $activity,
+            $api->gatekeeper(), new \moodle_url('/'), '', true);
+        $rows = $DB->get_records_sql(
+            "SELECT {$table->sql->fields} FROM {$table->sql->from} WHERE {$table->sql->where}",
+            $table->sql->params
+        );
+        $this->assertCount(1, $rows);
+        $row = reset($rows);
+        $this->assertSame(2, (int) $row->confirmedcount);
+        $this->assertSame(1, (int) $row->invitedcount);
+        $this->assertEquals($counted, $api->gatekeeper()->seat_position(
+            $row, (int) $row->confirmedcount, (int) $row->invitedcount
+        ));
     }
 }
