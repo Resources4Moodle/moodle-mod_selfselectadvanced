@@ -83,8 +83,10 @@ final class search_participants_test extends \advanced_testcase {
         $this->assertCount(1, $byregno);
         $this->assertSame((int) $loner->id, $byregno[0]['id']);
 
-        // An empty query returns nothing rather than the whole cohort.
-        $this->assertSame([], search_participants::execute((int) $activity->cm()->id, '  '));
+        // An empty query returns nothing rather than the whole cohort
+        // (a whitespace-only one never reaches us: the external layer
+        // refuses it as untrimmed).
+        $this->assertSame([], search_participants::execute((int) $activity->cm()->id, ''));
     }
 
     /**
