@@ -130,3 +130,34 @@ again on the warm rerun - cold-cache artefact), and the table probes'
 ~1s wall time was process-lifecycle noise - in isolation, with BOTH
 10k courses in the database, the activity-scoped aggregate answers in
 7ms and a full 50-row render in 48ms.
+
+## Adversarial audit of the patch (27 agents, 2026-07-28)
+
+Three review lenses over the diff, every finding judged by two
+independent skeptics. Four distinct defects confirmed, all fixed the
+same day; six candidates refuted (notably: no pre-1.15.0 backfill is
+needed - core silently skips deleted users at add-member, and the new
+observer discipline heals older ghosts on the next unfreeze).
+
+- **Observer without the roster discipline** (the one deviation from
+  lock rule A7): user_deleted flipped memberships and appended
+  snapshots with no group lock and no transaction - a concurrent
+  unfreeze could re-confirm the ghost from the pre-deletion snapshot,
+  and a crash between flip and snapshot left a frozen mirror that
+  would resurrect it. Now: per-group lock, one transaction per group,
+  status re-read under the lock.
+- **Ghost via staged moves (major)**: the deleted student's PENDING
+  staged moves survived and a later commit re-inserted the ghost as a
+  member. Deletion now cancels them under the same activity lock the
+  commit path holds (a deleted SUCCESSOR was already covered - the
+  commit-time SUCC verdict refuses once the membership flip lands).
+- **Manager flags under the group lock**: the capaudit notifications
+  drove synchronous mail while holding 'group:{id}' (10s lock
+  timeout), so a slow relay times the manager count could starve
+  concurrent operations into errlocktimeout. The push now lives in
+  its own locked transaction (push_to_core); the flag and the refusal
+  fire after the lock releases.
+- **Wrong flag text on frozen groups**: the proactive over-cap row
+  said "cannot be frozen" on groups that already ARE - a frozen group
+  is grandfathered; its next push after unfreezing is what waits. A
+  state-aware string now says exactly that.

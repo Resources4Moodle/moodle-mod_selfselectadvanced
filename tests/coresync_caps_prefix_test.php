@@ -245,7 +245,34 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
         $this->assertTrue(groups_is_member((int) $frozen->coregroupid, (int) $students[1]->id));
 
+        // A pending staged move of the soon-deleted student would
+        // re-insert the ghost at commit - deletion must cancel it.
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $mover = $generator->create_user();
+        $generator->enrol_user($mover->id, $activity->courseid(), 'student');
+        $target = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $mover->id,
+            'name' => 'Target',
+            'state' => state::FORMING,
+        ]);
+        $move = (new api($activity))->moves()->stage(
+            (int) $students[1]->id,
+            (int) $second->id,
+            (int) $target->id,
+            false,
+            null,
+            2
+        );
+        $this->assertSame('pending', $DB->get_field('selfselectadvanced_move', 'status', ['id' => (int) $move->id]));
+
         delete_user($students[1]);
+
+        $this->assertSame(
+            'cancelled',
+            $DB->get_field('selfselectadvanced_move', 'status', ['id' => (int) $move->id])
+        );
 
         // Both memberships are gone from the plugin's books.
         $this->assertSame(0, groups::count_memberships($activity, (int) $students[1]->id));

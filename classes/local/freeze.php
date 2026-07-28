@@ -94,11 +94,8 @@ class freeze {
         $gatekeeper = new rules\gatekeeper($activity, new override\resolver($activity));
 
         $lock = locks::acquire('group:' . $group->id);
+        $violators = [];
         try {
-            // Gates run under the lock but BEFORE the transaction, so
-            // the good-neighbour flag below reaches the managers even
-            // though the freeze itself is refused (messages buffered
-            // inside a transaction die with its rollback).
             $fresh = groups::get($activity, (int) $group->id);
             $isrepair = $fresh->state === state::FROZEN
                 && (empty($fresh->coregroupid) || !groups_group_exists((int) $fresh->coregroupid));
@@ -114,80 +111,31 @@ class freeze {
                 // groups/grouping mechanism, so a roster carrying a
                 // member over their L4 cap (possible only by
                 // grandfathering - caps lowered after people joined)
-                // is refused, and the managers are flagged to raise
-                // the cap or grant overrides first. Repairs of an
+                // skips the push; the flag and the refusal fire below,
+                // AFTER the lock releases, because notifier::send
+                // drives synchronous mail and must not hold
+                // 'group:{id}' hostage to a slow relay. Repairs of an
                 // already-frozen mirror stay grandfathered.
                 $violators = self::membership_cap_violators($activity, $fresh);
-                if ($violators) {
-                    self::flag_membership_audit($activity, $fresh, $violators, $actorid);
-                    throw new \moodle_exception(
-                        'refusalmembershipaudit',
-                        'mod_selfselectadvanced',
-                        '',
-                        implode(', ', array_map(
-                            static fn(stdClass $v) => get_string('membershipauditmember', 'mod_selfselectadvanced', $v),
-                            $violators
-                        ))
-                    );
-                }
             }
-            $transaction = $DB->start_delegated_transaction();
-
-            // Create or reconcile the owned core group (official API only).
-            $coregroupid = (int) ($fresh->coregroupid ?? 0);
-            if (!$coregroupid || !groups_group_exists($coregroupid)) {
-                $prefix = trim((string) ($activity->cm()->idnumber ?: $activity->name()));
-                $coregroupid = groups_create_group((object) [
-                    'courseid' => $activity->courseid(),
-                    'name' => \core_text::substr('[' . $prefix . '] ' . $fresh->name, 0, 254),
-                    'description' => get_string('coregroupdescription', 'mod_selfselectadvanced', $fresh->pluginuid),
-                    'descriptionformat' => FORMAT_HTML,
-                ]);
+            if (!$violators) {
+                $fresh = self::push_to_core($activity, $fresh, $actorid, $confirmed);
             }
-            $confirmed = $DB->get_fieldset_select(
-                'selfselectadvanced_member',
-                'userid',
-                'groupid = ? AND status = ?',
-                [$fresh->id, groups::STATUS_CONFIRMED]
-            );
-            $current = array_keys(groups_get_members($coregroupid, 'u.id'));
-            foreach (array_diff($confirmed, $current) as $userid) {
-                groups_add_member($coregroupid, (int) $userid);
-            }
-            foreach (array_diff($current, $confirmed) as $userid) {
-                groups_remove_member($coregroupid, (int) $userid);
-            }
-
-            // Ensure the activity grouping and the membership in it.
-            $groupingname = \core_text::substr(get_string('groupingname', 'mod_selfselectadvanced', $activity->name()), 0, 254);
-            $grouping = groups_get_grouping_by_name($activity->courseid(), $groupingname);
-            if (!$grouping) {
-                $grouping = groups_create_grouping((object) [
-                    'courseid' => $activity->courseid(),
-                    'name' => $groupingname,
-                ]);
-            }
-            groups_assign_grouping((int) $grouping, $coregroupid);
-
-            $now = time();
-            $fresh->state = state::FROZEN;
-            $fresh->coregroupid = $coregroupid;
-            $fresh->timefrozen = $now;
-            $fresh->usermodified = $actorid;
-            $fresh->timemodified = $now;
-            $DB->update_record('selfselectadvanced_group', $fresh);
-
-            self::append_snapshot($fresh, $actorid);
-
-            \mod_selfselectadvanced\event\group_frozen::create([
-                'objectid' => $fresh->id,
-                'context' => $activity->context(),
-                'other' => ['pluginuid' => $fresh->pluginuid, 'coregroupid' => $coregroupid],
-            ])->trigger();
-
-            $transaction->allow_commit();
         } finally {
             $lock->release();
+        }
+
+        if ($violators) {
+            self::flag_membership_audit($activity, $fresh, $violators, $actorid);
+            throw new \moodle_exception(
+                'refusalmembershipaudit',
+                'mod_selfselectadvanced',
+                '',
+                implode(', ', array_map(
+                    static fn(stdClass $v) => get_string('membershipauditmember', 'mod_selfselectadvanced', $v),
+                    $violators
+                ))
+            );
         }
 
         foreach ($confirmed as $userid) {
@@ -205,6 +153,79 @@ class freeze {
                 format_string($fresh->name)
             );
         }
+
+        return $fresh;
+    }
+
+    /**
+     * The push itself: create or reconcile the owned core group, the
+     * grouping, the snapshot and the state flip, in one transaction.
+     * Caller holds the group lock and has cleared every gate.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $fresh the group row read under the lock
+     * @param int $actorid the acting guide
+     * @param array|null $confirmed set to the confirmed userids pushed
+     * @return stdClass the updated group row
+     */
+    private static function push_to_core(activity $activity, stdClass $fresh, int $actorid, ?array &$confirmed): stdClass {
+        global $DB;
+
+        $transaction = $DB->start_delegated_transaction();
+
+        // Create or reconcile the owned core group (official API only).
+        $coregroupid = (int) ($fresh->coregroupid ?? 0);
+        if (!$coregroupid || !groups_group_exists($coregroupid)) {
+            $prefix = trim((string) ($activity->cm()->idnumber ?: $activity->name()));
+            $coregroupid = groups_create_group((object) [
+                'courseid' => $activity->courseid(),
+                'name' => \core_text::substr('[' . $prefix . '] ' . $fresh->name, 0, 254),
+                'description' => get_string('coregroupdescription', 'mod_selfselectadvanced', $fresh->pluginuid),
+                'descriptionformat' => FORMAT_HTML,
+            ]);
+        }
+        $confirmed = $DB->get_fieldset_select(
+            'selfselectadvanced_member',
+            'userid',
+            'groupid = ? AND status = ?',
+            [$fresh->id, groups::STATUS_CONFIRMED]
+        );
+        $current = array_keys(groups_get_members($coregroupid, 'u.id'));
+        foreach (array_diff($confirmed, $current) as $userid) {
+            groups_add_member($coregroupid, (int) $userid);
+        }
+        foreach (array_diff($current, $confirmed) as $userid) {
+            groups_remove_member($coregroupid, (int) $userid);
+        }
+
+        // Ensure the activity grouping and the membership in it.
+        $groupingname = \core_text::substr(get_string('groupingname', 'mod_selfselectadvanced', $activity->name()), 0, 254);
+        $grouping = groups_get_grouping_by_name($activity->courseid(), $groupingname);
+        if (!$grouping) {
+            $grouping = groups_create_grouping((object) [
+                'courseid' => $activity->courseid(),
+                'name' => $groupingname,
+            ]);
+        }
+        groups_assign_grouping((int) $grouping, $coregroupid);
+
+        $now = time();
+        $fresh->state = state::FROZEN;
+        $fresh->coregroupid = $coregroupid;
+        $fresh->timefrozen = $now;
+        $fresh->usermodified = $actorid;
+        $fresh->timemodified = $now;
+        $DB->update_record('selfselectadvanced_group', $fresh);
+
+        self::append_snapshot($fresh, $actorid);
+
+        \mod_selfselectadvanced\event\group_frozen::create([
+            'objectid' => $fresh->id,
+            'context' => $activity->context(),
+            'other' => ['pluginuid' => $fresh->pluginuid, 'coregroupid' => $coregroupid],
+        ])->trigger();
+
+        $transaction->allow_commit();
 
         return $fresh;
     }
