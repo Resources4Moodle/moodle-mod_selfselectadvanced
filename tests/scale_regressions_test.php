@@ -62,8 +62,9 @@ final class scale_regressions_test extends \advanced_testcase {
         $student = $generator->create_user();
         $generator->enrol_user($student->id, $course->id, 'student');
 
-        // g0: manager override cap 4; g1: explicit-zero override;
-        // g2: volunteered 2; g3: non-volunteer; g4: hidden.
+        // Guide 0: manager override cap 4; guide 1: explicit-zero
+        // override; guide 2: volunteered 2; guide 3: non-volunteer;
+        // guide 4: hidden.
         \mod_selfselectadvanced\local\override\store::save($activity, 'guide', $g[0], ['maxguided' => 4], 0);
         \mod_selfselectadvanced\local\override\store::save($activity, 'guide', $g[1], ['maxguided' => 0], 0);
         volunteering::set($activity, $g[2], 2);
@@ -95,7 +96,7 @@ final class scale_regressions_test extends \advanced_testcase {
             );
         }
 
-        // with_load (bulk-fed) equals the scalar precedence per guide.
+        // The bulk-fed with_load equals the scalar precedence per guide.
         $load = guides::with_load($activity, $freshresolver, true);
         $this->assertArrayNotHasKey($g[4], $load, 'hidden guide leaked');
         foreach ([$g[0], $g[1], $g[2], $g[3]] as $guideid) {
