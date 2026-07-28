@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.15.3 (2026-07-28)
+
+- A team's own members now see the composition values on their roster:
+  the school and programme columns follow the same audience as the
+  mobile column - staff, the guide, and the team's confirmed members -
+  so a leader can see at a glance which member fills which seat.
+  Students outside the team still see neither.
+
+
 ## 1.15.2 (2026-07-28)
 
 - The coordinator's move form now searches this activity's own

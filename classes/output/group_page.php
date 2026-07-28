@@ -103,9 +103,12 @@ class group_page implements renderable, templatable {
         // The roster is a real table (2026-07-27 request): first and
         // last name as separate sortable columns plus one column per
         // composition dimension the activity uses, with a text filter.
-        // Attribute (dimension) columns stay staff-only, matching the
-        // old attrline privacy split; only the mobile column widens.
-        $useddims = $canviewall
+        // The dimension columns follow the same audience as the mobile
+        // column - staff, the guide, and the team's own confirmed
+        // members - because a team is assembled BY those values and
+        // the composition panel already tells its members which ones
+        // the seat plan still needs. Outsider students see neither.
+        $useddims = $showmobilecol
             ? \mod_selfselectadvanced\local\attributes\manager::used_dimensions($activity)
             : [];
         $rsort = optional_param('rsort', '', PARAM_ALPHANUMEXT);
