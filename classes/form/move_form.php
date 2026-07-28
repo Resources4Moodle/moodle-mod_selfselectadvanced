@@ -63,8 +63,18 @@ class move_form extends \moodleform {
             get_string('movestudent', 'mod_selfselectadvanced'),
             $this->_customdata['selectedstudent'] ?? [],
             [
-                'ajax' => 'core_user/form_user_selector',
+                // This activity's own participants, authorised by the
+                // manage capability here: core's selector demands a
+                // SYSTEM-context capability a course coordinator does
+                // not hold, which locked them out of this form.
+                'ajax' => 'mod_selfselectadvanced/participantselector',
                 'noselectionstring' => get_string('choosedots'),
+                'valuehtmlcallback' => function ($userid) {
+                    $user = \core_user::get_user((int) $userid);
+
+                    return $user ? fullname($user) : '';
+                },
+                'data-cmid' => $this->_customdata['cmid'],
             ]
         );
         $mform->addRule('student', get_string('required'), 'required', null, 'client');
@@ -109,8 +119,18 @@ class move_form extends \moodleform {
             get_string('movesuccessor', 'mod_selfselectadvanced'),
             $this->_customdata['selectedsuccessor'] ?? [],
             [
-                'ajax' => 'core_user/form_user_selector',
+                // This activity's own participants, authorised by the
+                // manage capability here: core's selector demands a
+                // SYSTEM-context capability a course coordinator does
+                // not hold, which locked them out of this form.
+                'ajax' => 'mod_selfselectadvanced/participantselector',
                 'noselectionstring' => get_string('choosedots'),
+                'valuehtmlcallback' => function ($userid) {
+                    $user = \core_user::get_user((int) $userid);
+
+                    return $user ? fullname($user) : '';
+                },
+                'data-cmid' => $this->_customdata['cmid'],
             ]
         );
         $mform->addHelpButton('successor', 'movesuccessor', 'mod_selfselectadvanced');

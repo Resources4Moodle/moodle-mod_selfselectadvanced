@@ -33,4 +33,11 @@ $functions = [
         'ajax' => true,
         'capabilities' => 'mod/selfselectadvanced:creategroup',
     ],
+    'mod_selfselectadvanced_search_participants' => [
+        'classname' => \mod_selfselectadvanced\external\search_participants::class,
+        'description' => 'Search this activity\'s participants for the manager move form.',
+        'type' => 'read',
+        'ajax' => true,
+        'capabilities' => 'mod/selfselectadvanced:manage',
+    ],
 ];
