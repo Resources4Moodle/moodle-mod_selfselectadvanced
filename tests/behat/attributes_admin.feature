@@ -29,7 +29,7 @@ Feature: Site administrators manage participant attributes
     Then I should see "Participant attributes saved."
     And I should see "Mechanical"
 
-  Scenario: Staff see attribute lines on rosters, students do not
+  Scenario: Staff and the team's own members see attribute columns, an invitee does not
     Given the following "courses" exist:
       | fullname | shortname |
       | Course 1 | C1        |
@@ -39,21 +39,29 @@ Feature: Site administrators manage participant attributes
     And the following "users" exist:
       | username | firstname | lastname | email              |
       | teacher1 | Tina      | Teach    | teach1@example.com |
+      | student9 | Ivy       | Invitee  | s9@example.com     |
     And the following "course enrolments" exist:
       | user     | course | role           |
       | teacher1 | C1     | editingteacher |
+      | student9 | C1     | student        |
     And the following "activities" exist:
       | activity           | course | name       | idnumber |
       | selfselectadvanced | C1     | Lab groups | ssa1     |
     And the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   |
       | ssa1               | Team Blue | student1 |
+    And the following "mod_selfselectadvanced > members" exist:
+      | ssagroup  | user     | status  |
+      | Team Blue | student9 | invited |
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
     And I follow "Team Blue"
     Then I should see "Civil" in the ".selfselectadvanced-roster" "css_element"
     And I should see "Structures" in the ".selfselectadvanced-roster" "css_element"
     And I should see "+91 111 22222" in the ".selfselectadvanced-roster" "css_element"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    And I follow "Team Blue"
+    Then I should see "Structures" in the ".selfselectadvanced-roster" "css_element"
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student9
     And I follow "Team Blue"
     Then I should not see "Structures"
 
