@@ -109,3 +109,24 @@ NOT NULL DEFAULT 'SSA' so upgraded sites behave identically.
   user leaves rosters and frozen mirrors clean. The 10k harness gains
   freeze/audit probes and a fresh full run (new shortname; the held
   SCALE10K course is preserved untouched).
+
+## Verified at 10,000 users (SCALE10KB run, 2026-07-28)
+
+A full fresh 10k run under a second namespace (the first 10k course
+kept intact beside it, doubling the site's data):
+
+| 1.15.0 step | Time | Reads | Writes |
+|---|---|---|---|
+| freeze: push 5 members to core groups (group, members, grouping, snapshot, messages) | 0.17s | 251 | 48 |
+| freeze audit refusal at a lowered cap | 0.02s | 23 | 5 |
+| observer: delete a frozen member's account (roster + snapshot clean, tripwired) | 0.07s | 88 | 50 |
+| uidprefix stamps new groups (tripwired) | 0.01s | 16 | 5 |
+
+Every pre-1.15.0 probe repeated its baseline query count; the flagged
+report stayed constant-query (12 reads) with the over-cap detection
+in. Two apparent anomalies were chased and cleared: the invite probe
+read 593 once immediately after upgrade.php purged all caches (511
+again on the warm rerun - cold-cache artefact), and the table probes'
+~1s wall time was process-lifecycle noise - in isolation, with BOTH
+10k courses in the database, the activity-scoped aggregate answers in
+7ms and a full 50-row render in 48ms.
