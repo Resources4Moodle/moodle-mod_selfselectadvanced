@@ -652,8 +652,10 @@ $requestable = [];
 if ($isassignedguide && $statefirmish) {
     $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_COMPCHANGE;
 }
-if (($isassignedguide || $isgroupleader)
-        && $group->state === \mod_selfselectadvanced\local\state::FROZEN) {
+if (
+    ($isassignedguide || $isgroupleader)
+        && $group->state === \mod_selfselectadvanced\local\state::FROZEN
+) {
     $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_UNFREEZE;
 }
 foreach ($requestable as $tickettype) {

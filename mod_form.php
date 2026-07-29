@@ -102,8 +102,12 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->addElement('text', 'nameformat', get_string('nameformat', 'mod_selfselectadvanced'), ['size' => 40]);
         $mform->setType('nameformat', PARAM_RAW_TRIMMED);
         $mform->addHelpButton('nameformat', 'nameformat', 'mod_selfselectadvanced');
-        $mform->addElement('text', 'nameformatexample',
-            get_string('nameformatexample', 'mod_selfselectadvanced'), ['size' => 40]);
+        $mform->addElement(
+            'text',
+            'nameformatexample',
+            get_string('nameformatexample', 'mod_selfselectadvanced'),
+            ['size' => 40]
+        );
         $mform->setType('nameformatexample', PARAM_TEXT);
         $mform->addHelpButton('nameformatexample', 'nameformatexample', 'mod_selfselectadvanced');
 

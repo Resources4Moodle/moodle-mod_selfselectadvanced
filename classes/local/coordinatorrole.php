@@ -64,15 +64,17 @@ class coordinatorrole {
         }
 
         $systemcontext = \context_system::instance();
-        foreach ([
+        foreach (
+            [
             'mod/selfselectadvanced:coordinate',
             'mod/selfselectadvanced:guide',
             'mod/selfselectadvanced:viewall',
             'mod/selfselectadvanced:freeze',
             'mod/selfselectadvanced:unfreeze',
-        ] as $capability) {
-            // $overwrite = false: fills in what is missing, never
-            // overrules a prevent or prohibit already recorded.
+            ] as $capability
+        ) {
+            // With overwrite off this fills in what is missing and
+            // never overrules a prevent or prohibit already recorded.
             assign_capability($capability, CAP_ALLOW, $roleid, $systemcontext->id, false);
         }
         $systemcontext->mark_dirty();
