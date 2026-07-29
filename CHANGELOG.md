@@ -20,6 +20,10 @@
   it with a note. Duplicate live requests are refused, requesters
   are notified at every step (new "tickets" message provider), and
   a direct unfreeze auto-resolves the team's open unfreeze ticket.
+  A manager can also release a ticket somebody else is holding, so a
+  request taken up by a colleague who has since left the course
+  cannot sit there for ever - which would otherwise have blocked the
+  team from ever asking again.
 - Group name format: the editing teacher can require every new group
   name to match a pattern, with an example shown on refusal. Group
   names are now unique across all instances of the activity in the
@@ -27,10 +31,13 @@
 - New "Group Coordinators" role (created on install/upgrade,
   assignable at course or activity level to non-editing teachers)
   carrying a new "coordinate" capability: freeze and unfreeze teams
-  and work the ticket queue. For accountability, a coordinator can
-  never act on a team they guide, are nominated to guide, or belong
-  to - another coordinator or a manager must take those. They can
-  still serve as guides everywhere else.
+  and work the ticket queue, reached from their own button on the
+  activity page. For accountability, a coordinator can never act on
+  a team they guide, are nominated to guide, or belong to - another
+  coordinator or a manager must take those. They can still serve as
+  guides everywhere else. The conflict-of-interest rule restrains
+  this new authority only: everyone who could freeze or unfreeze
+  before this release still can, including a team's own guide.
 - Backup and restore carry the new settings and the ticket queue;
   the privacy provider exports and deletes ticket authorship.
 
