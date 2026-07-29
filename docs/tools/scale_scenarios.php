@@ -737,6 +737,9 @@ probe('service: name format refusal + pass', function () use ($DB, $activity, &$
     $DB->set_field('selfselectadvanced', 'nameformat', 'FMT-\d{3}', ['id' => $activity->id()]);
     $freshactivity = activity::from_instance($activity->id());
     $formatapi = new api($freshactivity);
+    if (!$groupless) {
+        throw new coding_exception('the groupless pool ran dry before the name-format probe');
+    }
     $leaderid = (int) array_shift($groupless);
     try {
         $formatapi->create_group($leaderid, 'free form probe', 'T', '<p>b</p>', FORMAT_HTML);
@@ -775,31 +778,44 @@ probe('service: tickets - file 50 + queue + exclusivity', function () use ($DB, 
     if (count($queue) < 50) {
         throw new coding_exception('queue lost tickets: ' . count($queue));
     }
-    $adminid = (int) get_admin()->id;
+    // Two DIFFERENT workers take the same ticket: exactly one wins and
+    // the loser is told who holds it.
     $first = (int) $tickets[0]->id;
-    \mod_selfselectadvanced\local\tickets::claim($activity, $first, $adminid);
+    $winner = (int) get_admin()->id;
+    $loser = (int) $guideids[count($guideids) - 1];
+    \mod_selfselectadvanced\local\tickets::claim($activity, $first, $winner);
     try {
-        \mod_selfselectadvanced\local\tickets::claim($activity, $first, $adminid + 0);
-        throw new coding_exception('second claim of a claimed ticket succeeded');
+        \mod_selfselectadvanced\local\tickets::claim($activity, $first, $loser);
+        throw new coding_exception('a second worker claimed a ticket already held');
     } catch (moodle_exception $e) {
         if ($e->errorcode !== 'refusalticketclaimed') {
             throw $e;
         }
     }
+    $held = $DB->get_field('selfselectadvanced_ticket', 'claimedby', ['id' => $first]);
+    if ((int) $held !== $winner) {
+        throw new coding_exception('the claim was not exclusive: held by ' . $held);
+    }
 
     return count($queue) . ' queued, claim exclusive';
 });
 
-probe('service: guides selectable, students-approach (200 guides)', function () use ($DB, $activity, $gatekeeper, $guideids) {
-    $DB->set_field('selfselectadvanced', 'studentapproach', 1, ['id' => $activity->id()]);
-    $freshactivity = activity::from_instance($activity->id());
-    $list = guides::selectable($freshactivity, $gatekeeper->resolver());
+probe('service: guides selectable, students-approach (200 guides)', function () use ($DB, $activity, $gatekeeper) {
+    // The property under test is that students-approach mode filters
+    // NOTHING by remaining capacity - omitting a full guide would
+    // itself advertise their load. Compared against the same call with
+    // the switch off, so guides hidden for other reasons (a guide-scope
+    // override) do not confuse the verdict.
     $DB->set_field('selfselectadvanced', 'studentapproach', 0, ['id' => $activity->id()]);
-    if (count($list) < count($guideids)) {
-        throw new coding_exception('students-approach list hid guides: ' . count($list));
+    $off = count(guides::selectable(activity::from_instance($activity->id()), $gatekeeper->resolver()));
+    $DB->set_field('selfselectadvanced', 'studentapproach', 1, ['id' => $activity->id()]);
+    $on = count(guides::selectable(activity::from_instance($activity->id()), $gatekeeper->resolver()));
+    $DB->set_field('selfselectadvanced', 'studentapproach', 0, ['id' => $activity->id()]);
+    if ($on < $off) {
+        throw new coding_exception("students-approach hid guides: on={$on} off={$off}");
     }
 
-    return count($list) . ' guides listed, none hidden';
+    return "listed on={$on} off={$off} (no capacity filtering when students approach)";
 });
 
 cli_writeln('');
