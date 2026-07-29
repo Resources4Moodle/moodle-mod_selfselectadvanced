@@ -115,25 +115,55 @@ final class tickets_test extends \advanced_testcase {
         [$activity, $group, $leader, $member, $guide] = $this->setup_world();
 
         $this->assert_refused('refusalticketnotguide', fn() => tickets::file(
-            $activity, $group, tickets::TYPE_COMPCHANGE, 'please', FORMAT_PLAIN, (int) $leader->id
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'please',
+            FORMAT_PLAIN,
+            (int) $leader->id
         ));
         $this->assert_refused('refusalticketnotparty', fn() => tickets::file(
-            $activity, $group, tickets::TYPE_UNFREEZE, 'please', FORMAT_PLAIN, (int) $member->id
+            $activity,
+            $group,
+            tickets::TYPE_UNFREEZE,
+            'please',
+            FORMAT_PLAIN,
+            (int) $member->id
         ));
         // Firm, not frozen: no unfreeze to ask for.
         $this->assert_refused('refusalwrongstate', fn() => tickets::file(
-            $activity, $group, tickets::TYPE_UNFREEZE, 'please', FORMAT_PLAIN, (int) $guide->id
+            $activity,
+            $group,
+            tickets::TYPE_UNFREEZE,
+            'please',
+            FORMAT_PLAIN,
+            (int) $guide->id
         ));
         $this->assert_refused('refusalticketreason', fn() => tickets::file(
-            $activity, $group, tickets::TYPE_COMPCHANGE, '   ', FORMAT_PLAIN, (int) $guide->id
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            '   ',
+            FORMAT_PLAIN,
+            (int) $guide->id
         ));
 
         $ticket = tickets::file(
-            $activity, $group, tickets::TYPE_COMPCHANGE, 'Swap one member', FORMAT_PLAIN, (int) $guide->id
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Swap one member',
+            FORMAT_PLAIN,
+            (int) $guide->id
         );
         $this->assertSame(tickets::STATUS_OPEN, $ticket->status);
         $this->assert_refused('refusalticketduplicate', fn() => tickets::file(
-            $activity, $group, tickets::TYPE_COMPCHANGE, 'Again', FORMAT_PLAIN, (int) $guide->id
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Again',
+            FORMAT_PLAIN,
+            (int) $guide->id
         ));
 
         // A forming group takes no composition-change ticket.
@@ -141,7 +171,12 @@ final class tickets_test extends \advanced_testcase {
         $DB->set_field('selfselectadvanced_group', 'state', state::FORMING, ['id' => $group->id]);
         $forming = groups::get($activity, (int) $group->id);
         $this->assert_refused('refusalwrongstate', fn() => tickets::file(
-            $activity, $forming, tickets::TYPE_COMPCHANGE, 'now?', FORMAT_PLAIN, (int) $guide->id
+            $activity,
+            $forming,
+            tickets::TYPE_COMPCHANGE,
+            'now?',
+            FORMAT_PLAIN,
+            (int) $guide->id
         ));
 
         // Frozen: the leader may ask for an unfreeze, and the filing
@@ -149,7 +184,12 @@ final class tickets_test extends \advanced_testcase {
         $DB->set_field('selfselectadvanced_group', 'state', state::FROZEN, ['id' => $group->id]);
         $frozen = groups::get($activity, (int) $group->id);
         $unfreeze = tickets::file(
-            $activity, $frozen, tickets::TYPE_UNFREEZE, 'Member left the course', FORMAT_PLAIN, (int) $leader->id
+            $activity,
+            $frozen,
+            tickets::TYPE_UNFREEZE,
+            'Member left the course',
+            FORMAT_PLAIN,
+            (int) $leader->id
         );
         $this->assertSame(tickets::TYPE_UNFREEZE, $unfreeze->type);
         $this->assertGreaterThanOrEqual(2, count($sink->get_messages()));
@@ -173,20 +213,35 @@ final class tickets_test extends \advanced_testcase {
         [$activity, $group, $leader, , $guide, $manager, $coordinator] = $this->setup_world();
 
         $ticket = tickets::file(
-            $activity, $group, tickets::TYPE_COMPCHANGE, 'Swap one member', FORMAT_PLAIN, (int) $guide->id
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Swap one member',
+            FORMAT_PLAIN,
+            (int) $guide->id
         );
         tickets::claim($activity, (int) $ticket->id, (int) $coordinator->id);
 
         $refusals = [
             // Duplicate: throws inside file()'s transaction, under the group lock.
             fn() => tickets::file(
-                $activity, $group, tickets::TYPE_COMPCHANGE, 'Again', FORMAT_PLAIN, (int) $guide->id
+                $activity,
+                $group,
+                tickets::TYPE_COMPCHANGE,
+                'Again',
+                FORMAT_PLAIN,
+                (int) $guide->id
             ),
             // Already claimed: throws inside claim()'s transaction.
             fn() => tickets::claim($activity, (int) $ticket->id, (int) $manager->id),
             // Not the claimant: throws inside close()'s transaction.
             fn() => tickets::close(
-                $activity, (int) $ticket->id, tickets::STATUS_RESOLVED, 'mine', FORMAT_PLAIN, (int) $leader->id
+                $activity,
+                (int) $ticket->id,
+                tickets::STATUS_RESOLVED,
+                'mine',
+                FORMAT_PLAIN,
+                (int) $leader->id
             ),
         ];
         foreach ($refusals as $index => $refusal) {
@@ -222,7 +277,12 @@ final class tickets_test extends \advanced_testcase {
         [$activity, $group, , , $guide, $manager, $coordinator] = $this->setup_world();
 
         $ticket = tickets::file(
-            $activity, $group, tickets::TYPE_COMPCHANGE, 'Swap one member', FORMAT_PLAIN, (int) $guide->id
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Swap one member',
+            FORMAT_PLAIN,
+            (int) $guide->id
         );
 
         $claimed = tickets::claim($activity, (int) $ticket->id, (int) $coordinator->id);
@@ -245,7 +305,9 @@ final class tickets_test extends \advanced_testcase {
         // A resolved ticket is not claimable either.
         tickets::close($activity, (int) $ticket->id, tickets::STATUS_RESOLVED, 'Done', FORMAT_PLAIN, (int) $coordinator->id);
         $this->assert_refused('refusalticketclaimed', fn() => tickets::claim(
-            $activity, (int) $ticket->id, (int) $manager->id
+            $activity,
+            (int) $ticket->id,
+            (int) $manager->id
         ));
     }
 
@@ -261,23 +323,48 @@ final class tickets_test extends \advanced_testcase {
         [$activity, $group, , , $guide, $manager, $coordinator] = $this->setup_world();
 
         $ticket = tickets::file(
-            $activity, $group, tickets::TYPE_COMPCHANGE, 'Swap one member', FORMAT_PLAIN, (int) $guide->id
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Swap one member',
+            FORMAT_PLAIN,
+            (int) $guide->id
         );
         $this->assert_refused('refusalticketnotclaimed', fn() => tickets::close(
-            $activity, (int) $ticket->id, tickets::STATUS_RESOLVED, 'note', FORMAT_PLAIN, (int) $manager->id
+            $activity,
+            (int) $ticket->id,
+            tickets::STATUS_RESOLVED,
+            'note',
+            FORMAT_PLAIN,
+            (int) $manager->id
         ));
 
         tickets::claim($activity, (int) $ticket->id, (int) $coordinator->id);
         $this->assert_refused('refusalticketreason', fn() => tickets::close(
-            $activity, (int) $ticket->id, tickets::STATUS_DECLINED, '  ', FORMAT_PLAIN, (int) $coordinator->id
+            $activity,
+            (int) $ticket->id,
+            tickets::STATUS_DECLINED,
+            '  ',
+            FORMAT_PLAIN,
+            (int) $coordinator->id
         ));
         // The manager is not the claimant: resolving in the
         // coordinator's name is refused, releasing is allowed.
         $this->assert_refused('refusalticketnotclaimant', fn() => tickets::close(
-            $activity, (int) $ticket->id, tickets::STATUS_RESOLVED, 'mine now', FORMAT_PLAIN, (int) $manager->id
+            $activity,
+            (int) $ticket->id,
+            tickets::STATUS_RESOLVED,
+            'mine now',
+            FORMAT_PLAIN,
+            (int) $manager->id
         ));
         $released = tickets::close(
-            $activity, (int) $ticket->id, tickets::STATUS_OPEN, '', FORMAT_PLAIN, (int) $manager->id
+            $activity,
+            (int) $ticket->id,
+            tickets::STATUS_OPEN,
+            '',
+            FORMAT_PLAIN,
+            (int) $manager->id
         );
         $this->assertSame(tickets::STATUS_OPEN, $released->status);
         $this->assertNull($released->claimedby);
@@ -285,7 +372,12 @@ final class tickets_test extends \advanced_testcase {
         // Back in the queue: the manager takes and declines it.
         tickets::claim($activity, (int) $ticket->id, (int) $manager->id);
         $declined = tickets::close(
-            $activity, (int) $ticket->id, tickets::STATUS_DECLINED, 'Not before the review', FORMAT_PLAIN, (int) $manager->id
+            $activity,
+            (int) $ticket->id,
+            tickets::STATUS_DECLINED,
+            'Not before the review',
+            FORMAT_PLAIN,
+            (int) $manager->id
         );
         $this->assertSame(tickets::STATUS_DECLINED, $declined->status);
         $this->assertSame('Not before the review', $declined->resolution);
@@ -305,20 +397,29 @@ final class tickets_test extends \advanced_testcase {
         $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
 
         $ticket = tickets::file(
-            $activity, $group, tickets::TYPE_COMPCHANGE, 'Swap one member', FORMAT_PLAIN, (int) $guide->id
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Swap one member',
+            FORMAT_PLAIN,
+            (int) $guide->id
         );
 
         // As the assigned guide.
         $DB->set_field('selfselectadvanced_group', 'guideid', $coordinator->id, ['id' => $group->id]);
         $this->assert_refused('refusalcoiinvolved', fn() => tickets::claim(
-            $activity, (int) $ticket->id, (int) $coordinator->id
+            $activity,
+            (int) $ticket->id,
+            (int) $coordinator->id
         ));
 
         // As the nominated successor guide.
         $DB->set_field('selfselectadvanced_group', 'guideid', $guide->id, ['id' => $group->id]);
         $DB->set_field('selfselectadvanced_group', 'guidesuccessorid', $coordinator->id, ['id' => $group->id]);
         $this->assert_refused('refusalcoiinvolved', fn() => tickets::claim(
-            $activity, (int) $ticket->id, (int) $coordinator->id
+            $activity,
+            (int) $ticket->id,
+            (int) $coordinator->id
         ));
 
         // As a confirmed member.
@@ -329,7 +430,9 @@ final class tickets_test extends \advanced_testcase {
             'status' => groups::STATUS_CONFIRMED,
         ]);
         $this->assert_refused('refusalcoiinvolved', fn() => tickets::claim(
-            $activity, (int) $ticket->id, (int) $coordinator->id
+            $activity,
+            (int) $ticket->id,
+            (int) $coordinator->id
         ));
 
         // The manager guides the team AND may still claim: manage is
@@ -354,10 +457,20 @@ final class tickets_test extends \advanced_testcase {
         $this->assertSame(state::FROZEN, $frozen->state);
 
         $unfreezeticket = tickets::file(
-            $activity, $frozen, tickets::TYPE_UNFREEZE, 'Member left the course', FORMAT_PLAIN, (int) $leader->id
+            $activity,
+            $frozen,
+            tickets::TYPE_UNFREEZE,
+            'Member left the course',
+            FORMAT_PLAIN,
+            (int) $leader->id
         );
         $compticket = tickets::file(
-            $activity, $frozen, tickets::TYPE_COMPCHANGE, 'And swap one in', FORMAT_PLAIN, (int) $guide->id
+            $activity,
+            $frozen,
+            tickets::TYPE_COMPCHANGE,
+            'And swap one in',
+            FORMAT_PLAIN,
+            (int) $guide->id
         );
 
         freeze::unfreeze($activity, $frozen, (int) $manager->id);
@@ -397,8 +510,12 @@ final class tickets_test extends \advanced_testcase {
                 'timeapproved' => time(),
             ]);
             $others[] = tickets::file(
-                $activity, groups::get($activity, (int) $g->id),
-                tickets::TYPE_COMPCHANGE, 'next', FORMAT_PLAIN, (int) $guide->id
+                $activity,
+                groups::get($activity, (int) $g->id),
+                tickets::TYPE_COMPCHANGE,
+                'next',
+                FORMAT_PLAIN,
+                (int) $guide->id
             );
         }
         [$t2, $t3] = $others;
@@ -434,13 +551,15 @@ final class tickets_test extends \advanced_testcase {
         $this->assertContains(CONTEXT_MODULE, $levels);
 
         $systemcontext = \context_system::instance();
-        foreach ([
+        foreach (
+            [
             'mod/selfselectadvanced:coordinate',
             'mod/selfselectadvanced:guide',
             'mod/selfselectadvanced:viewall',
             'mod/selfselectadvanced:freeze',
             'mod/selfselectadvanced:unfreeze',
-        ] as $capability) {
+            ] as $capability
+        ) {
             $this->assertTrue($DB->record_exists('role_capabilities', [
                 'roleid' => $roleid,
                 'capability' => $capability,
@@ -480,7 +599,9 @@ final class tickets_test extends \advanced_testcase {
         $outsider = $this->getDataGenerator()->create_user();
         $this->getDataGenerator()->enrol_user($outsider->id, (int) $activity->cm()->course, 'teacher');
         $this->assert_refused('refusalnotassignedguide', fn() => freeze::freeze_group(
-            $activity, $group, (int) $outsider->id
+            $activity,
+            $group,
+            (int) $outsider->id
         ));
 
         // The coordinator freezes the unrelated team on behalf.
@@ -496,14 +617,18 @@ final class tickets_test extends \advanced_testcase {
             'status' => groups::STATUS_CONFIRMED,
         ]);
         $this->assert_refused('refusalcoiinvolved', fn() => freeze::freeze_group(
-            $activity, groups::get($activity, (int) $own->id), (int) $coordinator->id
+            $activity,
+            groups::get($activity, (int) $own->id),
+            (int) $coordinator->id
         ));
 
         // Unfreeze: refused on the team they belong to, granted on the
         // unrelated one.
         $DB->set_field('selfselectadvanced_group', 'state', state::FROZEN, ['id' => $own->id]);
         $this->assert_refused('refusalcoiinvolved', fn() => freeze::unfreeze(
-            $activity, groups::get($activity, (int) $own->id), (int) $coordinator->id
+            $activity,
+            groups::get($activity, (int) $own->id),
+            (int) $coordinator->id
         ));
         $unfrozen = freeze::unfreeze($activity, $frozen, (int) $coordinator->id);
         $this->assertSame(state::FIRM, $unfrozen->state);
