@@ -547,6 +547,10 @@ class tickets {
                 'group' => format_string($group->name),
                 'type' => get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced'),
                 'status' => get_string('ticketstatus' . $ticket->status, 'mod_selfselectadvanced'),
+                // The requester cannot open the queue - it belongs to
+                // the staff who work it - so the note that explains
+                // their outcome has to travel in the message itself.
+                'resolution' => trim(html_to_text((string) ($ticket->resolution ?? ''))),
             ],
             new \moodle_url('/mod/selfselectadvanced/tickets.php', ['id' => $activity->cm()->id]),
             format_string($group->name)

@@ -195,6 +195,70 @@ final class studentapproach_test extends \advanced_testcase {
     }
 
     /**
+     * A full guide's refusal must not hand back the load figure the
+     * chooser was careful not to show. With the switch off the numbers
+     * are useful and stay; with it on they would defeat the mode.
+     */
+    public function test_full_guide_refusal_is_load_blind(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+
+        [$activity, $students, $guide] = $this->setup_activity([
+            'studentapproach' => 1,
+            'guidevolunteer' => 0,
+            'maxguided' => 1,
+        ]);
+        $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[0]->id,
+            'name' => 'Already at capacity',
+            'state' => state::FIRM,
+            'guideid' => (int) $guide->id,
+            'timeapproved' => time(),
+        ]);
+
+        $refusal = (new api($activity))->gatekeeper()->can_take_guide((int) $guide->id);
+        $this->assertNotNull($refusal);
+        $this->assertSame('refusalguideunavailable', $refusal->stringkey);
+        $this->assertStringNotContainsString('1 of 1', $refusal->get_message());
+
+        // Switch off: the numbers are helpful to staff and come back.
+        $DB->set_field('selfselectadvanced', 'studentapproach', 0, ['id' => $activity->id()]);
+        $off = activity::from_instance($activity->id());
+        $refusal = (new api($off))->gatekeeper()->can_take_guide((int) $guide->id);
+        $this->assertSame('refusalguidecap', $refusal->stringkey);
+    }
+
+    /**
+     * Turning the switch on settles the guide-side switches instead of
+     * refusing the save. The form disables them, so a disabled control
+     * submits nothing and an activity that already had them on could
+     * otherwise never adopt the mode.
+     */
+    public function test_switching_on_settles_the_guide_side_modes(): void {
+        global $DB, $CFG;
+        require_once($CFG->dirroot . '/mod/selfselectadvanced/lib.php');
+        $this->resetAfterTest();
+        [$activity] = $this->setup_activity([
+            'guidevolunteer' => 1,
+            'eoienabled' => 1,
+            'guidemode' => 1,
+        ]);
+
+        $data = $DB->get_record('selfselectadvanced', ['id' => $activity->id()], '*', MUST_EXIST);
+        $data->instance = $data->id;
+        $data->studentapproach = 1;
+        selfselectadvanced_update_instance($data);
+
+        $saved = $DB->get_record('selfselectadvanced', ['id' => $activity->id()], '*', MUST_EXIST);
+        $this->assertSame(1, (int) $saved->studentapproach);
+        $this->assertSame(0, (int) $saved->guidevolunteer);
+        $this->assertSame(0, (int) $saved->eoienabled);
+        $this->assertSame(0, (int) $saved->guidemode);
+    }
+
+    /**
      * The anchored name format: a name matching the whole pattern
      * passes, a partial match is not enough, and an empty format
      * means free-form names.

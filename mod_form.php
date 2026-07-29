@@ -155,6 +155,7 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->addHelpButton('studentapproach', 'studentapproach', 'mod_selfselectadvanced');
         $mform->disabledIf('guidevolunteer', 'studentapproach', 'checked');
         $mform->disabledIf('guidemode', 'studentapproach', 'checked');
+        $mform->disabledIf('eoienabled', 'studentapproach', 'checked');
 
         // Team listing and guide interest ("pick that team"): a leader may
         // list their forming team, guides express interest, and the
