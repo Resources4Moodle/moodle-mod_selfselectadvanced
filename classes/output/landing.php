@@ -167,6 +167,14 @@ class landing implements renderable, templatable {
         $data->ismanager = has_capability('mod/selfselectadvanced:manage', $context, $this->userid, false);
         $data->manageurl = (new \moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cmid]))->out(false);
 
+        // Group Coordinators reach the queue from here. The manager
+        // dashboard carries the same link, but that page needs the
+        // manage capability, which a coordinator does not have - without
+        // this button the queue, which is their whole job, has no way in.
+        $data->iscoordinator = !$data->ismanager
+            && has_capability('mod/selfselectadvanced:coordinate', $context, $this->userid, false);
+        $data->ticketsurl = (new \moodle_url('/mod/selfselectadvanced/tickets.php', ['id' => $cmid]))->out(false);
+
         if (has_capability('mod/selfselectadvanced:viewall', $context, $this->userid, false)) {
             $data->isstaff = true;
             $totalgroups = $DB->count_records('selfselectadvanced_group', ['activityid' => $activity->id()]);

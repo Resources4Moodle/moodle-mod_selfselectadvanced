@@ -16,6 +16,8 @@
 
 namespace mod_selfselectadvanced\local\rules;
 
+use mod_selfselectadvanced\local\groups;
+
 /**
  * Pure validation of the instance settings (spec section 4A.7),
  * delegated to by mod_form and unit-tested directly.
@@ -110,7 +112,7 @@ final class settings_validator {
         // The project-name format must compile before it can refuse
         // anyone (strategy 1.16 C).
         $format = trim((string) ($data['nameformat'] ?? ''));
-        if ($format !== '' && @preg_match('/^' . str_replace('/', '\\/', $format) . '$/u', '') === false) {
+        if ($format !== '' && @preg_match(groups::format_pattern($format), '') === false) {
             $errors['nameformat'] = 'errnameformatinvalid';
         }
 

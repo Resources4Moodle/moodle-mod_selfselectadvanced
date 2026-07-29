@@ -331,10 +331,8 @@ class groups {
     /**
      * Does this name violate the teacher's project-name format?
      *
-     * The format is a PCRE fragment from the activity settings,
-     * applied anchored; empty means no constraint (strategy 1.16 C).
-     * A format that fails to compile constrains nothing - the settings
-     * validator refuses saving one, so this is defence in depth.
+     * The format is a PCRE fragment from the activity settings;
+     * empty means no constraint (strategy 1.16 C).
      *
      * @param activity $activity the activity
      * @param string $name the proposed project name
@@ -345,9 +343,29 @@ class groups {
         if ($format === '') {
             return false;
         }
-        $result = @preg_match('/^' . str_replace('/', '\\/', $format) . '$/u', trim($name));
+        $result = @preg_match(self::format_pattern($format), trim($name));
 
-        return $result === 0;
+        // A runtime failure - a pattern that compiles but exhausts the
+        // backtrack limit on this particular name - must not wave the
+        // name through. The format is a constraint the teacher asked
+        // for; when it cannot be evaluated, the name is refused rather
+        // than silently exempted.
+        return $result !== 1;
+    }
+
+    /**
+     * The teacher's format fragment as a whole-string pattern.
+     *
+     * The fragment is wrapped in a non-capturing group before the
+     * anchors are added: spliced in bare, a top-level alternation such
+     * as `ABC|XYZ` would read as `^ABC` OR `XYZ$` and quietly accept
+     * anything that merely ends with the second branch.
+     *
+     * @param string $format the fragment from the activity settings
+     * @return string a complete PCRE pattern
+     */
+    public static function format_pattern(string $format): string {
+        return '/^(?:' . str_replace('/', '\\/', $format) . ')$/u';
     }
 
     /**

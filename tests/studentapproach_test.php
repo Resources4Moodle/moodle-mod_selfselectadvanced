@@ -215,6 +215,23 @@ final class studentapproach_test extends \advanced_testcase {
     }
 
     /**
+     * A format with a top-level alternation still binds to the WHOLE
+     * name. Spliced between the anchors without grouping, `ABC|XYZ`
+     * would read as "starts with ABC" OR "ends with XYZ", and would
+     * wave through anything at all that happened to end in XYZ.
+     */
+    public function test_name_format_alternation_is_grouped(): void {
+        $this->resetAfterTest();
+        [$activity] = $this->setup_activity(['nameformat' => 'ABC-\\d+|XYZ-\\d+']);
+
+        $this->assertFalse(groups::name_breaks_format($activity, 'ABC-12'));
+        $this->assertFalse(groups::name_breaks_format($activity, 'XYZ-12'));
+        // Neither branch matches the whole name.
+        $this->assertTrue(groups::name_breaks_format($activity, 'anything at all XYZ-12'));
+        $this->assertTrue(groups::name_breaks_format($activity, 'ABC-12 and then some'));
+    }
+
+    /**
      * Creation refuses a name that breaks the activity's format, with
      * the format and the example in the message.
      */
