@@ -410,11 +410,13 @@ class tickets {
             $involvement = get_string('coiguide', 'mod_selfselectadvanced');
         } else if ((int) ($group->guidesuccessorid ?? 0) === $userid) {
             $involvement = get_string('coisuccessor', 'mod_selfselectadvanced');
-        } else if ($DB->record_exists('selfselectadvanced_member', [
+        } else if (
+            $DB->record_exists('selfselectadvanced_member', [
             'groupid' => $group->id,
             'userid' => $userid,
             'status' => groups::STATUS_CONFIRMED,
-        ])) {
+            ])
+        ) {
             $involvement = get_string('coimember', 'mod_selfselectadvanced');
         }
         if ($involvement !== null) {
