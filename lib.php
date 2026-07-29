@@ -146,6 +146,12 @@ function selfselectadvanced_delete_instance($id): bool {
     $DB->delete_records('selfselectadvanced_penalty', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_override', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $id]);
+    // Queue tickets, guide interests and queued digest items are keyed
+    // to the activity too: nothing may outlive the activity it points
+    // at, or the rows become unreachable orphans.
+    $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $id]);
+    $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $id]);
+    $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_move', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_quota', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_qslot', ['activityid' => $id]);
@@ -304,6 +310,12 @@ function selfselectadvanced_reset_userdata($data): array {
         $DB->delete_records('selfselectadvanced_move', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_agrun', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_override', ['activityid' => $instance->id]);
+        // The groups these point at are about to go: a ticket or an
+        // interest left behind would name a team that no longer
+        // exists, and the queue would list work nobody can do.
+        $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $instance->id]);
+        $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $instance->id]);
+        $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_group', ['activityid' => $instance->id]);
         $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_reminded_' . $instance->id]);
         if (empty($data->reset_gradebook_grades)) {
