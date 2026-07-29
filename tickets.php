@@ -105,10 +105,12 @@ foreach ($queue as $ticket) {
         $userids[] = (int) $ticket->claimedby;
     }
 }
+// get_sql() with a leading comma of its own: without it the last
+// selected column and the first name field fuse into one identifier.
+$namefields = \core_user\fields::for_name()->get_sql('', false, '', '', true)->selects;
 foreach (array_chunk(array_unique($userids), 1000) as $chunk) {
     [$insql, $params] = $DB->get_in_or_equal($chunk);
-    $namefields = \core_user\fields::for_name()->get_sql('', false, '', '', false)->selects;
-    foreach ($DB->get_records_sql("SELECT id, email{$namefields} FROM {user} WHERE id $insql", $params) as $u) {
+    foreach ($DB->get_records_sql("SELECT id{$namefields} FROM {user} WHERE id $insql", $params) as $u) {
         $usernames[(int) $u->id] = fullname($u);
     }
 }

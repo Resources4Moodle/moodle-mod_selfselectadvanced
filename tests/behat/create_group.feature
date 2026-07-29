@@ -49,7 +49,7 @@ Feature: Students create groups under the lead cap
       | Title of work | Anything      |
       | Brief of work | Some brief.   |
     And I press "Create group"
-    Then I should see "That group name is already taken in this activity."
+    Then I should see "That group name is already taken in this course."
 
   Scenario: The create control is disabled with the reason at the lead cap
     Given the following "mod_selfselectadvanced > groups" exist:
