@@ -99,6 +99,13 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setType('uiddigits', PARAM_INT);
         $mform->setDefault('uiddigits', \mod_selfselectadvanced\local\groups::UID_DIGITS_DEFAULT);
         $mform->addHelpButton('uiddigits', 'uiddigits', 'mod_selfselectadvanced');
+        $mform->addElement('text', 'nameformat', get_string('nameformat', 'mod_selfselectadvanced'), ['size' => 40]);
+        $mform->setType('nameformat', PARAM_RAW_TRIMMED);
+        $mform->addHelpButton('nameformat', 'nameformat', 'mod_selfselectadvanced');
+        $mform->addElement('text', 'nameformatexample',
+            get_string('nameformatexample', 'mod_selfselectadvanced'), ['size' => 40]);
+        $mform->setType('nameformatexample', PARAM_TEXT);
+        $mform->addHelpButton('nameformatexample', 'nameformatexample', 'mod_selfselectadvanced');
 
         // Guides (L5).
         $mform->addElement('header', 'guidesheading', get_string('guidesheading', 'mod_selfselectadvanced'));
@@ -135,6 +142,15 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         );
         $mform->setDefault('guidevolunteer', 0);
         $mform->addHelpButton('guidevolunteer', 'guidevolunteer', 'mod_selfselectadvanced');
+        $mform->addElement(
+            'advcheckbox',
+            'studentapproach',
+            get_string('studentapproach', 'mod_selfselectadvanced')
+        );
+        $mform->setDefault('studentapproach', 0);
+        $mform->addHelpButton('studentapproach', 'studentapproach', 'mod_selfselectadvanced');
+        $mform->disabledIf('guidevolunteer', 'studentapproach', 'checked');
+        $mform->disabledIf('guidemode', 'studentapproach', 'checked');
 
         // Team listing and guide interest ("pick that team"): a leader may
         // list their forming team, guides express interest, and the

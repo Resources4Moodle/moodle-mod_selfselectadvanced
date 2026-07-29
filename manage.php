@@ -178,6 +178,7 @@ echo $OUTPUT->heading(get_string('managerdashboard', 'mod_selfselectadvanced'));
 $links = [
     ['quotas.php', 'composition'],
     ['moves.php', 'pendingmoves'],
+    ['tickets.php', 'tickets'],
     ['moveedit.php', 'movestudents'],
     ['overrides.php', 'overrides'],
     ['ledger.php', 'penaltyledger'],

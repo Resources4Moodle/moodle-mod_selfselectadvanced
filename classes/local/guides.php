@@ -124,6 +124,14 @@ class guides {
      * @return \stdClass[] userid-keyed subset of with_load()
      */
     public static function selectable(activity $activity, resolver $resolver): array {
+        // Student-approach mode: omitting a full guide from the list
+        // would itself advertise their load, so every guide stays
+        // listed and a full one refuses at submission with the
+        // existing reason (strategy 1.16 A).
+        if (!empty($activity->settings()->studentapproach)) {
+            return self::with_load($activity, $resolver);
+        }
+
         return array_filter(self::with_load($activity, $resolver), static fn($guide) => $guide->remaining > 0);
     }
 }

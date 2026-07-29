@@ -90,6 +90,30 @@ final class settings_validator {
             }
         }
 
+        // Student-approach mode (strategy 1.16 A): guides advertise
+        // nothing, so the modes that let them - volunteering their
+        // capacity, browsing listed teams, manager assignment - cannot
+        // be on at the same time. The form must describe a coherent
+        // activity, not rely on runtime refusals alone.
+        if (!empty($data['studentapproach'])) {
+            if (!empty($data['eoienabled'])) {
+                $errors['eoienabled'] = 'errstudentapproacheoi';
+            }
+            if (!empty($data['guidevolunteer'])) {
+                $errors['guidevolunteer'] = 'errstudentapproachvolunteer';
+            }
+            if ((int) ($data['guidemode'] ?? 0) !== 0) {
+                $errors['guidemode'] = 'errstudentapproachguidemode';
+            }
+        }
+
+        // The project-name format must compile before it can refuse
+        // anyone (strategy 1.16 C).
+        $format = trim((string) ($data['nameformat'] ?? ''));
+        if ($format !== '' && @preg_match('/^' . str_replace('/', '\\/', $format) . '$/u', '') === false) {
+            $errors['nameformat'] = 'errnameformatinvalid';
+        }
+
         return $errors;
     }
 }

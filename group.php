@@ -130,11 +130,17 @@ if ($isleaderforming) {
                 $api->gatekeeper()->resolver()
             ) as $guide
         ) {
-            $guideoptions[$guide->id] = get_string(
-                'guidepickerlabel',
-                'mod_selfselectadvanced',
-                (object) ['fullname' => $guide->fullname, 'label' => $guide->label]
-            );
+            // Student-approach mode: "Guiding 2 of 3" IS advertised
+            // availability, so the chooser shows names only; capacity
+            // is still enforced silently at submission (strategy
+            // 1.16 A).
+            $guideoptions[$guide->id] = empty($activity->settings()->studentapproach)
+                ? get_string(
+                    'guidepickerlabel',
+                    'mod_selfselectadvanced',
+                    (object) ['fullname' => $guide->fullname, 'label' => $guide->label]
+                )
+                : $guide->fullname;
         }
     }
     $submitform = new \mod_selfselectadvanced\form\submit_form($baseurl->out(false), [
@@ -338,6 +344,14 @@ if (($action === 'eoilist' || $action === 'eoiunlist') && data_submitted() && co
             \core\output\notification::NOTIFY_ERROR
         );
     }
+    if (!empty($activity->settings()->studentapproach)) {
+        redirect(
+            $baseurl,
+            get_string('refusalstudentapproach', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     if (empty($activity->settings()->eoienabled)) {
         redirect(
             $baseurl,
@@ -424,6 +438,31 @@ if ($action === 'freeze') {
     );
     echo $OUTPUT->footer();
     die;
+}
+
+if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
+    // File a queue ticket (strategy 1.16 B); the service enforces who
+    // may file which type on which state.
+    $tickettype = required_param('tickettype', PARAM_ALPHA);
+    $reason = optional_param('reason', '', PARAM_TEXT);
+    try {
+        \mod_selfselectadvanced\local\tickets::file(
+            $activity,
+            $group,
+            $tickettype,
+            $reason,
+            FORMAT_PLAIN,
+            (int) $USER->id
+        );
+        redirect(
+            $baseurl,
+            get_string('ticketfilednotice', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
 }
 
 if ($action === 'unfreeze') {
@@ -597,4 +636,48 @@ echo html_writer::div(
     $OUTPUT->heading(get_string('proposal', 'mod_selfselectadvanced'), 4) . $proposalhtml,
     'selfselectadvanced-proposal mt-3'
 );
+
+// The request queue (strategy 1.16 B): the assigned guide of a firm or
+// frozen team may request a composition change; the guide or leader of
+// a frozen team may request an unfreeze. Both go to the sequential
+// ticket queue that managers and Group Coordinators work exclusively.
+$ticketforms = '';
+$isassignedguide = (int) $group->guideid === (int) $USER->id && (int) $group->guideid > 0;
+$isgroupleader = (int) $group->leaderid === (int) $USER->id;
+$statefirmish = in_array($group->state, [
+    \mod_selfselectadvanced\local\state::FIRM,
+    \mod_selfselectadvanced\local\state::FROZEN,
+], true);
+$requestable = [];
+if ($isassignedguide && $statefirmish) {
+    $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_COMPCHANGE;
+}
+if (($isassignedguide || $isgroupleader)
+        && $group->state === \mod_selfselectadvanced\local\state::FROZEN) {
+    $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_UNFREEZE;
+}
+foreach ($requestable as $tickettype) {
+    $ticketforms .= html_writer::start_tag('form', ['method' => 'post', 'class' => 'mb-2',
+        'action' => (new moodle_url($baseurl, ['action' => 'ticket']))->out(false)])
+        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
+        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'tickettype', 'value' => $tickettype])
+        . html_writer::label(
+            get_string('ticketfile' . $tickettype, 'mod_selfselectadvanced'),
+            'ticketreason-' . $tickettype
+        )
+        . ' '
+        . html_writer::empty_tag('input', ['type' => 'text', 'name' => 'reason', 'size' => 40,
+            'id' => 'ticketreason-' . $tickettype,
+            'placeholder' => get_string('ticketreasonhint', 'mod_selfselectadvanced')])
+        . ' '
+        . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-secondary btn-sm',
+            'value' => get_string('ticketfilebutton', 'mod_selfselectadvanced')])
+        . html_writer::end_tag('form');
+}
+if ($ticketforms !== '') {
+    echo html_writer::div(
+        $OUTPUT->heading(get_string('tickets', 'mod_selfselectadvanced'), 4) . $ticketforms,
+        'selfselectadvanced-ticketrequests mt-3'
+    );
+}
 echo $OUTPUT->footer();

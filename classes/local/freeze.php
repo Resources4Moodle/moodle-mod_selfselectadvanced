@@ -104,7 +104,17 @@ class freeze {
                     throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
                 }
                 if ((int) $fresh->guideid !== $actorid) {
-                    throw new \moodle_exception('refusalnotassignedguide', 'mod_selfselectadvanced');
+                    // Strategy 1.16 D: a manager or Group Coordinator
+                    // may freeze on the guide's behalf - the
+                    // coordinator subject to the conflict-of-interest
+                    // guard (they must not be involved in the group).
+                    $context = $activity->context();
+                    $onbehalf = has_capability('mod/selfselectadvanced:manage', $context, $actorid)
+                        || has_capability('mod/selfselectadvanced:coordinate', $context, $actorid);
+                    if (!$onbehalf) {
+                        throw new \moodle_exception('refusalnotassignedguide', 'mod_selfselectadvanced');
+                    }
+                    tickets::require_uninvolved($activity, $fresh, $actorid);
                 }
                 // Good-neighbour membership audit (RCA Q3): freezing
                 // is the moment this plugin pushes into the course's
@@ -247,6 +257,10 @@ class freeze {
         global $CFG, $DB;
         require_once($CFG->dirroot . '/group/lib.php');
 
+        // Strategy 1.16 D: a coordinator-only actor must not unfreeze
+        // a group they are involved in; manage holders are exempt.
+        tickets::require_uninvolved($activity, $group, $actorid);
+
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -332,6 +346,10 @@ class freeze {
         } finally {
             $lock->release();
         }
+
+        // The queue never lists work already done: a direct unfreeze
+        // resolves the group's live unfreeze ticket (strategy 1.16 B).
+        tickets::autoresolve_unfreeze($activity, (int) $fresh->id, $actorid);
 
         // Members AND the guide (db/messages.php documents both).
         $recipients = $snapshotids;

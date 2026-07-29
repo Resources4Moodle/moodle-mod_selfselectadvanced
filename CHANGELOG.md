@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.16.0 (2026-07-29)
+
+- Students-approach mode: a new activity switch stops guides from
+  volunteering capacity or expressing interest in teams. The
+  initiative belongs entirely to the students, who pick any guide
+  from the full list (no load figures are advertised) and submit
+  their group; once the chosen guide approves, the approval is
+  binding on the students - only a manager can change the guide
+  afterwards. The switch requires expressions of interest, guide
+  volunteering and guide-first mode to be off, and the landing page
+  states the ground rules to everyone.
+- Ticket queue: composition-change requests (from the assigned
+  guide of a firm or frozen team) and unfreeze requests (from the
+  guide or the team leader of a frozen team) now queue sequentially
+  on a new tickets page. A manager or coordinator takes a ticket up
+  exclusively - two people cannot claim the same ticket, even
+  clicking at the same instant - and resolves, declines or releases
+  it with a note. Duplicate live requests are refused, requesters
+  are notified at every step (new "tickets" message provider), and
+  a direct unfreeze auto-resolves the team's open unfreeze ticket.
+- Group name format: the editing teacher can require every new group
+  name to match a pattern, with an example shown on refusal. Group
+  names are now unique across all instances of the activity in the
+  course, whatever the format. Existing names are never rewritten.
+- New "Group Coordinators" role (created on install/upgrade,
+  assignable at course or activity level to non-editing teachers)
+  carrying a new "coordinate" capability: freeze and unfreeze teams
+  and work the ticket queue. For accountability, a coordinator can
+  never act on a team they guide, are nominated to guide, or belong
+  to - another coordinator or a manager must take those. They can
+  still serve as guides everywhere else.
+- Backup and restore carry the new settings and the ticket queue;
+  the privacy provider exports and deletes ticket authorship.
+
+
 ## 1.15.3 (2026-07-28)
 
 - A team's own members now see the composition values on their roster:

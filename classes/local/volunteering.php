@@ -70,6 +70,12 @@ class volunteering {
     public static function set(activity $activity, int $userid, int $capacity): void {
         global $DB;
 
+        // Student-approach mode: guides advertise nothing, so
+        // volunteering a capacity is refused outright (strategy 1.16 A).
+        if (!empty($activity->settings()->studentapproach)) {
+            throw new \moodle_exception('refusalstudentapproach', 'mod_selfselectadvanced');
+        }
+
         $ceiling = (new resolver($activity))->guide_capacity_ceiling($userid)->value;
         if ($capacity < 0 || $capacity > $ceiling) {
             throw new \moodle_exception('refusalvolunteercapacity', 'mod_selfselectadvanced', '', $ceiling);

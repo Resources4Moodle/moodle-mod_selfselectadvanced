@@ -311,14 +311,43 @@ class groups {
     public static function name_taken(activity $activity, string $name, int $excludegroupid = 0): bool {
         global $DB;
 
-        $sql = 'activityid = :activityid AND id <> :excludeid AND '
-            . $DB->sql_equal('name', ':name', false, false);
+        // Course-wide, not merely activity-wide (strategy 1.16 C): a
+        // project name used by ANY self-selection activity in the same
+        // course is taken, so names stay unique where people actually
+        // read them - the course.
+        $sql = "SELECT 1
+                  FROM {selfselectadvanced_group} g
+                  JOIN {selfselectadvanced} s ON s.id = g.activityid
+                 WHERE s.course = :courseid AND g.id <> :excludeid AND "
+            . $DB->sql_equal('g.name', ':name', false, false);
 
-        return $DB->record_exists_select('selfselectadvanced_group', $sql, [
-            'activityid' => $activity->id(),
+        return $DB->record_exists_sql($sql, [
+            'courseid' => $activity->courseid(),
             'excludeid' => $excludegroupid,
             'name' => trim($name),
         ]);
+    }
+
+    /**
+     * Does this name violate the teacher's project-name format?
+     *
+     * The format is a PCRE fragment from the activity settings,
+     * applied anchored; empty means no constraint (strategy 1.16 C).
+     * A format that fails to compile constrains nothing - the settings
+     * validator refuses saving one, so this is defence in depth.
+     *
+     * @param activity $activity the activity
+     * @param string $name the proposed project name
+     * @return bool true when the name is refused by the format
+     */
+    public static function name_breaks_format(activity $activity, string $name): bool {
+        $format = trim((string) ($activity->settings()->nameformat ?? ''));
+        if ($format === '') {
+            return false;
+        }
+        $result = @preg_match('/^' . str_replace('/', '\\/', $format) . '$/u', trim($name));
+
+        return $result === 0;
     }
 
     /**

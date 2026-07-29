@@ -27,6 +27,7 @@
 
     Example context (json):
     {
+        "studentapproachnotice": "",
         "showconsent": true,
         "consentgranted": false,
         "consentstatus": "Your mobile number is hidden from students. Staff with full view can still see it.",
@@ -64,6 +65,9 @@
     }
 }}
 <div class="selfselectadvanced-landing">
+{{#studentapproachnotice}}
+    <div class="selfselectadvanced-approach alert alert-info mb-3">{{studentapproachnotice}}</div>
+{{/studentapproachnotice}}
 {{#showconsent}}
     <div class="selfselectadvanced-consent alert alert-light border mb-3 d-flex justify-content-between align-items-center flex-wrap">
         <span>{{consentstatus}}</span>

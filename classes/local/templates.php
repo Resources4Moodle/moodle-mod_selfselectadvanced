@@ -70,6 +70,9 @@ class templates {
         'msgleaveconfirmedbody' => 'msgleaveconfirmedsubject',
         'msgreminderbody' => 'msgremindersubject',
         'msgcapauditbody' => 'msgcapauditsubject',
+        'msgticketfiledbody' => 'msgticketfiledsubject',
+        'msgticketclaimedbody' => 'msgticketclaimedsubject',
+        'msgticketclosedbody' => 'msgticketclosedsubject',
     ];
 
     /**

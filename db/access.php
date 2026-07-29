@@ -68,6 +68,19 @@ $capabilities = [
         ],
     ],
 
+    // Group Coordinators: work the ticket queue, freeze a firm team on
+    // its guide's behalf and unfreeze - deliberately NOT manage. The
+    // conflict-of-interest guard refuses these actions on any group
+    // the holder is involved in (guide, successor guide or member)
+    // unless they also hold manage. Granted to no archetype: the
+    // groupcoordinator role created at install carries it.
+    'mod/selfselectadvanced:coordinate' => [
+        'riskbitmask' => RISK_CONFIG,
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => [],
+    ],
+
     // Freeze groups, single and bulk (guides by default, spec D4).
     'mod/selfselectadvanced:freeze' => [
         'captype' => 'write',

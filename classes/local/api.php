@@ -127,6 +127,13 @@ class api {
         if ($refusal = $this->gatekeeper->can_create_group($userid)) {
             throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
         }
+        if (groups::name_breaks_format($this->activity, $name)) {
+            throw new \moodle_exception('refusalnameformat', 'mod_selfselectadvanced', '',
+                (object) [
+                    'format' => (string) $this->activity->settings()->nameformat,
+                    'example' => (string) ($this->activity->settings()->nameformatexample ?? ''),
+                ]);
+        }
         if (groups::name_taken($this->activity, $name)) {
             throw new \moodle_exception('errnametaken', 'mod_selfselectadvanced');
         }

@@ -15,18 +15,17 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Version metadata for mod_selfselectadvanced.
+ * Post-install hook: create the Group Coordinator role (strategy
+ * 1.16 D) - roles cannot be declared in db/access.php.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
-
-$plugin->component = 'mod_selfselectadvanced';
-$plugin->version = 2026072460;
-$plugin->requires = 2024100700; // Moodle 4.5 LTS.
-$plugin->supported = [405, 502];
-$plugin->maturity = MATURITY_STABLE;
-$plugin->release = '1.16.0';
+/**
+ * Create the Group Coordinator role on a fresh install.
+ */
+function xmldb_selfselectadvanced_install(): void {
+    \mod_selfselectadvanced\local\coordinatorrole::ensure();
+}
