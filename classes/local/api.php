@@ -138,6 +138,17 @@ class api {
             throw new \moodle_exception('errnametaken', 'mod_selfselectadvanced');
         }
 
+        // Activity-scoped, deliberately. Since 1.16.0 a name must be
+        // unique across every instance of this activity in the course,
+        // which this lock does not span: two instances of the same
+        // course could in principle mint the same name in the same
+        // instant, and the loser is not refused. Widening the lock to
+        // the course was tried and rejected - auto-grouping creates
+        // groups under the activity lock too, so a wider lock here
+        // would stop the two paths excluding each other and trade a
+        // rare duplicate name for a real collision over seats. The
+        // residue is a cosmetic duplicate, recorded rather than
+        // papered over.
         $lock = locks::acquire('activity:' . $this->activity->id());
         try {
             $transaction = $DB->start_delegated_transaction();
