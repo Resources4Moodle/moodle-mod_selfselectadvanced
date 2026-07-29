@@ -109,6 +109,7 @@ class tickets {
         }
 
         $lock = locks::acquire('group:' . $group->id);
+        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -147,6 +148,8 @@ class tickets {
             ])->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $outermost, $e);
         } finally {
             $lock->release();
         }
@@ -193,6 +196,7 @@ class tickets {
         self::require_uninvolved($activity, $group, $userid);
 
         $lock = locks::acquire('ticket:' . $ticketid);
+        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -240,6 +244,8 @@ class tickets {
             ])->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $outermost, $e);
         } finally {
             $lock->release();
         }
@@ -284,6 +290,7 @@ class tickets {
         }
 
         $lock = locks::acquire('ticket:' . $ticketid);
+        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -325,6 +332,8 @@ class tickets {
             ])->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $outermost, $e);
         } finally {
             $lock->release();
         }
@@ -465,6 +474,38 @@ class tickets {
                     t.id",
             ['activityid' => $activity->id()]
         );
+    }
+
+    /**
+     * Unwind a transaction that an exception is escaping from.
+     *
+     * Moodle expects the exception to be handed to rollback(), which
+     * re-throws it. Skipping that leaves the transaction open for the
+     * rest of the request - Moodle then reports "active database
+     * transaction detected during request shutdown" and force-rolls it
+     * back, discarding any buffered events and messages with it. The
+     * refusals in this class are thrown from inside their transactions
+     * by design, so they all leave through here.
+     *
+     * Only the OUTERMOST transaction is rolled back. When a caller has
+     * already opened one of its own, rolling back a nested transaction
+     * would poison the connection for the rest of that caller's work
+     * ("tried to commit after lower level rollback"); the exception
+     * still propagates, and closing the transaction is the outer
+     * owner's business, exactly as Moodle intends.
+     *
+     * @param \moodle_transaction|null $transaction the transaction, if it was reached
+     * @param bool $outermost whether this class opened the outermost transaction
+     * @param \Throwable $e the exception on its way out
+     * @throws \Throwable always - $e, after any rollback
+     */
+    private static function rollback(?\moodle_transaction $transaction, bool $outermost, \Throwable $e): void {
+        if ($outermost && $transaction !== null && !$transaction->is_disposed()) {
+            // Re-throws $e itself.
+            $transaction->rollback($e);
+        }
+
+        throw $e;
     }
 
     /**
