@@ -424,7 +424,11 @@ class provider implements
                         'request' => (int) $t->requestedby === $userid
                             ? format_text($t->request, $t->requestformat, ['context' => $context])
                             : null,
-                        'resolution' => (int) ($t->resolvedby ?? 0) === $userid && $t->resolution !== null
+                        // The requester is told the outcome of their own
+                        // request, so the note is theirs to have as much
+                        // as it is the handler's who wrote it.
+                        'resolution' => $t->resolution !== null
+                            && ((int) ($t->resolvedby ?? 0) === $userid || (int) $t->requestedby === $userid)
                             ? format_text($t->resolution, $t->resolutionformat, ['context' => $context])
                             : null,
                         'timecreated' => transform::datetime($t->timecreated),

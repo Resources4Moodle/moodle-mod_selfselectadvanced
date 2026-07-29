@@ -465,6 +465,14 @@ class gatekeeper {
             'exclude' => $excludegroupid,
         ]);
         if ($used >= $max->value) {
+            // Students-approach mode exists to keep guide loads out of
+            // the students' view, and the leader is the one who reads
+            // this refusal. Naming the numbers here would hand back
+            // exactly the figure the chooser was careful not to show.
+            if (!empty($this->activity->settings()->studentapproach)) {
+                return new refusal('refusalguideunavailable');
+            }
+
             return new refusal('refusalguidecap', (object) ['current' => $used, 'max' => $max->value]);
         }
 

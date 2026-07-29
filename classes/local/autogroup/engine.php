@@ -282,11 +282,24 @@ class engine {
                     // shows on the flagged report (audit item 15).
                     $leaderid = (int) reset($members);
                 }
+                // Names must stay unique across the whole course
+                // (1.16.0). The generated name carries a sequence and a
+                // date, which collides only if a team was hand-named
+                // the same thing - so suffix until it is free rather
+                // than fail a whole auto-grouping run over a name.
+                $autoname = get_string('autogroupname', 'mod_selfselectadvanced', $sequence + $index + 1)
+                    . ' (' . userdate($now, get_string('strftimedateshort', 'langconfig')) . ')';
+                $suffix = 1;
+                while (groups::name_taken($activity, $autoname)) {
+                    $suffix++;
+                    $autoname = get_string('autogroupname', 'mod_selfselectadvanced', $sequence + $index + 1)
+                        . ' (' . userdate($now, get_string('strftimedateshort', 'langconfig')) . ') '
+                        . $suffix;
+                }
                 $group = (object) [
                     'activityid' => $activity->id(),
                     'pluginuid' => '',
-                    'name' => get_string('autogroupname', 'mod_selfselectadvanced', $sequence + $index + 1)
-                        . ' (' . userdate($now, get_string('strftimedateshort', 'langconfig')) . ')',
+                    'name' => $autoname,
                     'title' => get_string('autogrouptitle', 'mod_selfselectadvanced'),
                     'brief' => get_string('autogroupbrief', 'mod_selfselectadvanced'),
                     'briefformat' => FORMAT_HTML,

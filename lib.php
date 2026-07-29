@@ -52,6 +52,28 @@ function selfselectadvanced_supports($feature) {
 }
 
 /**
+ * Settle the guide-side switches against students-approach mode.
+ *
+ * The form disables guide volunteering and guide-first mode while the
+ * switch is on, and a disabled control submits nothing - so an activity
+ * that already had either of them turned on could never adopt the new
+ * mode: the value the user cannot reach would come straight back and
+ * the validator would refuse the save, with no way forward. Turning the
+ * switch on therefore settles them here, which is what the setting
+ * means anyway.
+ *
+ * @param stdClass $data form data, modified in place
+ */
+function selfselectadvanced_settle_studentapproach(stdClass $data): void {
+    if (empty($data->studentapproach)) {
+        return;
+    }
+    $data->guidevolunteer = 0;
+    $data->guidemode = 0;
+    $data->eoienabled = 0;
+}
+
+/**
  * Add a new instance of the activity.
  *
  * @param stdClass $data form data
@@ -61,6 +83,7 @@ function selfselectadvanced_supports($feature) {
 function selfselectadvanced_add_instance(stdClass $data, $mform = null): int {
     global $DB;
 
+    selfselectadvanced_settle_studentapproach($data);
     $data->timecreated = time();
     $data->timemodified = $data->timecreated;
     $data->id = $DB->insert_record('selfselectadvanced', $data);
@@ -84,6 +107,7 @@ function selfselectadvanced_add_instance(stdClass $data, $mform = null): int {
 function selfselectadvanced_update_instance(stdClass $data, $mform = null): bool {
     global $DB;
 
+    selfselectadvanced_settle_studentapproach($data);
     $data->id = $data->instance;
     $data->timemodified = time();
     $before = $DB->get_record('selfselectadvanced', ['id' => $data->id], '*', MUST_EXIST);
