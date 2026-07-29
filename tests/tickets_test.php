@@ -374,7 +374,7 @@ final class tickets_test extends \advanced_testcase {
         $this->assertSame($roleid, coordinatorrole::ensure());
         $this->assertSame(1, $DB->count_records('role', ['shortname' => coordinatorrole::SHORTNAME]));
 
-        $levels = get_role_contextlevels($roleid);
+        $levels = array_map('intval', get_role_contextlevels($roleid));
         $this->assertContains(CONTEXT_COURSE, $levels);
         $this->assertContains(CONTEXT_MODULE, $levels);
 
