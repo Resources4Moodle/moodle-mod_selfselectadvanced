@@ -348,7 +348,7 @@ class tickets {
     public static function autoresolve_unfreeze(activity $activity, int $groupid, int $userid): void {
         global $DB;
 
-        $live = $DB->get_record_select(
+        $candidate = $DB->get_record_select(
             'selfselectadvanced_ticket',
             "groupid = :groupid AND type = :type AND status IN (:open, :claimed)",
             [
@@ -358,19 +358,34 @@ class tickets {
                 'claimed' => self::STATUS_CLAIMED,
             ]
         );
-        if (!$live) {
+        if (!$candidate) {
             return;
         }
-        $now = time();
-        $live->status = self::STATUS_RESOLVED;
-        $live->claimedby = $live->claimedby ?: $userid;
-        $live->timeclaimed = $live->timeclaimed ?: $now;
-        $live->resolvedby = $userid;
-        $live->timeresolved = $now;
-        $live->resolution = get_string('ticketautoresolved', 'mod_selfselectadvanced');
-        $live->resolutionformat = FORMAT_PLAIN;
-        $live->timemodified = $now;
-        $DB->update_record('selfselectadvanced_ticket', $live);
+
+        // Under the same per-ticket lock the claim uses, and re-read
+        // inside it: without this a claim landing between the read and
+        // the write would be silently overwritten by a whole-row
+        // update carrying the stale claimant.
+        $lock = locks::acquire('ticket:' . $candidate->id);
+        try {
+            $live = $DB->get_record('selfselectadvanced_ticket', ['id' => $candidate->id]);
+            if (!$live || !in_array($live->status, [self::STATUS_OPEN, self::STATUS_CLAIMED], true)) {
+                // Someone closed it while we waited - their outcome stands.
+                return;
+            }
+            $now = time();
+            $live->status = self::STATUS_RESOLVED;
+            $live->claimedby = $live->claimedby ?: $userid;
+            $live->timeclaimed = $live->timeclaimed ?: $now;
+            $live->resolvedby = $userid;
+            $live->timeresolved = $now;
+            $live->resolution = get_string('ticketautoresolved', 'mod_selfselectadvanced');
+            $live->resolutionformat = FORMAT_PLAIN;
+            $live->timemodified = $now;
+            $DB->update_record('selfselectadvanced_ticket', $live);
+        } finally {
+            $lock->release();
+        }
     }
 
     /**

@@ -34,9 +34,16 @@ class coordinatorrole {
     public const SHORTNAME = 'groupcoordinator';
 
     /**
-     * Create the Group Coordinator role if the site does not have it,
-     * and (re)assert its capability set and assignable contexts.
-     * Idempotent; safe on every upgrade.
+     * Create the Group Coordinator role if the site does not have it.
+     *
+     * Runs on install and on every upgrade, so it is deliberately
+     * shy about an existing role: the assignable context levels are
+     * set only when this code creates the role, and each capability
+     * is granted only where the role carries no setting for it yet.
+     * A site that has tuned the role - or that already had a role of
+     * this name for its own reasons - keeps its decisions; an upgrade
+     * must never quietly restore a permission an administrator chose
+     * to take away.
      *
      * @return int the role id
      */
@@ -53,9 +60,8 @@ class coordinatorrole {
                 get_string('coordinatorrole_desc', 'mod_selfselectadvanced'),
                 'teacher'
             );
+            set_role_contextlevels($roleid, [CONTEXT_COURSE, CONTEXT_MODULE]);
         }
-
-        set_role_contextlevels($roleid, [CONTEXT_COURSE, CONTEXT_MODULE]);
 
         $systemcontext = \context_system::instance();
         foreach ([
@@ -65,7 +71,9 @@ class coordinatorrole {
             'mod/selfselectadvanced:freeze',
             'mod/selfselectadvanced:unfreeze',
         ] as $capability) {
-            assign_capability($capability, CAP_ALLOW, $roleid, $systemcontext->id, true);
+            // $overwrite = false: fills in what is missing, never
+            // overrules a prevent or prohibit already recorded.
+            assign_capability($capability, CAP_ALLOW, $roleid, $systemcontext->id, false);
         }
         $systemcontext->mark_dirty();
 

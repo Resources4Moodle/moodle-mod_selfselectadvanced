@@ -954,6 +954,7 @@ $string['ticketfilebutton'] = 'File request';
 $string['ticketfilecompchange'] = 'Request a composition change from the managers';
 $string['ticketfilednotice'] = 'Your request has been queued for the managers and coordinators.';
 $string['ticketfileunfreeze'] = 'Request an unfreeze from the managers';
+$string['ticketforcerelease'] = 'Release to the queue';
 $string['ticketqueuepos'] = 'Position';
 $string['ticketreasonhint'] = 'Why is this change needed?';
 $string['ticketrelease'] = 'Release';

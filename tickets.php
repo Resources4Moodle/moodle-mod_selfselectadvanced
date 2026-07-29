@@ -40,7 +40,8 @@ require_login($course, true, $cm);
 
 $activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
 $context = $activity->context();
-if (!has_capability('mod/selfselectadvanced:manage', $context)) {
+$canmanage = has_capability('mod/selfselectadvanced:manage', $context);
+if (!$canmanage) {
     require_capability('mod/selfselectadvanced:coordinate', $context);
 }
 
@@ -105,7 +106,7 @@ foreach ($queue as $ticket) {
         $userids[] = (int) $ticket->claimedby;
     }
 }
-// get_sql() with a leading comma of its own: without it the last
+// Ask get_sql() for a leading comma of its own: without it the last
 // selected column and the first name field fuse into one identifier.
 $namefields = \core_user\fields::for_name()->get_sql('', false, '', '', true)->selects;
 foreach (array_chunk(array_unique($userids), 1000) as $chunk) {
@@ -180,6 +181,19 @@ foreach ($queue as $ticket) {
             get_string('view'),
             ['class' => 'btn btn-secondary btn-sm mt-1']
         );
+    } else if ($isclaimed && $canmanage) {
+        // Somebody else is holding this one. A manager can put it back
+        // in the queue: without this door, a claim by a coordinator who
+        // has since left the course would sit there for ever, and the
+        // team could never file that kind of request again because the
+        // live ticket blocks duplicates.
+        $actions = html_writer::start_tag('form', ['method' => 'post',
+            'action' => new moodle_url($baseurl, ['action' => 'release'])])
+            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
+            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
+            . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-outline-secondary btn-sm',
+                'value' => get_string('ticketforcerelease', 'mod_selfselectadvanced')])
+            . html_writer::end_tag('form');
     }
 
     $row = new html_table_row([
