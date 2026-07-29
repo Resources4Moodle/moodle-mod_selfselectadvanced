@@ -27,5 +27,10 @@
  * Create the Group Coordinator role on a fresh install.
  */
 function xmldb_selfselectadvanced_install(): void {
+    // Core registers db/access.php AFTER this hook runs, so the
+    // capabilities the role needs do not exist yet on a fresh
+    // install - register them first (idempotent; core's own later
+    // call becomes a no-op). The upgrade path does the same.
+    update_capabilities('mod_selfselectadvanced');
     \mod_selfselectadvanced\local\coordinatorrole::ensure();
 }

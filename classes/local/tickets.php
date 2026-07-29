@@ -152,12 +152,17 @@ class tickets {
         }
 
         // The queue workers hear about new work; sends happen outside
-        // the lock, mail must never hold it (1.15.0 lesson).
+        // the lock, mail must never hold it (1.15.0 lesson). A worker
+        // holding both capabilities is told once.
+        $workerids = [];
         foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $worker) {
-            self::notify($activity, (int) $worker->id, 'msgticketfiledsubject', 'msgticketfiledbody', $ticket, $group);
+            $workerids[(int) $worker->id] = true;
         }
         foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:coordinate', 'u.id') as $worker) {
-            self::notify($activity, (int) $worker->id, 'msgticketfiledsubject', 'msgticketfiledbody', $ticket, $group);
+            $workerids[(int) $worker->id] = true;
+        }
+        foreach (array_keys($workerids) as $workerid) {
+            self::notify($activity, $workerid, 'msgticketfiledsubject', 'msgticketfiledbody', $ticket, $group);
         }
 
         return $ticket;
