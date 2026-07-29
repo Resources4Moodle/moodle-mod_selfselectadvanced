@@ -138,8 +138,10 @@ foreach ($queue as $ticket) {
     if ($isclaimed) {
         $statuscell .= ' — ' . ($usernames[(int) $ticket->claimedby] ?? $ticket->claimedby);
     }
-    if (in_array($ticket->status, [tickets::STATUS_RESOLVED, tickets::STATUS_DECLINED], true)
-            && trim((string) $ticket->resolution) !== '') {
+    if (
+        in_array($ticket->status, [tickets::STATUS_RESOLVED, tickets::STATUS_DECLINED], true)
+        && trim((string) $ticket->resolution) !== ''
+    ) {
         $statuscell .= html_writer::div(s($ticket->resolution), 'small text-muted');
     }
 
@@ -182,9 +184,11 @@ foreach ($queue as $ticket) {
         $isopen ? $position : '',
         $groupnames[(int) $ticket->groupid] ?? $ticket->groupid,
         get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced')
-            . html_writer::div(($usernames[(int) $ticket->requestedby] ?? '') . ' · '
+            . html_writer::div(
+                ($usernames[(int) $ticket->requestedby] ?? '') . ' · '
                 . userdate($ticket->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
-                'small text-muted'),
+                'small text-muted'
+            ),
         format_text($ticket->request, $ticket->requestformat, ['context' => $context]),
         $statuscell,
         $actions,
