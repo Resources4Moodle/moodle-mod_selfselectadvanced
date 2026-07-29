@@ -44,10 +44,13 @@ Feature: Students approach guides, and group names follow the course's format
       | selfselectadvanced | C1     | Formatted | ssa2     | 1       | 1       | 2             | [A-Z]{3}-\d{2}  | MDP-42            |
     When I am on the "Formatted" "selfselectadvanced activity" page logged in as student1
     And I follow "Create group"
-    And I set the field "Group name" to "our free-form name"
-    And I set the field "Title of work" to "Pendulum study"
-    And I press "Save changes"
+    And I set the following fields to these values:
+      | Group name    | our free-form name |
+      | Title of work | Pendulum study     |
+      | Brief of work | We study gravity.  |
+    And I press "Create group"
     Then I should see "Example: MDP-42"
     When I set the field "Group name" to "ABC-11"
-    And I press "Save changes"
+    And I press "Create group"
     Then I should see "ABC-11"
+    And I should see "1 of 6 seats filled"
