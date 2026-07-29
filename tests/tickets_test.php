@@ -266,6 +266,45 @@ final class tickets_test extends \advanced_testcase {
     }
 
     /**
+     * Filing judges the team as it is when the lock is granted, not as
+     * the caller last saw it. A request built from a stale row - the
+     * page was loaded before a manager unfroze the team, or before a
+     * handover moved the guide - is refused rather than queued against
+     * a team it no longer describes.
+     */
+    public function test_filing_judges_the_group_under_the_lock(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, $leader, , $guide] = $this->setup_world();
+
+        // The caller's copy says FROZEN; the database has moved on.
+        $stale = clone $group;
+        $stale->state = state::FROZEN;
+        $this->assert_refused('refusalwrongstate', fn() => tickets::file(
+            $activity,
+            $stale,
+            tickets::TYPE_UNFREEZE,
+            'the page was loaded before the unfreeze',
+            FORMAT_PLAIN,
+            (int) $leader->id
+        ));
+
+        // The caller's copy still names them guide; the team has a new one.
+        $former = clone $group;
+        $DB->set_field('selfselectadvanced_group', 'guideid', $leader->id, ['id' => $group->id]);
+        $this->assert_refused('refusalticketnotguide', fn() => tickets::file(
+            $activity,
+            $former,
+            tickets::TYPE_COMPCHANGE,
+            'handed over while this page was open',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        ));
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_ticket', ['activityid' => $activity->id()]));
+    }
+
+    /**
      * The claim is exclusive: the first taker wins, the second is
      * refused and told who holds it; a closed ticket cannot be
      * claimed at all.

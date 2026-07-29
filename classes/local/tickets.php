@@ -93,25 +93,36 @@ class tickets {
             throw new \moodle_exception('refusalticketreason', 'mod_selfselectadvanced');
         }
 
-        $isguide = (int) $group->guideid === $userid && $userid > 0;
-        $isleader = (int) $group->leaderid === $userid;
-        if ($type === self::TYPE_COMPCHANGE && !$isguide) {
-            throw new \moodle_exception('refusalticketnotguide', 'mod_selfselectadvanced');
-        }
-        if ($type === self::TYPE_UNFREEZE && !$isguide && !$isleader) {
-            throw new \moodle_exception('refusalticketnotparty', 'mod_selfselectadvanced');
-        }
-        if ($type === self::TYPE_UNFREEZE && $group->state !== state::FROZEN) {
-            throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
-        }
-        if ($type === self::TYPE_COMPCHANGE && !in_array($group->state, [state::FIRM, state::FROZEN], true)) {
-            throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
-        }
-
         $lock = locks::acquire('group:' . $group->id);
         $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
+
+            // Who may file, and in which state, is judged on a row read
+            // INSIDE the lock (house rule A7), never on the one the
+            // caller happened to load. The caller's copy can be minutes
+            // old by the time the lock is granted - waiting behind a
+            // manager's unfreeze is exactly how that happens - and a
+            // stale copy would file an unfreeze request for a team that
+            // is no longer frozen, or let a guide replaced by a
+            // completed handover file against a team that is no longer
+            // theirs. Either would sit in the queue holding the one
+            // live slot that team's real requests need.
+            $group = groups::get($activity, (int) $group->id);
+            $isguide = (int) $group->guideid === $userid && $userid > 0;
+            $isleader = (int) $group->leaderid === $userid;
+            if ($type === self::TYPE_COMPCHANGE && !$isguide) {
+                throw new \moodle_exception('refusalticketnotguide', 'mod_selfselectadvanced');
+            }
+            if ($type === self::TYPE_UNFREEZE && !$isguide && !$isleader) {
+                throw new \moodle_exception('refusalticketnotparty', 'mod_selfselectadvanced');
+            }
+            if ($type === self::TYPE_UNFREEZE && $group->state !== state::FROZEN) {
+                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+            }
+            if ($type === self::TYPE_COMPCHANGE && !in_array($group->state, [state::FIRM, state::FROZEN], true)) {
+                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+            }
 
             $live = $DB->get_record_select(
                 'selfselectadvanced_ticket',
