@@ -288,7 +288,11 @@ final class studentapproach_test extends \advanced_testcase {
         // A different course is a different namespace.
         [$other, $otherstudents] = $this->setup_activity();
         $group = (new api($other))->create_group(
-            (int) $otherstudents[0]->id, 'Shared name', 'Title', '', FORMAT_HTML
+            (int) $otherstudents[0]->id,
+            'Shared name',
+            'Title',
+            '',
+            FORMAT_HTML
         );
         $this->assertSame('Shared name', $group->name);
     }
