@@ -140,6 +140,61 @@ final class studentapproach_test extends \advanced_testcase {
     }
 
     /**
+     * The approval is BINDING on the students (the 1.16.0 work order):
+     * once the guide they approached has approved, no student-side
+     * action detaches that guide. This pins the absence of a path -
+     * exactly the kind of guarantee that a later feature could open up
+     * without anyone noticing.
+     */
+    public function test_guide_approval_is_binding_on_students(): void {
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+
+        [$activity, $students, $guide] = $this->setup_activity([
+            'studentapproach' => 1,
+            'guidevolunteer' => 0,
+            'eoienabled' => 0,
+        ]);
+        $leaderid = (int) $students[0]->id;
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => $leaderid,
+            'name' => 'Approached and approved',
+            'state' => state::FIRM,
+            'guideid' => (int) $guide->id,
+            'timeapproved' => time(),
+        ]);
+        $group = groups::get($activity, (int) $group->id);
+        $gatekeeper = (new api($activity))->gatekeeper();
+
+        // The leader cannot dissolve the team to escape the guide.
+        $this->assertSame(
+            'refusalwrongstate',
+            $gatekeeper->can_delete_group($group, $leaderid)?->stringkey
+        );
+        // Nor take it back to another guide by submitting again.
+        $this->assertSame(
+            'refusalwrongstate',
+            $gatekeeper->can_submit($group, $leaderid)?->stringkey
+        );
+        // And the interest route, the only other way a guide changes
+        // hands without staff, is closed in this mode.
+        try {
+            eoi::express($activity, (int) $group->id, (int) $guide->id, 'again?');
+            $this->fail('Expected refusalstudentapproach');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalstudentapproach', $e->errorcode);
+        }
+
+        // The guide is still theirs: only staff can change it.
+        $this->assertSame(
+            (int) $guide->id,
+            (int) groups::get($activity, (int) $group->id)->guideid
+        );
+    }
+
+    /**
      * The anchored name format: a name matching the whole pattern
      * passes, a partial match is not enough, and an empty format
      * means free-form names.
