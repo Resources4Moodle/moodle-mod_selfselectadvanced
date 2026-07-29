@@ -147,8 +147,6 @@ class tickets {
             ])->trigger();
 
             $transaction->allow_commit();
-        } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -242,8 +240,6 @@ class tickets {
             ])->trigger();
 
             $transaction->allow_commit();
-        } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -329,8 +325,6 @@ class tickets {
             ])->trigger();
 
             $transaction->allow_commit();
-        } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -469,32 +463,6 @@ class tickets {
                     t.id",
             ['activityid' => $activity->id()]
         );
-    }
-
-    /**
-     * Close a delegated transaction that is unwinding under an
-     * exception, then let the exception continue on its way.
-     *
-     * Moodle's contract: an exception raised inside a delegated
-     * transaction must be handed to rollback(), which re-throws it.
-     * Skipping that leaves the transaction open for the rest of the
-     * request, so every later write joins a transaction that is
-     * force-rolled-back at shutdown - taking any buffered events and
-     * messages with it. The refusals in this class are thrown from
-     * inside their transactions by design, so they all come through
-     * here.
-     *
-     * @param \moodle_transaction|null $transaction the open transaction, if it got that far
-     * @param \Throwable $e the exception unwinding the block
-     * @throws \Throwable always - $e, after the rollback
-     */
-    private static function rollback(?\moodle_transaction $transaction, \Throwable $e): void {
-        if ($transaction !== null && !$transaction->is_disposed()) {
-            // Re-throws $e itself.
-            $transaction->rollback($e);
-        }
-
-        throw $e;
     }
 
     /**
