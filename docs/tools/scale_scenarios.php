@@ -720,6 +720,88 @@ probe('service: uidprefix stamps new groups', function () use ($DB, $activity, &
     return $group->pluginuid;
 });
 
+probe('service: name_taken course-wide at ~1900 groups', function () use ($activity) {
+    // 1.16.0: uniqueness widened from the activity to the course. The
+    // check must stay a single indexed probe, not a scan.
+    if (!groups::name_taken($activity, 'Scale team 0042')) {
+        throw new coding_exception('name_taken missed an existing name');
+    }
+    if (groups::name_taken($activity, 'No such team anywhere')) {
+        throw new coding_exception('name_taken invented a clash');
+    }
+
+    return 'both verdicts correct';
+});
+
+probe('service: name format refusal + pass', function () use ($DB, $activity, &$groupless) {
+    $DB->set_field('selfselectadvanced', 'nameformat', 'FMT-\d{3}', ['id' => $activity->id()]);
+    $freshactivity = activity::from_instance($activity->id());
+    $formatapi = new api($freshactivity);
+    $leaderid = (int) array_shift($groupless);
+    try {
+        $formatapi->create_group($leaderid, 'free form probe', 'T', '<p>b</p>', FORMAT_HTML);
+        throw new coding_exception('format break was accepted');
+    } catch (moodle_exception $e) {
+        if ($e->errorcode !== 'refusalnameformat') {
+            throw $e;
+        }
+    }
+    $group = $formatapi->create_group($leaderid, 'FMT-001', 'T', '<p>b</p>', FORMAT_HTML);
+    $DB->set_field('selfselectadvanced', 'nameformat', null, ['id' => $activity->id()]);
+
+    return $group->name;
+});
+
+probe('service: tickets - file 50 + queue + exclusivity', function () use ($DB, $activity, $groupids, $guideids, $now) {
+    // Fifty firm guided teams file composition-change requests; the
+    // queue lists them FIFO; the claim stays exclusive under load.
+    $tickets = [];
+    for ($i = 0; $i < 50; $i++) {
+        $gid = (int) $groupids[200 + $i];
+        $guideid = (int) $guideids[$i % count($guideids)];
+        $DB->set_field('selfselectadvanced_group', 'state', 'firm', ['id' => $gid]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', $guideid, ['id' => $gid]);
+        $DB->set_field('selfselectadvanced_group', 'timeapproved', $now, ['id' => $gid]);
+        $tickets[] = \mod_selfselectadvanced\local\tickets::file(
+            $activity,
+            groups::get($activity, $gid),
+            \mod_selfselectadvanced\local\tickets::TYPE_COMPCHANGE,
+            'Scale probe request ' . $i,
+            FORMAT_PLAIN,
+            $guideid
+        );
+    }
+    $queue = \mod_selfselectadvanced\local\tickets::queue($activity);
+    if (count($queue) < 50) {
+        throw new coding_exception('queue lost tickets: ' . count($queue));
+    }
+    $adminid = (int) get_admin()->id;
+    $first = (int) $tickets[0]->id;
+    \mod_selfselectadvanced\local\tickets::claim($activity, $first, $adminid);
+    try {
+        \mod_selfselectadvanced\local\tickets::claim($activity, $first, $adminid + 0);
+        throw new coding_exception('second claim of a claimed ticket succeeded');
+    } catch (moodle_exception $e) {
+        if ($e->errorcode !== 'refusalticketclaimed') {
+            throw $e;
+        }
+    }
+
+    return count($queue) . ' queued, claim exclusive';
+});
+
+probe('service: guides selectable, students-approach (200 guides)', function () use ($DB, $activity, $gatekeeper, $guideids) {
+    $DB->set_field('selfselectadvanced', 'studentapproach', 1, ['id' => $activity->id()]);
+    $freshactivity = activity::from_instance($activity->id());
+    $list = guides::selectable($freshactivity, $gatekeeper->resolver());
+    $DB->set_field('selfselectadvanced', 'studentapproach', 0, ['id' => $activity->id()]);
+    if (count($list) < count($guideids)) {
+        throw new coding_exception('students-approach list hid guides: ' . count($list));
+    }
+
+    return count($list) . ' guides listed, none hidden';
+});
+
 cli_writeln('');
 cli_writeln('=== SUMMARY (worst first) ===');
 usort($probes, static fn($a, $b) => $b[1] <=> $a[1]);
