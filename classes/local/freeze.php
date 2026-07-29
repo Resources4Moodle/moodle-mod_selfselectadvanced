@@ -257,9 +257,16 @@ class freeze {
         global $CFG, $DB;
         require_once($CFG->dirroot . '/group/lib.php');
 
-        // Strategy 1.16 D: a coordinator-only actor must not unfreeze
-        // a group they are involved in; manage holders are exempt.
-        tickets::require_uninvolved($activity, $group, $actorid);
+        // Strategy 1.16 D: the conflict-of-interest rule restrains the
+        // NEW coordinate authority only. An actor who could already
+        // unfreeze before 1.16.0 - a manager, or a team's own guide
+        // holding the unfreeze capability - keeps exactly the
+        // authority they had; adding the coordinator role to a site
+        // must never quietly take authority away. A coordinator whose
+        // own team it is asks through the ticket queue instead.
+        if (has_capability('mod/selfselectadvanced:coordinate', $activity->context(), $actorid)) {
+            tickets::require_uninvolved($activity, $group, $actorid);
+        }
 
         $lock = locks::acquire('group:' . $group->id);
         try {

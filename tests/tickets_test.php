@@ -453,4 +453,22 @@ final class tickets_test extends \advanced_testcase {
         $unfrozen = freeze::unfreeze($activity, $frozen, (int) $coordinator->id);
         $this->assertSame(state::FIRM, $unfrozen->state);
     }
+
+    /**
+     * Regression pin: the conflict-of-interest rule restrains the new
+     * coordinate authority only. A team's own guide, who could
+     * unfreeze their team before 1.16.0, still can - installing the
+     * coordinator role must never quietly take authority away.
+     */
+    public function test_guide_keeps_unfreeze_of_their_own_team(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide] = $this->setup_world();
+
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $this->assertSame(state::FROZEN, $frozen->state);
+
+        $unfrozen = freeze::unfreeze($activity, $frozen, (int) $guide->id);
+        $this->assertSame(state::FIRM, $unfrozen->state);
+    }
 }
