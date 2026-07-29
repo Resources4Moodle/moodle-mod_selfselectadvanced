@@ -31,7 +31,7 @@ class behat_mod_selfselectadvanced extends behat_base {
      * Resolve plugin page types to URLs.
      *
      * Recognised types (identifier = the activity name): quotas,
-     * manage, guide.
+     * manage, guide, tickets and friends below.
      *
      * @param string $type page type
      * @param string $identifier activity name
@@ -47,6 +47,7 @@ class behat_mod_selfselectadvanced extends behat_base {
             'ledger' => '/mod/selfselectadvanced/ledger.php',
             'flagged' => '/mod/selfselectadvanced/flagged.php',
             'templates' => '/mod/selfselectadvanced/templates.php',
+            'tickets' => '/mod/selfselectadvanced/tickets.php',
         ];
         $type = strtolower($type);
         if (!isset($pages[$type])) {
