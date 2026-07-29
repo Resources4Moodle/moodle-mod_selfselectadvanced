@@ -158,4 +158,53 @@ final class settings_validator_test extends \basic_testcase {
         $data['timecutoff'] = 0;
         $this->assertSame([], settings_validator::validate($data));
     }
+
+    /**
+     * Students-approach mode (strategy 1.16 A) rejects every setting
+     * that lets a guide advertise: EOI, volunteering, guide-first mode.
+     * Off together, the switch passes.
+     */
+    public function test_studentapproach_forces_guide_modes_off(): void {
+        $data = $this->valid();
+        $data['studentapproach'] = 1;
+        $data['eoienabled'] = 1;
+        $data['guidevolunteer'] = 1;
+        $data['guidemode'] = 1;
+        $errors = settings_validator::validate($data);
+        $this->assertSame('errstudentapproacheoi', $errors['eoienabled'] ?? null);
+        $this->assertSame('errstudentapproachvolunteer', $errors['guidevolunteer'] ?? null);
+        $this->assertSame('errstudentapproachguidemode', $errors['guidemode'] ?? null);
+
+        $data['eoienabled'] = 0;
+        $data['guidevolunteer'] = 0;
+        $data['guidemode'] = 0;
+        $this->assertSame([], settings_validator::validate($data));
+
+        // The switch off leaves the guide modes free.
+        $data['studentapproach'] = 0;
+        $data['eoienabled'] = 1;
+        $data['guidevolunteer'] = 1;
+        $this->assertSame([], settings_validator::validate($data));
+    }
+
+    /**
+     * Strategy 1.16 C: the name format must compile before it can
+     * refuse anyone. Slashes are escaped, so a fragment containing the
+     * delimiter is legal; a genuinely broken pattern is rejected; empty
+     * means no format.
+     */
+    public function test_nameformat_must_compile(): void {
+        $data = $this->valid();
+        $data['nameformat'] = '[A-Z]{2,4}-\d{3} .+';
+        $this->assertSame([], settings_validator::validate($data));
+
+        $data['nameformat'] = 'AY24/25-\d+';
+        $this->assertSame([], settings_validator::validate($data));
+
+        $data['nameformat'] = '';
+        $this->assertSame([], settings_validator::validate($data));
+
+        $data['nameformat'] = '([A-Z]{2';
+        $this->assertSame('errnameformatinvalid', settings_validator::validate($data)['nameformat'] ?? null);
+    }
 }
