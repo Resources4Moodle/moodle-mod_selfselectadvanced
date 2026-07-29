@@ -105,6 +105,15 @@ class provider implements
             'remarks' => 'privacy:metadata:eoi:remarks',
             'status' => 'privacy:metadata:eoi:status',
         ], 'privacy:metadata:eoi');
+        $collection->add_database_table('selfselectadvanced_ticket', [
+            'requestedby' => 'privacy:metadata:ticket:requestedby',
+            'claimedby' => 'privacy:metadata:ticket:claimedby',
+            'resolvedby' => 'privacy:metadata:ticket:resolvedby',
+            'request' => 'privacy:metadata:ticket:request',
+            'resolution' => 'privacy:metadata:ticket:resolution',
+            'type' => 'privacy:metadata:ticket:type',
+            'status' => 'privacy:metadata:ticket:status',
+        ], 'privacy:metadata:ticket');
         $collection->add_user_preference(
             'mod_selfselectadvanced_reminded_',
             'privacy:metadata:preference:reminded'
@@ -153,12 +162,17 @@ class provider implements
                          WHERE dq.activityid = a.id AND dq.userid = :userid9)
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_eoi} eo
-                         WHERE eo.activityid = a.id AND eo.guideid = :userid10)";
+                         WHERE eo.activityid = a.id AND eo.guideid = :userid10)
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_ticket} t
+                         WHERE t.activityid = a.id
+                           AND (t.requestedby = :userid12 OR t.claimedby = :userid13 OR t.resolvedby = :userid14))";
         $contextlist->add_from_sql($sql, [
             'modlevel' => CONTEXT_MODULE,
             'userid1' => $userid, 'userid2' => $userid, 'userid3' => $userid, 'userid4' => $userid,
             'userid5' => $userid, 'userid6' => $userid, 'userid7' => $userid, 'userid8' => $userid,
             'userid9' => $userid, 'userid10' => $userid, 'userid11' => $userid,
+            'userid12' => $userid, 'userid13' => $userid, 'userid14' => $userid,
         ]);
 
         global $DB;
@@ -227,6 +241,29 @@ class provider implements
             "SELECT eo.guideid AS userid
                FROM {selfselectadvanced_eoi} eo
                JOIN {course_modules} cm ON cm.instance = eo.activityid AND cm.id = :cmid",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT t.requestedby AS userid
+               FROM {selfselectadvanced_ticket} t
+               JOIN {course_modules} cm ON cm.instance = t.activityid AND cm.id = :cmid",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT t.claimedby AS userid
+               FROM {selfselectadvanced_ticket} t
+               JOIN {course_modules} cm ON cm.instance = t.activityid AND cm.id = :cmid
+              WHERE t.claimedby IS NOT NULL",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT t.resolvedby AS userid
+               FROM {selfselectadvanced_ticket} t
+               JOIN {course_modules} cm ON cm.instance = t.activityid AND cm.id = :cmid
+              WHERE t.resolvedby IS NOT NULL",
             $params
         );
     }
@@ -332,6 +369,16 @@ class provider implements
                   WHERE eo.activityid = :activityid AND eo.guideid = :userid",
                 ['activityid' => $cm->instance, 'userid' => $userid]
             );
+            $tickets = $DB->get_records_sql(
+                "SELECT t.id, g.name, g.pluginuid, t.type, t.status, t.requestedby, t.claimedby,
+                        t.resolvedby, t.request, t.requestformat, t.resolution, t.resolutionformat,
+                        t.timecreated, t.timeresolved
+                   FROM {selfselectadvanced_ticket} t
+                   JOIN {selfselectadvanced_group} g ON g.id = t.groupid
+                  WHERE t.activityid = :activityid
+                    AND (t.requestedby = :u1 OR t.claimedby = :u2 OR t.resolvedby = :u3)",
+                ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid, 'u3' => $userid]
+            );
             writer::with_context($context)->export_data(
                 [get_string('pluginname', 'mod_selfselectadvanced')],
                 (object) [
@@ -365,6 +412,24 @@ class provider implements
                         'provider' => $dq->provider,
                         'timecreated' => transform::datetime($dq->timecreated),
                     ], $digestqueue)),
+                    'tickets' => array_values(array_map(static fn($t) => (object) [
+                        'group' => format_string($t->name),
+                        'pluginuid' => $t->pluginuid,
+                        'type' => $t->type,
+                        'status' => $t->status,
+                        'wasrequester' => transform::yesno((int) $t->requestedby === $userid),
+                        'washandler' => transform::yesno(
+                            (int) ($t->claimedby ?? 0) === $userid || (int) ($t->resolvedby ?? 0) === $userid
+                        ),
+                        'request' => (int) $t->requestedby === $userid
+                            ? format_text($t->request, $t->requestformat, ['context' => $context])
+                            : null,
+                        'resolution' => (int) ($t->resolvedby ?? 0) === $userid && $t->resolution !== null
+                            ? format_text($t->resolution, $t->resolutionformat, ['context' => $context])
+                            : null,
+                        'timecreated' => transform::datetime($t->timecreated),
+                        'timeresolved' => $t->timeresolved ? transform::datetime($t->timeresolved) : null,
+                    ], $tickets)),
                 ]
             );
         }
@@ -442,6 +507,7 @@ class provider implements
         $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $cm->instance]);
+        $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'leaderid', 0, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'guideid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'successorid', null, ['activityid' => $cm->instance]);
@@ -593,6 +659,31 @@ class provider implements
         // member row, rather than de-linked (nothing else references
         // an eoi row by id).
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $activityid, 'guideid' => $userid]);
+
+        // Tickets: the request text is the requester's own content, so
+        // their tickets go outright, like an eoi row. Where the user
+        // only handled a ticket, the row is the requester's record: the
+        // handler is de-linked and their resolution prose scrubbed; a
+        // half-worked claim is released back to the queue.
+        $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $activityid, 'requestedby' => $userid]);
+        $DB->execute(
+            "UPDATE {selfselectadvanced_ticket}
+                SET claimedby = NULL, timeclaimed = NULL,
+                    status = CASE WHEN status = :claimed THEN :open ELSE status END
+              WHERE activityid = :activityid AND claimedby = :userid",
+            [
+                'claimed' => \mod_selfselectadvanced\local\tickets::STATUS_CLAIMED,
+                'open' => \mod_selfselectadvanced\local\tickets::STATUS_OPEN,
+                'activityid' => $activityid,
+                'userid' => $userid,
+            ]
+        );
+        $DB->execute(
+            "UPDATE {selfselectadvanced_ticket}
+                SET resolvedby = NULL, resolution = NULL
+              WHERE activityid = :activityid AND resolvedby = :userid",
+            ['activityid' => $activityid, 'userid' => $userid]
+        );
 
         // Pseudonymise agrun logs.
         foreach ($DB->get_records('selfselectadvanced_agrun', ['activityid' => $activityid]) as $agrun) {

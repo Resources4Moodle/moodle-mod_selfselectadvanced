@@ -75,6 +75,10 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
                 'ssadigestitem',
                 '/activity/selfselectadvanced/digestqueue/digestitem'
             );
+            $paths[] = new restore_path_element(
+                'ssaticket',
+                '/activity/selfselectadvanced/tickets/ticket'
+            );
         }
 
         return $this->prepare_activity_structure($paths);
@@ -314,6 +318,36 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         }
         $data->groupid = $data->groupid ? ($this->get_mappingid('ssagroup', $data->groupid) ?: null) : null;
         $DB->insert_record('selfselectadvanced_digestq', $data);
+    }
+
+    /**
+     * Restore a queue ticket. The group and the requester are both
+     * NOT NULL: a ticket whose group or requester cannot be mapped is
+     * dropped, like a member row with no mappable user. The claimant
+     * and resolver are nullable and degrade to null individually.
+     *
+     * @param array $data the row
+     */
+    protected function process_ssaticket($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $data->activityid = $this->get_new_parentid('selfselectadvanced');
+        $data->groupid = $this->get_mappingid('ssagroup', $data->groupid);
+        $data->requestedby = $this->get_mappingid('user', $data->requestedby);
+        if (!$data->groupid || !$data->requestedby) {
+            return;
+        }
+        $data->claimedby = $data->claimedby ? ($this->get_mappingid('user', $data->claimedby) ?: null) : null;
+        $data->resolvedby = $data->resolvedby ? ($this->get_mappingid('user', $data->resolvedby) ?: null) : null;
+        // A claimed ticket whose claimant did not survive the restore
+        // would be stuck (nobody could resolve or release it): release
+        // it back to the queue instead.
+        if ($data->status === \mod_selfselectadvanced\local\tickets::STATUS_CLAIMED && $data->claimedby === null) {
+            $data->status = \mod_selfselectadvanced\local\tickets::STATUS_OPEN;
+            $data->timeclaimed = null;
+        }
+        $DB->insert_record('selfselectadvanced_ticket', $data);
     }
 
     /**

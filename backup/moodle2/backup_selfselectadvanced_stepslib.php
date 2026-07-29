@@ -22,8 +22,8 @@
  * userinfo also groups (now carrying returncommentformat, listed and
  * timelisted), members, snapshots, user/group/guide-scope overrides,
  * volunteered guiding capacity (1.7.0), penalties, queued digest
- * notifications (1.8.0) and guide expressions of interest keyed to
- * their group (1.11.0). EXCLUDED by design and documented (review item
+ * notifications (1.8.0), guide expressions of interest keyed to
+ * their group (1.11.0) and queue tickets (1.16.0). EXCLUDED by design and documented (review item
  * M2): agrun logs (operational) and staged moves (transient manager
  * state - a restore must never replay half-staged edits). Site-wide
  * participant attributes are not course data and are never in course
@@ -54,9 +54,10 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
 
         $activity = new backup_nested_element('selfselectadvanced', ['id'], [
             'name', 'intro', 'introformat', 'grade', 'minsize', 'maxsize', 'maxlead',
-            'maxmembership', 'maxguided', 'uidprefix', 'uiddigits', 'timeopen', 'timedue', 'timecutoff',
+            'maxmembership', 'maxguided', 'uidprefix', 'uiddigits',
+            'nameformat', 'nameformatexample', 'timeopen', 'timedue', 'timecutoff',
             'penaltytype', 'penaltyperday', 'guidemode', 'inviteexpiry', 'autogroup', 'proposalrequired',
-            'guidewindow', 'guideautoapprove', 'guidevolunteer',
+            'guidewindow', 'guideautoapprove', 'guidevolunteer', 'studentapproach',
             'eoienabled', 'eoiwindow', 'eoimax', 'eoisequential', 'eoipeers', 'eoigroupmax',
             'minmembership', 'defaulterpenalty', 'incompletepenalty', 'leadershare',
             'timecreated', 'timemodified',
@@ -112,6 +113,12 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $eoi = new backup_nested_element('eoi', ['id'], [
             'guideid', 'status', 'remarks', 'remarksformat', 'timecreated', 'timeresponded',
         ]);
+        $tickets = new backup_nested_element('tickets');
+        $ticket = new backup_nested_element('ticket', ['id'], [
+            'groupid', 'type', 'status', 'requestedby', 'request', 'requestformat',
+            'claimedby', 'timeclaimed', 'resolvedby', 'timeresolved',
+            'resolution', 'resolutionformat', 'timecreated', 'timemodified',
+        ]);
 
         $activity->add_child($quotas);
         $quotas->add_child($quota);
@@ -134,6 +141,11 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $volunteers->add_child($volunteer);
         $activity->add_child($digestqueue);
         $digestqueue->add_child($digestitem);
+        // Tickets sit under the activity, after the groups subtree, so
+        // a restore already holds the ssagroup mapping their groupid
+        // needs.
+        $activity->add_child($tickets);
+        $tickets->add_child($ticket);
 
         $activity->set_source_table('selfselectadvanced', ['id' => backup::VAR_ACTIVITYID]);
         $quota->set_source_table('selfselectadvanced_quota', ['activityid' => backup::VAR_PARENTID]);
@@ -153,6 +165,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             );
             $volunteer->set_source_table('selfselectadvanced_volunteer', ['activityid' => backup::VAR_PARENTID]);
             $digestitem->set_source_table('selfselectadvanced_digestq', ['activityid' => backup::VAR_PARENTID]);
+            $ticket->set_source_table('selfselectadvanced_ticket', ['activityid' => backup::VAR_PARENTID]);
         }
 
         $member->annotate_ids('user', 'userid');
@@ -167,6 +180,9 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $volunteer->annotate_ids('user', 'userid');
         $digestitem->annotate_ids('user', 'userid');
         $eoi->annotate_ids('user', 'guideid');
+        $ticket->annotate_ids('user', 'requestedby');
+        $ticket->annotate_ids('user', 'claimedby');
+        $ticket->annotate_ids('user', 'resolvedby');
 
         // Proposal documents travel with their group (itemid = group id).
         $group->annotate_files('mod_selfselectadvanced', 'proposal', 'id');

@@ -72,6 +72,12 @@ class eoi {
     ): int {
         global $DB;
 
+        if (!empty($activity->settings()->studentapproach)) {
+            // Belt and braces beside the settings validator: even a
+            // directly-flipped eoienabled cannot reopen guide-initiated
+            // interest in student-approach mode (strategy 1.16 A).
+            throw new \moodle_exception('refusalstudentapproach', 'mod_selfselectadvanced');
+        }
         if (empty($activity->settings()->eoienabled)) {
             throw new \moodle_exception('refusaleoidisabled', 'mod_selfselectadvanced');
         }

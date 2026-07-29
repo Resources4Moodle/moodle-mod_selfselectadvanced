@@ -635,5 +635,54 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072451, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026072460) {
+        $table = new xmldb_table('selfselectadvanced');
+        $field = new xmldb_field('studentapproach', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0', 'uiddigits');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('nameformat', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'studentapproach');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('nameformatexample', XMLDB_TYPE_CHAR, '100', null, null, null, null, 'nameformat');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $table = new xmldb_table('selfselectadvanced_ticket');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('activityid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('groupid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('type', XMLDB_TYPE_CHAR, '12', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('status', XMLDB_TYPE_CHAR, '10', null, XMLDB_NOTNULL, null, 'open');
+        $table->add_field('requestedby', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('request', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+        $table->add_field('requestformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
+        $table->add_field('claimedby', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('timeclaimed', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('resolvedby', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('timeresolved', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('resolution', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $table->add_field('resolutionformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('fk_activityid', XMLDB_KEY_FOREIGN, ['activityid'], 'selfselectadvanced', ['id']);
+        $table->add_key('fk_groupid', XMLDB_KEY_FOREIGN, ['groupid'], 'selfselectadvanced_group', ['id']);
+        $table->add_key('fk_requestedby', XMLDB_KEY_FOREIGN, ['requestedby'], 'user', ['id']);
+        $table->add_index('activityid_status', XMLDB_INDEX_NOTUNIQUE, ['activityid', 'status']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        // The new capability must exist before the role can carry it;
+        // core refreshes access.php only after upgrade.php finishes.
+        update_capabilities('mod_selfselectadvanced');
+        \mod_selfselectadvanced\local\coordinatorrole::ensure();
+
+        upgrade_mod_savepoint(true, 2026072460, 'selfselectadvanced');
+    }
+
     return true;
 }

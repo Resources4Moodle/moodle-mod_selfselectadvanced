@@ -168,6 +168,14 @@ $messageproviders = [
             'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
         ],
     ],
+    // Ticket-queue traffic: a request filed (to managers and
+    // coordinators), taken up or closed (to the requester).
+    'tickets' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
     // A rollup of digestible notifications for guides who opted into a
     // daily or weekly digest instead of one message per event.
     'digest' => [

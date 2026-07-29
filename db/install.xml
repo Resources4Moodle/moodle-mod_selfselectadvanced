@@ -19,6 +19,9 @@
         <FIELD NAME="maxguided" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="10" SEQUENCE="false" COMMENT="L5: default maximum groups per guide"/>
         <FIELD NAME="uidprefix" TYPE="char" LENGTH="8" NOTNULL="true" DEFAULT="SSA" SEQUENCE="false" COMMENT="Prefix of every group's plugin id; applies to groups created after a change"/>
         <FIELD NAME="uiddigits" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="4" SEQUENCE="false" COMMENT="Digits in the number part of every group's plugin id; applies to groups created after a change"/>
+        <FIELD NAME="studentapproach" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: guides never advertise availability - no volunteering, no listing, no load figures; students approach a guide by submitting"/>
+        <FIELD NAME="nameformat" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="PCRE fragment every project name must match, anchored; empty = no constraint"/>
+        <FIELD NAME="nameformatexample" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="Human example shown beside the name-format refusal"/>
         <FIELD NAME="timeopen" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Formation window opens (0 = not set)"/>
         <FIELD NAME="timedue" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Penalty-free deadline (0 = not set)"/>
         <FIELD NAME="timecutoff" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Hard stop (0 = not set)"/>
@@ -406,6 +409,35 @@
       <INDEXES>
         <INDEX NAME="groupid_status" UNIQUE="false" FIELDS="groupid, status"/>
         <INDEX NAME="guideid_status" UNIQUE="false" FIELDS="guideid, status"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_ticket" COMMENT="Sequential request queue: guide composition-change and unfreeze requests, claimed exclusively by one manager or coordinator at a time">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="type" TYPE="char" LENGTH="12" NOTNULL="true" SEQUENCE="false" COMMENT="compchange or unfreeze"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="open" SEQUENCE="false" COMMENT="open, claimed, resolved, declined or withdrawn"/>
+        <FIELD NAME="requestedby" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="request" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="Why the change is needed, from the requester"/>
+        <FIELD NAME="requestformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="claimedby" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="The one manager or coordinator working this ticket"/>
+        <FIELD NAME="timeclaimed" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="resolvedby" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="timeresolved" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="resolution" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="What the claimant did, or why it was declined"/>
+        <FIELD NAME="resolutionformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+        <KEY NAME="fk_groupid" TYPE="foreign" FIELDS="groupid" REFTABLE="selfselectadvanced_group" REFFIELDS="id"/>
+        <KEY NAME="fk_requestedby" TYPE="foreign" FIELDS="requestedby" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="activityid_status" UNIQUE="false" FIELDS="activityid, status"/>
       </INDEXES>
     </TABLE>
   </TABLES>

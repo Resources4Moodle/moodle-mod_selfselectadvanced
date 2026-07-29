@@ -81,6 +81,12 @@ class landing implements renderable, templatable {
             'actionurl' => (new \moodle_url('/mod/selfselectadvanced/group.php'))->out(false),
         ];
 
+        // Student-approach mode: expectations set plainly for every
+        // viewer - guides advertise nothing here, students approach.
+        $data->studentapproachnotice = !empty($activity->settings()->studentapproach)
+            ? get_string('studentapproachnotice', 'mod_selfselectadvanced')
+            : '';
+
         // Mobile-sharing consent widget: shown to any viewer who holds a
         // userattr record with a non-empty mobile, regardless of role.
         // No record, or a record with no mobile, renders nothing.
