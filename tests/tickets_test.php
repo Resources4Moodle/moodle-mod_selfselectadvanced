@@ -156,6 +156,56 @@ final class tickets_test extends \advanced_testcase {
     }
 
     /**
+     * Every refusal thrown from inside a queue transaction must leave
+     * the database with no transaction open and the group lock
+     * released. A refusal that stranded either would poison the rest
+     * of the request: later writes would be rolled back with it, and
+     * the next actor on that team would block until the lock timed
+     * out.
+     */
+    public function test_refusals_leave_no_transaction_or_lock_behind(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, $leader, , $guide, $manager, $coordinator] = $this->setup_world();
+
+        $ticket = tickets::file(
+            $activity, $group, tickets::TYPE_COMPCHANGE, 'Swap one member', FORMAT_PLAIN, (int) $guide->id
+        );
+        tickets::claim($activity, (int) $ticket->id, (int) $coordinator->id);
+
+        $refusals = [
+            // Duplicate: throws inside file()'s transaction, under the group lock.
+            fn() => tickets::file(
+                $activity, $group, tickets::TYPE_COMPCHANGE, 'Again', FORMAT_PLAIN, (int) $guide->id
+            ),
+            // Already claimed: throws inside claim()'s transaction.
+            fn() => tickets::claim($activity, (int) $ticket->id, (int) $manager->id),
+            // Not the claimant: throws inside close()'s transaction.
+            fn() => tickets::close(
+                $activity, (int) $ticket->id, tickets::STATUS_RESOLVED, 'mine', FORMAT_PLAIN, (int) $leader->id
+            ),
+        ];
+        foreach ($refusals as $index => $refusal) {
+            try {
+                $refusal();
+                $this->fail('Expected a refusal from case ' . $index);
+            } catch (\moodle_exception $e) {
+                $this->assertStringStartsWith('refusal', $e->errorcode);
+            }
+            $this->assertFalse(
+                $DB->is_transaction_started(),
+                'Refusal ' . $index . ' left a database transaction open'
+            );
+        }
+
+        // The group lock is free: a freeze on the same team still
+        // takes it without waiting.
+        $frozen = freeze::freeze_group($activity, groups::get($activity, (int) $group->id), (int) $guide->id);
+        $this->assertSame(state::FROZEN, $frozen->state);
+    }
+
+    /**
      * The claim is exclusive: the first taker wins, the second is
      * refused and told who holds it; a closed ticket cannot be
      * claimed at all.
