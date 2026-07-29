@@ -130,8 +130,8 @@ class api {
         if (groups::name_breaks_format($this->activity, $name)) {
             throw new \moodle_exception('refusalnameformat', 'mod_selfselectadvanced', '',
                 (object) [
-                    'format' => (string) $this->activity->settings()->nameformat,
-                    'example' => (string) ($this->activity->settings()->nameformatexample ?? ''),
+                    'format' => s((string) $this->activity->settings()->nameformat),
+                    'example' => s((string) ($this->activity->settings()->nameformatexample ?? '')),
                 ]);
         }
         if (groups::name_taken($this->activity, $name)) {
