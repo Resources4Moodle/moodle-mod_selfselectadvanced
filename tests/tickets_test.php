@@ -156,14 +156,17 @@ final class tickets_test extends \advanced_testcase {
     }
 
     /**
-     * Every refusal thrown from inside a queue transaction must leave
-     * the database with no transaction open and the group lock
-     * released. A refusal that stranded either would poison the rest
-     * of the request: later writes would be rolled back with it, and
-     * the next actor on that team would block until the lock timed
-     * out.
+     * A refusal must leave nothing stranded behind it: the group lock
+     * is released, the queue is unchanged, and the next actor on that
+     * team can work immediately. Without that, one refused request
+     * would block the team until the lock timed out.
+     *
+     * (The transaction itself is deliberately not asserted on here.
+     * Moodle's PHPUnit wraps every test in its own transaction, so
+     * is_transaction_started() is true throughout and cannot tell the
+     * service's transaction from the harness's own.)
      */
-    public function test_refusals_leave_no_transaction_or_lock_behind(): void {
+    public function test_refusals_leave_nothing_stranded(): void {
         global $DB;
         $this->resetAfterTest();
         $this->redirectMessages();
@@ -193,9 +196,11 @@ final class tickets_test extends \advanced_testcase {
             } catch (\moodle_exception $e) {
                 $this->assertStringStartsWith('refusal', $e->errorcode);
             }
-            $this->assertFalse(
-                $DB->is_transaction_started(),
-                'Refusal ' . $index . ' left a database transaction open'
+            // The refusal wrote nothing: still exactly the one ticket.
+            $this->assertSame(
+                1,
+                $DB->count_records('selfselectadvanced_ticket', ['activityid' => $activity->id()]),
+                'Refusal ' . $index . ' left a row behind'
             );
         }
 
