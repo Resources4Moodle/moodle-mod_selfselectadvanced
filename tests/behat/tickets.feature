@@ -45,7 +45,8 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     And I should see "Being handled"
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as coord1
     Then I should see "Being handled"
-    And I should not see "Take up"
+    And I should see "Tina Teach" in the ".selfselectadvanced-tickets" "css_element"
+    And I should not see "Take up" in the ".selfselectadvanced-tickets" "css_element"
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
     And I set the field "Resolution note (required to resolve or decline)" to "Move staged and committed"
     And I press "Resolve"
