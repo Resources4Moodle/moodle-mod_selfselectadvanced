@@ -103,73 +103,24 @@ $guides = \mod_selfselectadvanced\local\guides::with_load($activity, $api->gatek
 $guideoptions = [];
 foreach ($guides as $guide) {
     if ($guide->remaining > 0) {
-        $guideoptions[] = (object) [
-            'id' => $guide->id,
-            'label' => get_string(
-                'guidepickerlabel',
-                'mod_selfselectadvanced',
-                (object) ['fullname' => $guide->fullname, 'label' => $guide->label]
-            ),
-        ];
+        $guideoptions[(int) $guide->id] = get_string(
+            'guidepickerlabel',
+            'mod_selfselectadvanced',
+            (object) ['fullname' => $guide->fullname, 'label' => $guide->label]
+        );
     }
 }
 
-$unassigned = $DB->get_records_select(
-    'selfselectadvanced_group',
-    'activityid = :activityid AND state = :state AND guideid IS NULL',
-    ['activityid' => $activity->id(), 'state' => \mod_selfselectadvanced\local\state::PENDING_GUIDE],
-    'timesubmitted ASC'
-);
-$queue = [];
-foreach ($unassigned as $group) {
-    $queue[] = (object) [
-        'groupid' => (int) $group->id,
-        'pluginuid' => $group->pluginuid,
-        'name' => format_string($group->name),
-        'title' => format_string($group->title),
-        'size' => \mod_selfselectadvanced\local\groups::count_confirmed((int) $group->id),
-    ];
+// The three lists below the group table are tabs now (strategy 1.17
+// C1). Each is a paged, sortable table that fetches only the rows it
+// shows: at 1500 teams the old render put every row of all three on one
+// page, which nobody could administer and which buried the last two
+// below the fold entirely.
+$assigntab = optional_param('assigntab', 'unassigned', PARAM_ALPHA);
+if (!in_array($assigntab, ['unassigned', 'reassign', 'loads'], true)) {
+    $assigntab = 'unassigned';
 }
-
-// UX audit item 6a: groups already holding a guide need the same
-// picker, posting through the same assignguide action — the backend
-// accepts reassignment in every submitted-or-later state (a firm or
-// frozen team's guide change is a manager act; the leader/guides are
-// notified and any pending handover is superseded).
-$reassignable = $DB->get_records_select(
-    'selfselectadvanced_group',
-    "activityid = :activityid AND state IN (:pending, :firm, :frozen) AND guideid IS NOT NULL",
-    [
-        'activityid' => $activity->id(),
-        'pending' => \mod_selfselectadvanced\local\state::PENDING_GUIDE,
-        'firm' => \mod_selfselectadvanced\local\state::FIRM,
-        'frozen' => \mod_selfselectadvanced\local\state::FROZEN,
-    ],
-    'timesubmitted ASC'
-);
-$reassignqueue = [];
-foreach ($reassignable as $group) {
-    $reassignqueue[] = (object) [
-        'groupid' => (int) $group->id,
-        'pluginuid' => $group->pluginuid,
-        'name' => format_string($group->name),
-        'title' => format_string($group->title),
-        'size' => \mod_selfselectadvanced\local\groups::count_confirmed((int) $group->id),
-    ];
-}
-
-// UX audit item 6c: the guide-loads section was a permanently empty
-// shell. $includeunavailable = true so a guide who has not volunteered
-// still shows up here (this list is informational, not a picker).
-$guideloads = [];
-foreach (\mod_selfselectadvanced\local\guides::with_load($activity, $api->gatekeeper()->resolver(), true) as $guide) {
-    $guideloads[] = (object) [
-        'fullname' => $guide->fullname,
-        'used' => $guide->used,
-        'max' => $guide->max,
-        'label' => $guide->label,
-    ];
-}
+$assignfilter = optional_param('assignfilter', '', PARAM_TEXT);
 
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('managerdashboard', 'mod_selfselectadvanced'));
@@ -243,20 +194,94 @@ echo html_writer::end_tag('form');
 echo html_writer::div(\mod_selfselectadvanced\local\perpage::controls($tableurl), 'mb-3');
 $groupstable->out($perpage, true);
 
-echo $OUTPUT->render_from_template('mod_selfselectadvanced/manage_queue', (object) [
-    'queue' => $queue,
-    'hasqueue' => !empty($queue),
-    'reassignqueue' => $reassignqueue,
-    'hasreassignqueue' => !empty($reassignqueue),
-    'guideoptions' => $guideoptions,
-    'hasguideoptions' => !empty($guideoptions),
-    'guideloads' => $guideloads,
-    'hasguideloads' => !empty($guideloads),
-    'sesskey' => sesskey(),
-    'cmid' => $cm->id,
-    'actionurl' => $baseurl->out(false),
-    'overridesurl' => (new moodle_url('/mod/selfselectadvanced/overrides.php', ['id' => $cm->id]))->out(false),
-    'guidelisturl' => (new moodle_url('/mod/selfselectadvanced/guidelist.php', ['id' => $cm->id]))->out(false),
-    'backurl' => (new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]))->out(false),
-]);
+$assignbase = new moodle_url($baseurl, ['assigntab' => $assigntab]);
+if ($assignfilter !== '') {
+    $assignbase->param('assignfilter', $assignfilter);
+}
+
+echo $OUTPUT->heading(get_string('guidequeueheading', 'mod_selfselectadvanced'), 3);
+
+$tabs = [];
+foreach (['unassigned' => 'assignqueuetab', 'reassign' => 'reassigntab', 'loads' => 'guideloadstab'] as $key => $label) {
+    $tabs[] = new tabobject(
+        $key,
+        new moodle_url($baseurl, ['assigntab' => $key]),
+        get_string($label, 'mod_selfselectadvanced')
+    );
+}
+echo $OUTPUT->tabtree($tabs, $assigntab);
+
+if ($assigntab === 'loads') {
+    // Informational, so guides who have not volunteered appear too.
+    $loadrows = [];
+    foreach (
+        \mod_selfselectadvanced\local\guides::with_load(
+            $activity,
+            $api->gatekeeper()->resolver(),
+            true
+        ) as $guide
+    ) {
+        $loadrows[] = (object) [
+            'fullname' => $guide->fullname,
+            'used' => $guide->used,
+            'max' => $guide->max,
+            'remaining' => $guide->remaining,
+        ];
+    }
+    if ($loadrows) {
+        $loadstable = new \mod_selfselectadvanced\table\guideloads_table('ssaguideloads', $assignbase);
+        $loadstable->display_rows($loadrows, $perpage);
+    } else {
+        echo html_writer::div(get_string('noguidesavailable', 'mod_selfselectadvanced'), 'text-muted');
+    }
+} else {
+    // A name filter, because at this scale scrolling is not a search.
+    echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
+        'class' => 'd-inline-flex gap-2 align-items-center flex-wrap mb-3']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'assigntab', 'value' => $assigntab]);
+    echo html_writer::label(
+        get_string('assignqueuefilter', 'mod_selfselectadvanced'),
+        'ssa-assignfilter',
+        true,
+        ['class' => 'me-2']
+    );
+    echo html_writer::empty_tag('input', ['type' => 'text', 'id' => 'ssa-assignfilter',
+        'name' => 'assignfilter', 'value' => $assignfilter, 'class' => 'form-control form-control-sm me-2']);
+    echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('filter'),
+        'class' => 'btn btn-secondary btn-sm']);
+    echo html_writer::end_tag('form');
+
+    $mode = $assigntab === 'reassign'
+        ? \mod_selfselectadvanced\table\assignqueue_table::MODE_REASSIGN
+        : \mod_selfselectadvanced\table\assignqueue_table::MODE_UNASSIGNED;
+    $assigntable = new \mod_selfselectadvanced\table\assignqueue_table(
+        'ssaassign' . $assigntab,
+        $activity,
+        $mode,
+        $guideoptions,
+        $assignbase,
+        $assignfilter
+    );
+    $assigntable->out($perpage, true);
+}
+
+echo html_writer::div(
+    html_writer::link(
+        new moodle_url('/mod/selfselectadvanced/overrides.php', ['id' => $cm->id]),
+        get_string('overrides', 'mod_selfselectadvanced'),
+        ['class' => 'btn btn-secondary me-2']
+    )
+    . html_writer::link(
+        new moodle_url('/mod/selfselectadvanced/guidelist.php', ['id' => $cm->id]),
+        get_string('guidelist', 'mod_selfselectadvanced'),
+        ['class' => 'btn btn-secondary me-2']
+    )
+    . html_writer::link(
+        new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]),
+        get_string('back'),
+        ['class' => 'btn btn-secondary']
+    ),
+    'mt-3'
+);
 echo $OUTPUT->footer();

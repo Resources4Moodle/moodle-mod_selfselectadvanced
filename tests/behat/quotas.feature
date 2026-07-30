@@ -32,7 +32,7 @@ Feature: Composition quotas with a live deficiency panel
   Scenario: The manager creates a rule from the ingested values
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
     And I follow "Manager dashboard"
-    Then I should see "Guide assignment queue"
+    Then I should see "Guides and assignment"
     When I am on the "Lab groups" "mod_selfselectadvanced > quotas" page
     Then I should see "No quota rules yet."
     When I follow "Add rule"
