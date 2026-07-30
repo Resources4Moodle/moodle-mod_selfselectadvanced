@@ -926,6 +926,7 @@ $string['refusalcompositionunreachable'] = 'With this member the composition cou
 $string['refusalcontactanswered'] = 'That approach has already been answered.';
 $string['refusalcontactdisabled'] = 'This activity does not let teams approach guides.';
 $string['refusalcontactduplicate'] = 'Your team has already approached that guide.';
+$string['refusalcontactfull'] = 'You have no room for another team just now, so this approach cannot be accepted.';
 $string['refusalcontacthasguide'] = 'Your team already has a guide.';
 $string['refusalcontactmax'] = 'Your team has already approached {$a} guide(s), which is as many as this activity allows.';
 $string['refusalcontactnotyours'] = 'That approach was not sent to you.';
