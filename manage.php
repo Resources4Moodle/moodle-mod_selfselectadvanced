@@ -179,6 +179,7 @@ $links = [
     ['quotas.php', 'composition'],
     ['moves.php', 'pendingmoves'],
     ['tickets.php', 'tickets'],
+    ['coordinators.php', 'coordinators'],
     ['moveedit.php', 'movestudents'],
     ['overrides.php', 'overrides'],
     ['ledger.php', 'penaltyledger'],
