@@ -103,6 +103,31 @@ side) and `contactreview.php` (guide side).
   coordinator ingest, the coordinator dashboard, the tabbed
   large-group administration, and the contact-a-guide workflow.
 
+## What the round found
+
+Two defects of the same shape as ones this plugin has already had, both
+caught by its own gate rather than by review:
+
+- **A new guard removed authority that already existed.** The override
+  conflict rule was applied to everyone without the manage capability,
+  so an editing teacher or a guide setting an override on a team they
+  guide was refused - something both could do before. This is exactly
+  the mistake `freeze::unfreeze()` made in 1.16.0, one release later in
+  a different place. A guard must restrain only the NEW authority:
+  gate it on the capability the new role carries.
+- **A database change was added to a version already installed.** The
+  contact table and its setting went into the upgrade step for a
+  version the test environments had built from, so the step never ran
+  and the schema was missing the table. The same applies to the
+  coordinator role's new capability, which lives in a list nothing
+  re-runs: the upgrade has to re-assert the role for an existing site
+  to receive it. Any new db artefact needs its own version.
+
+And one that only a screenshot could show: three language strings did
+not exist, so the pages rendered `[[department]]`, `[[subdepartment]]`
+and `[[proposalnone]]`. Nothing fails on a missing string - it simply
+reads as nonsense to whoever is looking.
+
 ## Answers recorded for the maintainer
 
 - **Overrides by coordinators** did not exist before this round: the
