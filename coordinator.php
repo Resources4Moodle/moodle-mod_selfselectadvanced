@@ -1,0 +1,171 @@
+<?php
+// This file is part of Moodle - https://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+
+/**
+ * The Group Coordinator's dashboard (strategy 1.17 B2).
+ *
+ * A coordinator holds the freeze, unfreeze, override and queue powers
+ * but not the manager's settings powers, so manage.php is closed to
+ * them. This page is the way in to the work that is actually theirs,
+ * and it says plainly which teams are not - the ones they guide, are
+ * lined up to guide, or belong to.
+ *
+ * Read-only: every action lives on the page that owns it.
+ *
+ * @package    mod_selfselectadvanced
+ * @copyright  2026 JSP <jsp@jsp.net.in>
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
+require(__DIR__ . '/../../config.php');
+
+use mod_selfselectadvanced\local\state;
+use mod_selfselectadvanced\local\tickets;
+
+$id = required_param('id', PARAM_INT);
+
+[$course, $cm] = get_course_and_cm_from_cmid($id, 'selfselectadvanced');
+require_login($course, true, $cm);
+
+$activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
+$context = $activity->context();
+$canmanage = has_capability('mod/selfselectadvanced:manage', $context);
+if (!$canmanage) {
+    require_capability('mod/selfselectadvanced:coordinate', $context);
+}
+
+$api = new \mod_selfselectadvanced\local\api($activity);
+$baseurl = new moodle_url('/mod/selfselectadvanced/coordinator.php', ['id' => $cm->id]);
+$PAGE->set_url($baseurl);
+$PAGE->set_title($activity->name());
+$PAGE->set_heading(format_string($course->fullname));
+
+// What is waiting, and what is not this person's to touch.
+$queue = tickets::queue($activity, (int) $USER->id);
+$open = 0;
+foreach ($queue as $ticket) {
+    $open += $ticket->status === tickets::STATUS_OPEN ? 1 : 0;
+}
+
+$involved = $DB->get_fieldset_sql(
+    "SELECT g.id
+       FROM {selfselectadvanced_group} g
+      WHERE g.activityid = :activityid
+        AND (g.guideid = :guide OR g.guidesuccessorid = :successor
+             OR EXISTS (SELECT 1 FROM {selfselectadvanced_member} m
+                         WHERE m.groupid = g.id AND m.userid = :member AND m.status = :confirmed))",
+    [
+        'activityid' => $activity->id(),
+        'guide' => $USER->id,
+        'successor' => $USER->id,
+        'member' => $USER->id,
+        'confirmed' => \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED,
+    ]
+);
+
+$awaitingfreeze = $DB->count_records('selfselectadvanced_group', [
+    'activityid' => $activity->id(),
+    'state' => state::FIRM,
+]);
+$frozen = $DB->count_records('selfselectadvanced_group', [
+    'activityid' => $activity->id(),
+    'state' => state::FROZEN,
+]);
+
+echo $OUTPUT->header();
+echo $OUTPUT->heading(get_string('coordinatordashboard', 'mod_selfselectadvanced'));
+echo html_writer::div(get_string('coordinatorintro', 'mod_selfselectadvanced'), 'alert alert-info');
+
+// The tools that are theirs. Manager-only pages are deliberately absent.
+$links = [['tickets.php', 'tickets'], ['overrides.php', 'overrides'], ['flagged.php', 'flaggedreport']];
+if ($canmanage) {
+    $links[] = ['manage.php', 'managerdashboard'];
+}
+$linkhtml = '';
+foreach ($links as [$file, $stringkey]) {
+    $linkhtml .= html_writer::link(
+        new moodle_url('/mod/selfselectadvanced/' . $file, ['id' => $cm->id]),
+        get_string($stringkey, 'mod_selfselectadvanced'),
+        ['class' => 'btn btn-outline-primary me-2 mb-2']
+    );
+}
+echo html_writer::div($linkhtml, 'selfselectadvanced-toollinks mb-3');
+
+// Four plain counts: what is waiting, and what is out of bounds.
+$cards = [
+    [$open, get_string('coordinatorcardqueue', 'mod_selfselectadvanced')],
+    [$awaitingfreeze, get_string('coordinatorcardfirm', 'mod_selfselectadvanced')],
+    [$frozen, get_string('coordinatorcardfrozen', 'mod_selfselectadvanced')],
+    [count($involved), get_string('coordinatorcardinvolved', 'mod_selfselectadvanced')],
+];
+$cardhtml = '';
+foreach ($cards as [$value, $label]) {
+    $cardhtml .= html_writer::div(
+        html_writer::div($value, 'h2 mb-0') . html_writer::div($label, 'small text-muted'),
+        'ssa-card border rounded p-3 me-2 mb-2 flex-fill'
+    );
+}
+echo html_writer::div($cardhtml, 'd-flex flex-wrap mb-3 selfselectadvanced-coordinatorcards');
+
+if ($involved) {
+    echo html_writer::div(
+        get_string('coordinatorinvolvednotice', 'mod_selfselectadvanced', count($involved)),
+        'alert alert-warning'
+    );
+}
+
+// Every team, paged and sorted - at 1500+ groups a plain list is no use
+// (strategy 1.17 C1 applies here too).
+$statefilter = optional_param('statefilter', '', PARAM_ALPHAEXT);
+if (!in_array($statefilter, state::all(), true)) {
+    $statefilter = '';
+}
+$perpage = \mod_selfselectadvanced\local\perpage::current(50);
+$tableurl = new moodle_url($baseurl, $statefilter !== '' ? ['statefilter' => $statefilter] : []);
+
+$options = ['' => get_string('all')];
+foreach (state::all() as $stateoption) {
+    $options[$stateoption] = get_string('state' . str_replace('_', '', $stateoption), 'mod_selfselectadvanced');
+}
+echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
+    'class' => 'd-inline-flex gap-2 align-items-center flex-wrap mb-3']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+echo html_writer::label(get_string('state', 'mod_selfselectadvanced'), 'ssa-costatefilter', true, ['class' => 'me-2']);
+echo html_writer::select($options, 'statefilter', $statefilter, false, ['id' => 'ssa-costatefilter', 'class' => 'me-2']);
+echo html_writer::empty_tag('input', [
+    'type' => 'submit',
+    'value' => get_string('filter'),
+    'class' => 'btn btn-secondary btn-sm',
+]);
+echo html_writer::end_tag('form');
+
+echo html_writer::div(\mod_selfselectadvanced\local\perpage::controls($tableurl), 'mb-3');
+$groupstable = new \mod_selfselectadvanced\table\groups_table(
+    'ssacoordinatorgroups',
+    $activity,
+    $api->gatekeeper(),
+    new moodle_url($tableurl, ['perpage' => $perpage]),
+    $statefilter,
+    false
+);
+$groupstable->out($perpage, true);
+
+echo html_writer::link(
+    new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]),
+    get_string('back'),
+    ['class' => 'btn btn-secondary']
+);
+echo $OUTPUT->footer();
