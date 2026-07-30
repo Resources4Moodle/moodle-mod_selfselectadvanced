@@ -627,6 +627,71 @@ final class tickets_test extends \advanced_testcase {
     }
 
     /**
+     * A coordinator may grant exceptions, but not to themselves and not
+     * on a team they are involved in (strategy 1.17 B1). The guard sits
+     * at the store, so no page can route round it.
+     */
+    public function test_coordinator_overrides_except_where_involved(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, $leader, , $guide, $manager, $coordinator] = $this->setup_world();
+
+        // The role carries the capability now.
+        $this->assertTrue(has_capability(
+            'mod/selfselectadvanced:override',
+            $activity->context(),
+            (int) $coordinator->id
+        ));
+
+        // An exception for somebody else's team is theirs to grant.
+        $granted = \mod_selfselectadvanced\local\override\store::save(
+            $activity,
+            'group',
+            (int) $group->id,
+            ['maxsize' => 7],
+            (int) $coordinator->id
+        );
+        $this->assertSame(7, (int) $granted->maxsize);
+
+        // Not one for themselves.
+        $this->assert_refused('refusalcoiself', fn() => \mod_selfselectadvanced\local\override\store::save(
+            $activity,
+            'guide',
+            (int) $coordinator->id,
+            ['maxguided' => 99],
+            (int) $coordinator->id
+        ));
+
+        // Nor one for a team they guide.
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $own = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $leader->id,
+            'name' => 'Theirs to guide',
+            'state' => state::FIRM,
+            'guideid' => (int) $coordinator->id,
+            'timeapproved' => time(),
+        ]);
+        $this->assert_refused('refusalcoiinvolved', fn() => \mod_selfselectadvanced\local\override\store::save(
+            $activity,
+            'group',
+            (int) $own->id,
+            ['maxsize' => 7],
+            (int) $coordinator->id
+        ));
+
+        // A manager is exempt, on their own record included.
+        $exempt = \mod_selfselectadvanced\local\override\store::save(
+            $activity,
+            'guide',
+            (int) $manager->id,
+            ['maxguided' => 12],
+            (int) $manager->id
+        );
+        $this->assertSame(12, (int) $exempt->maxguided);
+    }
+
+    /**
      * The role exists after install with its capability set at system
      * context, assignable at course and module level; ensure() is
      * idempotent and never duplicates it.
