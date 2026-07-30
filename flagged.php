@@ -375,6 +375,14 @@ $tabs = [
         new moodle_url($tabbase, ['tab' => 'quota']),
         get_string('flaggedtabquota', 'mod_selfselectadvanced', count($quotafail))
     ),
+    // Anomalies are about GROUPS, not students, and shared the students
+    // tab only because that is where they were first written (strategy
+    // 1.17 C2). They get a page of their own, and their own count.
+    new tabobject(
+        'anomalies',
+        new moodle_url($tabbase, ['tab' => 'anomalies']),
+        get_string('flaggedtabanomalies', 'mod_selfselectadvanced', count($anomalies))
+    ),
 ];
 echo $OUTPUT->tabtree($tabs, $tab);
 // Each tab explains itself. The anomaly wording only belongs on the
@@ -383,6 +391,7 @@ $introkey = match ($tab) {
     'defaulters' => 'flaggedintrodefaulters',
     'guides' => 'flaggedintroguides',
     'quota' => 'flaggedintroquota',
+    'anomalies' => 'flaggedintroanomalies',
     default => 'flaggedintrostudents',
 };
 echo $OUTPUT->notification(get_string($introkey, 'mod_selfselectadvanced'), 'info', false);
@@ -476,9 +485,34 @@ if ($tab === 'quota') {
     die;
 }
 
-// Default tab: groupless (paginated), missing attributes and anomalies
-// (both flexible_table, item 3), each with its own remapped sort/page
-// GET params so the three lists sharing this page never collide.
+// Group anomalies, on a page of their own.
+if ($tab === 'anomalies') {
+    $anomaliesurl = new moodle_url(
+        $tabbase,
+        ['tab' => 'anomalies', 'perpage' => $perpage] + ($q !== '' ? ['q' => $q] : [])
+    );
+    if ($anomalies) {
+        $anomaliestable = new \mod_selfselectadvanced\table\flagged_anomalies_table(
+            'ssaflaggedanomalies',
+            $anomaliesurl
+        );
+        $anomaliestable->display_rows($anomalies, $perpage);
+    } else {
+        echo html_writer::div(get_string('flaggednoanomalies', 'mod_selfselectadvanced'), 'text-muted');
+    }
+    echo $downloadbtn;
+    echo html_writer::link(
+        new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]),
+        get_string('back'),
+        ['class' => 'btn btn-secondary mt-3']
+    );
+    echo $OUTPUT->footer();
+    die;
+}
+
+// Default tab: groupless (paginated) and missing attributes, each with
+// its own remapped sort/page GET params so the lists sharing this page
+// never collide.
 $studentsurl = new moodle_url($tabbase, ['tab' => 'students', 'perpage' => $perpage] + ($q !== '' ? ['q' => $q] : []));
 
 $missingattrshtml = '';
@@ -492,14 +526,6 @@ if ($missingattrs) {
     $missingattrshtml = ob_get_clean();
 }
 
-$anomalieshtml = '';
-if ($anomalies) {
-    $anomaliestable = new \mod_selfselectadvanced\table\flagged_anomalies_table('ssaflaggedanomalies', $studentsurl);
-    ob_start();
-    $anomaliestable->display_rows($anomalies, $perpage);
-    $anomalieshtml = ob_get_clean();
-}
-
 $grouplesspage = array_slice($groupless, $pagenum * $perpage, $perpage);
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/flagged_report', (object) [
     'groupless' => $grouplesspage,
@@ -507,8 +533,6 @@ echo $OUTPUT->render_from_template('mod_selfselectadvanced/flagged_report', (obj
     'grouplesscount' => count($groupless),
     'hasmissingattrs' => !empty($missingattrs),
     'missingattrstable' => $missingattrshtml,
-    'hasanomalies' => !empty($anomalies),
-    'anomaliestable' => $anomalieshtml,
     'backurl' => (new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]))->out(false),
 ]);
 echo $OUTPUT->paging_bar(

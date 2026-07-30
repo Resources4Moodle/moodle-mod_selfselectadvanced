@@ -17,13 +17,12 @@
 {{!
     @template mod_selfselectadvanced/flagged_report
 
-    Flagged students and group anomalies.
+    Flagged students: nobody in a team yet, and missing participant attributes.
 
     Context variables required for this template:
     * hasgroupless - whether groupless students exist
     * grouplesscount - their number
     * missingattrstable - pre-rendered flexible_table HTML (flagged_missingattrs_table)
-    * anomaliestable - pre-rendered flexible_table HTML (flagged_anomalies_table)
 
     Example context (json):
     {
@@ -33,8 +32,6 @@
                        "placeurl": "https://example.com/moveedit"}],
         "hasmissingattrs": true,
         "missingattrstable": "<table></table>",
-        "hasanomalies": false,
-        "anomaliestable": "",
         "backurl": "https://example.com/back"
     }
 }}
@@ -68,14 +65,6 @@
     {{^hasmissingattrs}}
         <p class="text-muted">{{#str}} flagnonemissing, mod_selfselectadvanced {{/str}}</p>
     {{/hasmissingattrs}}
-
-    <h4>{{#str}} flaganomalies, mod_selfselectadvanced {{/str}}</h4>
-    {{#hasanomalies}}
-        {{{anomaliestable}}}
-    {{/hasanomalies}}
-    {{^hasanomalies}}
-        <p class="text-muted">{{#str}} flagnoneanomalies, mod_selfselectadvanced {{/str}}</p>
-    {{/hasanomalies}}
 
     <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>
 </div>
