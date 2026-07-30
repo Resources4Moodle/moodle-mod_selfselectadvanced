@@ -79,6 +79,7 @@
         <FIELD NAME="timesubmitted" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="timeapproved" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Drives the penalty ledger"/>
         <FIELD NAME="timefrozen" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="frozenbystaff" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1 when an editing teacher or coordinator enforced the freeze; a guide may not release such a team"/>
         <FIELD NAME="coregroupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Mirrored Moodle core group id while frozen; ownership tracking"/>
         <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
@@ -213,6 +214,8 @@
         <FIELD NAME="successorid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="New leader for the source group when moving its leader out"/>
         <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="pending" SEQUENCE="false" COMMENT="pending, committed or cancelled"/>
         <FIELD NAME="statusinfo" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON per-rule validation results for the manager UI"/>
+        <FIELD NAME="reason" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Why the student asked for this move, on a requested move"/>
+        <FIELD NAME="responsenote" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="What the leader or coordinator said when accepting or declining"/>
         <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>

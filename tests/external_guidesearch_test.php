@@ -197,10 +197,13 @@ final class external_guidesearch_test extends \externallib_advanced_testcase {
         // Empty means nothing, not everything.
         $this->assertSame([], \mod_selfselectadvanced\external\search_groups::execute($activity->cm()->id, ''));
 
-        // A student has no picker of teams to fill.
+        // A student uses the same picker to choose a team to ask to
+        // join (1.19 B), and sees exactly what the pick-a-team page has
+        // shown them since 1.11 - the name and the project id.
         $this->setUser($leader);
-        $this->expectException(\required_capability_exception::class);
-        \mod_selfselectadvanced\external\search_groups::execute($activity->cm()->id, 'Kingfish');
+        $studentsees = \mod_selfselectadvanced\external\search_groups::execute($activity->cm()->id, 'Kingfish');
+        $this->assertCount(1, $studentsees);
+        $this->assertSame('Kingfisher', $studentsees[0]['name']);
     }
 
     /**

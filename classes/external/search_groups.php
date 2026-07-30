@@ -34,7 +34,8 @@ use mod_selfselectadvanced\activity;
  * thousand students the override form's user scope offered, worse.
  *
  * Matching is on the team name AND the project id, because staff work
- * from whichever they have in front of them.
+ * from whichever they have in front of them - and since 1.19 a student
+ * choosing a team to ask to join uses the same control.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -76,14 +77,23 @@ class search_groups extends external_api {
         $context = $activity->context();
         self::validate_context($context);
 
-        // Staff only: this is the picker on the move and override
-        // forms, and both of those are already manager or coordinator
-        // work. A student has no picker of teams to fill.
-        if (
-            !has_capability('mod/selfselectadvanced:manage', $context)
-            && !has_capability('mod/selfselectadvanced:coordinate', $context)
-        ) {
-            throw new \required_capability_exception($context, 'mod/selfselectadvanced:manage', 'nopermissions', '');
+        // Three audiences, each identified by a capability it already
+        // holds: the staff moving somebody or granting an exception,
+        // and - since 1.19 - a student choosing a team to ask to join.
+        //
+        // A team's name and project id are not secret from the people
+        // in the activity: the pick-a-team page has listed them to
+        // students since 1.11. What this returns is exactly that, and
+        // it is capped and searched rather than listed.
+        $allowed = false;
+        foreach (['manage', 'coordinate', 'respond', 'creategroup'] as $capability) {
+            if (has_capability('mod/selfselectadvanced:' . $capability, $context)) {
+                $allowed = true;
+                break;
+            }
+        }
+        if (!$allowed) {
+            throw new \required_capability_exception($context, 'mod/selfselectadvanced:respond', 'nopermissions', '');
         }
 
         $query = trim($query);

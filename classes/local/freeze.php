@@ -223,6 +223,12 @@ class freeze {
         $fresh->state = state::FROZEN;
         $fresh->coregroupid = $coregroupid;
         $fresh->timefrozen = $now;
+        // Whether staff enforced this freeze, recorded now rather than
+        // worked out later (strategy 1.19 C). A guide may release a
+        // team they guide, but not one an editing teacher or a
+        // coordinator froze - and the question is what was true when
+        // the freeze happened, not who holds what capability today.
+        $fresh->frozenbystaff = self::is_staff($activity, $actorid) ? 1 : 0;
         $fresh->usermodified = $actorid;
         $fresh->timemodified = $now;
         $DB->update_record('selfselectadvanced_group', $fresh);
@@ -266,6 +272,33 @@ class freeze {
         // own team it is asks through the ticket queue instead.
         if (has_capability('mod/selfselectadvanced:coordinate', $activity->context(), $actorid)) {
             tickets::require_uninvolved($activity, $group, $actorid);
+        }
+
+        // A guide releasing their own team (strategy 1.19 C). They do
+        // not hold the unfreeze capability, so without this they can
+        // only ask and wait - and a team cannot be re-composed while it
+        // is frozen, which made every ordinary change staff work.
+        //
+        // The limit is the one the maintainer set: a guide releases
+        // until an editing teacher or a coordinator has enforced a
+        // freeze. After that the freeze is meant to hold, and the
+        // existing unfreeze request is the only way through.
+        // The guard restrains the NEW authority and nothing else. This
+        // service has always trusted its callers on the capability -
+        // the pages enforce it, and every existing caller relies on
+        // that. Adding a blanket requirement here took authority away
+        // from actors who had it, which is the exact mistake 1.16 and
+        // 1.17 each made once and this file records for next time.
+        //
+        // So only the new case is refused: a guide releasing a team an
+        // editing teacher or coordinator froze. That freeze is meant to
+        // hold, and the unfreeze request is the way through it.
+        if (
+            (int) $group->guideid === $actorid
+            && !empty($group->frozenbystaff)
+            && !has_capability('mod/selfselectadvanced:unfreeze', $activity->context(), $actorid)
+        ) {
+            throw new \moodle_exception('refusalreleasestafffroze', 'mod_selfselectadvanced');
         }
 
         $lock = locks::acquire('group:' . $group->id);
@@ -339,6 +372,7 @@ class freeze {
             $fresh->leaderid = $leaderid;
             $fresh->coregroupid = null;
             $fresh->timefrozen = null;
+            $fresh->frozenbystaff = 0;
             $fresh->usermodified = $actorid;
             $fresh->timemodified = $now;
             $DB->update_record('selfselectadvanced_group', $fresh);
@@ -576,5 +610,22 @@ class freeze {
         $snapshot->id = $DB->insert_record('selfselectadvanced_snapshot', $snapshot);
 
         return $snapshot;
+    }
+
+    /**
+     * Whether an actor counts as staff for the freeze record.
+     *
+     * Editing teachers and coordinators are the two roles whose freeze
+     * a guide may not undo (strategy 1.19 C).
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the actor
+     * @return bool true when they hold manage or coordinate
+     */
+    private static function is_staff(activity $activity, int $actorid): bool {
+        $context = $activity->context();
+
+        return has_capability('mod/selfselectadvanced:manage', $context, $actorid)
+            || has_capability('mod/selfselectadvanced:coordinate', $context, $actorid);
     }
 }

@@ -65,6 +65,34 @@ if ($action === 'bulkfreeze' && data_submitted() && confirm_sesskey()) {
     );
 }
 
+// Accepting or returning straight from the queue (strategy 1.19 A).
+// The heavy lifting stays in the lifecycle service, so this is exactly
+// the decision the review page makes - the guide simply does not have
+// to open it first. A return still requires its comment.
+if (in_array($action, ['queueaccept', 'queuereturn'], true) && data_submitted() && confirm_sesskey()) {
+    $groupid = required_param('g', PARAM_INT);
+    $group = \mod_selfselectadvanced\local\groups::get($activity, $groupid);
+    $back = new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id, 'guidetab' => 'awaiting']);
+    try {
+        if ($action === 'queueaccept') {
+            $api->lifecycle()->approve($group, (int) $USER->id);
+            $back->params(['decided' => $groupid, 'decidedas' => 'accepted']);
+            $notice = get_string('groupapprovednotice', 'mod_selfselectadvanced', $group->pluginuid);
+        } else {
+            $comment = trim(required_param('comment', PARAM_TEXT));
+            if ($comment === '') {
+                throw new moodle_exception('returncommentrequired', 'mod_selfselectadvanced');
+            }
+            $api->lifecycle()->return_group($group, $comment, (int) $USER->id);
+            $back->params(['decided' => $groupid, 'decidedas' => 'returned']);
+            $notice = get_string('groupreturnednotice', 'mod_selfselectadvanced', $group->pluginuid);
+        }
+        redirect($back, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
+    } catch (moodle_exception $e) {
+        redirect($back, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
 // Guide volunteering (1.7.0): the guide declares or updates their own
 // capacity, up to the manager-override-aware effective maximum.
 if (
@@ -366,7 +394,19 @@ foreach ($mygroups as $group) {
             'id' => $cm->id,
             'g' => $group->id,
         ]))->out(false),
+        'groupid' => (int) $group->id,
     ];
+    // The decision belongs in the queue, not only behind the Review
+    // link (strategy 1.19 A). Accept is offered when the gate allows
+    // it, and carries the gate's own reason when it does not, so the
+    // guide learns why here rather than after a click.
+    if ($group->state === \mod_selfselectadvanced\local\state::PENDING_GUIDE) {
+        $refusal = $api->gatekeeper()->can_approve($group, (int) $USER->id);
+        $row->canaccept = $refusal === null;
+        $row->acceptblocked = $refusal !== null
+            ? get_string($refusal->stringkey, 'mod_selfselectadvanced', $refusal->a ?? null)
+            : '';
+    }
     // Apply the guide filters to the guided (non-queue) list.
     $matchesfilters = true;
     if ($group->state !== \mod_selfselectadvanced\local\state::PENDING_GUIDE) {
@@ -398,6 +438,20 @@ foreach ($mygroups as $group) {
         $row->groupid = (int) $group->id;
         $row->canfreeze = $group->state === \mod_selfselectadvanced\local\state::FIRM
             && has_capability('mod/selfselectadvanced:freeze', $context);
+        // Releasing a team this guide froze (strategy 1.19 C). A team
+        // an editing teacher or coordinator froze is theirs to release,
+        // and the guide is offered the unfreeze REQUEST instead - the
+        // difference is stated here rather than discovered on refusal.
+        $row->canrelease = $group->state === \mod_selfselectadvanced\local\state::FROZEN
+            && (int) $group->guideid === (int) $USER->id
+            && empty($group->frozenbystaff);
+        $row->stafffroze = $group->state === \mod_selfselectadvanced\local\state::FROZEN
+            && !empty($group->frozenbystaff);
+        $row->releaseurl = (new moodle_url('/mod/selfselectadvanced/group.php', [
+            'id' => $cm->id,
+            'g' => $group->id,
+            'action' => 'unfreeze',
+        ]))->out(false);
         $row->freezeurl = (new moodle_url('/mod/selfselectadvanced/group.php', [
             'id' => $cm->id,
             'g' => $group->id,
@@ -619,6 +673,40 @@ if ($guidetab === 'handover') {
             }
         }
         echo html_writer::end_div();
+    }
+}
+
+// The team just decided, shown greyed at the head of the queue rather
+// than vanishing the instant it is answered (strategy 1.19 A). It is
+// fetched directly because accepting moves it out of the queue and
+// returning takes this guide off it altogether.
+$decidedid = optional_param('decided', 0, PARAM_INT);
+$decidedas = optional_param('decidedas', '', PARAM_ALPHA);
+if ($guidetab === 'awaiting' && $decidedid && in_array($decidedas, ['accepted', 'returned'], true)) {
+    $decidedgroup = $DB->get_record('selfselectadvanced_group', [
+        'id' => $decidedid,
+        'activityid' => $activity->id(),
+    ]);
+    if ($decidedgroup) {
+        array_unshift($queue, (object) [
+            'pluginuid' => $decidedgroup->pluginuid,
+            'rawname' => $decidedgroup->name,
+            'name' => format_string($decidedgroup->name),
+            'title' => format_string($decidedgroup->title),
+            'statelabel' => get_string(
+                'state' . str_replace('_', '', $decidedgroup->state),
+                'mod_selfselectadvanced'
+            ),
+            'size' => \mod_selfselectadvanced\local\groups::count_confirmed((int) $decidedgroup->id),
+            'reviewurl' => (new moodle_url('/mod/selfselectadvanced/review.php', [
+                'id' => $cm->id,
+                'g' => $decidedgroup->id,
+            ]))->out(false),
+            'groupid' => (int) $decidedgroup->id,
+            'canaccept' => false,
+            'acceptblocked' => '',
+            'decided' => get_string('queuedecided' . $decidedas, 'mod_selfselectadvanced'),
+        ]);
     }
 }
 

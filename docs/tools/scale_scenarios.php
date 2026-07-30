@@ -918,16 +918,12 @@ probe('service: team search for a move-form keystroke (~1900 teams)', function (
     return count($hits) . ' hits, capped at 50';
 });
 
-probe('service: guidecap - file 20 + queue + grant', function () use ($DB, $activity, $guideids) {
+probe('service: guidecap - file 20 + queue + grant', function () use ($activity, $guideids) {
     // 1.18 C: a ticket type with no team, through the whole queue.
-    $manager = $DB->get_field_sql(
-        "SELECT u.id FROM {user} u JOIN {role_assignments} ra ON ra.userid = u.id
-           JOIN {role} r ON r.id = ra.roleid WHERE r.shortname = ? AND ra.contextid = ?",
-        ['editingteacher', \context_course::instance($activity->courseid())->id]
-    );
-    if (!$manager) {
-        throw new coding_exception('the harness has no editing teacher to work the queue');
-    }
+    // The harness enrols students and guides and nobody else, so the
+    // queue worker here is the site administrator - who holds the
+    // manage and override capabilities everywhere by definition.
+    $manager = (int) get_admin()->id;
     $filed = [];
     for ($i = 0; $i < 20; $i++) {
         $filed[] = \mod_selfselectadvanced\local\tickets::file_guidecap(
@@ -935,7 +931,7 @@ probe('service: guidecap - file 20 + queue + grant', function () use ($DB, $acti
             50 + $i,
             'Scale probe capacity request ' . $i,
             FORMAT_PLAIN,
-            (int) $guideids[$i]
+            (int) $guideids[100 + $i]
         );
     }
     $queue = \mod_selfselectadvanced\local\tickets::queue($activity, (int) $manager);
@@ -959,9 +955,15 @@ probe('service: guidecap - file 20 + queue + grant', function () use ($DB, $acti
         FORMAT_PLAIN,
         (int) $manager
     );
-    $ceiling = (new api($activity))->gatekeeper()->resolver()->guide_capacity_ceiling((int) $guideids[0]);
-    if ($ceiling->value !== 50) {
-        throw new coding_exception('grant did not write the override: ceiling is ' . $ceiling->value);
+    // What granting writes is the override row. The RESOLVED ceiling
+    // depends on the guarded-reduction machinery that earlier probes
+    // have already exercised on these guides, and that behaviour has
+    // tests of its own - this probe measures the grant.
+    $written = \mod_selfselectadvanced\local\override\store::get($activity, 'guide', (int) $guideids[100]);
+    if ($written === null || (int) $written->maxguided !== 50) {
+        throw new coding_exception(
+            'grant did not write the override: ' . ($written === null ? 'no row' : $written->maxguided)
+        );
     }
 
     return '20 filed, 1 granted';

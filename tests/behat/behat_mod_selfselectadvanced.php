@@ -51,6 +51,7 @@ class behat_mod_selfselectadvanced extends behat_base {
             'coordinator' => '/mod/selfselectadvanced/coordinator.php',
             'coordinators' => '/mod/selfselectadvanced/coordinators.php',
             'guide queue' => '/mod/selfselectadvanced/guidequeue.php',
+            'join' => '/mod/selfselectadvanced/joinrequest.php',
         ];
         $type = strtolower($type);
         if (!isset($pages[$type])) {

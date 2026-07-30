@@ -87,6 +87,16 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                 'required' => ['user'],
                 'switchids' => ['user' => 'userid'],
             ],
+            'joinrequests' => [
+                'singular' => 'joinrequest',
+                'datagenerator' => 'joinrequest',
+                'required' => ['selfselectadvanced', 'user', 'ssagroup'],
+                'switchids' => [
+                    'selfselectadvanced' => 'activityid',
+                    'user' => 'userid',
+                    'ssagroup' => 'targetgroupid',
+                ],
+            ],
             'contacts' => [
                 'singular' => 'contact',
                 'datagenerator' => 'contact',

@@ -22,6 +22,7 @@
     Context variables required for this template:
     * loadline - "You are guiding 3 of 10 groups"
     * hasqueue - whether the queue has entries
+    * queue[].canaccept / acceptblocked / decided - the decision in the row itself (1.19 A)
     * showqueue - whether the review queue tab is the one being shown
     * showguided - whether the guided-teams tab is the one being shown
     * showvolunteer - whether guide volunteering is enabled for this activity
@@ -80,6 +81,8 @@
                 "size": 3,
                 "reviewurl": "https://example.com/mod/selfselectadvanced/review.php?id=1&g=2",
                 "canfreeze": false,
+                "canrelease": false,
+                "stafffroze": false,
                 "freezeurl": "https://example.com/mod/selfselectadvanced/group.php?id=1&g=2&action=freeze",
                 "isformingassigned": true,
                 "stepouturl": "https://example.com/mod/selfselectadvanced/guide.php?id=1&action=stepout&g=2"
@@ -159,7 +162,53 @@
                             <td>{{pluginuid}}</td>
                             <td>{{title}}</td>
                             <td>{{size}}</td>
-                            <td><a class="btn btn-primary btn-sm" href="{{reviewurl}}">{{#str}} review, mod_selfselectadvanced {{/str}}</a></td>
+                            <td>
+                                <div class="d-flex flex-wrap gap-1 align-items-start">
+                                    <a class="btn btn-outline-secondary btn-sm" href="{{reviewurl}}">
+                                        {{#str}} review, mod_selfselectadvanced {{/str}}
+                                    </a>
+                                    {{#decided}}
+                                        <button type="button" class="btn btn-secondary btn-sm" disabled
+                                                aria-disabled="true">{{decided}}</button>
+                                    {{/decided}}
+                                    {{^decided}}
+                                        {{#canaccept}}
+                                            <form method="post" action="{{actionurl}}" class="d-inline">
+                                                <input type="hidden" name="id" value="{{cmid}}">
+                                                <input type="hidden" name="action" value="queueaccept">
+                                                <input type="hidden" name="g" value="{{groupid}}">
+                                                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                                <button type="submit" class="btn btn-primary btn-sm">
+                                                    {{#str}} queueaccept, mod_selfselectadvanced {{/str}}
+                                                </button>
+                                            </form>
+                                            <form method="post" action="{{actionurl}}"
+                                                  class="d-inline-flex gap-1 align-items-start">
+                                                <input type="hidden" name="id" value="{{cmid}}">
+                                                <input type="hidden" name="action" value="queuereturn">
+                                                <input type="hidden" name="g" value="{{groupid}}">
+                                                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                                <label class="visually-hidden" for="ssa-qr-{{groupid}}">
+                                                    {{#str}} returncommentlabel, mod_selfselectadvanced {{/str}}
+                                                </label>
+                                                <input type="text" id="ssa-qr-{{groupid}}" name="comment"
+                                                       class="form-control form-control-sm"
+                                                       placeholder="{{#str}} queuereturnhint, mod_selfselectadvanced {{/str}}">
+                                                <button type="submit" class="btn btn-outline-warning btn-sm">
+                                                    {{#str}} queuereturn, mod_selfselectadvanced {{/str}}
+                                                </button>
+                                            </form>
+                                        {{/canaccept}}
+                                        {{#acceptblocked}}
+                                            <button type="button" class="btn btn-secondary btn-sm" disabled
+                                                    aria-disabled="true">
+                                                {{#str}} queueaccept, mod_selfselectadvanced {{/str}}
+                                            </button>
+                                            <span class="text-muted small">{{acceptblocked}}</span>
+                                        {{/acceptblocked}}
+                                    {{/decided}}
+                                </div>
+                            </td>
                         </tr>
                     {{/queue}}
                 </tbody>
@@ -249,6 +298,14 @@
                                         {{#canfreeze}}
                                             <a class="btn btn-primary btn-sm" href="{{freezeurl}}">{{#str}} freeze, mod_selfselectadvanced {{/str}}</a>
                                         {{/canfreeze}}
+                                        {{#canrelease}}
+                                            <a class="btn btn-outline-primary btn-sm" href="{{releaseurl}}">{{#str}} release, mod_selfselectadvanced {{/str}}</a>
+                                        {{/canrelease}}
+                                        {{#stafffroze}}
+                                            <button type="button" class="btn btn-secondary btn-sm" disabled
+                                                    aria-disabled="true">{{#str}} release, mod_selfselectadvanced {{/str}}</button>
+                                            <span class="text-muted small">{{#str}} releasestafffroze, mod_selfselectadvanced {{/str}}</span>
+                                        {{/stafffroze}}
                                     {{/isformingassigned}}
                                     {{#isformingassigned}}
                                         <a class="btn btn-secondary btn-sm" href="{{stepouturl}}">{{#str}} eoistepout, mod_selfselectadvanced {{/str}}</a>

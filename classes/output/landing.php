@@ -164,6 +164,10 @@ class landing implements renderable, templatable {
 
         $data->isguide = has_capability('mod/selfselectadvanced:guide', $context, $this->userid, false);
         $data->guideurl = (new \moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cmid]))->out(false);
+        // Asking to join another team, and answering those asks
+        // (strategy 1.19 B). Offered to everybody who can take part:
+        // the two sides of it are one page.
+        $data->joinurl = (new \moodle_url('/mod/selfselectadvanced/joinrequest.php', ['id' => $cmid]))->out(false);
         $data->ismanager = has_capability('mod/selfselectadvanced:manage', $context, $this->userid, false);
         $data->manageurl = (new \moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cmid]))->out(false);
 

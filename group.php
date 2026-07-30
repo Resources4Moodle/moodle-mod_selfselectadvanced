@@ -452,7 +452,16 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'unfreeze') {
-    require_capability('mod/selfselectadvanced:unfreeze', $context);
+    // A guide may release a team they guide while no editing teacher or
+    // coordinator has enforced the freeze (strategy 1.19 C). The rule
+    // itself lives in the service, which re-checks on the row it reads
+    // under the lock; this is the page saying the same thing so the
+    // guide is not sent to a door that refuses them.
+    if (!has_capability('mod/selfselectadvanced:unfreeze', $context)) {
+        if ((int) $group->guideid !== (int) $USER->id || !empty($group->frozenbystaff)) {
+            require_capability('mod/selfselectadvanced:unfreeze', $context);
+        }
+    }
     if (data_submitted() && confirm_sesskey()) {
         $result = \mod_selfselectadvanced\local\freeze::unfreeze($activity, $group, (int) $USER->id);
         $notice = get_string('groupunfrozennotice', 'mod_selfselectadvanced', $group->pluginuid);

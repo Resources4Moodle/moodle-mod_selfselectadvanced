@@ -35,11 +35,11 @@ $functions = [
     ],
     'mod_selfselectadvanced_search_groups' => [
         'classname' => \mod_selfselectadvanced\external\search_groups::class,
-        'description' => 'Search this activity\'s teams by name or project id, for the move '
-            . 'and override pickers.',
+        'description' => 'Search this activity\'s teams by name or project id, for the move, '
+            . 'override and join-request pickers.',
         'type' => 'read',
         'ajax' => true,
-        'capabilities' => 'mod/selfselectadvanced:manage',
+        'capabilities' => 'mod/selfselectadvanced:respond',
     ],
     'mod_selfselectadvanced_search_guides' => [
         'classname' => \mod_selfselectadvanced\external\search_guides::class,

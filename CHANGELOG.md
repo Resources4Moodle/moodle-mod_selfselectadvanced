@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.19.0 (2026-07-30)
+
+- **The guide decides where the guide is looking.** A team awaiting a
+  guide always had Accept and Return - behind the Review link, one click
+  away from the queue the guide was reading. Both actions are now in the
+  queue row itself, Review beside them for reading the proposal first.
+  When the gate will not allow an approval the row says so, with the
+  gate's own reason, instead of finding out after a click. And a decided
+  team no longer vanishes: it stays at the head of the queue with a
+  greyed button naming what was done.
+- **A student can ask to join another team.** They pick the team and say
+  why; the target team's **leader** answers. That is the whole approval
+  while a team is still forming - no staff involved. A **Group
+  Coordinator can answer any request**, for an absent leader or a
+  contested case. Acceptance runs the existing move engine, so the
+  composition rules, the seat plan, the locks and the audit trail are
+  the ones a coordinator's move already goes through: a request that
+  would break the target team is refused at acceptance, naming the rule,
+  and stays open. An unanswered request can be withdrawn.
+- **A guide can release their own team.** Until now only editing
+  teachers and coordinators could unfreeze, so every ordinary change to
+  a settled team was staff work. A guide may now release a team they
+  guide - but only while no editing teacher or coordinator has enforced
+  the freeze, which is recorded when the freeze happens. After a staff
+  freeze the guide's release is refused and the unfreeze request is the
+  way through, which is what a staff freeze is for. Teams already frozen
+  when this arrives count as staff-enforced, since they were frozen
+  under the old rule.
+
 ## 1.18.3 (2026-07-30)
 
 - **The composition checker called a perfectly ordinary rule set

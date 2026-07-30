@@ -774,5 +774,42 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073080, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073090) {
+        // A guide may now release a team they guide - but only while no
+        // editing teacher or coordinator has enforced the freeze
+        // (strategy 1.19 C). Whether staff enforced it is recorded when
+        // the freeze happens, so the question is answered by what was
+        // true then rather than by who holds what today.
+        $group = new xmldb_table('selfselectadvanced_group');
+        $staff = new xmldb_field('frozenbystaff', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0', 'timefrozen');
+        if (!$dbman->field_exists($group, $staff)) {
+            $dbman->add_field($group, $staff);
+        }
+        // Teams already frozen when this arrives were frozen under the
+        // old rule, where only staff could unfreeze at all. Treating
+        // them as staff-enforced keeps that promise rather than handing
+        // guides a release nobody granted them.
+        $DB->set_field_select(
+            'selfselectadvanced_group',
+            'frozenbystaff',
+            1,
+            'state = :frozen',
+            ['frozen' => \mod_selfselectadvanced\local\state::FROZEN]
+        );
+
+        // A student's request to join a team is a move in a new status,
+        // so committing one stays the engine already in place
+        // (strategy 1.19 B).
+        $move = new xmldb_table('selfselectadvanced_move');
+        foreach (['reason', 'responsenote'] as $name) {
+            $field = new xmldb_field($name, XMLDB_TYPE_TEXT, null, null, null, null, null);
+            if (!$dbman->field_exists($move, $field)) {
+                $dbman->add_field($move, $field);
+            }
+        }
+
+        upgrade_mod_savepoint(true, 2026073090, 'selfselectadvanced');
+    }
+
     return true;
 }
