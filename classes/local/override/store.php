@@ -100,6 +100,9 @@ class store {
                 throw new \coding_exception("Field $field is not valid for $scope-scope overrides (B5)");
             }
         }
+        // Enforced at the seam rather than the page, so no route to
+        // granting an exception can forget it (strategy 1.17 B1).
+        \mod_selfselectadvanced\local\tickets::require_uninvolved_override($activity, $scope, $targetid, $actorid);
 
         $transaction = $DB->start_delegated_transaction();
 

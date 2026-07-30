@@ -71,6 +71,7 @@ class coordinatorrole {
             'mod/selfselectadvanced:viewall',
             'mod/selfselectadvanced:freeze',
             'mod/selfselectadvanced:unfreeze',
+            'mod/selfselectadvanced:override',
             ] as $capability
         ) {
             // With overwrite off this fills in what is missing and

@@ -445,6 +445,38 @@ class tickets {
     }
 
     /**
+     * The conflict-of-interest guard for overrides (strategy 1.17 B1).
+     *
+     * A coordinator may grant exceptions, but not to themselves and not
+     * on a team they are part of: an exception is exactly the kind of
+     * decision that has to be seen to be disinterested. Managers are
+     * exempt, as with every other conflict rule here - their authority
+     * is accountable by role.
+     *
+     * @param activity $activity the activity
+     * @param string $scope user, group, guide or move
+     * @param int $targetid the user or group the exception is for
+     * @param int $userid the actor
+     * @throws \moodle_exception refusalcoiself or refusalcoiinvolved
+     */
+    public static function require_uninvolved_override(
+        activity $activity,
+        string $scope,
+        int $targetid,
+        int $userid
+    ): void {
+        if (has_capability('mod/selfselectadvanced:manage', $activity->context(), $userid)) {
+            return;
+        }
+        if (in_array($scope, ['user', 'guide'], true) && $targetid === $userid) {
+            throw new \moodle_exception('refusalcoiself', 'mod_selfselectadvanced');
+        }
+        if ($scope === 'group') {
+            self::require_uninvolved($activity, groups::get($activity, $targetid), $userid);
+        }
+    }
+
+    /**
      * One ticket, asserted to belong to the activity.
      *
      * @param activity $activity the activity

@@ -800,6 +800,7 @@ $string['refusalalreadyinvited'] = 'This user already has a pending invitation t
 $string['refusalalreadymember'] = 'This user is already a confirmed member of this group.';
 $string['refusalbelowminsize'] = 'The group has {$a->current} confirmed members; the minimum is {$a->min}.';
 $string['refusalcoiinvolved'] = 'You cannot act on this team because you are {$a} of it. Another coordinator or a manager must handle it.';
+$string['refusalcoiself'] = 'You cannot grant yourself an exception. Another coordinator or a manager must decide this one.';
 $string['refusalcompositionmax'] = 'This member cannot join: the group already has {$a->current} members with "{$a->value}" and the counting rule allows at most {$a->max}; adding members can never fix an exceeded maximum.';
 $string['refusalcompositionunreachable'] = 'With this member the composition could no longer be completed: at least {$a->missing} more suitable member(s) would still be required but only {$a->free} free seat(s) would be left in the group.';
 $string['refusalcutoffpassed'] = 'The formation deadline ({$a}) has passed.';
