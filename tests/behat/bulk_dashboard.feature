@@ -50,10 +50,16 @@ Feature: Bulk operations, the manager dashboard and the flagged report
     And I press "Filter"
     Then I should see "Nothing to display"
 
-  Scenario: The flagged report lists groupless students, missing attributes and anomalies
+  Scenario: The flagged report lists groupless students and missing attributes
     When I am on the "Lab groups" "mod_selfselectadvanced > flagged" page logged in as teacher1
     Then I should see "Students in no group (1)"
     And I should see "Uma Three"
     And I should see "Attributes missing"
     And I should see "Tara Two" in the ".selfselectadvanced-flagged" "css_element"
-    And I should see "No group anomalies."
+
+  Scenario: Group anomalies have a tab of their own
+    When I am on the "Lab groups" "mod_selfselectadvanced > flagged" page logged in as teacher1
+    Then I should see "Group anomalies"
+    And I should not see "No team is in an anomalous position."
+    When I follow "Group anomalies (0)"
+    Then I should see "No team is in an anomalous position."
