@@ -817,6 +817,64 @@ probe('service: guides selectable, students-approach (200 guides)', function () 
     return "listed on={$on} off={$off} (no capacity filtering when students approach)";
 });
 
+probe('table: assignqueue page of 50 (awaiting a guide)', function () use ($activity, $cm) {
+    // 1.17.0 C1: the tab must cost the same at 1900 teams as at 19.
+    $table = new \mod_selfselectadvanced\table\assignqueue_table(
+        'probeassign',
+        $activity,
+        \mod_selfselectadvanced\table\assignqueue_table::MODE_UNASSIGNED,
+        [1 => 'A guide'],
+        new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id])
+    );
+    ob_start();
+    $table->out(50, true);
+    $html = ob_get_clean();
+
+    return strlen($html) . ' bytes';
+});
+
+probe('table: assignqueue page of 50 (changing a guide)', function () use ($activity, $cm) {
+    $table = new \mod_selfselectadvanced\table\assignqueue_table(
+        'probereassign',
+        $activity,
+        \mod_selfselectadvanced\table\assignqueue_table::MODE_REASSIGN,
+        [1 => 'A guide'],
+        new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id])
+    );
+    ob_start();
+    $table->out(50, true);
+    $html = ob_get_clean();
+
+    return strlen($html) . ' bytes';
+});
+
+probe('service: contacts - 50 approaches + remaining', function () use ($DB, $activity, $groupids, $guideids) {
+    $DB->set_field('selfselectadvanced', 'contactmax', 3, ['id' => $activity->id()]);
+    $fresh = activity::from_instance($activity->id());
+    $sent = 0;
+    for ($i = 0; $i < 50; $i++) {
+        $gid = (int) $groupids[400 + $i];
+        $DB->set_field('selfselectadvanced_group', 'state', 'forming', ['id' => $gid]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', null, ['id' => $gid]);
+        $group = groups::get($fresh, $gid);
+        \mod_selfselectadvanced\local\contacts::send(
+            $fresh,
+            $group,
+            (int) $guideids[$i % count($guideids)],
+            'Scale probe approach ' . $i,
+            FORMAT_PLAIN,
+            (int) $group->leaderid
+        );
+        $sent++;
+    }
+    $left = \mod_selfselectadvanced\local\contacts::remaining($fresh, (int) $groupids[400]);
+    if ($left !== 2) {
+        throw new coding_exception('remaining after one approach should be 2, got ' . $left);
+    }
+
+    return $sent . ' approaches, remaining correct';
+});
+
 cli_writeln('');
 cli_writeln('=== SUMMARY (worst first) ===');
 usort($probes, static fn($a, $b) => $b[1] <=> $a[1]);
