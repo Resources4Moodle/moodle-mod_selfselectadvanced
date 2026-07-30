@@ -130,91 +130,109 @@ echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('departments', 'mod_selfselectadvanced'));
 echo $OUTPUT->notification(get_string('departmentsintro', 'mod_selfselectadvanced'), 'info', false);
 
-$rows = [];
-foreach (depts::get_all() as $record) {
-    $actions = [];
-    $actions[] = html_writer::link(
-        new moodle_url($baseurl, ['action' => 'add', 'd' => $record->id]),
-        get_string('deptaddchild', 'mod_selfselectadvanced')
-    );
-    $actions[] = html_writer::link(
-        new moodle_url($baseurl, ['action' => 'rename', 'd' => $record->id]),
-        get_string('rename')
-    );
-    $actions[] = html_writer::link(
-        new moodle_url($baseurl, ['action' => 'up', 'd' => $record->id, 'sesskey' => sesskey()]),
-        get_string('up')
-    );
-    $actions[] = html_writer::link(
-        new moodle_url($baseurl, ['action' => 'down', 'd' => $record->id, 'sesskey' => sesskey()]),
-        get_string('down')
-    );
-    $actions[] = html_writer::link(
-        new moodle_url($baseurl, ['action' => 'delete', 'd' => $record->id, 'sesskey' => sesskey()]),
-        get_string('delete')
-    );
-    $indent = str_repeat('&nbsp;&nbsp;&nbsp;&nbsp;', (int) $record->depth - 1);
-    $rows[] = [
-        $indent . format_string($record->name),
-        (int) $record->depth,
-        implode(' | ', $actions),
-    ];
+// The departments tree and the programme vocabulary are two lists, so
+// they are two tabs (strategy 1.18 E) rather than one under the other.
+$depttab = optional_param('depttab', 'departments', PARAM_ALPHA);
+if (!in_array($depttab, ['departments', 'programs'], true)) {
+    $depttab = 'departments';
 }
-if ($rows) {
-    $table = new html_table();
-    $table->head = [
+$depttabs = [];
+foreach (['departments' => 'departments', 'programs' => 'programs'] as $deptkey => $deptlabel) {
+    $depttabs[] = new tabobject(
+        $deptkey,
+        new moodle_url($baseurl, ['depttab' => $deptkey]),
+        get_string($deptlabel, 'mod_selfselectadvanced')
+    );
+}
+echo $OUTPUT->tabtree($depttabs, $depttab);
+
+if ($depttab === 'departments') {
+    $rows = [];
+    foreach (depts::get_all() as $record) {
+        $actions = [];
+        $actions[] = html_writer::link(
+            new moodle_url($baseurl, ['action' => 'add', 'd' => $record->id]),
+            get_string('deptaddchild', 'mod_selfselectadvanced')
+        );
+        $actions[] = html_writer::link(
+            new moodle_url($baseurl, ['action' => 'rename', 'd' => $record->id]),
+            get_string('rename')
+        );
+        $actions[] = html_writer::link(
+            new moodle_url($baseurl, ['action' => 'up', 'd' => $record->id, 'sesskey' => sesskey()]),
+            get_string('up')
+        );
+        $actions[] = html_writer::link(
+            new moodle_url($baseurl, ['action' => 'down', 'd' => $record->id, 'sesskey' => sesskey()]),
+            get_string('down')
+        );
+        $actions[] = html_writer::link(
+            new moodle_url($baseurl, ['action' => 'delete', 'd' => $record->id, 'sesskey' => sesskey()]),
+            get_string('delete')
+        );
+        $indent = str_repeat('&nbsp;&nbsp;&nbsp;&nbsp;', (int) $record->depth - 1);
+        $rows[] = [
+            $indent . format_string($record->name),
+            (int) $record->depth,
+            implode(' | ', $actions),
+        ];
+    }
+    if ($rows) {
+        $table = new html_table();
+        $table->head = [
         get_string('name'),
         get_string('deptlevel', 'mod_selfselectadvanced'),
         get_string('actions'),
-    ];
-    $table->data = $rows;
-    $table->attributes['class'] = 'generaltable selfselectadvanced-departments';
-    echo html_writer::table($table);
-} else {
-    echo $OUTPUT->notification(get_string('departmentsnone', 'mod_selfselectadvanced'), 'warning', false);
-}
+        ];
+        $table->data = $rows;
+        $table->attributes['class'] = 'generaltable selfselectadvanced-departments';
+        echo html_writer::table($table);
+    } else {
+        echo $OUTPUT->notification(get_string('departmentsnone', 'mod_selfselectadvanced'), 'warning', false);
+    }
 
-echo html_writer::start_div('d-flex gap-2');
-echo $OUTPUT->single_button(
-    new moodle_url($baseurl, ['action' => 'add']),
-    get_string('deptadd', 'mod_selfselectadvanced'),
-    'get'
-);
-echo $OUTPUT->single_button(
-    new moodle_url($baseurl, ['action' => 'bulk']),
-    get_string('deptbulk', 'mod_selfselectadvanced'),
-    'get'
-);
-echo html_writer::end_div();
-// Programmes (flat vocabulary; auto-grown by admin CSV ingest).
-echo $OUTPUT->heading(get_string('programs', 'mod_selfselectadvanced'), 3);
-$progrows = [];
-foreach (\mod_selfselectadvanced\local\attributes\depts::programs_menu() as $progname) {
-    $pid = $DB->get_field('selfselectadvanced_dept', 'id', ['kind' => 'program', 'name' => $progname]);
-    $progrows[] = [
+    echo html_writer::start_div('d-flex gap-2');
+    echo $OUTPUT->single_button(
+        new moodle_url($baseurl, ['action' => 'add']),
+        get_string('deptadd', 'mod_selfselectadvanced'),
+        'get'
+    );
+    echo $OUTPUT->single_button(
+        new moodle_url($baseurl, ['action' => 'bulk']),
+        get_string('deptbulk', 'mod_selfselectadvanced'),
+        'get'
+    );
+    echo html_writer::end_div();
+} else {
+    // Programmes (flat vocabulary; auto-grown by admin CSV ingest).
+    $progrows = [];
+    foreach (\mod_selfselectadvanced\local\attributes\depts::programs_menu() as $progname) {
+        $pid = $DB->get_field('selfselectadvanced_dept', 'id', ['kind' => 'program', 'name' => $progname]);
+        $progrows[] = [
         format_string($progname),
         html_writer::link(
             new moodle_url($baseurl, ['action' => 'progdelete', 'd' => $pid, 'sesskey' => sesskey()]),
             get_string('delete')
         ),
-    ];
-}
-if ($progrows) {
-    $progtable = new html_table();
-    $progtable->head = [get_string('name'), get_string('actions')];
-    $progtable->data = $progrows;
-    $progtable->attributes['class'] = 'generaltable selfselectadvanced-programs';
-    echo html_writer::table($progtable);
-} else {
-    echo $OUTPUT->notification(get_string('programsnone', 'mod_selfselectadvanced'), 'info', false);
-}
-echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false), 'class' => 'd-flex gap-2 mb-3']);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'progadd']);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
-echo html_writer::empty_tag('input', ['type' => 'text', 'name' => 'progname', 'class' => 'form-control w-auto',
+        ];
+    }
+    if ($progrows) {
+        $progtable = new html_table();
+        $progtable->head = [get_string('name'), get_string('actions')];
+        $progtable->data = $progrows;
+        $progtable->attributes['class'] = 'generaltable selfselectadvanced-programs';
+        echo html_writer::table($progtable);
+    } else {
+        echo $OUTPUT->notification(get_string('programsnone', 'mod_selfselectadvanced'), 'info', false);
+    }
+    echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false), 'class' => 'd-flex gap-2 mb-3']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'progadd']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    echo html_writer::empty_tag('input', ['type' => 'text', 'name' => 'progname', 'class' => 'form-control w-auto',
     'placeholder' => get_string('programname', 'mod_selfselectadvanced'), ]);
-echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('programadd', 'mod_selfselectadvanced'),
+    echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('programadd', 'mod_selfselectadvanced'),
     'class' => 'btn btn-secondary', ]);
-echo html_writer::end_tag('form');
+    echo html_writer::end_tag('form');
+}
 
 echo $OUTPUT->footer();

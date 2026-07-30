@@ -47,12 +47,34 @@ class submit_form extends \moodleform {
         $mform->setType('action', PARAM_ALPHA);
 
         if ($this->_customdata['leaderselects']) {
+            // Searchable, never a list (strategy 1.18 B): a school with
+            // 1500 guides used to render every one of them here, which
+            // is neither usable nor quick to load on a phone.
             $mform->addElement(
-                'select',
+                'autocomplete',
                 'guide',
                 get_string('chooseguide', 'mod_selfselectadvanced'),
-                $this->_customdata['guides']
+                [],
+                [
+                    'ajax' => 'mod_selfselectadvanced/guideselector',
+                    'placeholder' => get_string('guidepickerplaceholder', 'mod_selfselectadvanced'),
+                    'noselectionstring' => get_string('guidepickernone', 'mod_selfselectadvanced'),
+                    'casesensitive' => false,
+                    'valuehtmlcallback' => function ($userid) {
+                        $user = \core_user::get_user((int) $userid);
+
+                        return $user ? fullname($user) : '';
+                    },
+                    'data-cmid' => $this->_customdata['cmid'],
+                    // Student-approach mode keeps a full guide on the
+                    // list: omitting them would itself advertise their
+                    // load, which is the thing that mode hides
+                    // (strategy 1.16 A). Capacity is still enforced,
+                    // silently, at submission.
+                    'data-withroom' => empty($this->_customdata['studentapproach']) ? '1' : '0',
+                ]
             );
+            $mform->setType('guide', PARAM_INT);
             $mform->addRule('guide', get_string('required'), 'required', null, 'client');
             $mform->addHelpButton('guide', 'chooseguide', 'mod_selfselectadvanced');
         } else {

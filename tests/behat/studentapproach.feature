@@ -21,6 +21,7 @@ Feature: Students approach guides, and group names follow the course's format
       | activity           | course | name        | idnumber | minsize | maxlead | maxmembership | studentapproach | guidevolunteer |
       | selfselectadvanced | C1     | Approached  | ssa1     | 1       | 1       | 2             | 1               | 0              |
 
+  @javascript
   Scenario: The landing page states the ground rules and the chooser shows no loads
     Given the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name    | leader   | state   |
@@ -28,6 +29,10 @@ Feature: Students approach guides, and group names follow the course's format
     When I am on the "Approached" "selfselectadvanced activity" page logged in as student1
     Then I should see "Guides do not advertise availability here"
     When I follow "Seekers"
+    # The chooser searches rather than lists (1.18), so the guide is
+    # found by typing - and the load still never appears beside the
+    # name, which is what this mode is for.
+    And I set the field "Choose a guide" to "Gina Guide"
     Then I should see "Gina Guide"
     And I should not see "Guiding"
 

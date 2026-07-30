@@ -319,4 +319,41 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
 
         return $member;
     }
+
+    /**
+     * Create an approach from a team to a guide (strategy 1.17 E).
+     *
+     * Required: activityid, groupid, guideid, sentby. Status defaults
+     * to sent, which is the state a guide has to answer.
+     *
+     * @param array|stdClass $record contact fields
+     * @return stdClass the contact row
+     */
+    public function create_contact($record): stdClass {
+        global $DB;
+
+        $record = (object) (array) $record;
+        foreach (['activityid', 'groupid', 'guideid', 'sentby'] as $field) {
+            if (!isset($record->$field)) {
+                throw new coding_exception('create_contact requires ' . $field);
+            }
+        }
+
+        $contact = (object) [
+            'activityid' => (int) $record->activityid,
+            'groupid' => (int) $record->groupid,
+            'guideid' => (int) $record->guideid,
+            'status' => $record->status ?? \mod_selfselectadvanced\local\contacts::STATUS_SENT,
+            'sentby' => (int) $record->sentby,
+            'message' => $record->message ?? '',
+            'messageformat' => $record->messageformat ?? FORMAT_PLAIN,
+            'reason' => $record->reason ?? null,
+            'reasonformat' => $record->reasonformat ?? FORMAT_PLAIN,
+            'timecreated' => $record->timecreated ?? time(),
+            'timeresponded' => $record->timeresponded ?? null,
+        ];
+        $contact->id = $DB->insert_record('selfselectadvanced_contact', $contact);
+
+        return $contact;
+    }
 }

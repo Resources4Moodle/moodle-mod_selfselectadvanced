@@ -43,6 +43,13 @@ class tickets {
     /** @var string The guide or leader of a frozen team asks for an unfreeze. */
     public const TYPE_UNFREEZE = 'unfreeze';
 
+    /**
+     * @var string A guide asks the coordinators to raise their team limit
+     *      (strategy 1.18 C). Alone among the types this one is not about
+     *      a team: its groupid is 0 and it carries the number asked for.
+     */
+    public const TYPE_GUIDECAP = 'guidecap';
+
     /** @var string Waiting in the queue. */
     public const STATUS_OPEN = 'open';
 
@@ -165,21 +172,258 @@ class tickets {
             $lock->release();
         }
 
-        // The queue workers hear about new work; sends happen outside
-        // the lock, mail must never hold it (1.15.0 lesson). A worker
-        // holding both capabilities is told once.
+        self::notify_workers($activity, $ticket, $group);
+
+        return $ticket;
+    }
+
+    /**
+     * A guide asks the coordinators to raise their team limit
+     * (strategy 1.18 C).
+     *
+     * Unlike the other two types this request is about the guide, not a
+     * team, so it takes no group lock and stores groupid 0. The number
+     * asked for travels on the ticket, which is what lets a coordinator
+     * grant it in one action rather than transcribing it into an
+     * override by hand.
+     *
+     * One live request at a time, as with every other type: a second
+     * one while the first is open or claimed is refused pointing at it.
+     *
+     * @param activity $activity the activity
+     * @param int $requested how many teams the guide is asking to hold
+     * @param string $request why, from the guide
+     * @param int $requestformat text format of the request
+     * @param int $userid the guide asking
+     * @return stdClass the ticket row
+     * @throws \moodle_exception when a gate refuses
+     */
+    public static function file_guidecap(
+        activity $activity,
+        int $requested,
+        string $request,
+        int $requestformat,
+        int $userid
+    ): stdClass {
+        global $DB;
+
+        require_capability('mod/selfselectadvanced:guide', $activity->context(), $userid);
+        if (trim(html_to_text($request)) === '') {
+            throw new \moodle_exception('refusalticketreason', 'mod_selfselectadvanced');
+        }
+
+        // Asking for nothing, or for less than the activity's own
+        // ceiling allows, is not a request anybody can act on.
+        $ceiling = (new api($activity))->gatekeeper()->resolver()->guide_capacity_ceiling($userid);
+        if ($requested < 1) {
+            throw new \moodle_exception('refusalguidecapzero', 'mod_selfselectadvanced');
+        }
+        if ($requested <= $ceiling->value) {
+            throw new \moodle_exception('refusalguidecapnotmore', 'mod_selfselectadvanced', '', $ceiling->value);
+        }
+
+        // Serialised on the guide, not on a team: two requests from the
+        // same guide race each other and nothing else.
+        $lock = locks::acquire('guidecap:' . $userid);
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $live = $DB->get_record_select(
+                'selfselectadvanced_ticket',
+                "activityid = :activityid AND type = :type AND requestedby = :userid AND status IN (:open, :claimed)",
+                [
+                    'activityid' => $activity->id(),
+                    'type' => self::TYPE_GUIDECAP,
+                    'userid' => $userid,
+                    'open' => self::STATUS_OPEN,
+                    'claimed' => self::STATUS_CLAIMED,
+                ]
+            );
+            if ($live) {
+                throw new \moodle_exception('refusalticketduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
+            }
+
+            $now = time();
+            $ticket = (object) [
+                'activityid' => $activity->id(),
+                'groupid' => 0,
+                'type' => self::TYPE_GUIDECAP,
+                'status' => self::STATUS_OPEN,
+                'requestedby' => $userid,
+                'request' => $request,
+                'requestformat' => $requestformat,
+                'requested' => $requested,
+                'timecreated' => $now,
+                'timemodified' => $now,
+            ];
+            $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
+
+            \mod_selfselectadvanced\event\ticket_filed::create([
+                'objectid' => $ticket->id,
+                'context' => $activity->context(),
+                'other' => ['type' => self::TYPE_GUIDECAP, 'pluginuid' => ''],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $outermost, $e);
+        } finally {
+            $lock->release();
+        }
+
+        self::notify_workers($activity, $ticket, null);
+
+        return $ticket;
+    }
+
+    /**
+     * Grant a claimed team-limit request: write the override and close
+     * the ticket together (strategy 1.18 C).
+     *
+     * The two halves belong to one another. A coordinator who raised
+     * the limit but left the ticket open would have the guide asking
+     * again; one who closed it without writing the override would have
+     * told the guide yes and changed nothing. Doing both here, in the
+     * claimant's single action, removes the chance of either.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the claimed guidecap ticket
+     * @param string $resolution the note to the guide
+     * @param int $resolutionformat text format
+     * @param int $userid the claimant
+     * @return stdClass the closed ticket
+     * @throws \moodle_exception when refused
+     */
+    public static function grant_guidecap(
+        activity $activity,
+        int $ticketid,
+        string $resolution,
+        int $resolutionformat,
+        int $userid
+    ): stdClass {
+        $ticket = self::get($activity, $ticketid);
+        if ($ticket->type !== self::TYPE_GUIDECAP) {
+            throw new \coding_exception('grant_guidecap called on a ' . $ticket->type . ' ticket');
+        }
+        if ($ticket->status !== self::STATUS_CLAIMED) {
+            throw new \moodle_exception('refusalticketnotclaimed', 'mod_selfselectadvanced');
+        }
+
+        // Granting IS setting an exception, so it is gated on the
+        // capability for setting one - checked at the seam rather than
+        // on the page, because working the queue and granting an
+        // exception are two different authorities and a site is free to
+        // separate them.
+        require_capability('mod/selfselectadvanced:override', $activity->context(), $userid);
+
+        // The override first: if writing it is refused - the actor may
+        // not set overrides, or may not set this one - the ticket stays
+        // claimed and open to be declined or released instead of
+        // reading as granted with nothing behind it.
+        \mod_selfselectadvanced\local\override\store::save(
+            $activity,
+            'guide',
+            (int) $ticket->requestedby,
+            ['maxguided' => (int) $ticket->requested],
+            $userid
+        );
+
+        return self::close($activity, $ticketid, self::STATUS_RESOLVED, $resolution, $resolutionformat, $userid);
+    }
+
+    /**
+     * Take back one's own request while it is still open.
+     *
+     * The withdrawn status has existed since the queue was built but
+     * nothing could reach it, so a request filed by mistake sat in the
+     * queue until somebody else declined it. Only the requester may,
+     * and only before a worker has claimed it - once claimed it is
+     * someone's work in progress, and theirs to close.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the ticket
+     * @param int $userid the requester
+     * @return stdClass the withdrawn ticket
+     * @throws \moodle_exception when refused
+     */
+    public static function withdraw(activity $activity, int $ticketid, int $userid): stdClass {
+        global $DB;
+
+        $lock = locks::acquire('ticket:' . $ticketid);
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticketid], '*', MUST_EXIST);
+            if ((int) $fresh->activityid !== $activity->id()) {
+                throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->requestedby !== $userid) {
+                throw new \moodle_exception('refusalticketnotyours', 'mod_selfselectadvanced');
+            }
+            if ($fresh->status !== self::STATUS_OPEN) {
+                throw new \moodle_exception('refusalticketclaimed', 'mod_selfselectadvanced', '', $fresh->status);
+            }
+
+            $fresh->status = self::STATUS_WITHDRAWN;
+            $fresh->timemodified = time();
+            $DB->update_record('selfselectadvanced_ticket', $fresh);
+
+            \mod_selfselectadvanced\event\ticket_closed::create([
+                'objectid' => $ticketid,
+                'context' => $activity->context(),
+                'other' => ['type' => $fresh->type, 'outcome' => self::STATUS_WITHDRAWN],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $outermost, $e);
+        } finally {
+            $lock->release();
+        }
+
+        return $fresh;
+    }
+
+    /**
+     * The team a ticket is about, or null when it is not about a team.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $ticket the ticket row
+     * @return stdClass|null the group row, or null for a guidecap request
+     */
+    public static function group_of(activity $activity, stdClass $ticket): ?stdClass {
+        if ((int) $ticket->groupid <= 0) {
+            return null;
+        }
+
+        return groups::get($activity, (int) $ticket->groupid);
+    }
+
+    /**
+     * Tell the people who work the queue that there is new work.
+     *
+     * Sends happen outside every lock - mail must never hold one
+     * (1.15.0 lesson) - and a worker holding both capabilities is
+     * told once.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $ticket the new ticket
+     * @param stdClass|null $group the team it is about, if any
+     */
+    private static function notify_workers(activity $activity, stdClass $ticket, ?stdClass $group): void {
         $workerids = [];
-        foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $worker) {
-            $workerids[(int) $worker->id] = true;
+        foreach (['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:coordinate'] as $capability) {
+            foreach (get_users_by_capability($activity->context(), $capability, 'u.id') as $worker) {
+                $workerids[(int) $worker->id] = true;
+            }
         }
-        foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:coordinate', 'u.id') as $worker) {
-            $workerids[(int) $worker->id] = true;
-        }
+        // Nobody is told about their own request.
+        unset($workerids[(int) $ticket->requestedby]);
         foreach (array_keys($workerids) as $workerid) {
             self::notify($activity, $workerid, 'msgticketfiledsubject', 'msgticketfiledbody', $ticket, $group);
         }
-
-        return $ticket;
     }
 
     /**
@@ -203,8 +447,16 @@ class tickets {
         global $DB;
 
         $ticket = self::get($activity, $ticketid);
-        $group = groups::get($activity, (int) $ticket->groupid);
-        self::require_uninvolved($activity, $group, $userid);
+        // A team-limit request is about a guide, not a team, so there is
+        // no team to be involved in; the conflict rule that applies to
+        // it is simply that nobody works their own request, which
+        // queue() and the claim gate below already enforce.
+        $group = self::group_of($activity, $ticket);
+        if ($group !== null) {
+            self::require_uninvolved($activity, $group, $userid);
+        } else if ((int) $ticket->requestedby === $userid) {
+            throw new \moodle_exception('refusalcoiself', 'mod_selfselectadvanced');
+        }
 
         $lock = locks::acquire('ticket:' . $ticketid);
         $outermost = !$DB->is_transaction_started();
@@ -251,7 +503,7 @@ class tickets {
             \mod_selfselectadvanced\event\ticket_claimed::create([
                 'objectid' => $ticketid,
                 'context' => $activity->context(),
-                'other' => ['type' => $claimed->type, 'pluginuid' => $group->pluginuid],
+                'other' => ['type' => $claimed->type, 'pluginuid' => $group->pluginuid ?? ''],
             ])->trigger();
 
             $transaction->allow_commit();
@@ -350,8 +602,14 @@ class tickets {
         }
 
         if ($outcome !== self::STATUS_OPEN) {
-            $group = groups::get($activity, (int) $fresh->groupid);
-            self::notify($activity, (int) $fresh->requestedby, 'msgticketclosedsubject', 'msgticketclosedbody', $fresh, $group);
+            self::notify(
+                $activity,
+                (int) $fresh->requestedby,
+                'msgticketclosedsubject',
+                'msgticketclosedbody',
+                $fresh,
+                self::group_of($activity, $fresh)
+            );
         }
 
         return $fresh;
@@ -584,7 +842,7 @@ class tickets {
      * @param string $subjectkey subject string key
      * @param string $bodykey body string key
      * @param stdClass $ticket the ticket
-     * @param stdClass $group its group
+     * @param stdClass|null $group its team, or null for a request that is not about one
      */
     private static function notify(
         activity $activity,
@@ -592,8 +850,11 @@ class tickets {
         string $subjectkey,
         string $bodykey,
         stdClass $ticket,
-        stdClass $group
+        ?stdClass $group
     ): void {
+        $subject = $group !== null
+            ? format_string($group->name)
+            : get_string('tickethasnoteam', 'mod_selfselectadvanced');
         notifier::send(
             $activity,
             'tickets',
@@ -601,7 +862,7 @@ class tickets {
             $subjectkey,
             $bodykey,
             (object) [
-                'group' => format_string($group->name),
+                'group' => $subject,
                 'type' => get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced'),
                 'status' => get_string('ticketstatus' . $ticket->status, 'mod_selfselectadvanced'),
                 // The requester cannot open the queue - it belongs to
@@ -610,7 +871,7 @@ class tickets {
                 'resolution' => trim(html_to_text((string) ($ticket->resolution ?? ''))),
             ],
             new \moodle_url('/mod/selfselectadvanced/tickets.php', ['id' => $activity->cm()->id]),
-            format_string($group->name)
+            $subject
         );
     }
 }

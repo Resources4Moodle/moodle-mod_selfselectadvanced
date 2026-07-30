@@ -103,6 +103,7 @@ Feature: The sequential ticket queue for composition changes and unfreezes
 
   Scenario: A direct unfreeze resolves the team's unfreeze request by itself
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
     And I click on "Freeze" "link" in the "Team Blue" "table_row"
     And I press "Freeze"
     Then I should see "frozen into a course group"

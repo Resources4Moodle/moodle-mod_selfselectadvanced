@@ -39,8 +39,9 @@ class guideloads_table extends \flexible_table {
      *
      * @param string $uniqueid table id
      * @param \moodle_url $baseurl page url (with active filters)
+     * @param string $download '' to render, or the format the reader asked for
      */
-    public function __construct(string $uniqueid, \moodle_url $baseurl) {
+    public function __construct(string $uniqueid, \moodle_url $baseurl, string $download = '') {
         parent::__construct($uniqueid);
 
         $this->define_columns(['fullname', 'used', 'max', 'remaining']);
@@ -53,7 +54,14 @@ class guideloads_table extends \flexible_table {
         $this->define_baseurl($baseurl);
         $this->sortable(true, 'fullname');
         $this->pageable(true);
-        $this->is_downloadable(false);
+        // Downloadable since 1.18 (strategy F): who is carrying what is
+        // a figure people take into meetings, and re-keying it off a
+        // paged screen is how it arrives wrong.
+        $this->is_downloadable(true);
+        $this->show_download_buttons_at([TABLE_P_BOTTOM]);
+        if ($download !== '') {
+            $this->is_downloading($download, \mod_selfselectadvanced\local\exporter::stamp('guideloads'));
+        }
         $this->set_attribute('class', 'generaltable selfselectadvanced-guideloads');
         // Its own control variables: this table shares a page with the
         // group list and the two assignment tables, and must not move
@@ -90,8 +98,14 @@ class guideloads_table extends \flexible_table {
             });
         }
 
-        $this->pagesize($perpage, count($rows));
-        foreach (array_slice($rows, $this->get_page_start(), $this->get_page_size()) as $row) {
+        // A download is the whole filtered set, not the page on screen.
+        if ($this->is_downloading()) {
+            $page = $rows;
+        } else {
+            $this->pagesize($perpage, count($rows));
+            $page = array_slice($rows, $this->get_page_start(), $this->get_page_size());
+        }
+        foreach ($page as $row) {
             $this->add_data_keyed([
                 'fullname' => s($row->fullname),
                 'used' => (int) $row->used,

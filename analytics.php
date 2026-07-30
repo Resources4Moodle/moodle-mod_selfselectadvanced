@@ -93,41 +93,58 @@ echo $analytics::card_html(
 );
 echo html_writer::end_div();
 
-echo $OUTPUT->heading(get_string('analyticsfunnel', 'mod_selfselectadvanced'), 3);
-$funneltable = new html_table();
-$funneltable->head = [get_string('analyticsfunnel', 'mod_selfselectadvanced'), get_string('total')];
-$funneltable->attributes['class'] = 'generaltable selfselectadvanced-analyticsfunnel';
-$funneltable->data[] = [get_string('analyticscreated', 'mod_selfselectadvanced'), $funnel->created];
-$funneltable->data[] = [get_string('analyticssubmitted', 'mod_selfselectadvanced'), $funnel->submitted];
-$funneltable->data[] = [get_string('analyticsfirm', 'mod_selfselectadvanced'), $funnel->firm];
-$funneltable->data[] = [get_string('analyticsfrozen', 'mod_selfselectadvanced'), $funnel->frozen];
-echo html_writer::table($funneltable);
+// Two counts tables, so two tabs (strategy 1.18 E). Short as they are,
+// the rule is the rule: a reader who does not scroll never learns the
+// second one is there.
+$anatab = optional_param('anatab', 'funnel', PARAM_ALPHA);
+if (!in_array($anatab, ['funnel', 'eoi'], true)) {
+    $anatab = 'funnel';
+}
+$anatabs = [];
+foreach (['funnel' => 'analyticsfunnel', 'eoi' => 'analyticseoistatus'] as $anakey => $analabel) {
+    $anatabs[] = new tabobject(
+        $anakey,
+        new moodle_url($PAGE->url, ['anatab' => $anakey]),
+        get_string($analabel, 'mod_selfselectadvanced')
+    );
+}
+echo $OUTPUT->tabtree($anatabs, $anatab);
 
-echo $OUTPUT->heading(get_string('analyticseoistatus', 'mod_selfselectadvanced'), 3);
-$eoitable = new html_table();
-$eoitable->head = [get_string('analyticseoistatus', 'mod_selfselectadvanced'), get_string('total')];
-$eoitable->attributes['class'] = 'generaltable selfselectadvanced-analyticseoi';
-$eoitable->data[] = [
+if ($anatab === 'funnel') {
+    $funneltable = new html_table();
+    $funneltable->head = [get_string('analyticsfunnel', 'mod_selfselectadvanced'), get_string('total')];
+    $funneltable->attributes['class'] = 'generaltable selfselectadvanced-analyticsfunnel';
+    $funneltable->data[] = [get_string('analyticscreated', 'mod_selfselectadvanced'), $funnel->created];
+    $funneltable->data[] = [get_string('analyticssubmitted', 'mod_selfselectadvanced'), $funnel->submitted];
+    $funneltable->data[] = [get_string('analyticsfirm', 'mod_selfselectadvanced'), $funnel->firm];
+    $funneltable->data[] = [get_string('analyticsfrozen', 'mod_selfselectadvanced'), $funnel->frozen];
+    echo html_writer::table($funneltable);
+} else {
+    $eoitable = new html_table();
+    $eoitable->head = [get_string('analyticseoistatus', 'mod_selfselectadvanced'), get_string('total')];
+    $eoitable->attributes['class'] = 'generaltable selfselectadvanced-analyticseoi';
+    $eoitable->data[] = [
     get_string('eoistatuspending', 'mod_selfselectadvanced'),
     $eoicounts[\mod_selfselectadvanced\local\eoi::STATUS_PENDING],
-];
-$eoitable->data[] = [
+    ];
+    $eoitable->data[] = [
     get_string('eoistatusaccepted', 'mod_selfselectadvanced'),
     $eoicounts[\mod_selfselectadvanced\local\eoi::STATUS_ACCEPTED],
-];
-$eoitable->data[] = [
+    ];
+    $eoitable->data[] = [
     get_string('eoistatusrejected', 'mod_selfselectadvanced'),
     $eoicounts[\mod_selfselectadvanced\local\eoi::STATUS_REJECTED],
-];
-$eoitable->data[] = [
+    ];
+    $eoitable->data[] = [
     get_string('eoistatusexpired', 'mod_selfselectadvanced'),
     $eoicounts[\mod_selfselectadvanced\local\eoi::STATUS_EXPIRED],
-];
-$eoitable->data[] = [
+    ];
+    $eoitable->data[] = [
     get_string('eoistatuswithdrawn', 'mod_selfselectadvanced'),
     $eoicounts[\mod_selfselectadvanced\local\eoi::STATUS_WITHDRAWN],
-];
-echo html_writer::table($eoitable);
+    ];
+    echo html_writer::table($eoitable);
+}
 
 echo html_writer::div(
     \mod_selfselectadvanced\local\exporter::controls($baseurl)

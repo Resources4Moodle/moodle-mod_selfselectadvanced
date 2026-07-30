@@ -50,8 +50,8 @@ class assignqueue_table extends \table_sql {
     /** @var string Which of the two lists this is. */
     private string $mode;
 
-    /** @var array Guide options for the picker, id => label. */
-    private array $guideoptions;
+    /** @var bool Whether any guide is available to be assigned at all. */
+    private bool $hasguides;
 
     /**
      * Constructor.
@@ -59,7 +59,7 @@ class assignqueue_table extends \table_sql {
      * @param string $uniqueid table id
      * @param activity $activity the activity
      * @param string $mode self::MODE_*
-     * @param array $guideoptions guide id => label for the picker
+     * @param bool $hasguides whether any guide has room, to tell an empty picker from an empty roster
      * @param \moodle_url $baseurl page url
      * @param string $namefilter '' or a fragment of the team name
      */
@@ -67,7 +67,7 @@ class assignqueue_table extends \table_sql {
         string $uniqueid,
         activity $activity,
         string $mode,
-        array $guideoptions,
+        bool $hasguides,
         \moodle_url $baseurl,
         string $namefilter = ''
     ) {
@@ -76,7 +76,7 @@ class assignqueue_table extends \table_sql {
         parent::__construct($uniqueid);
         $this->activity = $activity;
         $this->mode = $mode;
-        $this->guideoptions = $guideoptions;
+        $this->hasguides = $hasguides;
 
         $columns = ['name', 'pluginuid', 'title', 'size'];
         $headers = [
@@ -189,7 +189,7 @@ class assignqueue_table extends \table_sql {
      * @return string
      */
     public function col_assign($row): string {
-        if (!$this->guideoptions) {
+        if (!$this->hasguides) {
             return \html_writer::span(get_string('noguidesavailable', 'mod_selfselectadvanced'), 'text-muted small');
         }
         $url = new \moodle_url('/mod/selfselectadvanced/manage.php', [
@@ -197,11 +197,22 @@ class assignqueue_table extends \table_sql {
             'action' => 'assignguide',
         ]);
 
+        // A searchable picker, not a list (strategy 1.18 B). The old
+        // control rendered every guide with room as an <option>, once
+        // per row: at 1500 guides and 50 rows that is 75,000 options on
+        // one page, which is why this one starts empty and searches.
         return \html_writer::start_tag('form', ['method' => 'post', 'action' => $url->out(false),
             'class' => 'd-flex gap-1 align-items-center'])
             . \html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
             . \html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $row->id])
-            . \html_writer::select($this->guideoptions, 'guide', '', false, ['class' => 'form-select form-select-sm'])
+            . \mod_selfselectadvanced\local\guidepicker::render(
+                'guide',
+                (int) $this->activity->cm()->id,
+                0,
+                '',
+                true,
+                'ssa-guidepicker-' . $this->mode . '-' . (int) $row->id
+            )
             . \html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-primary btn-sm',
                 'value' => get_string('assign', 'mod_selfselectadvanced')])
             . \html_writer::end_tag('form');

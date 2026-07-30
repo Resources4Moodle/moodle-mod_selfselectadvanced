@@ -33,6 +33,14 @@ $functions = [
         'ajax' => true,
         'capabilities' => 'mod/selfselectadvanced:creategroup',
     ],
+    'mod_selfselectadvanced_search_guides' => [
+        'classname' => \mod_selfselectadvanced\external\search_guides::class,
+        'description' => 'Search this activity\'s guides for the searchable guide pickers, '
+            . 'returning name, department and current load.',
+        'type' => 'read',
+        'ajax' => true,
+        'capabilities' => 'mod/selfselectadvanced:respond',
+    ],
     'mod_selfselectadvanced_search_participants' => [
         'classname' => \mod_selfselectadvanced\external\search_participants::class,
         'description' => 'Search this activity\'s participants for the manager move form.',

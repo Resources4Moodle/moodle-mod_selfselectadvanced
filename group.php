@@ -122,33 +122,19 @@ if ($isleaderforming) {
     // the form must not ask the leader to choose one (spec: EOI).
     $eoipreassigned = !empty($group->guideid);
     $leaderselects = !$eoipreassigned && (int) $activity->settings()->guidemode === 0;
-    $guideoptions = [];
-    if ($leaderselects) {
-        foreach (
-            \mod_selfselectadvanced\local\guides::selectable(
-                $activity,
-                $api->gatekeeper()->resolver()
-            ) as $guide
-        ) {
-            // Student-approach mode: "Guiding 2 of 3" IS advertised
-            // availability, so the chooser shows names only; capacity
-            // is still enforced silently at submission (strategy
-            // 1.16 A).
-            $guideoptions[$guide->id] = empty($activity->settings()->studentapproach)
-                ? get_string(
-                    'guidepickerlabel',
-                    'mod_selfselectadvanced',
-                    (object) ['fullname' => $guide->fullname, 'label' => $guide->label]
-                )
-                : $guide->fullname;
-        }
-    }
+    // Whether ANY guide can be chosen, which is all the page needs to
+    // know: the picker itself searches rather than listing (strategy
+    // 1.18 B), so the full roster is never built here.
+    $anyguide = !$leaderselects || (bool) \mod_selfselectadvanced\local\guides::selectable(
+        $activity,
+        $api->gatekeeper()->resolver()
+    );
     $submitform = new \mod_selfselectadvanced\form\submit_form($baseurl->out(false), [
         'cmid' => $cm->id,
         'groupid' => (int) $group->id,
         'leaderselects' => $leaderselects,
-        'guides' => $guideoptions,
-        'disabled' => $submitrefusal !== null || ($leaderselects && !$guideoptions),
+        'studentapproach' => !empty($activity->settings()->studentapproach),
+        'disabled' => $submitrefusal !== null || !$anyguide,
     ]);
 }
 

@@ -26,6 +26,7 @@ Feature: Freezing firm groups into course groups
 
   Scenario: The guide freezes and the manager unfreezes with snapshot semantics
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
     And I click on "Freeze" "link" in the "Team Blue" "table_row"
     Then I should see "A Moodle course group is created"
     When I press "Freeze"

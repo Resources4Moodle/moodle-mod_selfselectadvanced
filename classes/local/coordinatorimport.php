@@ -207,6 +207,107 @@ class coordinatorimport {
     }
 
     /**
+     * Send a sample file for download (strategy 1.18 D).
+     *
+     * The format was previously described in prose on the form, which
+     * is exactly the kind of thing people get wrong once and then blame
+     * the upload for. Both files carry the same four illustrative rows,
+     * including a comment and a removal, so the two conventions that
+     * are not obvious are shown rather than explained.
+     *
+     * @param string $format csv or xlsx
+     */
+    public static function send_sample(string $format): void {
+        global $CFG;
+
+        $rows = [
+            ['# ' . get_string('coordinatorsampleheader', 'mod_selfselectadvanced')],
+            ['# ' . get_string('coordinatorsampleremovehint', 'mod_selfselectadvanced')],
+            ['teacher1'],
+            ['a.lecturer@example.edu'],
+            ['-teacher2'],
+        ];
+
+        if ($format === 'xlsx') {
+            require_once($CFG->libdir . '/excellib.class.php');
+            $workbook = new \MoodleExcelWorkbook('-');
+            $workbook->send('coordinators-sample.xlsx');
+            $sheet = $workbook->add_worksheet(get_string('coordinators', 'mod_selfselectadvanced'));
+            foreach ($rows as $index => $row) {
+                $sheet->write_string($index, 0, $row[0]);
+            }
+            $workbook->close();
+
+            return;
+        }
+
+        require_once($CFG->libdir . '/csvlib.class.php');
+        $writer = new \csv_export_writer();
+        $writer->set_filename('coordinators-sample');
+        foreach ($rows as $row) {
+            $writer->add_data($row);
+        }
+        $writer->download_file();
+    }
+
+    /**
+     * Appoint one person, from the participants table (strategy 1.18 D).
+     *
+     * The same rule the upload enforces: they must already be in the
+     * course. The event and the message are the same ones the upload
+     * emits, so the audit trail does not record two kinds of
+     * appointment depending on which control was used.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the person
+     * @throws \moodle_exception when they are not enrolled
+     */
+    public static function appoint(activity $activity, int $userid): void {
+        $coursecontext = \context_course::instance($activity->cm()->course);
+        if (!is_enrolled($coursecontext, $userid)) {
+            throw new \moodle_exception('coordinatorimportnotenrolled', 'mod_selfselectadvanced');
+        }
+        $roleid = coordinatorrole::ensure();
+        if (user_has_role_assignment($userid, $roleid, $coursecontext->id)) {
+            return;
+        }
+
+        role_assign($roleid, $userid, $coursecontext->id);
+        \mod_selfselectadvanced\event\coordinator_assigned::create([
+            'objectid' => $activity->id(),
+            'context' => $activity->context(),
+            'relateduserid' => $userid,
+        ])->trigger();
+        self::tell($activity, $userid, 'assigned');
+    }
+
+    /**
+     * Stand one person down, from the participants table.
+     *
+     * Enrolment is never touched here. The upload offers unenrolling as
+     * an explicit option on a form; a single button in a table is not
+     * the place to remove somebody from a course as a side effect.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the person
+     */
+    public static function remove(activity $activity, int $userid): void {
+        $coursecontext = \context_course::instance($activity->cm()->course);
+        $roleid = coordinatorrole::ensure();
+        if (!user_has_role_assignment($userid, $roleid, $coursecontext->id)) {
+            return;
+        }
+
+        role_unassign($roleid, $userid, $coursecontext->id);
+        \mod_selfselectadvanced\event\coordinator_removed::create([
+            'objectid' => $activity->id(),
+            'context' => $activity->context(),
+            'relateduserid' => $userid,
+        ])->trigger();
+        self::tell($activity, $userid, 'removed');
+    }
+
+    /**
      * Tell somebody they have been appointed or stood down.
      *
      * @param activity $activity the activity
