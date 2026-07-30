@@ -711,7 +711,7 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073070, 'selfselectadvanced');
     }
 
-    if ($oldversion < 2026073071) {
+    if ($oldversion < 2026073072) {
         $table = new xmldb_table('selfselectadvanced');
 
         // A team approaching a guide (strategy 1.17 E): the approaches
@@ -744,7 +744,18 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
             $dbman->create_table($contacts);
         }
 
-        upgrade_mod_savepoint(true, 2026073071, 'selfselectadvanced');
+        // The coordinator role gained the override capability this
+        // release. Adding it to the role's capability list is not
+        // enough on its own: nothing re-runs that list, so a site that
+        // already has the role would never receive it. Registering the
+        // capabilities first, as at install, then re-asserting the
+        // role, gives it to them - and because ensure() never overrules
+        // a setting already recorded, an administrator's own decisions
+        // about this role survive.
+        update_capabilities('mod_selfselectadvanced');
+        \mod_selfselectadvanced\local\coordinatorrole::ensure();
+
+        upgrade_mod_savepoint(true, 2026073072, 'selfselectadvanced');
     }
 
     return true;
