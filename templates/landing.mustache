@@ -29,7 +29,7 @@
     {
         "studentapproachnotice": "",
         "iscoordinator": false,
-        "ticketsurl": "https://example.com/mod/selfselectadvanced/tickets.php?id=1",
+        "ticketsurl": "https://example.com/mod/selfselectadvanced/coordinator.php?id=1",
         "showconsent": true,
         "consentgranted": false,
         "consentstatus": "Your mobile number is hidden from students. Staff with full view can still see it.",
@@ -188,7 +188,7 @@
     <p><a href="{{manageurl}}" class="btn btn-outline-primary">{{#str}} managerdashboard, mod_selfselectadvanced {{/str}}</a></p>
 {{/ismanager}}
 {{#iscoordinator}}
-    <p><a href="{{ticketsurl}}" class="btn btn-outline-primary">{{#str}} tickets, mod_selfselectadvanced {{/str}}</a></p>
+    <p><a href="{{ticketsurl}}" class="btn btn-outline-primary">{{#str}} coordinatordashboard, mod_selfselectadvanced {{/str}}</a></p>
 {{/iscoordinator}}
 
 {{#isstaff}}

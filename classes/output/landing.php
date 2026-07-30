@@ -173,7 +173,7 @@ class landing implements renderable, templatable {
         // this button the queue, which is their whole job, has no way in.
         $data->iscoordinator = !$data->ismanager
             && has_capability('mod/selfselectadvanced:coordinate', $context, $this->userid, false);
-        $data->ticketsurl = (new \moodle_url('/mod/selfselectadvanced/tickets.php', ['id' => $cmid]))->out(false);
+        $data->ticketsurl = (new \moodle_url('/mod/selfselectadvanced/coordinator.php', ['id' => $cmid]))->out(false);
 
         if (has_capability('mod/selfselectadvanced:viewall', $context, $this->userid, false)) {
             $data->isstaff = true;
