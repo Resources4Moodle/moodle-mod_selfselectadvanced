@@ -20,8 +20,9 @@
  * Deliberately a page of its own rather than a change to the existing
  * review page: the guide reads the team's proposal here and either
  * takes the team on or says no, with or without a reason. Accepting
- * goes through the ordinary assignment service, so capacity and every
- * other rule still apply.
+ * pre-assigns them to the team, with their capacity checked under the
+ * guide lock, so a guide who has filled up while the approach waited
+ * is refused rather than quietly overloaded.
  *
  * With no approach named, the page lists everything waiting for this
  * guide to answer.
