@@ -149,6 +149,10 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         );
         $mform->setDefault('guidevolunteer', 0);
         $mform->addHelpButton('guidevolunteer', 'guidevolunteer', 'mod_selfselectadvanced');
+        $mform->addElement('text', 'contactmax', get_string('contactmax', 'mod_selfselectadvanced'), ['size' => 4]);
+        $mform->setType('contactmax', PARAM_INT);
+        $mform->setDefault('contactmax', 3);
+        $mform->addHelpButton('contactmax', 'contactmax', 'mod_selfselectadvanced');
         $mform->disabledIf('guidevolunteer', 'studentapproach', 'checked');
         $mform->disabledIf('guidemode', 'studentapproach', 'checked');
         $mform->disabledIf('eoienabled', 'studentapproach', 'checked');

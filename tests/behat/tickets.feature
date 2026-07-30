@@ -89,7 +89,9 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     And I press "File request"
     Then I should see "Your request has been queued for the managers and coordinators."
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page
-    Then I should not see "Team Mine" in the ".selfselectadvanced-tickets" "css_element"
+    # Their only request is their own, so their queue is empty.
+    Then I should see "No tickets."
+    And I should not see "Team Mine"
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
     Then I should see "Team Mine"
 
