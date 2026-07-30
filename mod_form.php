@@ -272,7 +272,6 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setDefault('leadershare', 60);
         $mform->addHelpButton('leadershare', 'leadershare', 'mod_selfselectadvanced');
 
-
         // Team listing and guide interest ("pick that team"): a leader may
         // list their forming team, guides express interest, and the
         // leader always chooses (spec EOI).

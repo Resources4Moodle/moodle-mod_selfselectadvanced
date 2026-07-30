@@ -66,8 +66,10 @@ if (in_array($action, ['accept', 'decline'], true) && data_submitted() && confir
         );
         redirect(
             $baseurl,
-            get_string($action === 'accept' ? 'contactacceptednotice' : 'contactdeclinednotice',
-                'mod_selfselectadvanced'),
+            get_string(
+                $action === 'accept' ? 'contactacceptednotice' : 'contactdeclinednotice',
+                'mod_selfselectadvanced'
+            ),
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
