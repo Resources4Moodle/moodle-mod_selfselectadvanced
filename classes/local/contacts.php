@@ -101,10 +101,12 @@ class contacts {
             if ($used >= $max) {
                 throw new \moodle_exception('refusalcontactmax', 'mod_selfselectadvanced', '', $max);
             }
-            if ($DB->record_exists('selfselectadvanced_contact', [
+            if (
+                $DB->record_exists('selfselectadvanced_contact', [
                 'groupid' => $group->id,
                 'guideid' => $guideid,
-            ])) {
+                ])
+            ) {
                 throw new \moodle_exception('refusalcontactduplicate', 'mod_selfselectadvanced');
             }
 
