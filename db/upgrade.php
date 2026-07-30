@@ -708,6 +708,12 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         $field = new xmldb_field('studentapproach', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1', 'uiddigits');
         $dbman->change_field_default($table, $field);
 
+        upgrade_mod_savepoint(true, 2026073070, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026073071) {
+        $table = new xmldb_table('selfselectadvanced');
+
         // A team approaching a guide (strategy 1.17 E): the approaches
         // themselves, and how many guides one team may approach.
         $field = new xmldb_field('contactmax', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '3', 'uiddigits');
@@ -738,7 +744,7 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
             $dbman->create_table($contacts);
         }
 
-        upgrade_mod_savepoint(true, 2026073070, 'selfselectadvanced');
+        upgrade_mod_savepoint(true, 2026073071, 'selfselectadvanced');
     }
 
     return true;
