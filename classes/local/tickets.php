@@ -465,7 +465,17 @@ class tickets {
         int $targetid,
         int $userid
     ): void {
-        if (has_capability('mod/selfselectadvanced:manage', $activity->context(), $userid)) {
+        // The rule restrains the NEW coordinate authority and nothing
+        // else. A manager is exempt by role, and anybody who could set
+        // an override before this release - an editing teacher, a guide
+        // holding the capability - keeps exactly what they had. Adding
+        // a role to a site must never quietly take authority away; that
+        // lesson cost a release already.
+        $context = $activity->context();
+        if (has_capability('mod/selfselectadvanced:manage', $context, $userid)) {
+            return;
+        }
+        if (!has_capability('mod/selfselectadvanced:coordinate', $context, $userid)) {
             return;
         }
         if (in_array($scope, ['user', 'guide'], true) && $targetid === $userid) {

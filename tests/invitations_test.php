@@ -453,10 +453,14 @@ final class invitations_test extends \advanced_testcase {
 
         $this->assertCount(1, $messages);
         $body = $messages[0]->fullmessage;
-        $this->assertStringContainsString('Dear ' . $invitee->firstname . ' (' . $invitee->lastname . ')', $body);
+        // 1.17.0 gives every notification a shape: the recipient is
+        // greeted by name, the news comes first, the link stands on its
+        // own line, and a signature says where it came from.
+        $this->assertStringContainsString('Hello ' . $invitee->firstname, $body);
         $this->assertStringContainsString('Personalised', $body);
         $this->assertStringContainsString('This invitation expires on', $body);
         $this->assertStringContainsString('/mod/selfselectadvanced/', $body);
+        $this->assertStringContainsString('Sent by', $body);
     }
 
     /**
