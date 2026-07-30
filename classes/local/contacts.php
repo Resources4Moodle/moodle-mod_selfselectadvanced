@@ -147,11 +147,13 @@ class contacts {
     /**
      * The guide answers.
      *
-     * Accepting assigns them to the team through the ordinary
-     * assignment service, so every rule that governs taking a team on -
-     * capacity above all - still applies. Declining closes this
-     * approach and leaves the team free to try somebody else, as long
-     * as they are under their limit.
+     * Accepting pre-assigns them to the team, which is what an
+     * accepted expression of interest does too: the team is still
+     * forming, so it submits to that guide when it is ready. Their
+     * capacity is checked under the guide lock, so a guide who filled
+     * up while the approach waited cannot take another team.
+     * Declining closes this approach and leaves the team free to try
+     * somebody else, as long as they are under their limit.
      *
      * @param activity $activity the activity
      * @param int $contactid the approach
@@ -180,18 +182,50 @@ class contacts {
             throw new \moodle_exception('refusalcontactanswered', 'mod_selfselectadvanced');
         }
 
-        $group = groups::get($activity, (int) $contact->groupid);
-        if ($accept) {
-            // Capacity, state and every other rule are the assignment
-            // service's to judge; this is the same door a manager uses.
-            (new api($activity))->lifecycle()->assign_guide($group, $userid, $userid);
-        }
+        // A team that is still forming has its guide PRE-ASSIGNED, the
+        // same shape an accepted expression of interest takes: the
+        // team then submits to that guide. Reassignment is for teams
+        // that have already been submitted, and refuses a forming one.
+        //
+        // Guide lock before group lock, the ordering the rest of the
+        // plugin uses, because capacity is per guide while the team's
+        // state is per group.
+        $guidelock = locks::acquire('eoiguide:' . $userid);
+        $lock = locks::acquire('group:' . $contact->groupid);
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
 
-        $contact->status = $accept ? self::STATUS_ACCEPTED : self::STATUS_DECLINED;
-        $contact->reason = $reason;
-        $contact->reasonformat = $reasonformat;
-        $contact->timeresponded = time();
-        $DB->update_record('selfselectadvanced_contact', $contact);
+            $group = groups::get($activity, (int) $contact->groupid);
+            if ($accept) {
+                if ($group->state !== state::FORMING || !empty($group->guideid)) {
+                    throw new \moodle_exception('refusalcontacthasguide', 'mod_selfselectadvanced');
+                }
+                // Judged under the lock: a guide who filled up while
+                // this approach was waiting cannot take another team.
+                if ((new api($activity))->gatekeeper()->can_take_guide($userid)) {
+                    throw new \moodle_exception('refusalcontactfull', 'mod_selfselectadvanced');
+                }
+                $DB->set_field('selfselectadvanced_group', 'guideid', $userid, ['id' => $group->id]);
+                $DB->set_field('selfselectadvanced_group', 'timemodified', time(), ['id' => $group->id]);
+            }
+
+            $contact->status = $accept ? self::STATUS_ACCEPTED : self::STATUS_DECLINED;
+            $contact->reason = $reason;
+            $contact->reasonformat = $reasonformat;
+            $contact->timeresponded = time();
+            $DB->update_record('selfselectadvanced_contact', $contact);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+            $guidelock->release();
+        }
 
         \mod_selfselectadvanced\event\contact_answered::create([
             'objectid' => $contact->id,
