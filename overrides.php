@@ -50,30 +50,59 @@ $PAGE->set_url($baseurl);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
-// Target labels per mode.
-$targets = [];
-if ($mode === 'group') {
-    foreach (
-        $DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()], 'name ASC') as $group
-    ) {
-        $targets[(int) $group->id] = format_string($group->name) . ' (' . $group->pluginuid . ')';
+// The picker searches instead of listing (strategy 1.18 B). This page
+// used to build EVERY possible target before rendering: every team at
+// group scope, every guide at guide scope, and at user scope every
+// enrolled student - ten thousand of them on the enrolment this plugin
+// is built for. A client-side autocomplete does not help with that; it
+// still has to render each option before it can filter one.
+//
+// Only the target already chosen is loaded, so an edit shows what it is
+// editing.
+$targetmodule = [
+    'group' => 'mod_selfselectadvanced/groupselector',
+    'guide' => 'mod_selfselectadvanced/guideselector',
+][$mode] ?? 'mod_selfselectadvanced/participantselector';
+
+/**
+ * Labels for the targets actually referenced, and no others.
+ *
+ * @param \mod_selfselectadvanced\activity $activity the activity
+ * @param string $mode user, group or guide
+ * @param int[] $ids the target ids in play
+ * @return string[] id => label
+ */
+function selfselectadvanced_override_labels($activity, string $mode, array $ids): array {
+    global $DB;
+
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+    if (!$ids) {
+        return [];
     }
-} else if ($mode === 'guide') {
-    // Managers must reach every guide, including one who has not
-    // volunteered - granting an override is exactly how a manager
-    // gives such a guide capacity (1.7.0).
-    $allguides = \mod_selfselectadvanced\local\guides::with_load($activity, $api->gatekeeper()->resolver(), true);
-    foreach ($allguides as $guide) {
-        $targets[$guide->id] = get_string(
-            'guidepickerlabel',
-            'mod_selfselectadvanced',
-            (object) ['fullname' => $guide->fullname, 'label' => $guide->label]
+    [$insql, $params] = $DB->get_in_or_equal($ids, SQL_PARAMS_NAMED, 'tg');
+    $labels = [];
+    if ($mode === 'group') {
+        $params['activityid'] = $activity->id();
+        $groups = $DB->get_records_select(
+            'selfselectadvanced_group',
+            "id $insql AND activityid = :activityid",
+            $params,
+            '',
+            'id, name, pluginuid'
         );
+        foreach ($groups as $group) {
+            $labels[(int) $group->id] = format_string($group->name) . ' (' . $group->pluginuid . ')';
+        }
+
+        return $labels;
     }
-} else {
-    foreach (get_enrolled_users($context, 'mod/selfselectadvanced:respond', 0, 'u.*', 'lastname, firstname') as $user) {
-        $targets[(int) $user->id] = fullname($user);
+
+    $namefields = \core_user\fields::for_name()->get_sql('', false, '', '', true)->selects;
+    foreach ($DB->get_records_sql("SELECT id{$namefields} FROM {user} WHERE id $insql", $params) as $user) {
+        $labels[(int) $user->id] = fullname($user);
     }
+
+    return $labels;
 }
 
 if ($action === 'delete' && data_submitted() && confirm_sesskey()) {
@@ -97,7 +126,8 @@ if ($action === 'edit') {
             'activityid' => $activity->id(),
         ], '*', MUST_EXIST);
         $targetid = (int) ($existing->userid ?? 0) ?: (int) ($existing->groupid ?? 0);
-        $targetlabel = $targets[$targetid] ?? (string) $targetid;
+        $targetlabel = selfselectadvanced_override_labels($activity, $mode, [$targetid])[$targetid]
+            ?? (string) $targetid;
     }
 
     $form = new \mod_selfselectadvanced\form\override_form(
@@ -106,7 +136,8 @@ if ($action === 'edit') {
             'cmid' => $cm->id,
             'mode' => $mode,
             'overrideid' => $overrideid,
-            'targets' => $targets,
+            'targetmodule' => $targetmodule,
+            'targetid' => $targetid ?? 0,
             'targetlabel' => $targetlabel,
         ]
     );
@@ -162,9 +193,15 @@ if ($action === 'edit') {
     die;
 }
 
-// List view.
+// List view. The labels are fetched for the ids these rows carry and
+// for nothing else - the page never builds the full target list.
+$overrides = \mod_selfselectadvanced\local\override\store::get_all($activity, $mode);
+$targets = selfselectadvanced_override_labels($activity, $mode, array_map(
+    static fn($o) => (int) ($o->userid ?? 0) ?: (int) ($o->groupid ?? 0),
+    $overrides
+));
 $rows = [];
-foreach (\mod_selfselectadvanced\local\override\store::get_all($activity, $mode) as $override) {
+foreach ($overrides as $override) {
     $targetid = (int) ($override->userid ?? 0) ?: (int) ($override->groupid ?? 0);
     $parts = [];
     foreach (\mod_selfselectadvanced\local\override\store::FIELDS[$mode] as $field) {

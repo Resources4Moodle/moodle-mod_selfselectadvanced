@@ -406,6 +406,42 @@ class groups {
     }
 
     /**
+     * Teams matching a typed query, for the searchable pickers
+     * (strategy 1.18 B).
+     *
+     * Matching is on the team name AND the project id, because staff
+     * work from whichever they have in front of them. Capped, because
+     * the whole point is that no control ever holds fifteen hundred
+     * teams.
+     *
+     * @param activity $activity the activity
+     * @param string $query the typed text
+     * @param int $limit most rows to return
+     * @return \stdClass[] id, name, pluginuid, state
+     */
+    public static function search(activity $activity, string $query, int $limit = 50): array {
+        global $DB;
+
+        $query = trim($query);
+        if ($query === '') {
+            return [];
+        }
+        $like = '%' . $DB->sql_like_escape($query) . '%';
+
+        return $DB->get_records_sql(
+            "SELECT g.id, g.name, g.pluginuid, g.state
+               FROM {selfselectadvanced_group} g
+              WHERE g.activityid = :activityid
+                AND (" . $DB->sql_like('g.name', ':byname', false, false)
+                . " OR " . $DB->sql_like('g.pluginuid', ':byuid', false, false) . ")
+           ORDER BY g.name",
+            ['activityid' => $activity->id(), 'byname' => $like, 'byuid' => $like],
+            0,
+            $limit
+        );
+    }
+
+    /**
      * Which placeholders a project-id template may use.
      *
      * @return string[]

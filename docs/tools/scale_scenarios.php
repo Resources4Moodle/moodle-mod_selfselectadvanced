@@ -859,7 +859,7 @@ probe('service: guide search for a picker keystroke (200 guides)', function () u
     // keystroke in every picker costs this, so it has to stay flat -
     // the name filter runs BEFORE the per-guide override work, which
     // is what stops it scaling with the size of the school.
-    $hits = \mod_selfselectadvanced\local\guides::search($activity, $gatekeeper->resolver(), 'Guide', 50);
+    $hits = \mod_selfselectadvanced\local\guides::search($activity, $gatekeeper->resolver(), 'Scale', 50);
     if (count($hits) < 1) {
         throw new coding_exception('the guide search found nobody at all');
     }
@@ -883,7 +883,7 @@ probe('table: guide loads page of 50, filtered (200 guides)', function () use ($
     // 1.18 F: filters and download joined the paging it got in 1.17.
     $rows = [];
     foreach (
-        \mod_selfselectadvanced\local\guides::with_load($activity, $gatekeeper->resolver(), true, 'Guide') as $guide
+        \mod_selfselectadvanced\local\guides::with_load($activity, $gatekeeper->resolver(), true, 'Scale') as $guide
     ) {
         $rows[] = (object) [
             'fullname' => $guide->fullname,
@@ -901,6 +901,21 @@ probe('table: guide loads page of 50, filtered (200 guides)', function () use ($
     $html = ob_get_clean();
 
     return count($rows) . ' guides, ' . strlen($html) . ' bytes';
+});
+
+probe('service: team search for a move-form keystroke (~1900 teams)', function () use ($activity) {
+    // 1.18.2 B: the move form carried TWO selects over every team, and
+    // the override form an autocomplete filtered in the browser. Both
+    // search now, and this is the cost of one keystroke in either.
+    $hits = \mod_selfselectadvanced\local\groups::search($activity, 'Scale', 50);
+    if (count($hits) < 1) {
+        throw new coding_exception('the team search found nothing at all');
+    }
+    if (count($hits) > 50) {
+        throw new coding_exception('the team search ignored its cap: ' . count($hits));
+    }
+
+    return count($hits) . ' hits, capped at 50';
 });
 
 probe('service: guidecap - file 20 + queue + grant', function () use ($DB, $activity, $guideids) {

@@ -33,6 +33,14 @@ $functions = [
         'ajax' => true,
         'capabilities' => 'mod/selfselectadvanced:creategroup',
     ],
+    'mod_selfselectadvanced_search_groups' => [
+        'classname' => \mod_selfselectadvanced\external\search_groups::class,
+        'description' => 'Search this activity\'s teams by name or project id, for the move '
+            . 'and override pickers.',
+        'type' => 'read',
+        'ajax' => true,
+        'capabilities' => 'mod/selfselectadvanced:manage',
+    ],
     'mod_selfselectadvanced_search_guides' => [
         'classname' => \mod_selfselectadvanced\external\search_guides::class,
         'description' => 'Search this activity\'s guides for the searchable guide pickers, '

@@ -52,6 +52,27 @@ $PAGE->set_heading(format_string($course->fullname));
 // every field from the dead-end move plus its id in 'replaces' so it
 // can be cancelled once the replacement stages successfully.
 $prefill = optional_param('student', 0, PARAM_INT);
+/**
+ * One team as an id => label pair for a picker's initial value.
+ *
+ * @param \mod_selfselectadvanced\activity $activity the activity
+ * @param int $groupid the team, or 0 for none
+ * @return array empty, or [id => label]
+ */
+function selfselectadvanced_move_group_label($activity, int $groupid): array {
+    global $DB;
+
+    if ($groupid <= 0) {
+        return [];
+    }
+    $group = $DB->get_record('selfselectadvanced_group', ['id' => $groupid, 'activityid' => $activity->id()]);
+    if (!$group) {
+        return [];
+    }
+
+    return [$groupid => format_string($group->name) . ' (' . $group->pluginuid . ')'];
+}
+
 $selectedstudent = [];
 if ($prefill && ($prefilluser = core_user::get_user($prefill))) {
     $selectedstudent = [$prefill => fullname($prefilluser)];
@@ -67,18 +88,20 @@ $prefillmakeleader = optional_param('makeleader', false, PARAM_BOOL);
 $prefillreplaceleader = optional_param('replaceleader', false, PARAM_BOOL);
 $replaces = optional_param('replaces', 0, PARAM_INT);
 
-$groupoptions = [];
-foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()], 'name ASC') as $group) {
-    $groupoptions[(int) $group->id] = format_string($group->name) . ' (' . $group->pluginuid . ', '
-        . get_string('state' . str_replace('_', '', $group->state), 'mod_selfselectadvanced') . ')';
-}
+// Only the teams already chosen are loaded, so the picker has
+// something to show before anybody searches. The full list is never
+// built: at fifteen hundred teams it was the page's whole cost
+// (strategy 1.18 B).
+$selectedsource = selfselectadvanced_move_group_label($activity, $prefillsource);
+$selectedtarget = selfselectadvanced_move_group_label($activity, $prefilltarget);
 $canbypass = has_capability('mod/selfselectadvanced:override', $context);
 
 $form = new \mod_selfselectadvanced\form\move_form(null, [
     'cmid' => $cm->id,
     'selectedstudent' => $selectedstudent,
     'selectedsuccessor' => $selectedsuccessor,
-    'groups' => $groupoptions,
+    'selectedsource' => $selectedsource,
+    'selectedtarget' => $selectedtarget,
     'canbypass' => $canbypass,
 ]);
 

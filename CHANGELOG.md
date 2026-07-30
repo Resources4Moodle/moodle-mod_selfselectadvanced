@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.18.3 (2026-07-30)
+
+- **The composition checker called a perfectly ordinary rule set
+  impossible.** "Exactly two members from one school" and "at least
+  four schools represented" in a team of five was reported as needing
+  six members, with a red warning telling the teacher to resolve it
+  before students hit an impossible wall. There was no wall: five
+  members satisfy it, because the two pinned members supply one of the
+  four schools between them. The checker had been adding a distinct
+  rule's count of VALUES to a value rule's count of MEMBERS as though
+  they were the same number. It now works out the fewest members the
+  rules can actually be met by - the pinned members, plus one more for
+  each required value they do not already cover - and a rule asking for
+  more distinct values than a team can hold members says so in its own
+  words.
+
+## 1.18.2 (2026-07-30)
+
+- **No team picker lists every team either.** The move form carried two
+  selects holding every team in the activity - three thousand options
+  on one form at the fifteen hundred teams this is built for - and the
+  overrides page was worse: it built EVERY possible target before
+  rendering, which at user scope means every enrolled student, ten
+  thousand of them. A client-side autocomplete does not help with that;
+  the browser still has to render each option before it can hide one.
+  Both now search server-side, matching on **team name or project id**,
+  because staff work from whichever they have in front of them. Neither
+  page builds a full list any more: they load only the target already
+  chosen, so editing still shows what is being edited.
+
 ## 1.18.1 (2026-07-30)
 
 Three things the demonstration screenshots caught that the test suite

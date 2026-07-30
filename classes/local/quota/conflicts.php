@@ -64,12 +64,44 @@ class conflicts {
             ]);
         }
 
-        // Check b: sum of per-dimension rule minimums vs the maximum.
-        $minsums = [];
+        // Check b: the fewest members each dimension's rules can be
+        // satisfied by, against the group maximum.
+        //
+        // A distinct rule counts VALUES, not members, and the members a
+        // value rule pins already supply one of those values. Summing
+        // the two counts as if they were both member counts declares a
+        // perfectly ordinary rule set impossible: "exactly 2 from
+        // SCOPE" plus "at least 4 distinct schools" reads as 6 members
+        // when it is satisfied by 5 - two from SCOPE and three from
+        // three other schools, which is four distinct schools between
+        // them. That configuration is the one this plugin was built
+        // for, and it was being reported as an impossible wall.
+        //
+        // So: the pinned members, plus one more for each distinct value
+        // they do not already cover.
+        $pinnedmembers = [];
+        $pinnedvalues = [];
+        $distinctneed = [];
         foreach ($rules as $rule) {
-            if ($rule->mincount !== null) {
-                $minsums[$rule->dimension] = ($minsums[$rule->dimension] ?? 0) + (int) $rule->mincount;
+            if ($rule->mincount === null) {
+                continue;
             }
+            $dimension = $rule->dimension;
+            if ($rule->rtype === 'distinct') {
+                $distinctneed[$dimension] = max($distinctneed[$dimension] ?? 0, (int) $rule->mincount);
+            } else {
+                $pinnedmembers[$dimension] = ($pinnedmembers[$dimension] ?? 0) + (int) $rule->mincount;
+                $pinnedvalues[$dimension][(string) $rule->value] = true;
+            }
+        }
+        $minsums = [];
+        foreach (array_unique(array_merge(array_keys($pinnedmembers), array_keys($distinctneed))) as $dimension) {
+            $members = $pinnedmembers[$dimension] ?? 0;
+            $covered = count($pinnedvalues[$dimension] ?? []);
+            $minsums[$dimension] = $members + max(0, ($distinctneed[$dimension] ?? 0) - $covered);
+        }
+
+        foreach ($rules as $rule) {
             // Check c: a rule contradicting itself or the group size.
             if (
                 $rule->mincount !== null && $rule->maxcount !== null
@@ -77,11 +109,20 @@ class conflicts {
             ) {
                 $clashes[] = get_string('clashruleminmax', 'mod_selfselectadvanced', s((string) $rule->value));
             }
+            // A distinct rule needing more values than the group can
+            // hold members is impossible for the same reason a value
+            // rule needing more members is, so both are checked - but
+            // against their own meaning of the number.
             if ($rule->mincount !== null && (int) $rule->mincount > $maxsize) {
-                $clashes[] = get_string('clashruletoobig', 'mod_selfselectadvanced', (object) [
-                    'value' => s((string) $rule->value),
-                    'max' => $maxsize,
-                ]);
+                $clashes[] = get_string(
+                    $rule->rtype === 'distinct' ? 'clashdistincttoobig' : 'clashruletoobig',
+                    'mod_selfselectadvanced',
+                    (object) [
+                        'value' => s((string) ($rule->value ?? '')),
+                        'need' => (int) $rule->mincount,
+                        'max' => $maxsize,
+                    ]
+                );
             }
         }
         foreach ($minsums as $dimension => $sum) {

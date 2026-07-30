@@ -155,3 +155,21 @@ since 1.5. Without it, the control renders as an empty select. That is
 the trade for a school with 1500 guides: the alternative is the list
 that made the page unusable in the first place. The two Behat scenarios
 that exercise a chooser are tagged `@javascript` accordingly.
+
+## The rule was not applied widely enough the first time
+
+1.18.0 searched every GUIDE picker and left the TEAM pickers listing.
+The move form held two selects over every team, and the overrides form
+an autocomplete that filtered in the browser — which still renders each
+option before it can hide one, so at user scope it was building all ten
+thousand enrolled students into a page.
+
+The lesson is the one this round keeps teaching, one level up: **when a
+rule is adopted, sweep for every control it applies to, not just the
+one that prompted it.** "No control lists everything" was written about
+guides and applied to guides. Teams, and students, went on listing.
+
+Team search matches the name AND the project id, because staff work
+from whichever of the two they have in front of them, and the query
+lives in `groups::search()` rather than in the web service — so the
+scale harness can measure a keystroke without needing a session.
