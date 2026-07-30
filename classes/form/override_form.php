@@ -26,8 +26,9 @@ require_once($CFG->libdir . '/formslib.php');
  * group -> dates + minsize + maxsize + quotaexempt + penaltywaived;
  * guide -> maxguided only.
  *
- * Custom data: cmid, mode, overrideid, targets (value => label,
- * disabled when editing), targetlabel (when editing).
+ * Custom data: cmid, mode, overrideid, targetmodule (the AMD
+ * transport its picker searches through), targetid and targetlabel
+ * (the target already chosen, when editing one).
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -61,13 +62,28 @@ class override_form extends \moodleform {
             $mform->addElement('hidden', 'target', 0);
             $mform->setType('target', PARAM_INT);
         } else {
+            // Searchable, never a list (strategy 1.18 B). This element
+            // used to be handed every possible target up front - every
+            // team, every guide, or every enrolled student - and merely
+            // filtered them in the browser, which still means rendering
+            // ten thousand options before one can be hidden.
             $mform->addElement(
                 'autocomplete',
                 'target',
                 get_string('overridetarget' . $mode, 'mod_selfselectadvanced'),
-                $this->_customdata['targets'],
-                ['noselectionstring' => get_string('choosedots')]
+                [],
+                [
+                    'ajax' => $this->_customdata['targetmodule'],
+                    'noselectionstring' => get_string('choosedots'),
+                    'placeholder' => get_string(
+                        $mode === 'group' ? 'grouppickerplaceholder' : 'guidepickerplaceholder',
+                        'mod_selfselectadvanced'
+                    ),
+                    'casesensitive' => false,
+                    'data-cmid' => $this->_customdata['cmid'],
+                ]
             );
+            $mform->setType('target', PARAM_INT);
             $mform->addRule('target', get_string('required'), 'required', null, 'client');
         }
 

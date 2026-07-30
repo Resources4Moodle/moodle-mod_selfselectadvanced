@@ -32,6 +32,7 @@ require_once($CFG->dirroot . '/webservice/tests/helpers.php');
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \mod_selfselectadvanced\external\search_guides
+ * @covers     \mod_selfselectadvanced\external\search_groups
  */
 final class external_guidesearch_test extends \externallib_advanced_testcase {
     /**
@@ -157,6 +158,49 @@ final class external_guidesearch_test extends \externallib_advanced_testcase {
         $this->setUser($student);
         $seen = \mod_selfselectadvanced\external\search_guides::execute($activity->cm()->id, 'Meera');
         $this->assertStringContainsString('Guiding', $seen[0]['label']);
+    }
+
+    /**
+     * The team picker searches by name AND by project id, because staff
+     * work from whichever they have in front of them.
+     */
+    public function test_group_search_matches_name_and_project_id(): void {
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course(['shortname' => 'GS1']);
+        $instance = $generator->create_module('selfselectadvanced', ['course' => $course->id]);
+        $activity = activity::from_instance((int) $instance->id);
+
+        $leader = $generator->create_user();
+        $generator->enrol_user($leader->id, $course->id, 'student');
+        $manager = $generator->create_user();
+        $generator->enrol_user($manager->id, $course->id, 'editingteacher');
+
+        $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $leader->id,
+            'name' => 'Kingfisher',
+            'pluginuid' => 'MDP-GS1-0042',
+        ]);
+
+        $this->setUser($manager);
+        $byname = \mod_selfselectadvanced\external\search_groups::execute($activity->cm()->id, 'Kingfish');
+        $this->assertCount(1, $byname);
+        $this->assertSame('Kingfisher', $byname[0]['name']);
+
+        $byuid = \mod_selfselectadvanced\external\search_groups::execute($activity->cm()->id, '0042');
+        $this->assertCount(1, $byuid);
+        $this->assertSame('MDP-GS1-0042', $byuid[0]['pluginuid']);
+        $this->assertStringContainsString('MDP-GS1-0042', $byuid[0]['label']);
+
+        // Empty means nothing, not everything.
+        $this->assertSame([], \mod_selfselectadvanced\external\search_groups::execute($activity->cm()->id, ''));
+
+        // A student has no picker of teams to fill.
+        $this->setUser($leader);
+        $this->expectException(\required_capability_exception::class);
+        \mod_selfselectadvanced\external\search_groups::execute($activity->cm()->id, 'Kingfish');
     }
 
     /**

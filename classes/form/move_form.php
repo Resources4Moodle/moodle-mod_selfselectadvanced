@@ -41,6 +41,29 @@ require_once($CFG->libdir . '/formslib.php');
  */
 class move_form extends \moodleform {
     /**
+     * The options both team pickers use.
+     *
+     * @param string $noselection what to show before a team is chosen
+     * @return array autocomplete options
+     */
+    private function groupselector(string $noselection): array {
+        return [
+            'ajax' => 'mod_selfselectadvanced/groupselector',
+            'noselectionstring' => $noselection,
+            'placeholder' => get_string('grouppickerplaceholder', 'mod_selfselectadvanced'),
+            'casesensitive' => false,
+            'valuehtmlcallback' => function ($groupid) {
+                global $DB;
+
+                $group = $DB->get_record('selfselectadvanced_group', ['id' => (int) $groupid]);
+
+                return $group ? format_string($group->name) . ' (' . $group->pluginuid . ')' : '';
+            },
+            'data-cmid' => $this->_customdata['cmid'],
+        ];
+    }
+
+    /**
      * Define the form elements.
      */
     protected function definition(): void {
@@ -79,24 +102,33 @@ class move_form extends \moodleform {
         );
         $mform->addRule('student', get_string('required'), 'required', null, 'client');
 
+        // Searchable, never a list (strategy 1.18 B). These two used to
+        // hold every team in the activity: at fifteen hundred teams that
+        // is three thousand options on one form, built by the server and
+        // sent whether anybody opened either of them or not.
+        //
+        // The empty state matters here for a second reason (UX audit):
+        // a select always carries a real value - the alphabetically
+        // first team - so a hasty submit silently staged a move nobody
+        // chose. A picker that starts empty cannot do that.
         $mform->addElement(
-            'select',
+            'autocomplete',
             'source',
             get_string('movefrom', 'mod_selfselectadvanced'),
-            [0 => get_string('movenosource', 'mod_selfselectadvanced')] + $this->_customdata['groups']
+            $this->_customdata['selectedsource'] ?? [],
+            $this->groupselector(get_string('movenosource', 'mod_selfselectadvanced'))
         );
+        $mform->setType('source', PARAM_INT);
         $mform->addHelpButton('source', 'movefrom', 'mod_selfselectadvanced');
 
-        // An explicit empty choice (UX audit): without one the select
-        // always carries a real value (the alphabetically first group),
-        // so a hasty submit silently staged a move nobody chose. The
-        // required rule can only bite once a truly-empty state exists.
         $mform->addElement(
-            'select',
+            'autocomplete',
             'target',
             get_string('moveto', 'mod_selfselectadvanced'),
-            ['' => get_string('choosedots')] + $this->_customdata['groups']
+            $this->_customdata['selectedtarget'] ?? [],
+            $this->groupselector(get_string('choosedots'))
         );
+        $mform->setType('target', PARAM_INT);
         $mform->addRule('target', get_string('required'), 'required', null, 'client');
 
         $mform->addElement('advcheckbox', 'makeleader', get_string('movemakeleader', 'mod_selfselectadvanced'));
