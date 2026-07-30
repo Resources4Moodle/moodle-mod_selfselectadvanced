@@ -63,18 +63,35 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     And I press "File request"
     Then I should see "ticket of this kind already exists"
 
-  Scenario: A coordinator cannot take up a ticket for a team they guide
+  Scenario: A coordinator cannot take up a request about a team they guide
+    # The request has to come from somebody else: a worker's own
+    # requests are kept out of their queue entirely, so the refusal is
+    # only reachable for a request another person filed.
     Given the following "mod_selfselectadvanced > groups" exist:
-      | selfselectadvanced | name     | leader   | guide  | state | timeapproved  |
-      | ssa1               | Team Own | student1 | coord1 | firm  | ##yesterday## |
-    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as coord1
+      | selfselectadvanced | name     | leader   | guide  | state  | timeapproved  |
+      | ssa1               | Team Own | student1 | coord1 | frozen | ##yesterday## |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Own"
+    And I set the field "Why is this change needed?" to "Our member has left the course"
+    And I press "File request"
+    Then I should see "Your request has been queued for the managers and coordinators."
+    When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as coord1
+    And I press "Take up"
+    Then I should see "you are the assigned guide"
+
+  Scenario: A worker does not see their own request in their own queue
+    Given the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name      | leader   | guide  | state | timeapproved  |
+      | ssa1               | Team Mine | student1 | coord1 | firm  | ##yesterday## |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as coord1
+    And I follow "Team Mine"
     And I set the field "Why is this change needed?" to "One member never turns up"
     And I press "File request"
     Then I should see "Your request has been queued for the managers and coordinators."
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page
-    And I press "Take up"
-    Then I should see "you are the assigned guide"
+    Then I should not see "Team Mine" in the ".selfselectadvanced-tickets" "css_element"
+    When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
+    Then I should see "Team Mine"
 
   Scenario: Students cannot open the ticket queue
     When I log in as "student1"
