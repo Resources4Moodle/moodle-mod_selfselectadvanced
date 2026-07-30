@@ -708,6 +708,36 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         $field = new xmldb_field('studentapproach', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1', 'uiddigits');
         $dbman->change_field_default($table, $field);
 
+        // A team approaching a guide (strategy 1.17 E): the approaches
+        // themselves, and how many guides one team may approach.
+        $field = new xmldb_field('contactmax', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '3', 'uiddigits');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $contacts = new xmldb_table('selfselectadvanced_contact');
+        $contacts->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $contacts->add_field('activityid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $contacts->add_field('groupid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $contacts->add_field('guideid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $contacts->add_field('status', XMLDB_TYPE_CHAR, '10', null, XMLDB_NOTNULL, null, 'sent');
+        $contacts->add_field('sentby', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $contacts->add_field('message', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $contacts->add_field('messageformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
+        $contacts->add_field('reason', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $contacts->add_field('reasonformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
+        $contacts->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $contacts->add_field('timeresponded', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $contacts->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $contacts->add_key('fk_activityid', XMLDB_KEY_FOREIGN, ['activityid'], 'selfselectadvanced', ['id']);
+        $contacts->add_key('fk_groupid', XMLDB_KEY_FOREIGN, ['groupid'], 'selfselectadvanced_group', ['id']);
+        $contacts->add_key('fk_guideid', XMLDB_KEY_FOREIGN, ['guideid'], 'user', ['id']);
+        $contacts->add_index('groupid_status', XMLDB_INDEX_NOTUNIQUE, ['groupid', 'status']);
+        $contacts->add_index('guideid_status', XMLDB_INDEX_NOTUNIQUE, ['guideid', 'status']);
+        if (!$dbman->table_exists($contacts)) {
+            $dbman->create_table($contacts);
+        }
+
         upgrade_mod_savepoint(true, 2026073070, 'selfselectadvanced');
     }
 
