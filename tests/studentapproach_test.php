@@ -289,7 +289,7 @@ final class studentapproach_test extends \advanced_testcase {
             '',
             FORMAT_HTML
         );
-        // {prefix}-{course}-{number}, the shape shipped since 1.15.
+        // The {prefix}-{course}-{number} shape, shipped since 1.15.
         $this->assertMatchesRegularExpression('/^MDP-[A-Z0-9]+-\d{4,}$/', $group->pluginuid);
 
         [$shaped, $others] = $this->setup_activity([

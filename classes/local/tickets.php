@@ -509,6 +509,9 @@ class tickets {
      * then closed newest first.
      *
      * @param activity $activity the activity
+     * @param int $viewerid the person looking, whose own requests are
+     *                      left out unless they hold the manage capability;
+     *                      0 for the whole queue
      * @return stdClass[] ticket rows
      */
     public static function queue(activity $activity, int $viewerid = 0): array {
