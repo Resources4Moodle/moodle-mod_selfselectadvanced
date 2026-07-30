@@ -26,4 +26,4 @@ Feature: Auto-grouping of groupless students
     When I press "Run auto-grouping now"
     Then I should see "Auto-grouping complete: 1 group(s) formed, 2 placed, 0 left for placement."
     And I should see "Auto group 1"
-    And I should see "Guide assignment queue"
+    And I should see "Guides and assignment"
