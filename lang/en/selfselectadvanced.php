@@ -496,6 +496,7 @@ $string['membershipauditmember'] = '{$a->fullname} (in {$a->current} groups, cap
 $string['membershipsheading'] = 'Memberships and defaulters';
 $string['messageprovider:autogroupresult'] = 'Automatic grouping placements and run summaries';
 $string['messageprovider:capaudit'] = 'Membership-cap flags raised when a freeze is refused';
+$string['messageprovider:coordinator'] = 'Being appointed or stood down as a Group Coordinator';
 $string['messageprovider:deadlinereminder'] = 'Deadline reminder for students without a group';
 $string['messageprovider:digest'] = 'Rollup digest of guide notifications';
 $string['messageprovider:eoireceived'] = 'A guide expressed, withdrew or stepped out of interest in your team';
@@ -565,9 +566,12 @@ $string['movesuccessor'] = 'Successor for the source group';
 $string['movesuccessor_help'] = 'Required when the moved student currently leads the source group: the chosen member becomes its leader in the same transaction.';
 $string['moveto'] = 'To group';
 $string['movevalidation'] = 'Validation';
-$string['msgacceptedbody'] = '{$a->user} accepted the invitation and is now a confirmed member of "{$a->group}".';
+$string['msgacceptedbody'] = '{$a->member} has accepted your invitation to "{$a->group}".
+The team now has {$a->size} confirmed member(s).';
 $string['msgacceptedsubject'] = '{$a->user} joined "{$a->group}"';
-$string['msgapprovedbody'] = 'Your group "{$a->group}" has been approved by its guide. Membership is now firm.';
+$string['msgapprovedbody'] = 'Your team "{$a->group}" has been approved by its guide.
+Membership is firm from now on: people can no longer join or leave without a coordinator.
+Your guide will be in touch about the work itself.';
 $string['msgapprovedsubject'] = 'Group "{$a->group}" approved';
 $string['msgautoapprovedbody'] = 'Dear {$a->firstname}, the guide decision window for "{$a->group}" ({$a->pluginuid}) in {$a->activity} lapsed with no decision, so the group was automatically counted as accepted. Any size or quota relief this required has been recorded as a group override. Review at {$a->url}.';
 $string['msgautoapprovedsubject'] = 'Auto-approved: "{$a->group}" (guide window lapsed)';
@@ -575,11 +579,18 @@ $string['msgautogroupedbody'] = 'Dear {$a->firstname}, the automatic grouping in
 $string['msgautogroupedsubject'] = 'You have been placed in a group';
 $string['msgautogroupranbody'] = 'Dear {$a->firstname}, auto-grouping in {$a->activity} formed {$a->groups} group(s), placing {$a->placed} student(s); {$a->unplaced} remain unplaced on the flagged report: {$a->url}.';
 $string['msgautogroupransubject'] = 'Auto-grouping ran in {$a->activity}';
-$string['msgcapauditbody'] = 'Guide {$a->guide} tried to freeze group "{$a->group}", but the push to the course groups was refused: {$a->members} would exceed their membership cap. Raise the activity cap or grant per-user overrides, then ask the guide to freeze again. The plugin never raises a cap by itself.';
+$string['msgcapauditbody'] = 'Guide {$a->guide} tried to freeze the team "{$a->group}", and the push to the course groups was refused.
+The reason: {$a->members} would go over the number of teams a student may belong to.
+Raise the limit for this activity, or grant those students an exception, then ask the guide to freeze the team again. The plugin never raises a limit by itself.';
 $string['msgcapauditsubject'] = 'Freeze of "{$a->group}" needs a membership-cap decision';
 $string['msgcascadebody'] = '{$a->user} reached their group membership limit, so their pending invitation to "{$a->group}" was automatically declined and its seat released.';
 $string['msgcascadesubject'] = 'Invitation to "{$a->group}" auto-declined';
-$string['msgdeclinedbody'] = '{$a->user} declined the invitation to "{$a->group}". The reserved seat has been released.';
+$string['msgcoordinatorassignedbody'] = 'You have been made a Group Coordinator for {$a->activity}.\nThat means you handle freezing and unfreezing teams, grant exceptions where a case deserves one, and work the request queue alongside the coordinator.\nOne rule worth knowing straight away: you cannot act on a team you guide, are lined up to guide, or belong to. Another coordinator takes those.';
+$string['msgcoordinatorassignedsubject'] = 'You are now a Group Coordinator in {$a->activity}';
+$string['msgcoordinatorremovedbody'] = 'You have been stood down as a Group Coordinator for {$a->activity}.\nAnything you had taken up in the request queue has been released for somebody else. Your other roles in the course are unchanged.';
+$string['msgcoordinatorremovedsubject'] = 'You are no longer a Group Coordinator in {$a->activity}';
+$string['msgdeclinedbody'] = '{$a->member} has declined your invitation to "{$a->group}".
+The seat they were holding is free again, so you can invite somebody else.';
 $string['msgdeclinedsubject'] = '{$a->user} declined the invitation to "{$a->group}"';
 $string['msgeoiacceptedbody'] = 'Dear {$a->firstname}, the leader of "{$a->group}" in {$a->activity} accepted your interest. The team will reach you for review when it is submitted. See your guide dashboard at {$a->url}.';
 $string['msgeoiacceptedsubject'] = 'Your interest in "{$a->group}" was accepted';
@@ -599,11 +610,16 @@ $string['msgexpiredinviteebody'] = 'Your invitation to the group "{$a->group}" e
 $string['msgexpiredinviteesubject'] = 'Invitation to "{$a->group}" expired';
 $string['msgexpiredleaderbody'] = 'The invitation for {$a->user} to join "{$a->group}" expired and its seat has been released.';
 $string['msgexpiredleadersubject'] = 'An invitation to "{$a->group}" expired';
-$string['msgfrozenbody'] = 'Your group "{$a->group}" is now a Moodle course group. Membership is locked.';
+$string['msgfrozenbody'] = 'Your team "{$a->group}" is now a group in the course itself.
+Membership is locked, and any activity set up group by group will see your team.
+If something has to change after this, ask your guide or a coordinator.';
 $string['msgfrozensubject'] = 'Group "{$a->group}" frozen';
-$string['msggroupdeletedbody'] = 'Dear {$a->firstname}, the group "{$a->group}" in {$a->activity} was deleted, releasing all of its members. You can create or join another team at {$a->url}.';
+$string['msggreeting'] = 'Hello {$a},';
+$string['msggroupdeletedbody'] = 'The team "{$a->group}" has been deleted.
+You are no longer a member of it, and your team places are free again.';
 $string['msggroupdeletedsubject'] = 'Group "{$a->group}" was deleted';
-$string['msgguidechangedbody'] = 'Dear {$a->firstname}, the team "{$a->group}" in {$a->activity} is now guided by {$a->newguide}. Review the team at {$a->url}.';
+$string['msgguidechangedbody'] = 'The guide of your team "{$a->group}" has changed.
+{$a->guide} is now guiding the team.';
 $string['msgguidechangedsubject'] = 'New guide for "{$a->group}"';
 $string['msgguidereminderbody'] = 'Dear {$a->firstname}, the group "{$a->group}" ({$a->pluginuid}) in {$a->activity} awaits your decision. Approve or return it by {$a->deadline}; after that it is automatically counted as accepted. Review at {$a->url}.';
 $string['msgguideremindersubject'] = 'Reminder: decide on "{$a->group}" by {$a->deadline}';
@@ -613,10 +629,13 @@ $string['msghandoverdeclinedbody'] = 'Dear {$a->firstname}, {$a->to} declined yo
 $string['msghandoverdeclinedsubject'] = 'Handover of "{$a->group}" declined';
 $string['msghandoverproposedbody'] = 'Dear {$a->firstname}, {$a->from} asked you to take over guiding "{$a->group}" in {$a->activity}. Accept or decline at {$a->url}.';
 $string['msghandoverproposedsubject'] = 'Guide handover proposed: "{$a->group}"';
-$string['msginvitationbody'] = 'Dear {$a->firstname} ({$a->lastname}), there is a request for you to join the group "{$a->group}" ({$a->pluginuid}) in {$a->activity}.{$a->expirynote} You can accept or decline at {$a->url}. After accepting you can still ask for changes while the group is forming; once the group is frozen, membership can no longer change.';
+$string['msginvitationbody'] = 'You have been invited to join the team "{$a->group}" ({$a->pluginuid}).
+The invitation is in {$a->activity}. Accepting it takes one of your team places.{$a->expirynote}
+Open the activity to accept or decline.';
 $string['msginvitationexpirynote'] = 'This invitation expires on {$a}.';
 $string['msginvitationsubject'] = 'Invitation to join "{$a->group}"';
-$string['msgleaderpromotedbody'] = 'Dear {$a->firstname}, a committed manager move made you the leader of "{$a->group}" in {$a->activity}. Review your team at {$a->url}.';
+$string['msgleaderpromotedbody'] = 'You are now the leader of team "{$a->group}".
+Leading a team means inviting members, submitting to a guide, and answering what the guide asks.';
 $string['msgleaderpromotedsubject'] = 'You now lead "{$a->group}"';
 $string['msgleaderreplacedbody'] = 'Dear {$a->firstname}, a manager has appointed a new leader for "{$a->group}" ({$a->pluginuid}) in {$a->activity}. You remain a member of the group. See {$a->url}.';
 $string['msgleaderreplacedsubject'] = 'Leadership of "{$a->group}" has changed';
@@ -624,7 +643,8 @@ $string['msgleaveconfirmedbody'] = 'Your leave request was confirmed: you are no
 $string['msgleaveconfirmedsubject'] = 'You have left "{$a->group}"';
 $string['msgleaverequestbody'] = '{$a->user} asked to leave your group "{$a->group}". Open the group page to confirm.';
 $string['msgleaverequestsubject'] = '{$a->user} wants to leave "{$a->group}"';
-$string['msgmovedbody'] = 'A manager moved you into the group "{$a->group}".';
+$string['msgmovedbody'] = 'You have been moved into the team "{$a->group}".
+A coordinator made this change. Open the activity to see who else is in the team.';
 $string['msgmovedsubject'] = 'You were moved to "{$a->group}"';
 $string['msgnominationbodystepout'] = 'The leader of "{$a->group}" ({$a->pluginuid}) nominated you to take over as leader so they can step out of the group. Open the group page to accept or decline.';
 $string['msgnominationbodytransfer'] = 'The leader of "{$a->group}" ({$a->pluginuid}) nominated you as the new leader. Open the group page to accept or decline.';
@@ -635,7 +655,8 @@ $string['msgnominationconfirmedsubject'] = 'Leadership of "{$a->group}" transfer
 $string['msgnominationdeclinedbody'] = 'Your succession nominee declined in "{$a->group}". You remain the leader.';
 $string['msgnominationdeclinedsubject'] = 'Nomination in "{$a->group}" declined';
 $string['msgnominationsubject'] = 'You have been nominated as leader of "{$a->group}"';
-$string['msgnowguidingbody'] = 'Dear {$a->firstname}, "{$a->group}" in {$a->activity} is now yours to guide. Review the team at {$a->url}.';
+$string['msgnowguidingbody'] = 'You are now the guide of team "{$a->group}" ({$a->pluginuid}).
+The team is waiting on you to review it.';
 $string['msgnowguidingsubject'] = 'You now guide "{$a->group}"';
 $string['msgnudgeguidebody'] = 'Dear {$a->firstname}, you have {$a->count} group(s) awaiting your decision in {$a->activity}, past the guide decision window. Review them at {$a->url}.';
 $string['msgnudgeguidesubject'] = 'Reminder: {$a->count} group(s) awaiting your decision in {$a->activity}';
@@ -643,17 +664,25 @@ $string['msgqueuedbody'] = 'The group "{$a->group}" ({$a->pluginuid}) in {$a->ac
 $string['msgqueuedsubject'] = 'Group "{$a->group}" awaits guide assignment';
 $string['msgreminderbody'] = 'You are not yet in a group in {$a->activity}. The penalty-free deadline is {$a->due}.';
 $string['msgremindersubject'] = 'Group formation deadline approaching in {$a->activity}';
-$string['msgreturnedbody'] = 'Your group "{$a->group}" was returned by its guide with this comment: {$a->comment}';
+$string['msgreturnedbody'] = 'Your team "{$a->group}" has come back from its guide with comments to address.
+What the guide said: {$a->comment}
+Make the changes and submit the team again.';
 $string['msgreturnedsubject'] = 'Group "{$a->group}" returned';
-$string['msgsubmittedbody'] = 'The group "{$a->group}" ({$a->pluginuid}) in {$a->activity} awaits your review.';
+$string['msgsignature'] = 'Sent by {$a->activity}, in {$a->course}. You are receiving this because you take part in that activity; you can change what you are notified about in your Moodle notification preferences.';
+$string['msgsubmittedbody'] = 'Team "{$a->group}" ({$a->pluginuid}) has been submitted to you for review.
+The team has {$a->size} member(s). Read their proposal, then approve the team, return it with comments, or decline it.';
 $string['msgsubmittedsubject'] = 'Group "{$a->group}" awaits your review';
-$string['msgticketclaimedbody'] = 'Your {$a->type} request for team "{$a->group}" has been taken up. You will be notified when a decision is made.';
+$string['msgticketclaimedbody'] = 'Your {$a->type} request for team "{$a->group}" has been taken up.
+Somebody is working on it now. You will hear again when it is decided.';
 $string['msgticketclaimedsubject'] = 'Your request for "{$a->group}" is being handled';
-$string['msgticketclosedbody'] = 'Your {$a->type} request for team "{$a->group}" is now {$a->status}. What they said: {$a->resolution}';
+$string['msgticketclosedbody'] = 'Your {$a->type} request for team "{$a->group}" is now {$a->status}.
+What they said: {$a->resolution}';
 $string['msgticketclosedsubject'] = 'Your request for "{$a->group}": {$a->status}';
-$string['msgticketfiledbody'] = 'A {$a->type} request for team "{$a->group}" has joined the ticket queue. Open the queue to take it up: {$a->url}';
+$string['msgticketfiledbody'] = 'A {$a->type} request has joined the queue for team "{$a->group}".
+It waits until somebody takes it up. While one person holds it, nobody else can.';
 $string['msgticketfiledsubject'] = 'New {$a->type} request for "{$a->group}"';
-$string['msgunfrozenbody'] = 'Your group "{$a->group}" was unfrozen by a manager and restored to its frozen membership.';
+$string['msgunfrozenbody'] = 'Your team "{$a->group}" has been unfrozen by a coordinator.
+It is back to exactly the membership it had when it was frozen, and the team is firm again.';
 $string['msgunfrozensubject'] = 'Group "{$a->group}" unfrozen';
 $string['msgwithdrawnbody'] = 'Your invitation to the group "{$a->group}" was withdrawn by the group leader.';
 $string['msgwithdrawnsubject'] = 'Invitation to "{$a->group}" withdrawn';
@@ -1027,6 +1056,8 @@ $string['tplmsgacceptedbody'] = 'Invitation accepted (to the leader)';
 $string['tplmsgapprovedbody'] = 'Group approved (to the members)';
 $string['tplmsgcapauditbody'] = 'Membership-cap flag (to the managers)';
 $string['tplmsgcascadebody'] = 'Invitation auto-declined at membership cap (to the leader)';
+$string['tplmsgcoordinatorassignedbody'] = 'Appointed a Group Coordinator (to the person appointed)';
+$string['tplmsgcoordinatorremovedbody'] = 'Stood down as a Group Coordinator (to the person stood down)';
 $string['tplmsgdeclinedbody'] = 'Invitation declined (to the leader)';
 $string['tplmsgexpiredinviteebody'] = 'Invitation expired (to the invitee)';
 $string['tplmsgexpiredleaderbody'] = 'Invitation expired (to the leader)';

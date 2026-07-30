@@ -73,6 +73,8 @@ class templates {
         'msgticketfiledbody' => 'msgticketfiledsubject',
         'msgticketclaimedbody' => 'msgticketclaimedsubject',
         'msgticketclosedbody' => 'msgticketclosedsubject',
+        'msgcoordinatorassignedbody' => 'msgcoordinatorassignedsubject',
+        'msgcoordinatorremovedbody' => 'msgcoordinatorremovedsubject',
     ];
 
     /**
