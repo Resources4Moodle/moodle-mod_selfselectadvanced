@@ -876,6 +876,7 @@ $string['proposal'] = 'Project proposal';
 $string['proposal_help'] = 'One document (PDF or word-processor file) describing the project. When the activity mandates a proposal, the group cannot be submitted to a guide until this is uploaded.';
 $string['proposalmissing'] = 'No proposal uploaded yet.';
 $string['proposalmissingrequired'] = 'No proposal uploaded yet - this activity requires one before the group can be submitted.';
+$string['proposalnone'] = 'No proposal has been uploaded yet.';
 $string['proposalrequired'] = 'Require a project proposal before submission';
 $string['proposalrequired_help'] = 'When ticked, a group cannot be submitted for guide review until its leader uploads a written proposal on the group page. The mandate is part of the activity settings, so each course decides.';
 $string['proposalsaved'] = 'Proposal saved.';

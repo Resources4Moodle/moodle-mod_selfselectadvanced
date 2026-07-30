@@ -136,8 +136,8 @@ $table = new html_table();
 $table->attributes['class'] = 'generaltable selfselectadvanced-guidechoice';
 $table->head = [
     get_string('fullname'),
-    get_string('department', 'mod_selfselectadvanced'),
-    get_string('subdepartment', 'mod_selfselectadvanced'),
+    get_string('attrdepartment', 'mod_selfselectadvanced'),
+    get_string('attrsubdepartment', 'mod_selfselectadvanced'),
     get_string('guideloadused', 'mod_selfselectadvanced'),
     get_string('actions'),
 ];
