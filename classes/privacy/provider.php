@@ -114,6 +114,13 @@ class provider implements
             'type' => 'privacy:metadata:ticket:type',
             'status' => 'privacy:metadata:ticket:status',
         ], 'privacy:metadata:ticket');
+        $collection->add_database_table('selfselectadvanced_contact', [
+            'guideid' => 'privacy:metadata:contact:guideid',
+            'sentby' => 'privacy:metadata:contact:sentby',
+            'message' => 'privacy:metadata:contact:message',
+            'reason' => 'privacy:metadata:contact:reason',
+            'status' => 'privacy:metadata:contact:status',
+        ], 'privacy:metadata:contact');
         $collection->add_user_preference(
             'mod_selfselectadvanced_reminded_',
             'privacy:metadata:preference:reminded'
@@ -166,13 +173,18 @@ class provider implements
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_ticket} t
                          WHERE t.activityid = a.id
-                           AND (t.requestedby = :userid12 OR t.claimedby = :userid13 OR t.resolvedby = :userid14))";
+                           AND (t.requestedby = :userid12 OR t.claimedby = :userid13 OR t.resolvedby = :userid14))
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_contact} ct
+                         WHERE ct.activityid = a.id
+                           AND (ct.guideid = :userid15 OR ct.sentby = :userid16))";
         $contextlist->add_from_sql($sql, [
             'modlevel' => CONTEXT_MODULE,
             'userid1' => $userid, 'userid2' => $userid, 'userid3' => $userid, 'userid4' => $userid,
             'userid5' => $userid, 'userid6' => $userid, 'userid7' => $userid, 'userid8' => $userid,
             'userid9' => $userid, 'userid10' => $userid, 'userid11' => $userid,
             'userid12' => $userid, 'userid13' => $userid, 'userid14' => $userid,
+            'userid15' => $userid, 'userid16' => $userid,
         ]);
 
         global $DB;
@@ -264,6 +276,20 @@ class provider implements
                FROM {selfselectadvanced_ticket} t
                JOIN {course_modules} cm ON cm.instance = t.activityid AND cm.id = :cmid
               WHERE t.resolvedby IS NOT NULL",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT ct.guideid AS userid
+               FROM {selfselectadvanced_contact} ct
+               JOIN {course_modules} cm ON cm.instance = ct.activityid AND cm.id = :cmid",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT ct.sentby AS userid
+               FROM {selfselectadvanced_contact} ct
+               JOIN {course_modules} cm ON cm.instance = ct.activityid AND cm.id = :cmid",
             $params
         );
     }
@@ -512,6 +538,7 @@ class provider implements
         $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $cm->instance]);
+        $DB->delete_records('selfselectadvanced_contact', ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'leaderid', 0, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'guideid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'successorid', null, ['activityid' => $cm->instance]);
@@ -686,6 +713,18 @@ class provider implements
             "UPDATE {selfselectadvanced_ticket}
                 SET resolvedby = NULL, resolution = NULL
               WHERE activityid = :activityid AND resolvedby = :userid",
+            ['activityid' => $activityid, 'userid' => $userid]
+        );
+
+        // An approach a person sent is their own words, so it goes with
+        // them; where they were the guide approached, the row belongs to
+        // the team that sent it, so only the answer they wrote is
+        // scrubbed and the approach itself stays.
+        $DB->delete_records('selfselectadvanced_contact', ['activityid' => $activityid, 'sentby' => $userid]);
+        $DB->execute(
+            "UPDATE {selfselectadvanced_contact}
+                SET reason = NULL
+              WHERE activityid = :activityid AND guideid = :userid",
             ['activityid' => $activityid, 'userid' => $userid]
         );
 

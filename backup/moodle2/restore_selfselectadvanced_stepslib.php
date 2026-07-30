@@ -79,6 +79,10 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
                 'ssaticket',
                 '/activity/selfselectadvanced/tickets/ticket'
             );
+            $paths[] = new restore_path_element(
+                'ssacontact',
+                '/activity/selfselectadvanced/contacts/contact'
+            );
         }
 
         return $this->prepare_activity_structure($paths);
@@ -348,6 +352,27 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
             $data->timeclaimed = null;
         }
         $DB->insert_record('selfselectadvanced_ticket', $data);
+    }
+
+    /**
+     * Restore a team's approach to a guide. Both the team and the two
+     * people are NOT NULL, so an approach that cannot be mapped is
+     * dropped rather than restored pointing at nothing.
+     *
+     * @param array $data the row
+     */
+    protected function process_ssacontact($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $data->activityid = $this->get_new_parentid('selfselectadvanced');
+        $data->groupid = $this->get_mappingid('ssagroup', $data->groupid);
+        $data->guideid = $this->get_mappingid('user', $data->guideid);
+        $data->sentby = $this->get_mappingid('user', $data->sentby);
+        if (!$data->groupid || !$data->guideid || !$data->sentby) {
+            return;
+        }
+        $DB->insert_record('selfselectadvanced_contact', $data);
     }
 
     /**
