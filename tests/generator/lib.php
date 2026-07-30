@@ -53,6 +53,14 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
             'guidemode' => 0,
             'inviteexpiry' => 0,
             'autogroup' => 0,
+            // The product defaults students-approach ON for a new
+            // activity (1.17.0). A fixture, though, is usually standing
+            // in for an activity configured the older way - most of the
+            // suite exercises guide volunteering and guide interest,
+            // which that mode closes. Tests about the new mode ask for
+            // it explicitly, and studentapproach_test pins the product
+            // default itself so this convenience cannot hide it.
+            'studentapproach' => 0,
         ];
         foreach ($defaults as $field => $value) {
             if (!isset($record->$field)) {
