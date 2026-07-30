@@ -238,6 +238,12 @@ $moduleinfo = add_moduleinfo((object) [
     'name' => 'Scale teams', 'intro' => '<p>Scale probe.</p>', 'introformat' => FORMAT_HTML,
     'grade' => 100, 'minsize' => 5, 'maxsize' => 5, 'maxlead' => 1, 'maxmembership' => 1,
     'guidemode' => 0, 'maxguided' => 12, 'guidewindow' => DAYSECS, 'guideautoapprove' => 0,
+    // The harness measures the guide-led flows - volunteering,
+    // interest, the assignment queue - which students-approach mode
+    // closes on purpose, and which is the default for a new
+    // activity since 1.17.0. The probes that measure the new mode
+    // turn it on for themselves.
+    'studentapproach' => 0,
     'guidevolunteer' => 1, 'eoienabled' => 1, 'eoiwindow' => DAYSECS, 'eoimax' => 10,
     'eoigroupmax' => 3, 'eoisequential' => 0, 'eoipeers' => 1,
     'timeopen' => 0, 'timedue' => 0, 'timecutoff' => 0, 'penaltytype' => 0, 'penaltyperday' => 0,
