@@ -38,19 +38,33 @@ Feature: Students approach guides, and group names follow the course's format
     And I press "Save and display"
     Then I should see "Students-approach mode requires expressions of interest to be disabled."
 
-  Scenario: Group names must match the activity's format, course-wide and anchored
+  Scenario: The project id follows the format the teacher chose
     Given the following "activities" exist:
-      | activity           | course | name      | idnumber | minsize | maxlead | maxmembership | nameformat      | nameformatexample |
-      | selfselectadvanced | C1     | Formatted | ssa2     | 1       | 1       | 2             | [A-Z]{3}-\d{2}  | MDP-42            |
+      | activity           | course | name      | idnumber | minsize | maxlead | maxmembership | uidprefix | uiddigits | uidformat          |
+      | selfselectadvanced | C1     | Formatted | ssa2     | 1       | 1       | 2             | MDP       | 3         | {prefix}/{number}  |
     When I am on the "Formatted" "selfselectadvanced activity" page logged in as student1
     And I follow "Create group"
     And I set the following fields to these values:
-      | Group name    | our free-form name |
+      | Group name    | Wayfinding team    |
       | Title of work | Pendulum study     |
       | Brief of work | We study gravity.  |
     And I press "Create group"
-    Then I should see "Example: MDP-42"
-    When I set the field "Group name" to "ABC-11"
+    Then I should see "Wayfinding team"
+    And I should see "MDP/"
+    And I should not see "MDP-C1-"
+
+  Scenario: A group name already used in the course is refused
+    Given the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name        | leader   |
+      | ssa1               | Taken twice | student1 |
+    And the following "activities" exist:
+      | activity           | course | name    | idnumber | minsize | maxlead | maxmembership |
+      | selfselectadvanced | C1     | Another | ssa3     | 1       | 1       | 2             |
+    When I am on the "Another" "selfselectadvanced activity" page logged in as student1
+    And I follow "Create group"
+    And I set the following fields to these values:
+      | Group name    | Taken twice       |
+      | Title of work | Something else    |
+      | Brief of work | Another study.    |
     And I press "Create group"
-    Then I should see "ABC-11"
-    And I should see "1 of 6 seats filled"
+    Then I should see "That group name is already taken in this course."

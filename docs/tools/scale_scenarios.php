@@ -733,26 +733,25 @@ probe('service: name_taken course-wide at ~1900 groups', function () use ($activ
     return 'both verdicts correct';
 });
 
-probe('service: name format refusal + pass', function () use ($DB, $activity, &$groupless) {
-    $DB->set_field('selfselectadvanced', 'nameformat', 'FMT-\d{3}', ['id' => $activity->id()]);
+probe('service: project id template renders', function () use ($DB, $activity, &$groupless) {
+    $DB->set_field('selfselectadvanced', 'uidformat', '{prefix}/{number}', ['id' => $activity->id()]);
     $freshactivity = activity::from_instance($activity->id());
-    $formatapi = new api($freshactivity);
     if (!$groupless) {
-        throw new coding_exception('the groupless pool ran dry before the name-format probe');
+        throw new coding_exception('the groupless pool ran dry before the id-template probe');
     }
-    $leaderid = (int) array_shift($groupless);
-    try {
-        $formatapi->create_group($leaderid, 'free form probe', 'T', '<p>b</p>', FORMAT_HTML);
-        throw new coding_exception('format break was accepted');
-    } catch (moodle_exception $e) {
-        if ($e->errorcode !== 'refusalnameformat') {
-            throw $e;
-        }
+    $group = (new api($freshactivity))->create_group(
+        (int) array_shift($groupless),
+        'Template probe',
+        'T',
+        '<p>b</p>',
+        FORMAT_HTML
+    );
+    $DB->set_field('selfselectadvanced', 'uidformat', null, ['id' => $activity->id()]);
+    if (strpos($group->pluginuid, '/') === false) {
+        throw new coding_exception('id template was not applied: ' . $group->pluginuid);
     }
-    $group = $formatapi->create_group($leaderid, 'FMT-001', 'T', '<p>b</p>', FORMAT_HTML);
-    $DB->set_field('selfselectadvanced', 'nameformat', null, ['id' => $activity->id()]);
 
-    return $group->name;
+    return $group->pluginuid;
 });
 
 probe('service: tickets - file 50 + queue + exclusivity', function () use ($DB, $activity, $groupids, $guideids, $now) {

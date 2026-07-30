@@ -24,11 +24,12 @@ use mod_selfselectadvanced\local\state;
 use mod_selfselectadvanced\local\volunteering;
 
 /**
- * Students-approach mode and the group name format (strategy 1.16 A
- * and C): guide-side initiative refused at the service layer even
- * when the settings are flipped directly in the database, full
- * guides staying listed so the list leaks no load, the anchored name
- * pattern, and course-wide name uniqueness across instances.
+ * Students-approach mode and the project-id template (strategy 1.16 A,
+ * 1.17 A1): guide-side initiative refused at the service layer even
+ * when the settings are flipped directly in the database, full guides
+ * staying listed so the list leaks no load, a binding approval, the
+ * teacher's id template, and course-wide name uniqueness across
+ * instances.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -259,64 +260,49 @@ final class studentapproach_test extends \advanced_testcase {
     }
 
     /**
-     * The anchored name format: a name matching the whole pattern
-     * passes, a partial match is not enough, and an empty format
-     * means free-form names.
+     * The project id follows the teacher's template (strategy 1.17 A1),
+     * and an activity that says nothing keeps the shape the plugin has
+     * always issued - no site's ids change under it.
      */
-    public function test_name_format_anchored(): void {
+    public function test_project_id_follows_the_template(): void {
         $this->resetAfterTest();
-        [$activity] = $this->setup_activity(['nameformat' => '[A-Z]{3}-\d{2} .+']);
 
-        $this->assertFalse(groups::name_breaks_format($activity, 'MDP-42 Pendulum study'));
-        // A prefix or suffix around a matching core is a break: the
-        // pattern is anchored at both ends.
-        $this->assertTrue(groups::name_breaks_format($activity, 'xMDP-42 Pendulum study'));
-        $this->assertTrue(groups::name_breaks_format($activity, 'MDP-421'));
-        $this->assertTrue(groups::name_breaks_format($activity, 'free form'));
+        [$plain, $students] = $this->setup_activity(['uidprefix' => 'MDP', 'uiddigits' => 4]);
+        $group = (new api($plain))->create_group(
+            (int) $students[0]->id,
+            'Default shape',
+            'Title',
+            '',
+            FORMAT_HTML
+        );
+        // {prefix}-{course}-{number}, the shape shipped since 1.15.
+        $this->assertMatchesRegularExpression('/^MDP-[A-Z0-9]+-\d{4,}$/', $group->pluginuid);
 
-        [$freeform] = $this->setup_activity(['nameformat' => '']);
-        $this->assertFalse(groups::name_breaks_format($freeform, 'free form'));
-    }
-
-    /**
-     * A format with a top-level alternation still binds to the WHOLE
-     * name. Spliced between the anchors without grouping, `ABC|XYZ`
-     * would read as "starts with ABC" OR "ends with XYZ", and would
-     * wave through anything at all that happened to end in XYZ.
-     */
-    public function test_name_format_alternation_is_grouped(): void {
-        $this->resetAfterTest();
-        [$activity] = $this->setup_activity(['nameformat' => 'ABC-\\d+|XYZ-\\d+']);
-
-        $this->assertFalse(groups::name_breaks_format($activity, 'ABC-12'));
-        $this->assertFalse(groups::name_breaks_format($activity, 'XYZ-12'));
-        // Neither branch matches the whole name.
-        $this->assertTrue(groups::name_breaks_format($activity, 'anything at all XYZ-12'));
-        $this->assertTrue(groups::name_breaks_format($activity, 'ABC-12 and then some'));
-    }
-
-    /**
-     * Creation refuses a name that breaks the activity's format, with
-     * the format and the example in the message.
-     */
-    public function test_create_group_refuses_format_break(): void {
-        $this->resetAfterTest();
-        [$activity, $students] = $this->setup_activity([
-            'nameformat' => '[A-Z]{3}-\d{2}',
-            'nameformatexample' => 'MDP-42',
+        [$shaped, $others] = $this->setup_activity([
+            'uidprefix' => 'MDP',
+            'uiddigits' => 3,
+            'uidformat' => '{prefix}/{number}',
         ]);
-        $api = new api($activity);
+        $group = (new api($shaped))->create_group(
+            (int) $others[0]->id,
+            'Own shape',
+            'Title',
+            '',
+            FORMAT_HTML
+        );
+        $this->assertMatchesRegularExpression('/^MDP\/\d{3,}$/', $group->pluginuid);
 
-        try {
-            $api->create_group((int) $students[0]->id, 'anything goes', 'Title', '', FORMAT_HTML);
-            $this->fail('Expected refusalnameformat');
-        } catch (\moodle_exception $e) {
-            $this->assertSame('refusalnameformat', $e->errorcode);
-            $this->assertStringContainsString('MDP-42', $e->getMessage());
-        }
-
-        $group = $api->create_group((int) $students[0]->id, 'MDP-77', 'Title', '', FORMAT_HTML);
-        $this->assertSame('MDP-77', $group->name);
+        // A template that lost its number would mint one id for every
+        // team, so the standard shape is used instead of a broken one.
+        [$broken, $more] = $this->setup_activity(['uidformat' => 'FIXED']);
+        $group = (new api($broken))->create_group(
+            (int) $more[0]->id,
+            'Broken template',
+            'Title',
+            '',
+            FORMAT_HTML
+        );
+        $this->assertStringNotContainsString('FIXED', $group->pluginuid);
     }
 
     /**
