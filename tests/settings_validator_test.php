@@ -188,23 +188,33 @@ final class settings_validator_test extends \basic_testcase {
     }
 
     /**
-     * Strategy 1.16 C: the name format must compile before it can
-     * refuse anyone. Slashes are escaped, so a fragment containing the
-     * delimiter is legal; a genuinely broken pattern is rejected; empty
-     * means no format.
+     * Strategy 1.17 A1: the project-id template must be able to mint a
+     * distinct id for every team, and may only use placeholders the
+     * plugin knows how to fill.
      */
-    public function test_nameformat_must_compile(): void {
+    public function test_uidformat_must_be_usable(): void {
         $data = $this->valid();
-        $data['nameformat'] = '[A-Z]{2,4}-\d{3} .+';
+
+        $data['uidformat'] = '{prefix}-{course}-{number}';
         $this->assertSame([], settings_validator::validate($data));
 
-        $data['nameformat'] = 'AY24/25-\d+';
+        $data['uidformat'] = '{prefix}/{number}';
         $this->assertSame([], settings_validator::validate($data));
 
-        $data['nameformat'] = '';
+        // Free text around the number is fine.
+        $data['uidformat'] = 'Project {number}';
         $this->assertSame([], settings_validator::validate($data));
 
-        $data['nameformat'] = '([A-Z]{2';
-        $this->assertSame('errnameformatinvalid', settings_validator::validate($data)['nameformat'] ?? null);
+        // Empty means the standard shape.
+        $data['uidformat'] = '';
+        $this->assertSame([], settings_validator::validate($data));
+
+        // Without the number every team would share one id.
+        $data['uidformat'] = '{prefix}-{course}';
+        $this->assertSame('erruidformatnumber', settings_validator::validate($data)['uidformat'] ?? null);
+
+        // A placeholder the plugin cannot fill would be printed raw.
+        $data['uidformat'] = '{prefix}-{faculty}-{number}';
+        $this->assertSame('erruidformatunknown', settings_validator::validate($data)['uidformat'] ?? null);
     }
 }

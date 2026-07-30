@@ -55,7 +55,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $activity = new backup_nested_element('selfselectadvanced', ['id'], [
             'name', 'intro', 'introformat', 'grade', 'minsize', 'maxsize', 'maxlead',
             'maxmembership', 'maxguided', 'uidprefix', 'uiddigits',
-            'nameformat', 'nameformatexample', 'timeopen', 'timedue', 'timecutoff',
+            'uidformat', 'timeopen', 'timedue', 'timecutoff',
             'penaltytype', 'penaltyperday', 'guidemode', 'inviteexpiry', 'autogroup', 'proposalrequired',
             'guidewindow', 'guideautoapprove', 'guidevolunteer', 'studentapproach',
             'eoienabled', 'eoiwindow', 'eoimax', 'eoisequential', 'eoipeers', 'eoigroupmax',

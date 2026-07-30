@@ -93,13 +93,6 @@ class group_form extends \moodleform {
         if (empty($this->_customdata['editgroup'])) {
             if (trim($data['name'] ?? '') === '') {
                 $errors['name'] = get_string('required');
-            } else if (groups::name_breaks_format($activity, $data['name'])) {
-                // The pattern and example are staff-authored free text
-                // shown back to a student: escaped, never rendered raw.
-                $errors['name'] = get_string('refusalnameformat', 'mod_selfselectadvanced', (object) [
-                    'format' => s((string) $activity->settings()->nameformat),
-                    'example' => s((string) ($activity->settings()->nameformatexample ?? '')),
-                ]);
             } else if (groups::name_taken($activity, $data['name'])) {
                 $errors['name'] = get_string('errnametaken', 'mod_selfselectadvanced');
             }

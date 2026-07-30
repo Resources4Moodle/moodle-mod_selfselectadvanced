@@ -109,11 +109,20 @@ final class settings_validator {
             }
         }
 
-        // The project-name format must compile before it can refuse
-        // anyone (strategy 1.16 C).
-        $format = trim((string) ($data['nameformat'] ?? ''));
-        if ($format !== '' && @preg_match(groups::format_pattern($format), '') === false) {
-            $errors['nameformat'] = 'errnameformatinvalid';
+        // The project-id template must be able to mint a distinct id
+        // for every team, and must not carry a placeholder the plugin
+        // does not know how to fill (strategy 1.17 A1).
+        $template = trim((string) ($data['uidformat'] ?? ''));
+        if ($template !== '') {
+            if (strpos($template, '{number}') === false) {
+                $errors['uidformat'] = 'erruidformatnumber';
+            } else {
+                preg_match_all('/\{[a-z]*\}/', $template, $found);
+                $unknown = array_diff($found[0], groups::uid_placeholders());
+                if ($unknown) {
+                    $errors['uidformat'] = 'erruidformatunknown';
+                }
+            }
         }
 
         return $errors;

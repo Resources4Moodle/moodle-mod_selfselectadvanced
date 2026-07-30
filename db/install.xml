@@ -19,9 +19,8 @@
         <FIELD NAME="maxguided" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="10" SEQUENCE="false" COMMENT="L5: default maximum groups per guide"/>
         <FIELD NAME="uidprefix" TYPE="char" LENGTH="8" NOTNULL="true" DEFAULT="SSA" SEQUENCE="false" COMMENT="Prefix of every group's plugin id; applies to groups created after a change"/>
         <FIELD NAME="uiddigits" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="4" SEQUENCE="false" COMMENT="Digits in the number part of every group's plugin id; applies to groups created after a change"/>
-        <FIELD NAME="studentapproach" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: guides never advertise availability - no volunteering, no listing, no load figures; students approach a guide by submitting"/>
-        <FIELD NAME="nameformat" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="PCRE fragment every project name must match, anchored; empty = no constraint"/>
-        <FIELD NAME="nameformatexample" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="Human example shown beside the name-format refusal"/>
+        <FIELD NAME="studentapproach" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1: guides never advertise availability - no volunteering, no listing, no load figures; students approach a guide by submitting"/>
+        <FIELD NAME="uidformat" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Project id template using {prefix}, {course} and {number}; empty means the default shape"/>
         <FIELD NAME="timeopen" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Formation window opens (0 = not set)"/>
         <FIELD NAME="timedue" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Penalty-free deadline (0 = not set)"/>
         <FIELD NAME="timecutoff" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Hard stop (0 = not set)"/>

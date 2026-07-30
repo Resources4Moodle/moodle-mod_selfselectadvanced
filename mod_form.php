@@ -99,17 +99,10 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setType('uiddigits', PARAM_INT);
         $mform->setDefault('uiddigits', \mod_selfselectadvanced\local\groups::UID_DIGITS_DEFAULT);
         $mform->addHelpButton('uiddigits', 'uiddigits', 'mod_selfselectadvanced');
-        $mform->addElement('text', 'nameformat', get_string('nameformat', 'mod_selfselectadvanced'), ['size' => 40]);
-        $mform->setType('nameformat', PARAM_RAW_TRIMMED);
-        $mform->addHelpButton('nameformat', 'nameformat', 'mod_selfselectadvanced');
-        $mform->addElement(
-            'text',
-            'nameformatexample',
-            get_string('nameformatexample', 'mod_selfselectadvanced'),
-            ['size' => 40]
-        );
-        $mform->setType('nameformatexample', PARAM_TEXT);
-        $mform->addHelpButton('nameformatexample', 'nameformatexample', 'mod_selfselectadvanced');
+        $mform->addElement('text', 'uidformat', get_string('uidformat', 'mod_selfselectadvanced'), ['size' => 40]);
+        $mform->setType('uidformat', PARAM_RAW_TRIMMED);
+        $mform->setDefault('uidformat', \mod_selfselectadvanced\local\groups::UID_TEMPLATE_DEFAULT);
+        $mform->addHelpButton('uidformat', 'uidformat', 'mod_selfselectadvanced');
 
         // Guides (L5).
         $mform->addElement('header', 'guidesheading', get_string('guidesheading', 'mod_selfselectadvanced'));
@@ -139,6 +132,16 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setDefault('guideautoapprove', 0);
         $mform->addHelpButton('guideautoapprove', 'guideautoapprove', 'mod_selfselectadvanced');
         $mform->disabledIf('guideautoapprove', 'guidewindow[enabled]', 'notchecked');
+        // The way this activity is meant to be run comes first and is
+        // on by default (1.17.0). The guide-led alternatives sit below
+        // it, and switch off while it is on.
+        $mform->addElement(
+            'advcheckbox',
+            'studentapproach',
+            get_string('studentapproach', 'mod_selfselectadvanced')
+        );
+        $mform->setDefault('studentapproach', 1);
+        $mform->addHelpButton('studentapproach', 'studentapproach', 'mod_selfselectadvanced');
         $mform->addElement(
             'advcheckbox',
             'guidevolunteer',
@@ -146,63 +149,9 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         );
         $mform->setDefault('guidevolunteer', 0);
         $mform->addHelpButton('guidevolunteer', 'guidevolunteer', 'mod_selfselectadvanced');
-        $mform->addElement(
-            'advcheckbox',
-            'studentapproach',
-            get_string('studentapproach', 'mod_selfselectadvanced')
-        );
-        $mform->setDefault('studentapproach', 0);
-        $mform->addHelpButton('studentapproach', 'studentapproach', 'mod_selfselectadvanced');
         $mform->disabledIf('guidevolunteer', 'studentapproach', 'checked');
         $mform->disabledIf('guidemode', 'studentapproach', 'checked');
         $mform->disabledIf('eoienabled', 'studentapproach', 'checked');
-
-        // Team listing and guide interest ("pick that team"): a leader may
-        // list their forming team, guides express interest, and the
-        // leader always chooses (spec EOI).
-        $mform->addElement('header', 'eoisettings', get_string('eoisettings', 'mod_selfselectadvanced'));
-        $mform->addElement(
-            'advcheckbox',
-            'eoienabled',
-            get_string('eoienabled', 'mod_selfselectadvanced')
-        );
-        $mform->setDefault('eoienabled', 0);
-        $mform->addHelpButton('eoienabled', 'eoienabled', 'mod_selfselectadvanced');
-        $mform->addElement(
-            'duration',
-            'eoiwindow',
-            get_string('eoiwindow', 'mod_selfselectadvanced'),
-            ['optional' => true, 'defaultunit' => DAYSECS]
-        );
-        $mform->setDefault('eoiwindow', 0);
-        $mform->addHelpButton('eoiwindow', 'eoiwindow', 'mod_selfselectadvanced');
-        $mform->disabledIf('eoiwindow', 'eoienabled', 'notchecked');
-        $mform->addElement('text', 'eoimax', get_string('eoimax', 'mod_selfselectadvanced'), ['size' => 4]);
-        $mform->setType('eoimax', PARAM_INT);
-        $mform->setDefault('eoimax', 3);
-        $mform->addHelpButton('eoimax', 'eoimax', 'mod_selfselectadvanced');
-        $mform->disabledIf('eoimax', 'eoienabled', 'notchecked');
-        $mform->addElement(
-            'advcheckbox',
-            'eoisequential',
-            get_string('eoisequential', 'mod_selfselectadvanced')
-        );
-        $mform->setDefault('eoisequential', 0);
-        $mform->addHelpButton('eoisequential', 'eoisequential', 'mod_selfselectadvanced');
-        $mform->disabledIf('eoisequential', 'eoienabled', 'notchecked');
-        $mform->addElement(
-            'advcheckbox',
-            'eoipeers',
-            get_string('eoipeers', 'mod_selfselectadvanced')
-        );
-        $mform->setDefault('eoipeers', 0);
-        $mform->addHelpButton('eoipeers', 'eoipeers', 'mod_selfselectadvanced');
-        $mform->disabledIf('eoipeers', 'eoienabled', 'notchecked');
-        $mform->addElement('text', 'eoigroupmax', get_string('eoigroupmax', 'mod_selfselectadvanced'), ['size' => 4]);
-        $mform->setType('eoigroupmax', PARAM_INT);
-        $mform->setDefault('eoigroupmax', 0);
-        $mform->addHelpButton('eoigroupmax', 'eoigroupmax', 'mod_selfselectadvanced');
-        $mform->disabledIf('eoigroupmax', 'eoienabled', 'notchecked');
 
         // Formation window.
         $mform->addElement('header', 'formationwindow', get_string('formationwindow', 'mod_selfselectadvanced'));
@@ -318,6 +267,54 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->addElement('select', 'leadershare', get_string('leadershare', 'mod_selfselectadvanced'), $shareoptions);
         $mform->setDefault('leadershare', 60);
         $mform->addHelpButton('leadershare', 'leadershare', 'mod_selfselectadvanced');
+
+
+        // Team listing and guide interest ("pick that team"): a leader may
+        // list their forming team, guides express interest, and the
+        // leader always chooses (spec EOI).
+        $mform->addElement('header', 'eoisettings', get_string('eoisettings', 'mod_selfselectadvanced'));
+        $mform->addElement(
+            'advcheckbox',
+            'eoienabled',
+            get_string('eoienabled', 'mod_selfselectadvanced')
+        );
+        $mform->setDefault('eoienabled', 0);
+        $mform->addHelpButton('eoienabled', 'eoienabled', 'mod_selfselectadvanced');
+        $mform->addElement(
+            'duration',
+            'eoiwindow',
+            get_string('eoiwindow', 'mod_selfselectadvanced'),
+            ['optional' => true, 'defaultunit' => DAYSECS]
+        );
+        $mform->setDefault('eoiwindow', 0);
+        $mform->addHelpButton('eoiwindow', 'eoiwindow', 'mod_selfselectadvanced');
+        $mform->disabledIf('eoiwindow', 'eoienabled', 'notchecked');
+        $mform->addElement('text', 'eoimax', get_string('eoimax', 'mod_selfselectadvanced'), ['size' => 4]);
+        $mform->setType('eoimax', PARAM_INT);
+        $mform->setDefault('eoimax', 3);
+        $mform->addHelpButton('eoimax', 'eoimax', 'mod_selfselectadvanced');
+        $mform->disabledIf('eoimax', 'eoienabled', 'notchecked');
+        $mform->addElement(
+            'advcheckbox',
+            'eoisequential',
+            get_string('eoisequential', 'mod_selfselectadvanced')
+        );
+        $mform->setDefault('eoisequential', 0);
+        $mform->addHelpButton('eoisequential', 'eoisequential', 'mod_selfselectadvanced');
+        $mform->disabledIf('eoisequential', 'eoienabled', 'notchecked');
+        $mform->addElement(
+            'advcheckbox',
+            'eoipeers',
+            get_string('eoipeers', 'mod_selfselectadvanced')
+        );
+        $mform->setDefault('eoipeers', 0);
+        $mform->addHelpButton('eoipeers', 'eoipeers', 'mod_selfselectadvanced');
+        $mform->disabledIf('eoipeers', 'eoienabled', 'notchecked');
+        $mform->addElement('text', 'eoigroupmax', get_string('eoigroupmax', 'mod_selfselectadvanced'), ['size' => 4]);
+        $mform->setType('eoigroupmax', PARAM_INT);
+        $mform->setDefault('eoigroupmax', 0);
+        $mform->addHelpButton('eoigroupmax', 'eoigroupmax', 'mod_selfselectadvanced');
+        $mform->disabledIf('eoigroupmax', 'eoienabled', 'notchecked');
 
         $this->standard_coursemodule_elements();
         $this->add_action_buttons();

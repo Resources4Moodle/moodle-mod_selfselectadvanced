@@ -59,6 +59,12 @@ class groups {
     public const UID_DIGITS_DEFAULT = 4;
 
     /**
+     * The project-id shape the plugin has always issued, and the
+     * fallback for any activity that has not chosen its own.
+     */
+    public const UID_TEMPLATE_DEFAULT = '{prefix}-{course}-{number}';
+
+    /**
      * Fetch a group row, asserting it belongs to the activity.
      *
      * Server-side ownership verification for every id arriving from a
@@ -329,46 +335,6 @@ class groups {
     }
 
     /**
-     * Does this name violate the teacher's project-name format?
-     *
-     * The format is a PCRE fragment from the activity settings;
-     * empty means no constraint (strategy 1.16 C).
-     *
-     * @param activity $activity the activity
-     * @param string $name the proposed project name
-     * @return bool true when the name is refused by the format
-     */
-    public static function name_breaks_format(activity $activity, string $name): bool {
-        $format = trim((string) ($activity->settings()->nameformat ?? ''));
-        if ($format === '') {
-            return false;
-        }
-        $result = @preg_match(self::format_pattern($format), trim($name));
-
-        // A runtime failure - a pattern that compiles but exhausts the
-        // backtrack limit on this particular name - must not wave the
-        // name through. The format is a constraint the teacher asked
-        // for; when it cannot be evaluated, the name is refused rather
-        // than silently exempted.
-        return $result !== 1;
-    }
-
-    /**
-     * The teacher's format fragment as a whole-string pattern.
-     *
-     * The fragment is wrapped in a non-capturing group before the
-     * anchors are added: spliced in bare, a top-level alternation such
-     * as `ABC|XYZ` would read as `^ABC` OR `XYZ$` and quietly accept
-     * anything that merely ends with the second branch.
-     *
-     * @param string $format the fragment from the activity settings
-     * @return string a complete PCRE pattern
-     */
-    public static function format_pattern(string $format): string {
-        return '/^(?:' . str_replace('/', '\\/', $format) . ')$/u';
-    }
-
-    /**
      * Build the plugin-scoped unique group id (decision A1):
      * {prefix}-{COURSESHORT sanitised to [A-Z0-9], max 12 chars}-{group id, 4+ digits}.
      *
@@ -411,6 +377,40 @@ class groups {
 
         // A group id longer than the chosen width keeps all its digits:
         // the number is an identity, never truncated to fit a format.
-        return sprintf('%s-%s-%0' . $digits . 'd', substr($prefix, 0, 8), $short, $groupid);
+        return strtr(self::uid_template($activity), [
+            '{prefix}' => substr($prefix, 0, 8),
+            '{course}' => $short,
+            '{number}' => sprintf('%0' . $digits . 'd', $groupid),
+        ]);
+    }
+
+    /**
+     * The activity's project-id template.
+     *
+     * The editing teacher may say how a project id reads; an activity
+     * that has never been told keeps the shape the plugin has always
+     * issued, so no site's ids change under it. A template that has
+     * lost its number placeholder would mint the same id for every
+     * team, so it is refused here as well as at the settings form.
+     *
+     * @param activity $activity the activity
+     * @return string a template containing at least {number}
+     */
+    public static function uid_template(activity $activity): string {
+        $template = trim((string) ($activity->settings()->uidformat ?? ''));
+        if ($template === '' || strpos($template, '{number}') === false) {
+            return self::UID_TEMPLATE_DEFAULT;
+        }
+
+        return $template;
+    }
+
+    /**
+     * Which placeholders a project-id template may use.
+     *
+     * @return string[]
+     */
+    public static function uid_placeholders(): array {
+        return ['{prefix}', '{course}', '{number}'];
     }
 }

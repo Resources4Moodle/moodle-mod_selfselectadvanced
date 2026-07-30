@@ -684,5 +684,32 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026072460, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073070) {
+        $table = new xmldb_table('selfselectadvanced');
+
+        // 1.16.0 constrained the group NAME; the intent was always the
+        // project ID. The name fields go, and a template takes their
+        // place. An activity that says nothing keeps the id shape the
+        // plugin has always issued, so no site's ids change under it.
+        $field = new xmldb_field('uidformat', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'studentapproach');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        foreach (['nameformat', 'nameformatexample'] as $gone) {
+            $field = new xmldb_field($gone);
+            if ($dbman->field_exists($table, $field)) {
+                $dbman->drop_field($table, $field);
+            }
+        }
+
+        // Students-approach becomes the default for activities created
+        // from here on. Existing activities keep whatever they have:
+        // changing a column default never rewrites rows.
+        $field = new xmldb_field('studentapproach', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1', 'uiddigits');
+        $dbman->change_field_default($table, $field);
+
+        upgrade_mod_savepoint(true, 2026073070, 'selfselectadvanced');
+    }
+
     return true;
 }
