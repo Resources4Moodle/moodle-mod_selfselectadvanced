@@ -573,6 +573,60 @@ final class tickets_test extends \advanced_testcase {
     }
 
     /**
+     * A coordinator is not shown the requests they filed themselves
+     * (strategy 1.17 A3). They would be refused if they tried to take
+     * one up; leaving it out of their queue removes the invitation to
+     * try. A manager still sees everything - somebody has to answer.
+     */
+    public function test_own_requests_are_not_in_your_own_queue(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, $leader, , $guide, $manager, $coordinator] = $this->setup_world();
+
+        // The coordinator guides a team of their own and files for it.
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $own = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $leader->id,
+            'name' => 'Guided by the coordinator',
+            'state' => state::FIRM,
+            'guideid' => (int) $coordinator->id,
+            'timeapproved' => time(),
+        ]);
+        $theirs = tickets::file(
+            $activity,
+            groups::get($activity, (int) $own->id),
+            tickets::TYPE_COMPCHANGE,
+            'a member of my team has stopped attending',
+            FORMAT_PLAIN,
+            (int) $coordinator->id
+        );
+        $someoneelses = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'swap one member',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+
+        $theirqueue = array_map(
+            static fn($t) => (int) $t->id,
+            array_values(tickets::queue($activity, (int) $coordinator->id))
+        );
+        $this->assertNotContains((int) $theirs->id, $theirqueue);
+        $this->assertContains((int) $someoneelses->id, $theirqueue);
+
+        // The manager's queue still holds both.
+        $managerqueue = array_map(
+            static fn($t) => (int) $t->id,
+            array_values(tickets::queue($activity, (int) $manager->id))
+        );
+        $this->assertContains((int) $theirs->id, $managerqueue);
+        $this->assertContains((int) $someoneelses->id, $managerqueue);
+    }
+
+    /**
      * The role exists after install with its capability set at system
      * context, assignable at course and module level; ensure() is
      * idempotent and never duplicates it.

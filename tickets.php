@@ -90,7 +90,7 @@ echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('tickets', 'mod_selfselectadvanced'));
 echo html_writer::div(get_string('ticketsintro', 'mod_selfselectadvanced'), 'alert alert-info');
 
-$queue = tickets::queue($activity);
+$queue = tickets::queue($activity, (int) $USER->id);
 if (!$queue) {
     echo html_writer::div(get_string('ticketsempty', 'mod_selfselectadvanced'));
     echo $OUTPUT->footer();

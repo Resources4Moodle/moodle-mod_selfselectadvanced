@@ -469,13 +469,25 @@ class tickets {
      * @param activity $activity the activity
      * @return stdClass[] ticket rows
      */
-    public static function queue(activity $activity): array {
+    public static function queue(activity $activity, int $viewerid = 0): array {
         global $DB;
+
+        // A worker is not shown the requests they filed themselves
+        // (strategy 1.17 A3). They are refused if they try to take one
+        // up anyway, so hiding it removes both the invitation to try and
+        // the impression that it is theirs to work. Managers keep the
+        // whole queue: somebody has to be able to answer those requests.
+        $params = ['activityid' => $activity->id()];
+        $mine = '';
+        if ($viewerid > 0 && !has_capability('mod/selfselectadvanced:manage', $activity->context(), $viewerid)) {
+            $mine = ' AND t.requestedby <> :viewerid';
+            $params['viewerid'] = $viewerid;
+        }
 
         return $DB->get_records_sql(
             "SELECT t.*
                FROM {selfselectadvanced_ticket} t
-              WHERE t.activityid = :activityid
+              WHERE t.activityid = :activityid" . $mine . "
            ORDER BY CASE t.status
                         WHEN 'open' THEN 0
                         WHEN 'claimed' THEN 1
@@ -483,7 +495,7 @@ class tickets {
                     END,
                     CASE WHEN t.status IN ('open','claimed') THEN t.timecreated ELSE -t.timemodified END,
                     t.id",
-            ['activityid' => $activity->id()]
+            $params
         );
     }
 
