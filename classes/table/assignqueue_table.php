@@ -201,17 +201,25 @@ class assignqueue_table extends \table_sql {
         // control rendered every guide with room as an <option>, once
         // per row: at 1500 guides and 50 rows that is 75,000 options on
         // one page, which is why this one starts empty and searches.
+        // The picker sits in a wrapper of its own so that the enhanced
+        // control - which core builds in place of the select, alongside
+        // it - stays between the hidden fields and the button. Without
+        // the wrapper the button renders BEFORE the control it acts on,
+        // which reads backwards.
         return \html_writer::start_tag('form', ['method' => 'post', 'action' => $url->out(false),
-            'class' => 'd-flex gap-1 align-items-center'])
+            'class' => 'd-flex gap-2 align-items-start flex-wrap'])
             . \html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
             . \html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $row->id])
-            . \mod_selfselectadvanced\local\guidepicker::render(
-                'guide',
-                (int) $this->activity->cm()->id,
-                0,
-                '',
-                true,
-                'ssa-guidepicker-' . $this->mode . '-' . (int) $row->id
+            . \html_writer::div(
+                \mod_selfselectadvanced\local\guidepicker::render(
+                    'guide',
+                    (int) $this->activity->cm()->id,
+                    0,
+                    '',
+                    true,
+                    'ssa-guidepicker-' . $this->mode . '-' . (int) $row->id
+                ),
+                'selfselectadvanced-pickerwrap flex-grow-1'
             )
             . \html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-primary btn-sm',
                 'value' => get_string('assign', 'mod_selfselectadvanced')])

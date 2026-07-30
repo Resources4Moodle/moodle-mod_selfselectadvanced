@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.18.1 (2026-07-30)
+
+Three things the demonstration screenshots caught that the test suite
+could not:
+
+- The request queue's own description still said it carried
+  composition-change and unfreeze requests. It carries team-limit
+  requests too, and now says so.
+- A team-limit request was listed under a **Group name** column, which
+  it can never have - it is about a guide and a number. The column is
+  now named for what it holds.
+- On the assignment queue the **Assign** button rendered before the
+  picker it acts on, because the enhanced control is built alongside
+  the element it replaces. The picker now sits in a wrapper of its own,
+  so the control comes first and the button after it.
+
 ## 1.18.0 (2026-07-30)
 
 - **No control lists every guide any more.** A school running 1500

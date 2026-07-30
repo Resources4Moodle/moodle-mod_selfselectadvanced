@@ -140,7 +140,9 @@ $table = new html_table();
 $table->attributes['class'] = 'generaltable selfselectadvanced-tickets';
 $table->head = [
     get_string('ticketqueuepos', 'mod_selfselectadvanced'),
-    get_string('groupname', 'mod_selfselectadvanced'),
+    // Not "group name": a team-limit request is about a guide and the
+    // number they are asking for, and has no team at all.
+    get_string('ticketsubject', 'mod_selfselectadvanced'),
     get_string('tickettype', 'mod_selfselectadvanced'),
     get_string('ticketrequest', 'mod_selfselectadvanced'),
     get_string('ticketstatus', 'mod_selfselectadvanced'),
