@@ -28,10 +28,13 @@ Feature: Guide review of submitted groups
       | ssagroup  | user     | status    |
       | Team Blue | student2 | confirmed |
 
+  @javascript
   Scenario: The leader submits to a guide with a free slot
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
-    And I set the field "Choose a guide" to "Gina Guide — Guiding 0 of 5"
+    # Searchable since 1.18: the control holds no options until a query
+    # matches, so a school with 1500 guides is not rendered into a list.
+    And I set the field "Choose a guide" to "Gina Guide"
     And I press "Submit to guide"
     Then I should see "Group submitted for guide review."
     And I should see "Awaiting guide"

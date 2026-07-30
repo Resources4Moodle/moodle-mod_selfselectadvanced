@@ -87,6 +87,17 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                 'required' => ['user'],
                 'switchids' => ['user' => 'userid'],
             ],
+            'contacts' => [
+                'singular' => 'contact',
+                'datagenerator' => 'contact',
+                'required' => ['selfselectadvanced', 'ssagroup', 'guide', 'sentby'],
+                'switchids' => [
+                    'selfselectadvanced' => 'activityid',
+                    'ssagroup' => 'groupid',
+                    'guide' => 'guideid',
+                    'sentby' => 'sentby',
+                ],
+            ],
         ];
     }
 
@@ -138,6 +149,16 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
      * @return int the user id
      */
     protected function get_guide_id(string $username): int {
+        return $this->get_user_id($username);
+    }
+
+    /**
+     * Map the sender of an approach to a user id.
+     *
+     * @param string $username the username
+     * @return int the user id
+     */
+    protected function get_sentby_id(string $username): int {
         return $this->get_user_id($username);
     }
 

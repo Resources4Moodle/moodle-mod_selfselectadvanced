@@ -72,6 +72,13 @@ if ($action === 'send' && data_submitted() && confirm_sesskey()) {
     }
 }
 
+$tab = optional_param('tab', 'choose', PARAM_ALPHA);
+if (!in_array($tab, ['choose', 'sent'], true)) {
+    $tab = 'choose';
+}
+$guidefilter = optional_param('guidefilter', '', PARAM_TEXT);
+$perpage = \mod_selfselectadvanced\local\perpage::current(25);
+
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('contactheading', 'mod_selfselectadvanced', format_string($group->name)));
 
@@ -81,40 +88,59 @@ echo html_writer::div(
     'alert alert-info'
 );
 
-// What this team has already sent, and where each stands.
 $sent = contacts::for_group($activity, $groupid);
-if ($sent) {
-    $guideids = array_map(static fn($c) => (int) $c->guideid, $sent);
-    $names = [];
-    [$insql, $params] = $DB->get_in_or_equal(array_unique($guideids));
-    $namefields = \core_user\fields::for_name()->get_sql('', false, '', '', true)->selects;
-    foreach ($DB->get_records_sql("SELECT id{$namefields} FROM {user} WHERE id $insql", $params) as $u) {
-        $names[(int) $u->id] = fullname($u);
-    }
-
-    $table = new html_table();
-    $table->attributes['class'] = 'generaltable selfselectadvanced-contacts';
-    $table->head = [
-        get_string('guidelabelplain', 'mod_selfselectadvanced'),
-        get_string('status'),
-        get_string('contactreasongiven', 'mod_selfselectadvanced'),
-    ];
-    foreach ($sent as $contact) {
-        $status = get_string('contactstatus' . $contact->status, 'mod_selfselectadvanced');
-        $reason = trim((string) ($contact->reason ?? ''));
-        $table->data[] = [
-            s($names[(int) $contact->guideid] ?? ''),
-            $status,
-            $reason !== '' ? s($reason) : '-',
-        ];
-    }
-    echo $OUTPUT->heading(get_string('contactalready', 'mod_selfselectadvanced'), 4);
-    echo html_writer::table($table);
-}
 
 if (!empty($group->guideid)) {
     echo html_writer::div(get_string('contacthasguidenotice', 'mod_selfselectadvanced'), 'alert alert-success');
     echo html_writer::link($grouppage, get_string('back'), ['class' => 'btn btn-secondary']);
+    echo $OUTPUT->footer();
+    die;
+}
+
+// Two tabs rather than two stacked tables (strategy 1.18 E): what this
+// team has already sent used to render above the chooser, pushing the
+// list of guides further down the page with every approach made.
+$tabs = [];
+foreach (['choose' => 'contactchoosetab', 'sent' => 'contactsenttab'] as $key => $label) {
+    $tabs[] = new tabobject(
+        $key,
+        new moodle_url($baseurl, ['tab' => $key]),
+        get_string($label, 'mod_selfselectadvanced')
+    );
+}
+echo $OUTPUT->tabtree($tabs, $tab);
+
+if ($tab === 'sent') {
+    if ($sent) {
+        $guideids = array_map(static fn($c) => (int) $c->guideid, $sent);
+        $names = [];
+        [$insql, $params] = $DB->get_in_or_equal(array_unique($guideids));
+        $namefields = \core_user\fields::for_name()->get_sql('', false, '', '', true)->selects;
+        foreach ($DB->get_records_sql("SELECT id{$namefields} FROM {user} WHERE id $insql", $params) as $u) {
+            $names[(int) $u->id] = fullname($u);
+        }
+
+        $table = new html_table();
+        $table->attributes['class'] = 'generaltable selfselectadvanced-contacts';
+        $table->head = [
+            get_string('guidelabelplain', 'mod_selfselectadvanced'),
+            get_string('status'),
+            get_string('contactreasongiven', 'mod_selfselectadvanced'),
+        ];
+        foreach ($sent as $contact) {
+            $reason = trim((string) ($contact->reason ?? ''));
+            $table->data[] = [
+                s($names[(int) $contact->guideid] ?? ''),
+                get_string('contactstatus' . $contact->status, 'mod_selfselectadvanced'),
+                $reason !== '' ? s($reason) : '-',
+            ];
+        }
+        echo html_writer::table($table);
+    } else {
+        echo html_writer::div(get_string('contactnonesent', 'mod_selfselectadvanced'), 'text-muted');
+    }
+
+    echo html_writer::link($grouppage, get_string('back'), ['class' => 'btn btn-secondary mt-3']);
     echo $OUTPUT->footer();
     die;
 }
@@ -126,48 +152,54 @@ if ($remaining < 1) {
     die;
 }
 
+// A filter, because at 1500 guides a team cannot scroll to find one
+// (strategy 1.18 B). The list below is paged for the same reason.
+echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
+    'class' => 'd-inline-flex gap-2 align-items-center flex-wrap mb-3']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $groupid]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'tab', 'value' => 'choose']);
+echo html_writer::label(get_string('guideloadfilter', 'mod_selfselectadvanced'), 'ssa-guidefilter', true, ['class' => 'me-2']);
+echo html_writer::empty_tag('input', ['type' => 'text', 'id' => 'ssa-guidefilter', 'name' => 'guidefilter',
+    'value' => $guidefilter, 'class' => 'form-control form-control-sm me-2']);
+echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('filter'),
+    'class' => 'btn btn-secondary btn-sm']);
+echo html_writer::end_tag('form');
+
 // The guides a team may approach, with what helps them choose and
 // nothing that identifies anybody beyond their name.
 $alreadysent = array_map(static fn($c) => (int) $c->guideid, $sent);
-$guides = \mod_selfselectadvanced\local\guides::with_load($activity, $api->gatekeeper()->resolver(), true);
+$guides = \mod_selfselectadvanced\local\guides::with_load(
+    $activity,
+    $api->gatekeeper()->resolver(),
+    true,
+    $guidefilter
+);
 $attrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users(array_keys($guides));
 
-$table = new html_table();
-$table->attributes['class'] = 'generaltable selfselectadvanced-guidechoice';
-$table->head = [
-    get_string('fullname'),
-    get_string('attrdepartment', 'mod_selfselectadvanced'),
-    get_string('attrsubdepartment', 'mod_selfselectadvanced'),
-    get_string('guideloadused', 'mod_selfselectadvanced'),
-    get_string('actions'),
-];
+$rows = [];
 foreach ($guides as $guide) {
     $attr = $attrs[(int) $guide->id] ?? null;
-    $already = in_array((int) $guide->id, $alreadysent, true);
-    $form = $already
-        ? html_writer::span(get_string('contactalreadysent', 'mod_selfselectadvanced'), 'text-muted small')
-        : html_writer::start_tag('form', ['method' => 'post',
-            'action' => (new moodle_url($baseurl, ['action' => 'send']))->out(false),
-            'class' => 'd-flex gap-1 align-items-center'])
-            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
-            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'guide', 'value' => $guide->id])
-            . html_writer::empty_tag('input', ['type' => 'text', 'name' => 'message', 'size' => 30,
-                'class' => 'form-control form-control-sm',
-                'placeholder' => get_string('contactmessagehint', 'mod_selfselectadvanced')])
-            . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-primary btn-sm',
-                'value' => get_string('contactsend', 'mod_selfselectadvanced')])
-            . html_writer::end_tag('form');
-
-    $table->data[] = [
-        s($guide->fullname),
-        s($attr->department ?? '-'),
-        s($attr->subdepartment ?? '-'),
-        get_string('guideload', 'mod_selfselectadvanced', $guide),
-        $form,
+    $rows[] = (object) [
+        'id' => (int) $guide->id,
+        'fullname' => $guide->fullname,
+        'department' => (string) ($attr->department ?? ''),
+        'subdepartment' => (string) ($attr->subdepartment ?? ''),
+        'load' => get_string('guideload', 'mod_selfselectadvanced', $guide),
+        'already' => in_array((int) $guide->id, $alreadysent, true),
     ];
 }
-echo $OUTPUT->heading(get_string('contactchoose', 'mod_selfselectadvanced'), 4);
-echo html_writer::table($table);
 
-echo html_writer::link($grouppage, get_string('back'), ['class' => 'btn btn-secondary']);
+if ($rows) {
+    $filterurl = new moodle_url($baseurl, ['tab' => 'choose']);
+    if ($guidefilter !== '') {
+        $filterurl->param('guidefilter', $guidefilter);
+    }
+    $table = new \mod_selfselectadvanced\table\contactchoice_table('ssacontactchoice', $activity, $groupid, $filterurl);
+    $table->display_rows($rows, $perpage);
+} else {
+    echo html_writer::div(get_string('noguidesavailable', 'mod_selfselectadvanced'), 'text-muted');
+}
+
+echo html_writer::link($grouppage, get_string('back'), ['class' => 'btn btn-secondary mt-3']);
 echo $OUTPUT->footer();

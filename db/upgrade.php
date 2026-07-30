@@ -758,5 +758,21 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073072, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073080) {
+        // A guide may now ask the coordinators for a higher team limit
+        // (strategy 1.18 C). That request is a ticket like the other
+        // two, but it is not about a team - its groupid is 0 - and it
+        // carries the number asked for, so a coordinator can grant it
+        // in one action instead of copying the figure into an override
+        // by hand.
+        $ticket = new xmldb_table('selfselectadvanced_ticket');
+        $requested = new xmldb_field('requested', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'resolutionformat');
+        if (!$dbman->field_exists($ticket, $requested)) {
+            $dbman->add_field($ticket, $requested);
+        }
+
+        upgrade_mod_savepoint(true, 2026073080, 'selfselectadvanced');
+    }
+
     return true;
 }

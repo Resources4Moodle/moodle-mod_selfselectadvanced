@@ -16,7 +16,8 @@
 
 /**
  * The sequential request queue (strategy 1.16 B): guide
- * composition-change and unfreeze requests, first come first served.
+ * composition-change, unfreeze and team-limit requests, first come
+ * first served.
  * One worker claims a ticket exclusively; a racing second claimant is
  * refused and told who holds it.
  *
@@ -57,6 +58,22 @@ if ($action === 'claim' && data_submitted() && confirm_sesskey()) {
         redirect(
             $baseurl,
             get_string('ticketclaimednotice', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
+if ($action === 'grant' && data_submitted() && confirm_sesskey()) {
+    $ticketid = required_param('ticket', PARAM_INT);
+    $note = optional_param('resolution', '', PARAM_RAW);
+    try {
+        tickets::grant_guidecap($activity, $ticketid, $note, FORMAT_PLAIN, (int) $USER->id);
+        redirect(
+            $baseurl,
+            get_string('guidecapgranted', 'mod_selfselectadvanced'),
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
@@ -176,11 +193,32 @@ foreach ($queue as $ticket) {
                 'formaction' => (new moodle_url($baseurl, ['action' => 'release']))->out(false),
                 'value' => get_string('ticketrelease', 'mod_selfselectadvanced')])
             . html_writer::end_tag('form');
-        $actions .= html_writer::link(
-            new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $ticket->groupid]),
-            get_string('view'),
-            ['class' => 'btn btn-secondary btn-sm mt-1']
-        );
+        if ($ticket->type === tickets::TYPE_GUIDECAP) {
+            $actions = html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)])
+                . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
+                . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
+                . html_writer::empty_tag('input', ['type' => 'text', 'name' => 'resolution', 'size' => 24,
+                    'placeholder' => get_string('ticketresolutionhint', 'mod_selfselectadvanced')])
+                . ' '
+                . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-success btn-sm',
+                    'formaction' => (new moodle_url($baseurl, ['action' => 'grant']))->out(false),
+                    'value' => get_string('guidecapgrant', 'mod_selfselectadvanced', (int) $ticket->requested)])
+                . ' '
+                . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-warning btn-sm',
+                    'formaction' => (new moodle_url($baseurl, ['action' => 'decline']))->out(false),
+                    'value' => get_string('ticketdecline', 'mod_selfselectadvanced')])
+                . ' '
+                . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-secondary btn-sm',
+                    'formaction' => (new moodle_url($baseurl, ['action' => 'release']))->out(false),
+                    'value' => get_string('ticketrelease', 'mod_selfselectadvanced')])
+                . html_writer::end_tag('form');
+        } else {
+            $actions .= html_writer::link(
+                new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $ticket->groupid]),
+                get_string('view'),
+                ['class' => 'btn btn-secondary btn-sm mt-1']
+            );
+        }
     } else if ($isclaimed && $canmanage) {
         // Somebody else is holding this one. A manager can put it back
         // in the queue: without this door, a claim by a coordinator who
@@ -196,9 +234,16 @@ foreach ($queue as $ticket) {
             . html_writer::end_tag('form');
     }
 
+    $subject = $ticket->type === tickets::TYPE_GUIDECAP
+        ? get_string('guidecapsubject', 'mod_selfselectadvanced', (object) [
+            'guide' => $usernames[(int) $ticket->requestedby] ?? '',
+            'requested' => (int) $ticket->requested,
+        ])
+        : ($groupnames[(int) $ticket->groupid] ?? $ticket->groupid);
+
     $row = new html_table_row([
         $isopen ? $position : '',
-        $groupnames[(int) $ticket->groupid] ?? $ticket->groupid,
+        $subject,
         get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced')
             . html_writer::div(
                 ($usernames[(int) $ticket->requestedby] ?? '') . ' · '

@@ -22,6 +22,8 @@
     Context variables required for this template:
     * loadline - "You are guiding 3 of 10 groups"
     * hasqueue - whether the queue has entries
+    * showqueue - whether the review queue tab is the one being shown
+    * showguided - whether the guided-teams tab is the one being shown
     * showvolunteer - whether guide volunteering is enabled for this activity
     * volunteer - hasvolunteered, statusline, callline, showgrandfathered, grandfatherline, options[]
     * eoienabled - whether team listing and guide interest (EOI) is enabled
@@ -35,6 +37,8 @@
     {
         "loadline": "You are guiding 3 of 10 groups",
         "hasqueue": true,
+        "showqueue": true,
+        "showguided": true,
         "showvolunteer": true,
         "volunteer": {
             "hasvolunteered": true,
@@ -134,6 +138,7 @@
         </div>
     {{/showvolunteer}}
 
+    {{#showqueue}}
     <h3>{{#str}} reviewqueue, mod_selfselectadvanced {{/str}}</h3>
     {{#hasqueue}}
         <div class="table-responsive">
@@ -164,7 +169,9 @@
     {{^hasqueue}}
         <p class="text-muted">{{#str}} queueempty, mod_selfselectadvanced {{/str}}</p>
     {{/hasqueue}}
+    {{/showqueue}}
 
+    {{#showguided}}
     <h3>{{#str}} guidedgroups, mod_selfselectadvanced {{/str}}</h3>
 
     <form method="get" action="{{actionurl}}" class="selfselectadvanced-guidefilters mb-3 d-flex flex-wrap gap-2 align-items-end">
@@ -260,6 +267,7 @@
     {{^hasguided}}
         <p class="text-muted">{{#str}} noguidedgroups, mod_selfselectadvanced {{/str}}</p>
     {{/hasguided}}
+    {{/showguided}}
 
     <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>
 </div>

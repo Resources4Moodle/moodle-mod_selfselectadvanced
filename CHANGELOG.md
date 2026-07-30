@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.18.0 (2026-07-30)
+
+- **No control lists every guide any more.** A school running 1500
+  guides could not use a dropdown, and the assignment queue carried one
+  on every row - fifty rows of fifteen hundred options on a single
+  page. Every guide picker now searches instead: the assignment queue
+  (both tabs), the team's submit-to-a-guide control, and the handover
+  nomination. Each result shows the guide's department and current
+  load, so the choice can be made without opening another page. The
+  approach-a-guide chooser, which is a comparison rather than a lookup,
+  keeps its table but gained a filter and paging. In students-approach
+  mode the load stays hidden from the teams choosing, as it has been
+  since 1.16 - the staff assigning work still see it. Note that these
+  pickers need JavaScript, as Moodle's own user selectors do.
+- **A guide's requests are one queue.** Teams approaching them, and
+  handovers proposed to them, used to sit in three different places on
+  one long page. There is now a request queue of their own - sortable,
+  filterable, paged and downloadable.
+- **A guide can ask for a higher team limit.** The request goes to the
+  Group Coordinators as a ticket like any other, carrying the number
+  asked for. A coordinator grants it in one action, which raises the
+  limit and closes the request together, or declines it with a reason.
+  A request nobody has picked up can be taken back.
+- **Group Coordinators are appointed the way Moodle appoints roles.**
+  A participants-style table - filtered to the course's non-editing
+  teachers by default, sortable, paged, searchable and downloadable -
+  with appoint and remove on each row. Appointing one or two people no
+  longer needs a spreadsheet. The bulk upload stays, and now offers a
+  **sample file in CSV and Excel** so nobody has to guess the format.
+- **Guide loads is a report.** It gained a name filter, a has-room
+  filter and the standard download selector, on top of the paging and
+  sorting it got in 1.17.
+- **Tables no longer stack.** Wherever one table sat under another it
+  is now a tab: the manager's page (teams, awaiting a guide, changing a
+  guide, guide loads), the guide's page, the coordinator page, the
+  approach page, the analytics page and the departments page. On the
+  manager's page in particular the assignment tab row itself used to be
+  below the fold, which made three lists easy to miss entirely.
+
 ## 1.17.0 (2026-07-30)
 
 - The format an editing teacher sets now governs the **project id**,

@@ -829,7 +829,7 @@ probe('table: assignqueue page of 50 (awaiting a guide)', function () use ($acti
         'probeassign',
         $activity,
         \mod_selfselectadvanced\table\assignqueue_table::MODE_UNASSIGNED,
-        [1 => 'A guide'],
+        true,
         new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id])
     );
     ob_start();
@@ -844,7 +844,7 @@ probe('table: assignqueue page of 50 (changing a guide)', function () use ($acti
         'probereassign',
         $activity,
         \mod_selfselectadvanced\table\assignqueue_table::MODE_REASSIGN,
-        [1 => 'A guide'],
+        true,
         new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id])
     );
     ob_start();
@@ -852,6 +852,104 @@ probe('table: assignqueue page of 50 (changing a guide)', function () use ($acti
     $html = ob_get_clean();
 
     return strlen($html) . ' bytes';
+});
+
+probe('service: guide search for a picker keystroke (200 guides)', function () use ($activity, $gatekeeper) {
+    // 1.18 B: the measurement the searchable pickers exist for. Every
+    // keystroke in every picker costs this, so it has to stay flat -
+    // the name filter runs BEFORE the per-guide override work, which
+    // is what stops it scaling with the size of the school.
+    $hits = \mod_selfselectadvanced\local\guides::search($activity, $gatekeeper->resolver(), 'Guide', 50);
+    if (count($hits) < 1) {
+        throw new coding_exception('the guide search found nobody at all');
+    }
+    if (count($hits) > 50) {
+        throw new coding_exception('the guide search ignored its cap: ' . count($hits));
+    }
+
+    return count($hits) . ' hits, capped at 50';
+});
+
+probe('service: guide search miss (no match at 200 guides)', function () use ($activity, $gatekeeper) {
+    $hits = \mod_selfselectadvanced\local\guides::search($activity, $gatekeeper->resolver(), 'Zzyzx Nobody', 50);
+    if ($hits !== []) {
+        throw new coding_exception('a query nobody matches returned ' . count($hits) . ' rows');
+    }
+
+    return '0 hits';
+});
+
+probe('table: guide loads page of 50, filtered (200 guides)', function () use ($activity, $gatekeeper, $cm) {
+    // 1.18 F: filters and download joined the paging it got in 1.17.
+    $rows = [];
+    foreach (
+        \mod_selfselectadvanced\local\guides::with_load($activity, $gatekeeper->resolver(), true, 'Guide') as $guide
+    ) {
+        $rows[] = (object) [
+            'fullname' => $guide->fullname,
+            'used' => $guide->used,
+            'max' => $guide->max,
+            'remaining' => $guide->remaining,
+        ];
+    }
+    $table = new \mod_selfselectadvanced\table\guideloads_table(
+        'probeloads',
+        new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id, 'assigntab' => 'loads'])
+    );
+    ob_start();
+    $table->display_rows($rows, 50);
+    $html = ob_get_clean();
+
+    return count($rows) . ' guides, ' . strlen($html) . ' bytes';
+});
+
+probe('service: guidecap - file 20 + queue + grant', function () use ($DB, $activity, $guideids) {
+    // 1.18 C: a ticket type with no team, through the whole queue.
+    $manager = $DB->get_field_sql(
+        "SELECT u.id FROM {user} u JOIN {role_assignments} ra ON ra.userid = u.id
+           JOIN {role} r ON r.id = ra.roleid WHERE r.shortname = ? AND ra.contextid = ?",
+        ['editingteacher', \context_course::instance($activity->courseid())->id]
+    );
+    if (!$manager) {
+        throw new coding_exception('the harness has no editing teacher to work the queue');
+    }
+    $filed = [];
+    for ($i = 0; $i < 20; $i++) {
+        $filed[] = \mod_selfselectadvanced\local\tickets::file_guidecap(
+            $activity,
+            50 + $i,
+            'Scale probe capacity request ' . $i,
+            FORMAT_PLAIN,
+            (int) $guideids[$i]
+        );
+    }
+    $queue = \mod_selfselectadvanced\local\tickets::queue($activity, (int) $manager);
+    $capsinqueue = 0;
+    foreach ($queue as $ticket) {
+        if ($ticket->type === \mod_selfselectadvanced\local\tickets::TYPE_GUIDECAP) {
+            $capsinqueue++;
+        }
+    }
+    if ($capsinqueue !== 20) {
+        throw new coding_exception('expected 20 capacity requests in the queue, saw ' . $capsinqueue);
+    }
+
+    // One of them all the way through: claim, grant, override written.
+    $first = $filed[0];
+    \mod_selfselectadvanced\local\tickets::claim($activity, (int) $first->id, (int) $manager);
+    \mod_selfselectadvanced\local\tickets::grant_guidecap(
+        $activity,
+        (int) $first->id,
+        'Granted by the scale probe',
+        FORMAT_PLAIN,
+        (int) $manager
+    );
+    $ceiling = (new api($activity))->gatekeeper()->resolver()->guide_capacity_ceiling((int) $guideids[0]);
+    if ($ceiling->value !== 50) {
+        throw new coding_exception('grant did not write the override: ceiling is ' . $ceiling->value);
+    }
+
+    return '20 filed, 1 granted';
 });
 
 probe('service: contacts - 50 approaches + remaining', function () use ($DB, $activity, $groupids, $guideids) {

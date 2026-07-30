@@ -437,159 +437,203 @@ if ($guidedownload !== '') {
     );
 }
 
-echo $OUTPUT->header();
-
-// Teams that have approached this guide (strategy 1.17 E), if any are
-// waiting. Its own page; this is only the way in.
-$waitingcount = count(\mod_selfselectadvanced\local\contacts::waiting_for($activity, (int) $USER->id));
-if ($waitingcount > 0) {
-    echo html_writer::div(
-        html_writer::link(
-            new moodle_url('/mod/selfselectadvanced/contactreview.php', ['id' => $cm->id]),
-            get_string('contactreviewwaiting', 'mod_selfselectadvanced', $waitingcount),
-            ['class' => 'btn btn-primary']
-        ),
-        'selfselectadvanced-contactreviewlink mb-3'
-    );
+// One tab row for the guide's page (strategy 1.18 E). It used to run
+// the approach link, the digest form, the handover block, the review
+// queue and the guided-team table one under another, so a guide with
+// forty teams scrolled past everything to reach anything.
+$guidetab = optional_param('guidetab', 'awaiting', PARAM_ALPHA);
+if (!in_array($guidetab, ['awaiting', 'guided', 'handover', 'settings'], true)) {
+    $guidetab = 'awaiting';
 }
 
-// Digest preference form (1.8.0): kept as its own block, deliberately
-// separate from the mustache-rendered dashboard below.
-echo html_writer::start_div('selfselectadvanced-digest mb-3');
-echo html_writer::tag('h3', get_string('digestheading', 'mod_selfselectadvanced'));
-echo html_writer::tag('p', get_string('digestexplain', 'mod_selfselectadvanced'), ['class' => 'text-muted']);
-echo html_writer::start_tag('form', [
-    'method' => 'post',
-    'action' => (new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]))->out(false),
-    'class' => 'd-flex flex-wrap gap-2 align-items-end',
-]);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'digest']);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
-echo html_writer::label(get_string('digestlabel', 'mod_selfselectadvanced'), 'ssa-digestperiod', true, ['class' => 'me-2']);
-echo html_writer::select(
-    [
-        'immediate' => get_string('digestimmediate', 'mod_selfselectadvanced'),
-        'daily' => get_string('digestdaily', 'mod_selfselectadvanced'),
-        'weekly' => get_string('digestweekly', 'mod_selfselectadvanced'),
-    ],
-    'digestperiod',
-    $digestperiod,
-    false,
-    ['id' => 'ssa-digestperiod', 'class' => 'form-select form-select-sm w-auto me-2']
-);
-echo html_writer::empty_tag('input', [
-    'type' => 'submit',
-    'value' => get_string('digestsave', 'mod_selfselectadvanced'),
-    'class' => 'btn btn-secondary btn-sm',
-]);
-echo html_writer::end_tag('form');
-echo html_writer::end_div();
+echo $OUTPUT->header();
 
-// Guide handover (1.14.0): incoming proposals to decide, and a
-// nomination control for every team this guide currently holds in a
-// submitted-or-later state — the only self-service way out of one.
-$handoverurl = new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]);
-$incoming = $api->handover()->incoming((int) $USER->id);
-$held = $DB->get_records_select(
-    'selfselectadvanced_group',
-    "activityid = :activityid AND guideid = :guideid AND state IN ('pending_guide', 'firm', 'frozen')",
-    ['activityid' => $activity->id(), 'guideid' => (int) $USER->id],
-    'name ASC'
+// Everything waiting for this guide now has one queue of its own
+// (strategy 1.18 C); this is the way in to it.
+$waitingcount = count(\mod_selfselectadvanced\local\contacts::waiting_for($activity, (int) $USER->id));
+echo html_writer::div(
+    html_writer::link(
+        new moodle_url('/mod/selfselectadvanced/guidequeue.php', ['id' => $cm->id]),
+        $waitingcount > 0
+            ? get_string('contactreviewwaiting', 'mod_selfselectadvanced', $waitingcount)
+            : get_string('guiderequestqueue', 'mod_selfselectadvanced'),
+        ['class' => $waitingcount > 0 ? 'btn btn-primary' : 'btn btn-outline-primary']
+    ),
+    'selfselectadvanced-contactreviewlink mb-3'
 );
-if ($incoming || $held) {
-    echo html_writer::start_div('selfselectadvanced-handover mb-3');
-    echo html_writer::tag('h3', get_string('guidehandover', 'mod_selfselectadvanced'));
-    foreach ($incoming as $hgroup) {
-        $proposer = fullname(\core_user::get_user((int) $hgroup->guideid));
-        echo html_writer::start_div('alert alert-info d-flex flex-wrap gap-2 align-items-center');
-        echo html_writer::span(get_string('guidehandoverpending', 'mod_selfselectadvanced', (object) [
-            'from' => $proposer,
-            'to' => fullname($USER),
-        ]) . ' (' . format_string($hgroup->name) . ')');
-        foreach (['handoveraccept' => 'guidehandoveraccept', 'handoverdecline' => 'guidehandoverdecline'] as $act => $label) {
-            echo html_writer::start_tag('form', ['method' => 'post', 'action' => $handoverurl->out(false), 'class' => 'd-inline']);
-            echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
-            echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => $act]);
-            echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $hgroup->id]);
-            echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
-            echo html_writer::empty_tag('input', [
-                'type' => 'submit',
-                'value' => get_string($label, 'mod_selfselectadvanced'),
-                'class' => $act === 'handoveraccept' ? 'btn btn-primary btn-sm' : 'btn btn-outline-secondary btn-sm',
-            ]);
-            echo html_writer::end_tag('form');
-        }
-        echo html_writer::end_div();
-    }
-    if ($held) {
-        $selectable = \mod_selfselectadvanced\local\guides::selectable($activity, $resolver);
-        unset($selectable[(int) $USER->id]);
-        $options = [];
-        foreach ($selectable as $candidate) {
-            $options[$candidate->id] = $candidate->fullname . ' (' . $candidate->label . ')';
-        }
-        foreach ($held as $hgroup) {
-            echo html_writer::start_div('d-flex flex-wrap gap-2 align-items-center mb-2');
-            echo html_writer::span(format_string($hgroup->name), 'fw-bold me-2');
-            if (!empty($hgroup->guidesuccessorid)) {
-                echo html_writer::span(get_string('guidehandoverpending', 'mod_selfselectadvanced', (object) [
-                    'from' => fullname($USER),
-                    'to' => fullname(\core_user::get_user((int) $hgroup->guidesuccessorid)),
-                ]), 'text-muted');
+
+$guidetabs = [];
+foreach (
+    [
+        'awaiting' => 'reviewqueue',
+        'guided' => 'guidedgroups',
+        'handover' => 'guidehandover',
+        'settings' => 'guidesettingstab',
+    ] as $key => $label
+) {
+    $guidetabs[] = new tabobject(
+        $key,
+        new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id, 'guidetab' => $key]),
+        get_string($label, 'mod_selfselectadvanced')
+    );
+}
+echo $OUTPUT->tabtree($guidetabs, $guidetab);
+
+if ($guidetab === 'settings') {
+    // Digest preference (1.8.0): site-wide, not per-activity.
+    echo html_writer::start_div('selfselectadvanced-digest mb-3');
+    echo html_writer::tag('h3', get_string('digestheading', 'mod_selfselectadvanced'));
+    echo html_writer::tag('p', get_string('digestexplain', 'mod_selfselectadvanced'), ['class' => 'text-muted']);
+    echo html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => (new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]))->out(false),
+        'class' => 'd-flex flex-wrap gap-2 align-items-end',
+    ]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'digest']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    echo html_writer::label(
+        get_string('digestlabel', 'mod_selfselectadvanced'),
+        'ssa-digestperiod',
+        true,
+        ['class' => 'me-2']
+    );
+    echo html_writer::select(
+        [
+            'immediate' => get_string('digestimmediate', 'mod_selfselectadvanced'),
+            'daily' => get_string('digestdaily', 'mod_selfselectadvanced'),
+            'weekly' => get_string('digestweekly', 'mod_selfselectadvanced'),
+        ],
+        'digestperiod',
+        $digestperiod,
+        false,
+        ['id' => 'ssa-digestperiod', 'class' => 'form-select form-select-sm w-auto me-2']
+    );
+    echo html_writer::empty_tag('input', [
+        'type' => 'submit',
+        'value' => get_string('digestsave', 'mod_selfselectadvanced'),
+        'class' => 'btn btn-secondary btn-sm',
+    ]);
+    echo html_writer::end_tag('form');
+    echo html_writer::end_div();
+}
+
+if ($guidetab === 'handover') {
+    // Guide handover (1.14.0): incoming proposals to decide, and a
+    // nomination control for every team this guide currently holds in a
+    // submitted-or-later state - the only self-service way out of one.
+    $handoverurl = new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]);
+    $incoming = $api->handover()->incoming((int) $USER->id);
+    $held = $DB->get_records_select(
+        'selfselectadvanced_group',
+        "activityid = :activityid AND guideid = :guideid AND state IN ('pending_guide', 'firm', 'frozen')",
+        ['activityid' => $activity->id(), 'guideid' => (int) $USER->id],
+        'name ASC'
+    );
+    if (!$incoming && !$held) {
+        echo html_writer::div(get_string('guidehandovernone', 'mod_selfselectadvanced'), 'text-muted');
+    } else {
+        echo html_writer::start_div('selfselectadvanced-handover mb-3');
+        foreach ($incoming as $hgroup) {
+            $proposer = fullname(\core_user::get_user((int) $hgroup->guideid));
+            echo html_writer::start_div('alert alert-info d-flex flex-wrap gap-2 align-items-center');
+            echo html_writer::span(get_string('guidehandoverpending', 'mod_selfselectadvanced', (object) [
+                'from' => $proposer,
+                'to' => fullname($USER),
+            ]) . ' (' . format_string($hgroup->name) . ')');
+            foreach (['handoveraccept' => 'guidehandoveraccept', 'handoverdecline' => 'guidehandoverdecline'] as $act => $label) {
                 echo html_writer::start_tag('form', [
                     'method' => 'post',
                     'action' => $handoverurl->out(false),
                     'class' => 'd-inline',
                 ]);
                 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
-                echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'handovercancel']);
+                echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => $act]);
                 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $hgroup->id]);
                 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
                 echo html_writer::empty_tag('input', [
                     'type' => 'submit',
-                    'value' => get_string('guidehandovercancel', 'mod_selfselectadvanced'),
-                    'class' => 'btn btn-outline-secondary btn-sm',
-                ]);
-                echo html_writer::end_tag('form');
-            } else if ($options) {
-                echo html_writer::start_tag('form', [
-                    'method' => 'post',
-                    'action' => $handoverurl->out(false),
-                    'class' => 'd-inline-flex gap-2 align-items-center',
-                ]);
-                echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
-                echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'handoverpropose']);
-                echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $hgroup->id]);
-                echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
-                echo html_writer::select(
-                    $options,
-                    'nominee',
-                    '',
-                    ['' => 'choosedots'],
-                    ['class' => 'form-select form-select-sm w-auto']
-                );
-                echo html_writer::empty_tag('input', [
-                    'type' => 'submit',
-                    'value' => get_string('guidehandovernominate', 'mod_selfselectadvanced'),
-                    'class' => 'btn btn-secondary btn-sm',
+                    'value' => get_string($label, 'mod_selfselectadvanced'),
+                    'class' => $act === 'handoveraccept' ? 'btn btn-primary btn-sm' : 'btn btn-outline-secondary btn-sm',
                 ]);
                 echo html_writer::end_tag('form');
             }
             echo html_writer::end_div();
         }
+        if ($held) {
+            // Whether anybody else could take one on, which is all that
+            // decides whether the control appears. Who, specifically, is
+            // a question the searchable picker answers (strategy 1.18 B).
+            $selectable = \mod_selfselectadvanced\local\guides::selectable($activity, $resolver);
+            unset($selectable[(int) $USER->id]);
+            $options = (bool) $selectable;
+            foreach ($held as $hgroup) {
+                echo html_writer::start_div('d-flex flex-wrap gap-2 align-items-center mb-2');
+                echo html_writer::span(format_string($hgroup->name), 'fw-bold me-2');
+                if (!empty($hgroup->guidesuccessorid)) {
+                    echo html_writer::span(get_string('guidehandoverpending', 'mod_selfselectadvanced', (object) [
+                        'from' => fullname($USER),
+                        'to' => fullname(\core_user::get_user((int) $hgroup->guidesuccessorid)),
+                    ]), 'text-muted');
+                    echo html_writer::start_tag('form', [
+                        'method' => 'post',
+                        'action' => $handoverurl->out(false),
+                        'class' => 'd-inline',
+                    ]);
+                    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+                    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'handovercancel']);
+                    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $hgroup->id]);
+                    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+                    echo html_writer::empty_tag('input', [
+                        'type' => 'submit',
+                        'value' => get_string('guidehandovercancel', 'mod_selfselectadvanced'),
+                        'class' => 'btn btn-outline-secondary btn-sm',
+                    ]);
+                    echo html_writer::end_tag('form');
+                } else if ($options) {
+                    echo html_writer::start_tag('form', [
+                        'method' => 'post',
+                        'action' => $handoverurl->out(false),
+                        'class' => 'd-inline-flex gap-2 align-items-center',
+                    ]);
+                    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+                    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'handoverpropose']);
+                    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'g', 'value' => $hgroup->id]);
+                    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+                    echo \mod_selfselectadvanced\local\guidepicker::render(
+                        'nominee',
+                        (int) $cm->id,
+                        0,
+                        '',
+                        true,
+                        'ssa-nominee-' . (int) $hgroup->id
+                    );
+                    echo html_writer::empty_tag('input', [
+                        'type' => 'submit',
+                        'value' => get_string('guidehandovernominate', 'mod_selfselectadvanced'),
+                        'class' => 'btn btn-secondary btn-sm',
+                    ]);
+                    echo html_writer::end_tag('form');
+                }
+                echo html_writer::end_div();
+            }
+        }
+        echo html_writer::end_div();
     }
-    echo html_writer::end_div();
 }
 
 $departments = \mod_selfselectadvanced\local\attributes\manager::distinct_values('department');
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/guide_dashboard', (object) [
     'loadline' => get_string('guideloadheader', 'mod_selfselectadvanced', $load),
-    'showvolunteer' => $showvolunteer,
+    // Each list is a tab now, so the template renders the one asked for
+    // rather than every one of them stacked (strategy 1.18 E).
+    'showqueue' => $guidetab === 'awaiting',
+    'showguided' => $guidetab === 'guided',
+    'showvolunteer' => $showvolunteer && $guidetab === 'settings',
     'volunteer' => $volunteer,
-    'eoienabled' => $eoienabled,
+    'eoienabled' => $eoienabled && $guidetab === 'awaiting',
     'eoicards' => $eoicards,
-    'haseoicards' => !empty($eoicards),
+    'haseoicards' => !empty($eoicards) && $guidetab === 'awaiting',
     'pickteamurl' => (new moodle_url('/mod/selfselectadvanced/pickteam.php', ['id' => $cm->id]))->out(false),
     'queue' => $queue,
     'hasqueue' => !empty($queue),

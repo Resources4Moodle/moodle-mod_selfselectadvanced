@@ -92,35 +92,24 @@ $groupstable = new \mod_selfselectadvanced\table\groups_table(
     $statefilter,
     $download !== ''
 );
-if ($download !== '') {
+if ($download !== '' && optional_param('assigntab', 'teams', PARAM_ALPHA) === 'teams') {
     $groupstable->is_downloading($download, \mod_selfselectadvanced\local\exporter::stamp('groups'));
     // Download ignores paging and dumps the full recordset; left unchanged.
     $groupstable->out(50, false);
     die;
 }
 
-$guides = \mod_selfselectadvanced\local\guides::with_load($activity, $api->gatekeeper()->resolver());
-$guideoptions = [];
-foreach ($guides as $guide) {
-    if ($guide->remaining > 0) {
-        $guideoptions[(int) $guide->id] = get_string(
-            'guidepickerlabel',
-            'mod_selfselectadvanced',
-            (object) ['fullname' => $guide->fullname, 'label' => $guide->label]
-        );
-    }
-}
-
-// The three lists below the group table are tabs now (strategy 1.17
-// C1). Each is a paged, sortable table that fetches only the rows it
-// shows: at 1500 teams the old render put every row of all three on one
-// page, which nobody could administer and which buried the last two
-// below the fold entirely.
-$assigntab = optional_param('assigntab', 'unassigned', PARAM_ALPHA);
-if (!in_array($assigntab, ['unassigned', 'reassign', 'loads'], true)) {
-    $assigntab = 'unassigned';
+// One tab row for the whole page (strategy 1.18 E). The team table used
+// to render in full above the assignment tabs, which put the tab row
+// itself below the fold on any real course - a tab nobody scrolls to is
+// a tab nobody knows exists. Everything on this page is now a peer.
+$assigntab = optional_param('assigntab', 'teams', PARAM_ALPHA);
+if (!in_array($assigntab, ['teams', 'unassigned', 'reassign', 'loads'], true)) {
+    $assigntab = 'teams';
 }
 $assignfilter = optional_param('assignfilter', '', PARAM_TEXT);
+$loadfilter = optional_param('loadfilter', '', PARAM_TEXT);
+$loadroom = optional_param('loadroom', 0, PARAM_BOOL);
 
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('managerdashboard', 'mod_selfselectadvanced'));
@@ -174,35 +163,15 @@ echo ' ' . html_writer::link(
 );
 echo html_writer::end_div();
 
-// State filter (GET, read-only view change).
-$options = ['' => get_string('all')];
-foreach (\mod_selfselectadvanced\local\state::all() as $stateoption) {
-    $options[$stateoption] = get_string('state' . str_replace('_', '', $stateoption), 'mod_selfselectadvanced');
-}
-echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
-    'class' => 'd-inline-flex gap-2 align-items-center flex-wrap mb-3']);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
-echo html_writer::label(get_string('state', 'mod_selfselectadvanced'), 'ssa-statefilter', true, ['class' => 'me-2']);
-echo html_writer::select($options, 'statefilter', $statefilter, false, ['id' => 'ssa-statefilter', 'class' => 'me-2']);
-echo html_writer::empty_tag('input', [
-    'type' => 'submit',
-    'value' => get_string('filter'),
-    'class' => 'btn btn-secondary btn-sm',
-]);
-echo html_writer::end_tag('form');
-
-echo html_writer::div(\mod_selfselectadvanced\local\perpage::controls($tableurl), 'mb-3');
-$groupstable->out($perpage, true);
-
-$assignbase = new moodle_url($baseurl, ['assigntab' => $assigntab]);
-if ($assignfilter !== '') {
-    $assignbase->param('assignfilter', $assignfilter);
-}
-
-echo $OUTPUT->heading(get_string('guidequeueheading', 'mod_selfselectadvanced'), 3);
-
 $tabs = [];
-foreach (['unassigned' => 'assignqueuetab', 'reassign' => 'reassigntab', 'loads' => 'guideloadstab'] as $key => $label) {
+foreach (
+    [
+        'teams' => 'managerteamstab',
+        'unassigned' => 'assignqueuetab',
+        'reassign' => 'reassigntab',
+        'loads' => 'guideloadstab',
+    ] as $key => $label
+) {
     $tabs[] = new tabobject(
         $key,
         new moodle_url($baseurl, ['assigntab' => $key]),
@@ -211,16 +180,46 @@ foreach (['unassigned' => 'assignqueuetab', 'reassign' => 'reassigntab', 'loads'
 }
 echo $OUTPUT->tabtree($tabs, $assigntab);
 
-if ($assigntab === 'loads') {
+$assignbase = new moodle_url($baseurl, ['assigntab' => $assigntab]);
+if ($assignfilter !== '') {
+    $assignbase->param('assignfilter', $assignfilter);
+}
+
+if ($assigntab === 'teams') {
+    // State filter (GET, read-only view change).
+    $options = ['' => get_string('all')];
+    foreach (\mod_selfselectadvanced\local\state::all() as $stateoption) {
+        $options[$stateoption] = get_string('state' . str_replace('_', '', $stateoption), 'mod_selfselectadvanced');
+    }
+    echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
+        'class' => 'd-inline-flex gap-2 align-items-center flex-wrap mb-3']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'assigntab', 'value' => 'teams']);
+    echo html_writer::label(get_string('state', 'mod_selfselectadvanced'), 'ssa-statefilter', true, ['class' => 'me-2']);
+    echo html_writer::select($options, 'statefilter', $statefilter, false, ['id' => 'ssa-statefilter', 'class' => 'me-2']);
+    echo html_writer::empty_tag('input', [
+        'type' => 'submit',
+        'value' => get_string('filter'),
+        'class' => 'btn btn-secondary btn-sm',
+    ]);
+    echo html_writer::end_tag('form');
+
+    echo html_writer::div(\mod_selfselectadvanced\local\perpage::controls($tableurl), 'mb-3');
+    $groupstable->out($perpage, true);
+} else if ($assigntab === 'loads') {
     // Informational, so guides who have not volunteered appear too.
     $loadrows = [];
     foreach (
         \mod_selfselectadvanced\local\guides::with_load(
             $activity,
             $api->gatekeeper()->resolver(),
-            true
+            true,
+            $loadfilter
         ) as $guide
     ) {
+        if ($loadroom && $guide->remaining < 1) {
+            continue;
+        }
         $loadrows[] = (object) [
             'fullname' => $guide->fullname,
             'used' => $guide->used,
@@ -228,8 +227,37 @@ if ($assigntab === 'loads') {
             'remaining' => $guide->remaining,
         ];
     }
+    $loadbase = new moodle_url($baseurl, ['assigntab' => 'loads']);
+    if ($loadfilter !== '') {
+        $loadbase->param('loadfilter', $loadfilter);
+    }
+    if ($loadroom) {
+        $loadbase->param('loadroom', 1);
+    }
+
+    // Filters, which paging and sorting arrived without in 1.17.
+    echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
+        'class' => 'd-inline-flex gap-2 align-items-center flex-wrap mb-3']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'assigntab', 'value' => 'loads']);
+    echo html_writer::label(
+        get_string('guideloadfilter', 'mod_selfselectadvanced'),
+        'ssa-loadfilter',
+        true,
+        ['class' => 'me-2']
+    );
+    echo html_writer::empty_tag('input', ['type' => 'text', 'id' => 'ssa-loadfilter', 'name' => 'loadfilter',
+        'value' => $loadfilter, 'class' => 'form-control form-control-sm me-2']);
+    echo html_writer::checkbox('loadroom', 1, (bool) $loadroom, get_string('guideloadroomonly', 'mod_selfselectadvanced'), [
+        'id' => 'ssa-loadroom',
+        'class' => 'me-2',
+    ]);
+    echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('filter'),
+        'class' => 'btn btn-secondary btn-sm']);
+    echo html_writer::end_tag('form');
+
     if ($loadrows) {
-        $loadstable = new \mod_selfselectadvanced\table\guideloads_table('ssaguideloads', $assignbase);
+        $loadstable = new \mod_selfselectadvanced\table\guideloads_table('ssaguideloads', $loadbase, $download);
         $loadstable->display_rows($loadrows, $perpage);
     } else {
         echo html_writer::div(get_string('noguidesavailable', 'mod_selfselectadvanced'), 'text-muted');
@@ -252,6 +280,11 @@ if ($assigntab === 'loads') {
         'class' => 'btn btn-secondary btn-sm']);
     echo html_writer::end_tag('form');
 
+    // Whether anybody has room at all, which is a different message
+    // from an empty picker. Only the question is asked here - the
+    // picker itself searches, and never lists (strategy 1.18 B).
+    $hasguides = (bool) \mod_selfselectadvanced\local\guides::selectable($activity, $api->gatekeeper()->resolver());
+
     $mode = $assigntab === 'reassign'
         ? \mod_selfselectadvanced\table\assignqueue_table::MODE_REASSIGN
         : \mod_selfselectadvanced\table\assignqueue_table::MODE_UNASSIGNED;
@@ -259,7 +292,7 @@ if ($assigntab === 'loads') {
         'ssaassign' . $assigntab,
         $activity,
         $mode,
-        $guideoptions,
+        $hasguides,
         $assignbase,
         $assignfilter
     );
