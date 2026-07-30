@@ -171,6 +171,7 @@ class coordinatorimport {
                     'context' => $activity->context(),
                     'relateduserid' => $userid,
                 ])->trigger();
+                self::tell($activity, $userid, 'assigned');
             } else if (!$enrolled && $doenrol) {
                 $report->enrolled++;
             }
@@ -190,6 +191,7 @@ class coordinatorimport {
                     'context' => $activity->context(),
                     'relateduserid' => (int) $userid,
                 ])->trigger();
+                self::tell($activity, (int) $userid, 'removed');
                 if ($dounenrol) {
                     self::unenrol($courseid, (int) $userid);
                     $report->unenrolled++;
@@ -202,6 +204,26 @@ class coordinatorimport {
         }
 
         return $report;
+    }
+
+    /**
+     * Tell somebody they have been appointed or stood down.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the person
+     * @param string $what assigned or removed
+     */
+    private static function tell(activity $activity, int $userid, string $what): void {
+        notifier::send(
+            $activity,
+            'coordinator',
+            $userid,
+            'msgcoordinator' . $what . 'subject',
+            'msgcoordinator' . $what . 'body',
+            (object) ['activity' => format_string($activity->name())],
+            new \moodle_url('/mod/selfselectadvanced/coordinator.php', ['id' => $activity->cm()->id]),
+            get_string('coordinatordashboard', 'mod_selfselectadvanced')
+        );
     }
 
     /**

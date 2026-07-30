@@ -108,9 +108,9 @@ class notifier {
         $message->userfrom = \core_user::get_noreply_user();
         $message->userto = $touserid;
         $message->subject = $subject;
-        $message->fullmessage = $body;
+        $message->fullmessage = self::plain($activity, $body, $a, $contexturl, $contextname);
         $message->fullmessageformat = FORMAT_PLAIN;
-        $message->fullmessagehtml = '<p>' . s($body) . '</p>';
+        $message->fullmessagehtml = self::html($activity, $body, $a, $contexturl, $contextname);
         $message->smallmessage = $subject;
         $message->notification = 1;
         $message->courseid = $activity->courseid();
@@ -118,6 +118,126 @@ class notifier {
         $message->contexturlname = $contextname;
 
         message_send($message);
+    }
+
+    /**
+     * Split a body into paragraphs.
+     *
+     * Templates are written as sentences; a blank line, or a line
+     * break, means a new paragraph. Anything else would run the whole
+     * message together, which is what these notifications used to do.
+     *
+     * @param string $body the resolved body text
+     * @return string[] paragraphs, trimmed, none empty
+     */
+    private static function paragraphs(string $body): array {
+        $parts = preg_split('/\R\s*\R|\R/u', trim($body)) ?: [];
+
+        return array_values(array_filter(array_map('trim', $parts), static fn($p) => $p !== ''));
+    }
+
+    /**
+     * The signature line: which activity, in which course.
+     *
+     * A notification that does not say where it came from is a puzzle
+     * for anybody enrolled in more than one thing.
+     *
+     * @param activity $activity the activity
+     * @return string
+     */
+    private static function signature(activity $activity): string {
+        $course = get_course($activity->courseid());
+
+        return get_string('msgsignature', 'mod_selfselectadvanced', (object) [
+            'activity' => format_string($activity->name()),
+            'course' => format_string($course->fullname),
+        ]);
+    }
+
+    /**
+     * The plain-text message: greeting, the body in paragraphs, the
+     * link, and the signature.
+     *
+     * @param activity $activity the activity
+     * @param string $body the resolved body
+     * @param \stdClass $a the resolved placeholders
+     * @param \moodle_url $contexturl where to go
+     * @param string $contextname what is there
+     * @return string
+     */
+    private static function plain(
+        activity $activity,
+        string $body,
+        \stdClass $a,
+        \moodle_url $contexturl,
+        string $contextname
+    ): string {
+        $lines = [];
+        if (!empty($a->firstname)) {
+            $lines[] = get_string('msggreeting', 'mod_selfselectadvanced', $a->firstname);
+            $lines[] = '';
+        }
+        foreach (self::paragraphs($body) as $paragraph) {
+            $lines[] = $paragraph;
+            $lines[] = '';
+        }
+        $lines[] = $contextname . ': ' . $contexturl->out(false);
+        $lines[] = '';
+        $lines[] = self::signature($activity);
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * The HTML message: the same thing, laid out so the eye can find
+     * the part that matters.
+     *
+     * The first paragraph carries the news and is set in bold; the rest
+     * follow as ordinary paragraphs; the link is a button-ish anchor;
+     * the signature is small and quiet at the foot.
+     *
+     * @param activity $activity the activity
+     * @param string $body the resolved body
+     * @param \stdClass $a the resolved placeholders
+     * @param \moodle_url $contexturl where to go
+     * @param string $contextname what is there
+     * @return string
+     */
+    private static function html(
+        activity $activity,
+        string $body,
+        \stdClass $a,
+        \moodle_url $contexturl,
+        string $contextname
+    ): string {
+        $out = '';
+        if (!empty($a->firstname)) {
+            $out .= \html_writer::tag(
+                'p',
+                s(get_string('msggreeting', 'mod_selfselectadvanced', $a->firstname))
+            );
+        }
+        foreach (self::paragraphs($body) as $index => $paragraph) {
+            $out .= \html_writer::tag(
+                'p',
+                s($paragraph),
+                $index === 0 ? ['style' => 'font-weight:600;'] : []
+            );
+        }
+        $out .= \html_writer::tag('p', \html_writer::link(
+            $contexturl->out(false),
+            s($contextname),
+            ['style' => 'display:inline-block;padding:8px 14px;background:#0f6cbf;'
+                . 'color:#fff;text-decoration:none;border-radius:4px;']
+        ));
+        $out .= \html_writer::tag('hr', '', ['style' => 'border:0;border-top:1px solid #ddd;margin:16px 0;']);
+        $out .= \html_writer::tag(
+            'p',
+            s(self::signature($activity)),
+            ['style' => 'color:#666;font-size:0.9em;']
+        );
+
+        return $out;
     }
 
     /**
