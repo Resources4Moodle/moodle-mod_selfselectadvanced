@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.17.0 (2026-07-30)
+
+- The format an editing teacher sets now governs the **project id**,
+  not the group name - the earlier setting named the wrong thing. An id
+  is built from {prefix}, {course} and {number}, so it can read
+  MDP-COURSE-0042 or MDP/0042 as the school prefers. An activity that
+  says nothing keeps the shape it has always issued, and ids already
+  given out are never rewritten. Group names still have to be unique
+  across the course.
+- Students-approach mode is now how a new activity starts, and leads
+  the settings; team listing and guide volunteering move to the foot of
+  the form. Existing activities keep whatever they were set to.
+- **Group Coordinators can be appointed in bulk** from a list of
+  usernames or email addresses. The upload is checked and reported
+  before anything happens, a person must already be enrolled in the
+  course (enrolling them is an option), and the file either lists
+  changes or replaces the whole list. Appointments and standings-down
+  are logged and the people told.
+- **Coordinators have a dashboard of their own**, and may now grant
+  exceptions - though never to themselves, and never on a team they
+  guide, are lined up to guide, or belong to.
+- **A team can approach a guide** without either party seeing the
+  other's address. The team sees each guide's name, department,
+  sub-department and current load; the approach travels as a message
+  built from a template; the guide reads the team's proposal on a page
+  of their own and accepts or declines, with or without a reason. A
+  team may approach a set number of guides.
+- **Administering a large enrolment**: teams awaiting a guide, teams
+  whose guide may change, and guide loads are now three tabs, each
+  sortable, filterable and paged. Group anomalies have their own tab in
+  the flagged report rather than sharing the students tab.
+- **Notifications read like something a person sent** - greeted by
+  name, the news first, the link as a button, and a signature saying
+  which activity in which course sent it. Every message people actually
+  read was rewritten to suit.
+- A queue worker no longer sees the requests they filed themselves.
+
+
 ## 1.16.0 (2026-07-29)
 
 - Students-approach mode: a new activity switch stops guides from
