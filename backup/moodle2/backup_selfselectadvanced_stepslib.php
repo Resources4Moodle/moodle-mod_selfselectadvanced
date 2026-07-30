@@ -55,7 +55,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $activity = new backup_nested_element('selfselectadvanced', ['id'], [
             'name', 'intro', 'introformat', 'grade', 'minsize', 'maxsize', 'maxlead',
             'maxmembership', 'maxguided', 'uidprefix', 'uiddigits',
-            'uidformat', 'timeopen', 'timedue', 'timecutoff',
+            'uidformat', 'contactmax', 'timeopen', 'timedue', 'timecutoff',
             'penaltytype', 'penaltyperday', 'guidemode', 'inviteexpiry', 'autogroup', 'proposalrequired',
             'guidewindow', 'guideautoapprove', 'guidevolunteer', 'studentapproach',
             'eoienabled', 'eoiwindow', 'eoimax', 'eoisequential', 'eoipeers', 'eoigroupmax',
@@ -113,6 +113,11 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $eoi = new backup_nested_element('eoi', ['id'], [
             'guideid', 'status', 'remarks', 'remarksformat', 'timecreated', 'timeresponded',
         ]);
+        $contacts = new backup_nested_element('contacts');
+        $contact = new backup_nested_element('contact', ['id'], [
+            'groupid', 'guideid', 'status', 'sentby', 'message', 'messageformat',
+            'reason', 'reasonformat', 'timecreated', 'timeresponded',
+        ]);
         $tickets = new backup_nested_element('tickets');
         $ticket = new backup_nested_element('ticket', ['id'], [
             'groupid', 'type', 'status', 'requestedby', 'request', 'requestformat',
@@ -146,6 +151,10 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         // needs.
         $activity->add_child($tickets);
         $tickets->add_child($ticket);
+        // After the groups subtree, like tickets, so a restore already
+        // holds the mapping their groupid needs.
+        $activity->add_child($contacts);
+        $contacts->add_child($contact);
 
         $activity->set_source_table('selfselectadvanced', ['id' => backup::VAR_ACTIVITYID]);
         $quota->set_source_table('selfselectadvanced_quota', ['activityid' => backup::VAR_PARENTID]);
@@ -166,6 +175,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             $volunteer->set_source_table('selfselectadvanced_volunteer', ['activityid' => backup::VAR_PARENTID]);
             $digestitem->set_source_table('selfselectadvanced_digestq', ['activityid' => backup::VAR_PARENTID]);
             $ticket->set_source_table('selfselectadvanced_ticket', ['activityid' => backup::VAR_PARENTID]);
+            $contact->set_source_table('selfselectadvanced_contact', ['activityid' => backup::VAR_PARENTID]);
         }
 
         $member->annotate_ids('user', 'userid');
@@ -183,6 +193,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $ticket->annotate_ids('user', 'requestedby');
         $ticket->annotate_ids('user', 'claimedby');
         $ticket->annotate_ids('user', 'resolvedby');
+        $contact->annotate_ids('user', 'guideid');
+        $contact->annotate_ids('user', 'sentby');
 
         // Proposal documents travel with their group (itemid = group id).
         $group->annotate_files('mod_selfselectadvanced', 'proposal', 'id');

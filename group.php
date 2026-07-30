@@ -682,4 +682,28 @@ if ($ticketforms !== '') {
         'selfselectadvanced-ticketrequests mt-3'
     );
 }
+
+// Approaching a guide (strategy 1.17 E): the leader of a forming team
+// with no guide yet, where the activity allows it. Its own page, so
+// nothing here changes for anyone else.
+if (
+    $isgroupleader
+    && $group->state === \mod_selfselectadvanced\local\state::FORMING
+    && empty($group->guideid)
+    && (int) ($activity->settings()->contactmax ?? 0) > 0
+) {
+    $left = \mod_selfselectadvanced\local\contacts::remaining($activity, (int) $group->id);
+    echo html_writer::div(
+        html_writer::link(
+            new moodle_url('/mod/selfselectadvanced/contact.php', ['id' => $cm->id, 'g' => $group->id]),
+            get_string('contactteamlink', 'mod_selfselectadvanced'),
+            ['class' => 'btn btn-outline-primary']
+        )
+        . ' ' . html_writer::span(
+            get_string('contactintro', 'mod_selfselectadvanced', $left),
+            'text-muted small ms-2'
+        ),
+        'selfselectadvanced-contactlink mt-3'
+    );
+}
 echo $OUTPUT->footer();

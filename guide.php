@@ -439,6 +439,20 @@ if ($guidedownload !== '') {
 
 echo $OUTPUT->header();
 
+// Teams that have approached this guide (strategy 1.17 E), if any are
+// waiting. Its own page; this is only the way in.
+$waitingcount = count(\mod_selfselectadvanced\local\contacts::waiting_for($activity, (int) $USER->id));
+if ($waitingcount > 0) {
+    echo html_writer::div(
+        html_writer::link(
+            new moodle_url('/mod/selfselectadvanced/contactreview.php', ['id' => $cm->id]),
+            get_string('contactreviewwaiting', 'mod_selfselectadvanced', $waitingcount),
+            ['class' => 'btn btn-primary']
+        ),
+        'selfselectadvanced-contactreviewlink mb-3'
+    );
+}
+
 // Digest preference form (1.8.0): kept as its own block, deliberately
 // separate from the mustache-rendered dashboard below.
 echo html_writer::start_div('selfselectadvanced-digest mb-3');

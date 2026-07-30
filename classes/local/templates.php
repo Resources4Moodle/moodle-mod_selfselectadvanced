@@ -75,6 +75,9 @@ class templates {
         'msgticketclosedbody' => 'msgticketclosedsubject',
         'msgcoordinatorassignedbody' => 'msgcoordinatorassignedsubject',
         'msgcoordinatorremovedbody' => 'msgcoordinatorremovedsubject',
+        'msgcontactsentbody' => 'msgcontactsentsubject',
+        'msgcontactacceptedbody' => 'msgcontactacceptedsubject',
+        'msgcontactdeclinedbody' => 'msgcontactdeclinedsubject',
     ];
 
     /**

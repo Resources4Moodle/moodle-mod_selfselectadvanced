@@ -174,6 +174,7 @@ function selfselectadvanced_delete_instance($id): bool {
     // to the activity too: nothing may outlive the activity it points
     // at, or the rows become unreachable orphans.
     $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $id]);
+    $DB->delete_records('selfselectadvanced_contact', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_move', ['activityid' => $id]);
@@ -338,6 +339,7 @@ function selfselectadvanced_reset_userdata($data): array {
         // interest left behind would name a team that no longer
         // exists, and the queue would list work nobody can do.
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $instance->id]);
+        $DB->delete_records('selfselectadvanced_contact', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_group', ['activityid' => $instance->id]);
