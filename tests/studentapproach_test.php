@@ -70,6 +70,20 @@ final class studentapproach_test extends \advanced_testcase {
     }
 
     /**
+     * A new activity starts in students-approach mode (1.17.0). The
+     * test generator deliberately builds the older configuration, so
+     * this reads the shipped default rather than a fixture's.
+     */
+    public function test_new_activities_default_to_students_approach(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $column = $DB->get_columns('selfselectadvanced')['studentapproach'] ?? null;
+        $this->assertNotNull($column, 'studentapproach column missing');
+        $this->assertSame(1, (int) $column->default_value);
+    }
+
+    /**
      * With the switch on, a guide can neither volunteer capacity nor
      * express interest - even when eoienabled is flipped directly in
      * the database past the settings validator.

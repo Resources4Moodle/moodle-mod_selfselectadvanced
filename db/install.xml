@@ -20,6 +20,7 @@
         <FIELD NAME="uidprefix" TYPE="char" LENGTH="8" NOTNULL="true" DEFAULT="SSA" SEQUENCE="false" COMMENT="Prefix of every group's plugin id; applies to groups created after a change"/>
         <FIELD NAME="uiddigits" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="4" SEQUENCE="false" COMMENT="Digits in the number part of every group's plugin id; applies to groups created after a change"/>
         <FIELD NAME="studentapproach" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1: guides never advertise availability - no volunteering, no listing, no load figures; students approach a guide by submitting"/>
+        <FIELD NAME="contactmax" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="3" SEQUENCE="false" COMMENT="How many guides one team may approach; 0 turns the approach off"/>
         <FIELD NAME="uidformat" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Project id template using {prefix}, {course} and {number}; empty means the default shape"/>
         <FIELD NAME="timeopen" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Formation window opens (0 = not set)"/>
         <FIELD NAME="timedue" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Penalty-free deadline (0 = not set)"/>
@@ -397,6 +398,32 @@
         <FIELD NAME="remarks" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Rich-text remarks the guide attached when expressing interest"/>
         <FIELD NAME="remarksformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="First come, first served ordering"/>
+        <FIELD NAME="timeresponded" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+        <KEY NAME="fk_groupid" TYPE="foreign" FIELDS="groupid" REFTABLE="selfselectadvanced_group" REFFIELDS="id"/>
+        <KEY NAME="fk_guideid" TYPE="foreign" FIELDS="guideid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="groupid_status" UNIQUE="false" FIELDS="groupid, status"/>
+        <INDEX NAME="guideid_status" UNIQUE="false" FIELDS="guideid, status"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="selfselectadvanced_contact" COMMENT="A team's approach to a guide: sent through Moodle messaging, so no address is ever handled or shown">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="guideid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="sent" SEQUENCE="false" COMMENT="sent, accepted or declined"/>
+        <FIELD NAME="sentby" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="message" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="What the team said, in their own words"/>
+        <FIELD NAME="messageformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="reason" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="The guide's reason, given or not"/>
+        <FIELD NAME="reasonformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timeresponded" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
       </FIELDS>
       <KEYS>
