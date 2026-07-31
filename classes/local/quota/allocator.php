@@ -76,37 +76,40 @@ final class allocator {
      * Search-node ceiling: a COUNTER, never a timeout.
      *
      * A budget rather than a clock because two runs over identical data
-     * must agree, and it is small because this class runs once per TEAM
-     * in the batch compliance sweep of flagged.php, which judges EVERY
-     * forming and pending-guide team of an activity in one request -
-     * fifteen hundred of them on a busy site. A node costs just under
-     * three microseconds here, so an exhausted budget is about 14ms and
-     * the worst possible sweep is seconds rather than minutes.
+     * must agree: the pre-lock composition check and the in-lock
+     * re-check would otherwise be free to disagree on an unchanged
+     * roster, and a team could pass the gate and then fail the commit.
      *
-     * Be honest about what that buys and what it costs. Measured over
-     * three hundred adversarially-random templates per shape (four
-     * dimensions, four values, one to three seats per rule), no team of
-     * six or eight members under three seat rules came close - 650 and
-     * 1655 nodes at worst. Bigger templates DO exhaust it: two of three
-     * hundred at eight members under four seat rules, seventy of three
-     * hundred at ten members under five, and for the most expensive
-     * template found, every team of that shape. Those teams fall back
-     * to the heuristic below and get today's shipped answer, which is
-     * fail-CLOSED - the fallback books a genuinely valid seating, so it
-     * can under-report a team's fill but can never call a team
-     * compliant that is not.
+     * Set to 200000 by maintainer decision (2026-07-31), choosing
+     * exactness on large templates over sweep latency. What that buys,
+     * measured over three hundred adversarially-random templates per
+     * shape (four dimensions, four values, one to three seats per
+     * rule): teams of six or eight members under three seat rules never
+     * approach the ceiling at all - 650 and 1655 nodes at worst - so
+     * for the common shapes this number changes nothing. It matters for
+     * the shapes that DO exhaust a smaller budget: two of three hundred
+     * at eight members under four seat rules, seventy of three hundred
+     * at ten members under five. Those teams are now decided exactly
+     * instead of falling back.
      *
-     * Raising the ceiling buys exactness for those shapes at a price
-     * measured on the same hardware: at 200000 the most expensive
-     * ten-member five-rule template costs 173ms per team, so the
-     * fifteen-hundred-team sweep takes over four minutes, and a
-     * twelve-member one takes twelve. Moving this number is therefore a
-     * maintainer trade-off between report latency and exactness on
-     * large templates, not a free win in either direction.
+     * What it costs, on the same hardware: a node is just under three
+     * microseconds, so an exhausted budget is about 580ms, and the most
+     * expensive ten-member five-rule template found costs 173ms per
+     * team. This class runs once per TEAM in the batch compliance sweep
+     * of flagged.php, which judges EVERY forming and pending-guide team
+     * of an activity in one request - fifteen hundred of them on a busy
+     * site. A sweep over teams of that shape therefore takes over four
+     * minutes, and a twelve-member shape about twelve. That page is
+     * unpaged today; T-12 owns paging and batching it, and until then
+     * an activity built entirely from large templates will be slow to
+     * report. Lower this constant if that trade stops being worth it -
+     * the fallback below is fail-CLOSED, so a smaller budget can only
+     * under-report a team's fill, never call a non-compliant team
+     * compliant.
      *
      * @var int
      */
-    public const MAX_NODES = 5000;
+    public const MAX_NODES = 200000;
 
     /** @var int Roster size above which the greedy fallback is used. */
     public const MAX_MEMBERS = 30;
