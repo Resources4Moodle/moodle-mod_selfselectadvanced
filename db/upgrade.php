@@ -26,6 +26,60 @@
  */
 
 /**
+ * Merge duplicate override rows, keeping the row the read path reads.
+ *
+ * Override rows are unique per (activity, scope, target) by convention
+ * in store::save() alone, which before 1.19.2 was a read-then-insert
+ * with neither a lock nor an index behind it, so concurrent saves
+ * created twins. No schema change can express the invariant: the four
+ * scopes target four NULLABLE columns and NULLs are distinct in a
+ * unique index on both PostgreSQL and MariaDB.
+ *
+ * The keeper is the OLDEST ACTIVE row, falling back to the oldest row
+ * when none is active - the same preference resolver::load_overrides()
+ * and store::get() apply, so the merge can never delete the exception
+ * a site is actually running on. COALESCE over a conditional MIN is
+ * portable to both engines.
+ *
+ * Raw SQL only, by design: nothing here may call a plugin class that
+ * queries a plugin table (upgrade-safety rule).
+ *
+ * @param moodle_database $DB the database
+ * @return int how many rows were deleted
+ */
+function upgrade_selfselectadvanced_merge_override_twins(moodle_database $DB): int {
+    $duplicates = $DB->get_records_sql(
+        "SELECT COALESCE(MIN(CASE WHEN status = :active THEN id END), MIN(id)) AS keepid,
+                COUNT(id) AS dupcount, activityid, scope,
+                COALESCE(userid, 0) AS uid, COALESCE(groupid, 0) AS gid, COALESCE(moveid, 0) AS mid
+           FROM {selfselectadvanced_override}
+       GROUP BY activityid, scope, COALESCE(userid, 0), COALESCE(groupid, 0), COALESCE(moveid, 0)
+         HAVING COUNT(id) > 1",
+        ['active' => 'active']
+    );
+    $deleted = 0;
+    foreach ($duplicates as $dup) {
+        $deleted += (int) $dup->dupcount - 1;
+        $DB->delete_records_select(
+            'selfselectadvanced_override',
+            'activityid = :activityid AND scope = :scope AND id <> :keepid
+               AND COALESCE(userid, 0) = :uid AND COALESCE(groupid, 0) = :gid
+               AND COALESCE(moveid, 0) = :mid',
+            [
+                'activityid' => $dup->activityid,
+                'scope' => $dup->scope,
+                'keepid' => $dup->keepid,
+                'uid' => $dup->uid,
+                'gid' => $dup->gid,
+                'mid' => $dup->mid,
+            ]
+        );
+    }
+
+    return $deleted;
+}
+
+/**
  * Execute an upgrade from the given old version.
  *
  * @param int $oldversion the version we are upgrading from
@@ -843,32 +897,24 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         //
         // Raw SQL only, by design: nothing here may call a plugin class
         // that queries a plugin table (upgrade-safety rule).
-        $duplicates = $DB->get_records_sql(
-            "SELECT MIN(id) AS keepid, COUNT(id) AS dupcount, activityid, scope,
-                    COALESCE(userid, 0) AS uid, COALESCE(groupid, 0) AS gid, COALESCE(moveid, 0) AS mid
-               FROM {selfselectadvanced_override}
-           GROUP BY activityid, scope, COALESCE(userid, 0), COALESCE(groupid, 0), COALESCE(moveid, 0)
-             HAVING COUNT(id) > 1"
-        );
-        foreach ($duplicates as $dup) {
-            // The oldest row survives - the same row store::get() now
-            // returns - so the effective limits do not move under a
-            // site at upgrade time.
-            $DB->delete_records_select(
-                'selfselectadvanced_override',
-                'activityid = :activityid AND scope = :scope AND id <> :keepid
-                   AND COALESCE(userid, 0) = :uid AND COALESCE(groupid, 0) = :gid
-                   AND COALESCE(moveid, 0) = :mid',
-                [
-                    'activityid' => $dup->activityid,
-                    'scope' => $dup->scope,
-                    'keepid' => $dup->keepid,
-                    'uid' => $dup->uid,
-                    'gid' => $dup->gid,
-                    'mid' => $dup->mid,
-                ]
-            );
-        }
+        //
+        // CORRECTED 2026-07-31 (1.20 audit repair). This block first
+        // shipped keeping MIN(id) with no reference to status, which is
+        // NOT the row the read path reads: resolver::load_overrides()
+        // selects status='active' only, so for a twin pair whose older
+        // row is 'pending' and whose newer row is 'active' the merge
+        // deleted the exception actually in force and kept an invisible
+        // parked one. Measured end to end on both engines: a group with
+        // an active maxsize 9 twin and an older pending maxsize 2 twin
+        // resolved to 9 before the merge and to the activity default
+        // after it, with nothing logged and no way back. The keeper is
+        // now "oldest ACTIVE, else oldest", which is exactly what
+        // resolver::load_overrides() and store::get() both mean by
+        // "the row that wins" (precedence P14).
+        //
+        // See the 2026073140 block below for what this can and cannot
+        // do for a site that already ran the flawed version.
+        upgrade_selfselectadvanced_merge_override_twins($DB);
 
         upgrade_mod_savepoint(true, 2026073110, 'selfselectadvanced');
     }
@@ -909,6 +955,45 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         $dbman->add_key($table, $key);
 
         upgrade_mod_savepoint(true, 2026073130, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026073140) {
+        // Re-run the override twin merge with the corrected keeper.
+        //
+        // WHY A SECOND STEP AND NOT JUST THE EDIT ABOVE. The 2026073110
+        // block already ran on every site that reached 1.19.2, and an
+        // edited step does not re-run: `$oldversion < 2026073110` is
+        // false for them forever. Correcting that block is still worth
+        // doing - it protects every site that has NOT yet passed it,
+        // which is the only upgrade path an external site can take,
+        // since 1.19.2 and 1.20.0 were never released separately - but
+        // it does nothing for a site already past it.
+        //
+        // WHAT THIS STEP CAN DO: whatever twins remain are merged the
+        // way the read path reads them, so after this upgrade the
+        // surviving row is provably the oldest ACTIVE row on every
+        // site, whichever version it came from. It is idempotent and a
+        // no-op on a site with no duplicates.
+        //
+        // WHAT IT CANNOT DO, said plainly rather than implied: a site
+        // that ran the flawed merge has already had the active twin
+        // DELETED. The row is gone, nothing recorded its values, and no
+        // upgrade step can bring it back. The visible symptom is a
+        // group, user or guide whose effective limits silently reverted
+        // to the activity defaults at the 1.19.2 upgrade while a
+        // 'pending' override row for the same target survives. Such a
+        // target has to be re-granted by hand; CHANGELOG.md says so in
+        // the release notes.
+        $deleted = upgrade_selfselectadvanced_merge_override_twins($DB);
+        if ($deleted) {
+            upgrade_log(
+                UPGRADE_LOG_NOTICE,
+                'mod_selfselectadvanced',
+                'Merged ' . $deleted . ' duplicate override row(s), keeping the oldest active row of each set'
+            );
+        }
+
+        upgrade_mod_savepoint(true, 2026073140, 'selfselectadvanced');
     }
 
     return true;

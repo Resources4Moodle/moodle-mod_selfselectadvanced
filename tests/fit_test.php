@@ -393,4 +393,126 @@ final class fit_test extends \advanced_testcase {
         $this->assertFalse($single->fits, 'Picker and gate must not disagree');
         $this->assertSame($expected, $single->caution);
     }
+
+    /**
+     * The case that separates the two seat-naming algorithms: adding
+     * the candidate RE-SEATS an incumbent, so the slot whose shortfall
+     * drops is not the slot the candidate takes.
+     *
+     * The plan is three value rows - one Male seat, one Female seat,
+     * three Science seats - and the team is three Science students, two
+     * Male and one Female. With three of them and three Science seats
+     * the best seating puts all three in Science and leaves the gender
+     * rows empty. Add a fourth Science student who is Male and the best
+     * seating changes shape: the Female incumbent moves OUT of Science
+     * into the Female seat, and the candidate takes the Science seat
+     * she vacated. Total fill rises by one, but the seat whose
+     * SHORTFALL fell is the Female one - which this candidate cannot
+     * occupy at all.
+     *
+     * The pre-1.20 algorithm named a seat by diffing shortfalls, so on
+     * this shape it told a Male student he would fill the Female seat.
+     * The current one reads the seat out of the canonical assignment,
+     * which can only ever name a seat the candidate is actually in. The
+     * whole pre-1.20 body could be restored with the suite green before
+     * this test existed; the audit measured the two disagreeing on 466
+     * of 2018 seat-naming cases.
+     *
+     * Negative control: restore the shortfall-diff body of
+     * seat_from_data() - seatno comes back 2 (the Female seat) from
+     * both entry points and the first two assertions fail.
+     */
+    public function test_a_re_seated_incumbent_does_not_move_the_candidates_seat(): void {
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 5,
+            'maxlead' => 1,
+            'maxmembership' => 1,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+
+        $make = function (string $gender) use ($generator, $course): \stdClass {
+            $user = $generator->create_user();
+            $generator->enrol_user($user->id, $course->id, 'student');
+            manager::set((int) $user->id, ['gender' => $gender, 'department' => 'Science'], 2);
+
+            return $user;
+        };
+        $m1 = $make('Male');
+        $m2 = $make('Male');
+        $f1 = $make('Female');
+        $candidate = $make('Male');
+
+        // Slot numbers are assigned in creation order: 1, 2, 3.
+        slots::create($activity, (object) [
+            'mincount' => 1, 'dimension' => 'gender', 'matchtype' => 'value',
+            'value' => 'Male', 'allowoverlap' => 0,
+        ]);
+        slots::create($activity, (object) [
+            'mincount' => 1, 'dimension' => 'gender', 'matchtype' => 'value',
+            'value' => 'Female', 'allowoverlap' => 0,
+        ]);
+        slots::create($activity, (object) [
+            'mincount' => 3, 'dimension' => 'department', 'matchtype' => 'value',
+            'value' => 'Science', 'allowoverlap' => 0,
+        ]);
+
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $m1->id,
+            'name' => 'Re-seaters',
+        ]);
+        foreach ([$m2, $f1] as $member) {
+            $plugingen->create_member([
+                'groupid' => $group->id,
+                'userid' => (int) $member->id,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+        }
+        $group = groups::get($activity, (int) $group->id);
+
+        $row = fit::for_groups($activity, [$group], (int) $candidate->id)[(int) $group->id];
+        $this->assertTrue($row->fits);
+        $this->assertSame(3, $row->seatno, 'The candidate takes the Science seat the Female incumbent vacates');
+        $this->assertStringContainsStringIgnoringCase('science', (string) $row->seat);
+
+        // The gate's own answer must be the same answer.
+        $single = fit::for_person($activity, $group, (int) $candidate->id);
+        $this->assertSame($row->seatno, $single->seatno, 'Picker and gate must not disagree');
+        $this->assertSame($row->seat, $single->seat);
+
+        // And this really is the divergence case: the shortfall that
+        // falls belongs to slot 2, the Female seat, which is the seat
+        // the old algorithm would have named. If a future engine change
+        // stops re-seating here, this assertion fails and says so
+        // rather than letting the test quietly stop testing anything.
+        $template = slots::get_all($activity);
+        $attrs = manager::get_for_users([(int) $m1->id, (int) $m2->id, (int) $f1->id, (int) $candidate->id]);
+        $roster = [(int) $m1->id, (int) $m2->id, (int) $f1->id];
+        $before = slots::evaluate_from_data($template, $roster, $attrs);
+        $after = slots::evaluate_from_data($template, array_merge($roster, [(int) $candidate->id]), $attrs);
+        $shortfall = static function (\stdClass $result, int $slotno): int {
+            foreach ($result->slots as $entry) {
+                if ((int) $entry->slot->slotno === $slotno) {
+                    return (int) $entry->missing;
+                }
+            }
+
+            return -1;
+        };
+        $this->assertGreaterThan($after->totalfilled - 1, $after->totalfilled);
+        $this->assertSame($before->totalfilled + 1, $after->totalfilled, 'The candidate must raise the fill');
+        $this->assertSame(1, $shortfall($before, 2), 'The Female seat is short before');
+        $this->assertSame(0, $shortfall($after, 2), 'and full after - so shortfall-diff would name it');
+        $this->assertSame(
+            $shortfall($before, 3),
+            $shortfall($after, 3),
+            'while the Science seat the candidate actually takes shows no change in shortfall'
+        );
+    }
 }

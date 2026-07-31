@@ -45,15 +45,34 @@ class ledger {
      * @param resolver|null $resolver reuse a resolver, or build one
      * @param bool $callerserialises true when the caller already holds
      *        a lock covering this group (recompute_all's activity lock)
+     * @param array|null $deferred when an array is passed, the
+     *        penalty_recomputed payload is COLLECTED into it instead of
+     *        being triggered, for a caller that will fire it after
+     *        releasing its own lock. MANDATORY when $callerserialises
+     *        is true, because then the release is the caller's to make
+     *        and this method has no lock-free moment of its own
      * @return stdClass the ledger row
+     * @throws \coding_exception when a serialising caller does not
+     *         collect the events
      */
     public static function upsert_for_group(
         activity $activity,
         stdClass $group,
         ?resolver $resolver = null,
-        bool $callerserialises = false
+        bool $callerserialises = false,
+        ?array &$deferred = null
     ): stdClass {
         global $DB;
+
+        if ($callerserialises && $deferred === null) {
+            // Requirement 2 made structural rather than remembered. A
+            // caller holding its own lock cannot let this method
+            // dispatch: the event would fire under that lock, which is
+            // exactly the defect this signature exists to prevent.
+            throw new \coding_exception(
+                'ledger::upsert_for_group: a caller that serialises must collect the deferred events'
+            );
+        }
 
         $resolver = $resolver ?? new resolver($activity);
         $penalty = calculator::compute($activity, $group, $resolver);
@@ -93,9 +112,16 @@ class ledger {
             }
         }
 
-        // The event stays OUTSIDE the lock.
+        // The event stays OUTSIDE every lock - which, when the caller
+        // is the one holding it, means handing the payload back rather
+        // than dispatching here. Before 1.20 this branch simply
+        // triggered, and it was only lock-free on the $callerserialises
+        // = false path: driven from recompute_all() the observer
+        // recorded locks::held_count() = 1 on every dispatch, up to one
+        // logstore write per approved group - about 1500 on the target
+        // site - inside one activity-wide lock.
         if ($oldvalue === null || abs($oldvalue - (float) $row->penaltyvalue) > 0.000001) {
-            \mod_selfselectadvanced\event\penalty_recomputed::create([
+            $payload = [
                 'objectid' => $row->id,
                 'context' => $activity->context(),
                 'other' => [
@@ -103,7 +129,12 @@ class ledger {
                     'oldvalue' => $oldvalue,
                     'newvalue' => (float) $row->penaltyvalue,
                 ],
-            ])->trigger();
+            ];
+            if ($deferred === null) {
+                \mod_selfselectadvanced\event\penalty_recomputed::create($payload)->trigger();
+            } else {
+                $deferred[] = $payload;
+            }
         }
 
         return $row;
@@ -135,13 +166,24 @@ class ledger {
         // contended group would abort the sweep part-way, leaving some
         // groups recomputed, the rest not, and push_grades() never run
         // at all. Rank 6 with nothing else held, so the order is legal.
+        $deferred = [];
         $lock = locks::acquire('activity:' . $activity->id());
         try {
             foreach ($groups as $group) {
-                self::upsert_for_group($activity, $group, $resolver, true);
+                self::upsert_for_group($activity, $group, $resolver, true, $deferred);
             }
         } finally {
             $lock->release();
+        }
+
+        // Requirement 2: dispatched with nothing held. One event per
+        // group whose penalty MOVED, so on the target site's ~1500
+        // approved groups a settings edit that changes every penalty
+        // used to put 1500 logstore writes - plus whatever any site
+        // observer does - inside the lock above, with every student
+        // write on the activity queued behind them.
+        foreach ($deferred as $payload) {
+            \mod_selfselectadvanced\event\penalty_recomputed::create($payload)->trigger();
         }
 
         // A grade-API write, and never under the lock.

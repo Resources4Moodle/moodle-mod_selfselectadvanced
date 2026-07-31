@@ -62,10 +62,26 @@ class store {
             'id ASC'
         );
         if (count($rows) > 1) {
-            // Pre-1.19.2 duplicates (T-02 R5). The oldest row wins for
-            // BOTH the resolver and save(), so the two never disagree;
-            // the upgrade step merges the survivors away.
+            // Pre-1.19.2 duplicates (T-02 R5). The upgrade step merges
+            // them away; until it has run, this read must pick the same
+            // twin the resolver reads or an edit lands on a row nobody
+            // governs by.
             debugging('Duplicate override rows for ' . $scope . ':' . $targetid, DEBUG_DEVELOPER);
+        }
+
+        // Precedence P14, and it is the RESOLVER's rule copied exactly:
+        // resolver::load_overrides() selects status='active' only and
+        // keeps the first in id ASC, so the row actually in force is
+        // the OLDEST ACTIVE one - not simply the oldest. Returning the
+        // oldest regardless of status let a coordinator read the active
+        // twin's value on screen and then have save() update the parked
+        // twin instead: the edit visibly did nothing while the active
+        // row kept governing. The plain-oldest fallback covers the case
+        // where no twin is active, so a parked row is still editable.
+        foreach ($rows as $row) {
+            if ($row->status === 'active') {
+                return $row;
+            }
         }
 
         return $rows ? reset($rows) : null;

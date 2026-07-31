@@ -526,6 +526,32 @@ class joinrequests {
                     format_string($source->name)
                 );
             }
+            // The mirror image of the same staleness, and the one that
+            // used to destroy a membership in silence. resolve_source()
+            // refuses at ASK time when the student is already confirmed
+            // in the target (refusaljoinalready); between asking and
+            // answering they can be admitted to it by another route
+            // entirely - an invitation they accept, a staff move. The
+            // move engine then scores gain=0 (already there) against
+            // loss=1, a NET -1, so the L4 cap check waves it through,
+            // the SOURCE membership is removed for nothing, and
+            // respond() mails the student that they succeeded. Same
+            // in-lock read and the same contract as the guard above:
+            // refuse in the workflow's own words and leave the request
+            // OPEN, so the decider can decline it with a note.
+            $alreadyin = $DB->record_exists('selfselectadvanced_member', [
+                'groupid' => (int) $target->id,
+                'userid' => (int) $request->userid,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+            if ($alreadyin) {
+                throw new \moodle_exception(
+                    'refusaljointargetalready',
+                    'mod_selfselectadvanced',
+                    '',
+                    format_string($target->name)
+                );
+            }
 
             $staged = $moves->stage(
                 (int) $request->userid,

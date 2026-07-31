@@ -300,8 +300,11 @@ class resolver {
      *
      * All rows for the activity are loaded once and cached. Duplicate
      * rows for one target cannot be created through the store; if legacy
-     * duplicates exist the highest id (latest) wins deterministically
-     * and a debugging notice is raised (precedence row P14).
+     * duplicates exist the OLDEST row wins deterministically and a
+     * debugging notice is raised (precedence row P14). This loader only
+     * ever sees status='active' rows, so "oldest" here means "oldest
+     * active" - the same row store::get() returns and the same row the
+     * dedupe upgrade keeps.
      *
      * @param string $scope user, group, guide or move
      * @param int $targetid target user, group or move id

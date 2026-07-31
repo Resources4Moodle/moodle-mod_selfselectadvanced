@@ -774,6 +774,90 @@ final class joinrequests_test extends \advanced_testcase {
     }
 
     /**
+     * The interleaving that used to destroy a membership in silence.
+     *
+     * resolve_source() refuses at ASK time when the student is already
+     * confirmed in the target (refusaljoinalready). Nothing re-checked
+     * it at ANSWER time, and the check matters most there: between the
+     * two the student can be admitted to the target by a different
+     * route entirely - an invitation they accept, a manager's move.
+     *
+     * The move engine then sees gain=0 (they are already in the
+     * target) and loss=1, a NET -1, so the L4 cap check waves it
+     * through, the source membership is set to removed, and respond()
+     * mails the student that their request succeeded. They lose a team
+     * and are told they gained one.
+     *
+     * The guard sits on the same in-lock re-read as
+     * refusaljoinsourcegone and keeps the request OPEN, so the decider
+     * can decline it with a note and nothing is destroyed.
+     */
+    public function test_a_target_joined_between_asking_and_answering_cannot_cost_the_source(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        // Cap 2: Alpha AND Beta together is a legal end state, which is
+        // what makes the loss silent rather than a cap refusal.
+        [$activity, $alpha, $beta, $wanderer] = $this->setup_world(['maxmembership' => 2]);
+
+        // 1. ASK: join Beta, offering to leave Alpha.
+        $request = joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'please',
+            (int) $wanderer->id,
+            (int) $alpha->id
+        );
+
+        // 2. MEANWHILE: they get into Beta by the other supported
+        // route - Beta's leader invites them and they accept.
+        $invitations = (new local\api($activity))->invitations();
+        $invitations->send($beta, (int) $wanderer->id, (int) $beta->leaderid);
+        $invitations->accept($beta, (int) $wanderer->id);
+
+        $confirmed = function (int $groupid) use ($DB, $wanderer): bool {
+            return $DB->record_exists('selfselectadvanced_member', [
+                'groupid' => $groupid,
+                'userid' => (int) $wanderer->id,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+        };
+        $this->assertTrue($confirmed((int) $alpha->id));
+        $this->assertTrue($confirmed((int) $beta->id));
+
+        // 3. ANSWER: Beta's leader presses Accept on the stale request.
+        $this->assert_refused('refusaljointargetalready', fn() => joinrequests::respond(
+            $activity,
+            (int) $request->id,
+            true,
+            '',
+            (int) $beta->leaderid
+        ));
+
+        // Nothing was destroyed: both memberships survive.
+        $this->assertTrue($confirmed((int) $alpha->id));
+        $this->assertTrue($confirmed((int) $beta->id));
+
+        // Same contract as refusaljoinsourcegone: the request is still
+        // open, so the decider can decline it with a note.
+        $this->assertSame(
+            joinrequests::STATUS_REQUESTED,
+            joinrequests::get($activity, (int) $request->id)->status
+        );
+        $decided = joinrequests::respond(
+            $activity,
+            (int) $request->id,
+            false,
+            'You are already in Beta.',
+            (int) $beta->leaderid
+        );
+        $this->assertSame(joinrequests::STATUS_DECLINED, $decided->status);
+        $this->assertTrue($confirmed((int) $alpha->id));
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
      * The plural lookup lists every team in a defined order and warns
      * about nothing - the single-row fetch it replaced did neither.
      */

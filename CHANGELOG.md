@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.20.0 (2026-07-31)
+
+- **Accepting a stale join request can no longer cost a student a
+  team.** If a student asked to join a team and then got into that same
+  team another way — an invitation they accepted, a move a manager made
+  — pressing Accept afterwards used to remove them from the team they
+  had offered to leave, admit them to a team they were already in, and
+  email them that their request had succeeded. They lost a team and
+  were told they had gained one. The request is now refused by name at
+  answering time and stays open, so the leader can decline it with a
+  note.
+- **The upgrade that merges duplicate exceptions now keeps the
+  exception that is actually in force.** *Read this if you upgraded to
+  1.19.2.* That release merged duplicate override rows keeping the
+  older row of each pair regardless of its status. Where the older row
+  was a parked one and the newer was the one in force, the merge
+  deleted the granted exception and kept the invisible parked twin: the
+  target silently fell back to the activity's own limits and dates. The
+  merge now keeps the oldest **active** row, falling back to the oldest
+  row only when none is active, and 1.20.0 re-runs it so every site
+  ends up on the same rule. **Rows deleted by the 1.19.2 merge cannot
+  be recovered** — nothing recorded their values. If a group, student
+  or guide lost an exception at that upgrade, re-grant it. The symptom
+  to look for is a target whose limits reverted to the activity
+  defaults while a *pending* override row for it still exists.
+- **A coordinator editing an exception now edits the row they are
+  looking at.** Where duplicates existed, the editor read the value
+  from the active row and saved onto the parked one, so the change
+  appeared to do nothing while the old limit kept applying.
+- **Recomputing penalties after a settings change no longer holds the
+  whole activity while it logs.** The recomputation events are now
+  recorded after the activity is released rather than during it, so a
+  large recompute does not queue up every student's action behind its
+  own logging.
+
 ## 1.19.2 (2026-07-31)
 
 - **Two people acting at the same moment now get one answer, not two.**
@@ -21,8 +56,10 @@
   declined.
 - **Two coordinators granting the same exception at once produce one
   exception, not two.** Duplicates created before this release are
-  merged on upgrade, keeping the older of each pair, so nobody's
-  effective limits move.
+  merged on upgrade. *Corrected in 1.20.0: as shipped, this merge kept
+  the older row of each pair whatever its status, which could delete
+  the exception actually in force and keep a parked twin — see the
+  1.20.0 notes above.*
 - **A large auto-grouping run no longer freezes the rest of the
   activity.** Its notifications used to go out while the run still held
   the activity, so every invitation, team creation and move made during

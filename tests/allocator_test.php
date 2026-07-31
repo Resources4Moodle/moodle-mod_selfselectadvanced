@@ -339,6 +339,151 @@ final class allocator_test extends \advanced_testcase {
     }
 
     /**
+     * The input-size guard and the heuristic behind it.
+     *
+     * Until 1.20 nothing in the suite reached greedy() at all:
+     * replacing its whole body with a throw left the suite green, so
+     * MAX_MEMBERS / MAX_SLOTS / MAX_SEATS, the OverflowException catch
+     * and the fallback itself were reached by no test, and NOTHING
+     * anywhere asserted `exact === false` - the only assertion on that
+     * field was an assertTrue. The guard is not hypothetical: slot_form
+     * accepts a mincount up to 50 and slots::create caps the number of
+     * rows at nothing, so a manager can cross MAX_SEATS or MAX_SLOTS
+     * through the plugin's own form.
+     *
+     * Each case crosses ONE guard by exactly one unit, sized from the
+     * constant itself so a change to the constant moves the fixture
+     * with it, and asserts the two properties that matter:
+     *
+     *  - the result says so: `exact === false`;
+     *  - FAIL-CLOSED: the fill it reports is realised by the assignment
+     *    it returns. fill_of() re-checks that assignment against the
+     *    rules from scratch and must agree with both totalfilled and
+     *    the per-slot counts, so the heuristic can under-report a team
+     *    (which only ever refuses a compliant team - conservative) but
+     *    can never claim a seating that does not exist, which would
+     *    call a non-compliant team compliant.
+     *
+     * The analytic maximum is stated per case rather than brute-forced:
+     * at 31 members brute force is 2^31 mappings.
+     *
+     * Negative control: replace the body of greedy() with a throw -
+     * every case here dies, and before 1.20 that same throw left the
+     * whole suite green.
+     */
+    public function test_the_input_size_guard_falls_back_and_stays_fail_closed(): void {
+        $cases = [];
+
+        // 1. One member over MAX_MEMBERS. One slot of three Computer
+        // seats and an all-Computer roster, so the exact answer is 3.
+        $template = [$this->slot(1, 3, 'department', 'value', 'Computer')];
+        $spec = [];
+        for ($u = 1; $u <= allocator::MAX_MEMBERS + 1; $u++) {
+            $spec[$u] = ['department' => 'Computer'];
+        }
+        $cases['members'] = [$template, array_keys($spec), $this->attrs($spec), 3];
+
+        // 2. One slot over MAX_SLOTS: N one-seat slots on N distinct
+        // departments, one member per department, so the exact answer
+        // is N.
+        $slotcount = allocator::MAX_SLOTS + 1;
+        $template = [];
+        $spec = [];
+        for ($s = 1; $s <= $slotcount; $s++) {
+            $template[] = $this->slot($s, 1, 'department', 'value', 'Dept' . $s);
+            $spec[$s] = ['department' => 'Dept' . $s];
+        }
+        $cases['slots'] = [$template, array_keys($spec), $this->attrs($spec), $slotcount];
+
+        // 3. One seat over MAX_SEATS, on a small roster: a wide
+        // Computer row plus a single Math seat. Five Computer members
+        // and one Math member, so the exact answer is 6.
+        $template = [
+            $this->slot(1, allocator::MAX_SEATS, 'department', 'value', 'Computer'),
+            $this->slot(2, 1, 'department', 'value', 'Math'),
+        ];
+        $spec = [];
+        for ($u = 1; $u <= 5; $u++) {
+            $spec[$u] = ['department' => 'Computer'];
+        }
+        $spec[6] = ['department' => 'Math'];
+        $cases['seats'] = [$template, array_keys($spec), $this->attrs($spec), 6];
+
+        foreach ($cases as $name => [$template, $members, $attrs, $exactmax]) {
+            $solution = allocator::solve($template, $members, $attrs);
+
+            $this->assertFalse(
+                $solution->exact,
+                $name . ': crossing the input-size guard must report exact = false'
+            );
+
+            // Fail-closed, checked rather than asserted: the returned
+            // assignment is re-validated from scratch and must account
+            // for exactly the fill the solver claims.
+            $assign = array_fill_keys($members, count($template));
+            foreach ($solution->assignment as $userid => $index) {
+                $assign[(int) $userid] = (int) $index;
+            }
+            $realised = $this->fill_of($template, $members, $attrs, $assign);
+            $this->assertNotNull(
+                $realised,
+                $name . ': the fallback returned an assignment that breaks the seating rules'
+            );
+            $this->assertSame(
+                (int) $solution->totalfilled,
+                $realised,
+                $name . ': the fallback reports a fill its own assignment does not realise'
+            );
+            $this->assertSame(
+                (int) $solution->totalfilled,
+                array_sum($solution->filled),
+                $name . ': the fallback reports a fill its own seat counts do not add up to'
+            );
+            $this->assertLessThanOrEqual(
+                $exactmax,
+                (int) $solution->totalfilled,
+                $name . ': the fallback OVER-reports fill, which would call a non-compliant team compliant'
+            );
+        }
+    }
+
+    /**
+     * The other side of the same boundary: one member BELOW
+     * MAX_MEMBERS, and one seat below MAX_SEATS, are still decided
+     * exactly. Without this the guard cases above would pass equally
+     * against a build that had given up on exactness entirely.
+     */
+    public function test_just_inside_the_input_size_guard_is_still_exact(): void {
+        $spec = [];
+        for ($u = 1; $u <= allocator::MAX_MEMBERS; $u++) {
+            $spec[$u] = ['department' => 'Computer'];
+        }
+        $solution = allocator::solve(
+            [$this->slot(1, 3, 'department', 'value', 'Computer')],
+            array_keys($spec),
+            $this->attrs($spec)
+        );
+        $this->assertTrue($solution->exact);
+        $this->assertSame(3, (int) $solution->totalfilled);
+
+        $spec = [];
+        for ($u = 1; $u <= 5; $u++) {
+            $spec[$u] = ['department' => 'Computer'];
+        }
+        $spec[6] = ['department' => 'Math'];
+        $solution = allocator::solve(
+            [
+                $this->slot(1, allocator::MAX_SEATS - 1, 'department', 'value', 'Computer'),
+                $this->slot(2, 1, 'department', 'value', 'Math'),
+            ],
+            array_keys($spec),
+            $this->attrs($spec)
+        );
+        $this->assertTrue($solution->exact);
+        $this->assertSame(6, (int) $solution->totalfilled);
+    }
+
+    /**
      * The seats one candidate mapping fills, or null when it breaks a rule.
      *
      * @param stdClass[] $template slot rows in template order

@@ -95,17 +95,38 @@ final class allocator {
      * What it costs, on the same hardware: a node is just under three
      * microseconds, so an exhausted budget is about 580ms, and the most
      * expensive ten-member five-rule template found costs 173ms per
-     * team. This class runs once per TEAM in the batch compliance sweep
-     * of flagged.php, which judges EVERY forming and pending-guide team
-     * of an activity in one request - fifteen hundred of them on a busy
-     * site. A sweep over teams of that shape therefore takes over four
-     * minutes, and a twelve-member shape about twelve. That page is
-     * unpaged today; T-12 owns paging and batching it, and until then
-     * an activity built entirely from large templates will be slow to
-     * report. Lower this constant if that trade stops being worth it -
-     * the fallback below is fail-CLOSED, so a smaller budget can only
-     * under-report a team's fill, never call a non-compliant team
-     * compliant.
+     * team.
+     *
+     * WHO PAYS IT (corrected 2026-07-31 after the wave-1 audit, which
+     * measured this; the previous wording named flagged.php alone and
+     * that is the wrong end of the cost model).
+     *
+     *  - The JOIN PICKER, per keystroke, is the hot path. Every
+     *    keystroke in the team autocomplete reaches
+     *    search_groups::execute (LIMIT 50) via amd/src/groupselector.js,
+     *    which calls fit::for_groups, which runs this class TWICE per
+     *    team - so up to a hundred solves inside one student-facing
+     *    request, on a page that is not paged. joinrequest.php pays the
+     *    same shape through fit::for_person on every waiting request.
+     *    Measured on a twelve-member team against a six-row / two-seat
+     *    plan: one solve is about 2.9 ms on benign random templates and
+     *    up to 73 ms on adversarial ones, and the audit measured the
+     *    whole picker call at 4571 ms per keystroke on that shape (50
+     *    ms before the exact engine). Until 1.20 it was three solves a
+     *    team, the third a literal duplicate of the first.
+     *  - The batch compliance sweep of flagged.php runs this once per
+     *    TEAM over EVERY forming and pending-guide team of an activity
+     *    in one request - fifteen hundred on a busy site. Measured
+     *    end-to-end through evaluator::compliance_for_activity: 0.7 s
+     *    before the exact engine, 41.2 s after, on twelve-member teams
+     *    with a six-row / two-seat plan.
+     *
+     * Both pages are unpaged today; T-12 owns paging and batching them,
+     * and until then an activity built entirely from large templates
+     * will be slow to report and slow to search. Lower this constant if
+     * that trade stops being worth it - the fallback below is
+     * fail-CLOSED, so a smaller budget can only under-report a team's
+     * fill, never call a non-compliant team compliant.
      *
      * @var int
      */

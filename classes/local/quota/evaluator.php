@@ -150,7 +150,11 @@ class evaluator {
      * @param stdClass[] $template the activity's seat plan
      * @param int[] $memberids the roster to judge, candidate included
      * @param stdClass[] $attrs attributes keyed by user id
-     * @return stdClass {missing, seated, maxexceeded: ?rule entry}
+     * @return stdClass {missing, seated, maxexceeded: ?rule entry,
+     *                  seating: the slots::evaluate_from_data() result
+     *                  for THIS roster - handed back so a caller that
+     *                  needs the seating as well does not solve the
+     *                  identical input a second time}
      */
     public static function feasibility_from_data(
         array $rules,
@@ -251,6 +255,13 @@ class evaluator {
             'missing' => max($slotmissing, $dimbound, 0),
             'seated' => count(array_unique($memberids)),
             'maxexceeded' => $maxexceeded,
+            // The seating this method already paid for. fit::for_groups
+            // needs exactly this object to name the candidate's seat,
+            // and used to ask slots::evaluate_from_data() for it again
+            // with an element-for-element identical roster - a third
+            // full allocator solve per team, on the join picker's
+            // per-keystroke path.
+            'seating' => $slotresult,
         ];
     }
 

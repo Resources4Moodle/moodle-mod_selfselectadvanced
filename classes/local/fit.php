@@ -57,12 +57,38 @@ use stdClass;
  *  - {@see self::for_groups()} judges one person against up to fifty
  *    teams for the join picker, on every keystroke. It prefetches the
  *    rules, the seat plan, every roster and everyone's attributes in
- *    four queries and then judges each team with none, so the picker
- *    costs about what the unannotated picker cost.
+ *    four queries and then judges each team with none.
  *
  * Both funnel the composition verdict through
  * evaluator::feasibility_from_data(), so the advisory caution in the
  * picker can never contradict the refusal at the gate.
+ *
+ * WHAT for_groups() COSTS, AND WHO PAYS IT (corrected 2026-07-31; this
+ * docblock used to say the picker "costs about what the unannotated
+ * picker cost", which stopped being true when the exact composition
+ * engine landed). The four queries are still four queries. The CPU is
+ * the point now: for_groups() runs an exact allocator solve per team,
+ * up to fifty of them per keystroke, and the search is exponential in
+ * the seat plan.
+ *
+ * The payers are search_groups.php (limit 50, called per keystroke by
+ * amd/src/groupselector.js) and joinrequest.php - NOT flagged.php,
+ * which allocator.php's own commentary used to name.
+ *
+ * Measured on this box, PHP 8.4, on a 12-member team against a
+ * six-row / two-seat plan - an ordinary shape, not a pathological one:
+ * one seat-plan evaluation costs about 2.9 ms on benign random
+ * templates and up to 73 ms on adversarial ones. Until 1.20 for_groups
+ * ran THREE such solves per team where two answer the question, and
+ * the third took input identical element-for-element to the first;
+ * the three-solve total measured 2.7-3.1x one solve, so deleting the
+ * duplicate takes a third of the composition CPU off every keystroke.
+ * The wave-1 audit measured the whole call at 4571 ms per keystroke on
+ * that shape, against 50 ms before the exact engine.
+ *
+ * Two solves per team is still the dominant cost of this page and it
+ * is still unpaged at fifty. T-12 owns the budget; this note exists so
+ * T-12 scopes it against the real number.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -256,9 +282,16 @@ class fit {
             // Quota-exempt teams skip the composition gate exactly as
             // the gate itself does, so an exempt team is never cautioned
             // about rules that are not applied to it.
+            //
+            // $seating carries the roster-plus-candidate seating out of
+            // the gate below so the seat naming can reuse it. Null on
+            // the exempt path, where no gate ran and seat_from_data
+            // solves it itself.
+            $seating = null;
             if (!$resolver->is_quota_exempt($gid)->enabled) {
                 $with = array_merge($roster, [$userid]);
                 $feasibility = evaluator::feasibility_from_data($rules, $template, $with, $attrs);
+                $seating = $feasibility->seating;
                 if ($feasibility->maxexceeded !== null) {
                     $answer->fits = false;
                     $answer->caution = get_string(
@@ -281,7 +314,7 @@ class fit {
             }
 
             if ($template) {
-                $seat = self::seat_from_data($template, $roster, $userid, $attrs);
+                $seat = self::seat_from_data($template, $roster, $userid, $attrs, $seating);
                 if ($seat !== null) {
                     $answer->seat = $seat->label;
                     $answer->seatno = $seat->slotno;
@@ -314,20 +347,31 @@ class fit {
      * placement rule, so a candidate who could complete either of two
      * seats is shown in the roomier one.
      *
+     * The roster-plus-candidate half can be handed in: the composition
+     * gate that runs immediately before this in for_groups() has
+     * already solved that exact roster, and re-solving it here was a
+     * literal duplicate - a third full allocator solve per team on the
+     * join picker's per-keystroke path. When $after is supplied it MUST
+     * be the evaluation of $memberids plus $userid; anything else is a
+     * different question with the same shape.
+     *
      * @param stdClass[] $template the seat plan
      * @param int[] $memberids the roster without the candidate
      * @param int $userid the candidate
      * @param stdClass[] $attrs attributes keyed by user id
+     * @param stdClass|null $after the roster-plus-candidate seating if
+     *        the caller already has it, or null to solve it here
      * @return stdClass|null {slotno, label}, or null when no seat changes
      */
     private static function seat_from_data(
         array $template,
         array $memberids,
         int $userid,
-        array $attrs
+        array $attrs,
+        ?stdClass $after = null
     ): ?stdClass {
         $before = slots::evaluate_from_data($template, $memberids, $attrs);
-        $after = slots::evaluate_from_data($template, array_merge($memberids, [$userid]), $attrs);
+        $after = $after ?? slots::evaluate_from_data($template, array_merge($memberids, [$userid]), $attrs);
 
         if ($after->totalfilled <= $before->totalfilled) {
             return null;

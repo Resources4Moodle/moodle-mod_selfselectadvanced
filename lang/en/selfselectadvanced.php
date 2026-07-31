@@ -1146,6 +1146,7 @@ $string['refusaljoinsourcefrozen'] = 'Your current team is frozen. Its guide has
 $string['refusaljoinsourcegone'] = 'This student is no longer in "{$a}", the team they offered to leave. The request is out of date — decline it and ask them to send a new one.';
 $string['refusaljoinsourcenotyours'] = 'That is not one of your teams.';
 $string['refusaljoinsourcerequired'] = 'You are in more than one team ({$a}). Say which one you would leave, or choose to keep them all.';
+$string['refusaljointargetalready'] = 'This student is already in "{$a}", so there is nothing to admit them to — but accepting would still remove them from the team they offered to leave. The request is out of date; decline it and say so.';
 $string['refusaljointargetfrozen'] = 'That team is frozen. Its guide has to release it before anybody can join.';
 $string['refusalleadcap'] = 'You already lead {$a->current} of {$a->max} groups.';
 $string['refusalleaveleader'] = 'A team leader cannot request to leave. Nominate a successor first, or ask a manager to move you.';

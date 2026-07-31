@@ -221,8 +221,19 @@ final class locks {
      * Report an acquisition that breaks the global order.
      *
      * Report only, never throw: a production request must not die on a
-     * lock-order mistake. PHPUnit turns an unexpected debugging() into
-     * a failure, which is exactly the enforcement wanted.
+     * lock-order mistake.
+     *
+     * What that report is worth, measured rather than assumed (this
+     * docblock used to claim "PHPUnit turns an unexpected debugging()
+     * into a failure", which is false as written). Moodle turns an
+     * unconsumed debugging() into an E_USER_NOTICE; PHPUnit 11 reports
+     * it as a Notice, not a Warning, and a run that is not given
+     * --fail-on-notice still exits 0. The gate passes that flag as of
+     * 2026-07-31, so an inversion does redden a gate run - but only
+     * there, and in production debugging() is a no-op below
+     * DEBUG_DEVELOPER. Any test that means to pin an ordering property
+     * must say so with an explicit assertDebuggingCalled() /
+     * assertDebuggingNotCalled(); see docs/architecture.md A7.
      *
      * @param string $resource the resource about to be acquired
      */

@@ -257,8 +257,56 @@ final class races_upsert_test extends \advanced_testcase {
     }
 
     /**
+     * The same determinism where the twins DISAGREE ON STATUS, which is
+     * the case the all-active fixture above cannot see.
+     *
+     * resolver::load_overrides() reads status='active' rows only, so on
+     * a pair whose older row is parked and whose newer row is active
+     * the row IN FORCE is the newer one. store::get() used to return
+     * the oldest row regardless of status, so the read path and the
+     * write path picked different twins: a coordinator saw the active
+     * row's value on screen, saved a change, and save() updated the
+     * PARKED row - the edit visibly did nothing while the old limit
+     * kept applying, and override_updated recorded old/new values for a
+     * row nobody reads.
+     *
+     * Negative control: drop the status preference from store::get()
+     * (return reset($rows) as it used to) - get() comes back with the
+     * pending row, the two id assertions fail, and the save assertion
+     * lands the edit on the wrong row.
+     */
+    public function test_override_get_prefers_the_active_twin_over_the_older_one(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, $userid] = $this->setup_activity();
+
+        $parked = $this->insert_raw($activity, 'user', $userid, ['maxlead' => 2, 'status' => 'pending']);
+        $inforce = $this->insert_raw($activity, 'user', $userid, ['maxlead' => 7]);
+        $this->assertLessThan($inforce, $parked);
+
+        // Move the older row's physical position, as above.
+        $DB->set_field('selfselectadvanced_override', 'timemodified', time() + 1, ['id' => $parked]);
+
+        $row = store::get($activity, 'user', $userid);
+        $this->assertDebuggingCalled('Duplicate override rows for user:' . $userid);
+        $this->assertSame($inforce, (int) $row->id, 'get() must return the row the resolver governs by');
+        $this->assertSame('active', $row->status);
+
+        // The resolver's answer, which is what a coordinator sees.
+        $this->assertSame(7, (new resolver($activity))->effective_maxlead($userid)->value);
+
+        // And the edit lands on that row, not on the parked one.
+        store::save($activity, 'user', $userid, ['maxlead' => 5], 0);
+        $this->assertDebuggingCalled('Duplicate override rows for user:' . $userid);
+        $this->assertSame(5, (int) $DB->get_field('selfselectadvanced_override', 'maxlead', ['id' => $inforce]));
+        $this->assertSame(2, (int) $DB->get_field('selfselectadvanced_override', 'maxlead', ['id' => $parked]));
+        $this->assertSame(5, (new resolver($activity))->effective_maxlead($userid)->value);
+    }
+
+    /**
      * The data-only upgrade step: twins that already exist are merged,
-     * the oldest of each set survives, and rows that were never
+     * the OLDEST ACTIVE row of each set survives (falling back to the
+     * oldest row when none is active), and rows that were never
      * duplicated are untouched.
      *
      * It also runs the 2026073130 block against a column deliberately
@@ -278,6 +326,7 @@ final class races_upsert_test extends \advanced_testcase {
         require_once($CFG->dirroot . '/mod/selfselectadvanced/db/upgrade.php');
 
         [$activity, $userid] = $this->setup_activity();
+        $guideid = (int) $this->getDataGenerator()->create_user()->id;
         $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
         $group = $plugingen->create_group([
             'activityid' => $activity->id(),
@@ -296,10 +345,23 @@ final class races_upsert_test extends \advanced_testcase {
             $this->insert_raw($activity, 'user', $userid, ['maxlead' => 2]),
             $this->insert_raw($activity, 'user', $userid, ['maxlead' => 9]),
         ];
+        // A MIXED-STATUS pair, which is the case the merge used to get
+        // wrong and the case this fixture could not see: every twin
+        // above is 'active', so MIN(id) and "oldest active" agree on
+        // them and either keeper passes. Here the older row is parked
+        // and the newer one is the exception actually in force - the
+        // only row resolver::load_overrides() can see. Keeping MIN(id)
+        // deleted it and kept the invisible one, and the target fell
+        // back to the activity's own limits with nothing logged and no
+        // way back.
+        $guideids = [
+            $this->insert_raw($activity, 'guide', $guideid, ['maxguided' => 2, 'status' => 'pending']),
+            $this->insert_raw($activity, 'guide', $guideid, ['maxguided' => 9]),
+        ];
         // An unrelated single row, which must survive untouched.
         $lonely = $this->insert_raw($activity, 'guide', $userid, ['maxguided' => 6]);
 
-        $this->assertSame(6, $DB->count_records('selfselectadvanced_override', [
+        $this->assertSame(8, $DB->count_records('selfselectadvanced_override', [
             'activityid' => $activity->id(),
         ]));
 
@@ -341,8 +403,8 @@ final class races_upsert_test extends \advanced_testcase {
         set_config('version', 2026073100, 'mod_selfselectadvanced');
         xmldb_selfselectadvanced_upgrade(2026073100);
         // Every later block runs too, so the recorded version lands on
-        // the current tip - T-15's targetgroupid relaxation.
-        $this->assertSame('2026073130', get_config('mod_selfselectadvanced', 'version'));
+        // the current tip - the re-run of the corrected twin merge.
+        $this->assertSame('2026073140', get_config('mod_selfselectadvanced', 'version'));
 
         // Engine-native proof that the DDL step did what it claims: the
         // live column is nullable and a park row stores.
@@ -363,7 +425,7 @@ final class races_upsert_test extends \advanced_testcase {
         $this->assertNull($DB->get_field('selfselectadvanced_move', 'targetgroupid', ['id' => $parkid]));
         $DB->delete_records('selfselectadvanced_move', ['id' => $parkid]);
 
-        $this->assertSame(3, $DB->count_records('selfselectadvanced_override', [
+        $this->assertSame(4, $DB->count_records('selfselectadvanced_override', [
             'activityid' => $activity->id(),
         ]));
         $this->assertTrue($DB->record_exists('selfselectadvanced_override', ['id' => min($groupids)]));
@@ -375,6 +437,26 @@ final class races_upsert_test extends \advanced_testcase {
         $this->assertSame(2, (int) $DB->get_field('selfselectadvanced_override', 'maxlead', [
             'id' => min($userids),
         ]));
+
+        // The mixed pair: the ACTIVE row survives even though it is the
+        // NEWER one, the parked twin is the one that goes, and the
+        // guide's effective limit is unchanged by the upgrade.
+        // Negative control: put MIN(id) back as the keeper in
+        // upgrade_selfselectadvanced_merge_override_twins() - the
+        // survivor is the pending row, maxguided reads 2, and both
+        // assertions below fail.
+        $this->assertFalse($DB->record_exists('selfselectadvanced_override', ['id' => min($guideids)]));
+        $this->assertTrue($DB->record_exists('selfselectadvanced_override', ['id' => max($guideids)]));
+        $this->assertSame('active', $DB->get_field('selfselectadvanced_override', 'status', [
+            'id' => max($guideids),
+        ]));
+        $this->assertSame(9, (int) $DB->get_field('selfselectadvanced_override', 'maxguided', [
+            'id' => max($guideids),
+        ]));
+        $this->assertSame(
+            9,
+            (new \mod_selfselectadvanced\local\override\resolver($activity))->effective_maxguided($guideid)->value
+        );
     }
 
     /**
@@ -536,9 +618,24 @@ final class races_upsert_test extends \advanced_testcase {
      * The fixture is 40 groups rather than the ticket's 200: the
      * assertion is exact, so it fails at N = 2, and 200 users buys
      * nothing but runtime.
+     *
+     * It ALSO carries the events-out-of-the-lock probe, because this is
+     * the path that used to violate it and the one path the suite never
+     * probed: the sibling test installs the observer but drives
+     * upsert_for_group() directly, where the lock is the upsert's own
+     * and is already released by the time the event fires. Here the
+     * lock belongs to the sweep, so before 1.20 the observer recorded
+     * held=1 on every one of the forty dispatches - up to 1500 logstore
+     * writes inside one activity-wide lock on the target site.
      */
     public function test_recompute_all_serialises_once_for_the_whole_sweep(): void {
         $this->resetAfterTest();
+
+        self::$heldatevent = [];
+        \core\event\manager::phpunit_replace_observers([[
+            'eventname' => '\mod_selfselectadvanced\event\penalty_recomputed',
+            'callback' => '\mod_selfselectadvanced\races_upsert_test::observe_penalty',
+        ]]);
 
         $generator = $this->getDataGenerator();
         $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
@@ -580,5 +677,13 @@ final class races_upsert_test extends \advanced_testcase {
             'acquire activity:' . $activity->id(),
             'release activity:' . $activity->id(),
         ], $log);
+
+        // Every group is newly late, so every group fires once.
+        $this->assertCount(40, self::$heldatevent);
+        foreach (self::$heldatevent as $index => $record) {
+            $this->assertSame(0, $record['held'], 'dispatch ' . $index . ' fired under a lock');
+            $this->assertNull($record['oldvalue']);
+            $this->assertGreaterThan(0, (float) $record['newvalue']);
+        }
     }
 }

@@ -35,8 +35,23 @@ use mod_selfselectadvanced\local\state;
  * actually fails when a lock is dropped, is the recorded acquisition:
  * which resources, in which order, released in reverse, across which
  * span. The no-mail-under-lock half is pinned by notifier::send()'s own
- * runtime guard, which fires debugging() - and PHPUnit turns an
- * unexpected debugging() into a failure.
+ * runtime guard, which fires debugging() when locks::held_count() is
+ * not zero.
+ *
+ * WHAT THAT GUARD IS AND IS NOT (corrected 2026-07-31; the previous
+ * wording claimed PHPUnit turns an unexpected debugging() into a
+ * failure, which was measured false). Moodle turns an unconsumed
+ * debugging() into an E_USER_NOTICE. PHPUnit 11 reports that as a
+ * Notice, and the gate used to run --fail-on-warning only, under which
+ * a test that emits one unconsumed debugging() and asserts nothing
+ * still exits 0. The gate now passes --fail-on-notice as well, so an
+ * unconsumed guard notice does fail a run - but only there, and only
+ * for as long as that flag survives.
+ *
+ * So the flag is the backstop, never the detector. Every test in this
+ * file that means to pin the no-mail property ends with an explicit
+ * assertDebuggingNotCalled(), and any new one must do the same; a test
+ * that merely happens not to emit a notice proves nothing.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -326,8 +341,11 @@ final class races_locking_test extends \advanced_testcase {
 
     /**
      * The ordering guard itself. Report only - a production request
-     * must not die on this - but PHPUnit turns the report into a
-     * failure, so an inversion is a red gate rather than a warning.
+     * must not die on this. What makes an inversion a RED gate is the
+     * explicit assertDebuggingCalled() below, not the ambient run
+     * flags: see the file docblock above, and do not restore the old
+     * wording here, which claimed PHPUnit fails on an unexpected
+     * debugging() by itself.
      *
      * Negative control: delete check_order() - the two
      * assertDebuggingCalled() expectations fail.
