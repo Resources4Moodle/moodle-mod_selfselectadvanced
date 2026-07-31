@@ -451,13 +451,24 @@ if ($action === 'unfreeze') {
         $notice = get_string('groupunfrozennotice', 'mod_selfselectadvanced', $group->pluginuid);
         // Nothing is discarded any more: the course group is kept, and
         // the sync leaves it holding the restored roster plus the guide.
+        //
+        // ONLY 'synced' is success. sync_core_group() sets that status
+        // after the last core write returns, so anything else - a
+        // failure mid-loop, no mirror to write to - means the course
+        // group is NOT known to match the restored roster, and saying
+        // so is the whole point: the manager used to be shown an
+        // unqualified green notice either way.
+        $level = \core\output\notification::NOTIFY_SUCCESS;
         if (!empty($result->sync) && $result->sync->status === 'synced') {
             $notice .= ' ' . get_string('coregroupkept', 'mod_selfselectadvanced', (object) [
                 'added' => count($result->sync->added),
                 'removed' => count($result->sync->removed),
             ]);
+        } else {
+            $notice .= ' ' . get_string('coregroupnotinstep', 'mod_selfselectadvanced');
+            $level = \core\output\notification::NOTIFY_WARNING;
         }
-        redirect($baseurl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
+        redirect($baseurl, $notice, null, $level);
     }
     // Confirmation page: restriction references and drift are shown first.
     $warnings = \mod_selfselectadvanced\local\freeze::check_restrictions($activity, $group);
@@ -629,7 +640,15 @@ if ($action === 'resynccore' && data_submitted() && confirm_sesskey()) {
     // touching them. POST + sesskey; nothing mutating on a GET.
     require_capability('mod/selfselectadvanced:manage', $context);
     $sync = \mod_selfselectadvanced\local\freeze::sync_core_group($activity, (int) $group->id, (int) $USER->id);
-    if ($sync->status !== 'synced') {
+    // ONLY 'synced' is success, and it is now set after the last core
+    // write RETURNS. A run that threw halfway used to report 'synced'
+    // with zero counts, which selected the green "already in step"
+    // branch below for a mirror that was missing members - the single
+    // symptom being a debugging() nobody sees in production.
+    if ($sync->status === 'failed') {
+        $notice = get_string('coregroupsyncfailed', 'mod_selfselectadvanced');
+        $level = \core\output\notification::NOTIFY_WARNING;
+    } else if ($sync->status !== 'synced') {
         $notice = get_string('coregroupmissing', 'mod_selfselectadvanced');
         $level = \core\output\notification::NOTIFY_WARNING;
     } else if (!$sync->added && !$sync->removed && !$sync->refused) {

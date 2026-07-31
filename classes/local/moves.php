@@ -35,6 +35,10 @@ use stdClass;
  * Rules L1-L4 and quota apply, each bypassable only by a move-scope
  * override attached to a specific move; member moves never change
  * guide assignments, so L5 is structurally unaffected (documented).
+ * TGT, SUCC and LEADR are NOT in self::BYPASSABLE and their bypass
+ * flag is a literal false: a move into a team the student already
+ * belongs to, a stale successor and an unconsented demotion are
+ * corruption rather than policy, and no override row reaches them.
  * Committing a move on a frozen group mirrors the core group and
  * refreshes the snapshot in the same transaction (A6).
  *
@@ -83,6 +87,14 @@ class moves {
      * seam, never designates a leader, and must have a source to remove
      * the student from.
      *
+     * Two refusals guard the destination, both AFTER the source
+     * inference below, because the inference is what produces the
+     * shapes they refuse: the source may not be the target, and the
+     * student may not already be a confirmed member of the target.
+     * Neither is the guarantee - validate_set()'s TGT verdict is, on
+     * the roster the commit actually sees - but a manager should hear
+     * it at the form and not days later.
+     *
      * @param int $userid the student to move
      * @param int|null $sourcegroupid group to leave, null when placing a groupless student
      * @param int|null $targetgroupid group to join, null for a staff park (removal, no destination)
@@ -107,9 +119,12 @@ class moves {
     ): stdClass {
         global $DB;
 
-        // Server-side ownership of every id (IDOR).
+        // Server-side ownership of every id (IDOR). The row is kept:
+        // the target-side refusals below name the team, and re-reading
+        // it for the name would be a second query for the same row.
+        $target = null;
         if ($targetgroupid !== null) {
-            groups::get($this->activity, $targetgroupid);
+            $target = groups::get($this->activity, $targetgroupid);
         }
 
         // Server-side ownership of the USER id too (IDOR): the picker
@@ -173,6 +188,43 @@ class moves {
                 throw new \moodle_exception('refusalmovesourcerequired', 'mod_selfselectadvanced', '', $names);
             }
         }
+
+        // A move must go somewhere ELSE, and this is the seam that can
+        // say so. classes/form/move_form.php compares only a source the
+        // manager TYPED - its guard opens with !empty($data['source']) -
+        // so it never fires on a blank one, and a blank source is
+        // inferred just above, to the target itself whenever that is
+        // the student's only team. Committing that shape removes the
+        // membership and re-adds it, and when the student leads the
+        // team the crown goes to the successor stage() forced the
+        // manager to name: a silent demotion, no override involved and
+        // every verdict green (measured, both engines).
+        if ($sourcegroupid !== null && $targetgroupid !== null && $sourcegroupid === $targetgroupid) {
+            throw new \moodle_exception('errmovesamegroup', 'mod_selfselectadvanced');
+        }
+
+        // Already there: the move gains the student nothing while its
+        // source half still deletes a membership. validate_set()'s TGT
+        // verdict is the engine-level guarantee - it is what covers the
+        // set staged today and committed next week - and this is its
+        // cheap, early half, so the manager hears it at the form
+        // instead of at commit time.
+        if (
+            $targetgroupid !== null
+            && $DB->record_exists('selfselectadvanced_member', [
+                'groupid' => $targetgroupid,
+                'userid' => $userid,
+                'status' => groups::STATUS_CONFIRMED,
+            ])
+        ) {
+            throw new \moodle_exception(
+                'refusalmovetargetalready',
+                'mod_selfselectadvanced',
+                '',
+                format_string($target->name)
+            );
+        }
+
         // A park removes somebody from somewhere; with no source there
         // is nothing to remove and nothing to add.
         if ($targetgroupid === null && $sourcegroupid === null) {
@@ -282,16 +334,28 @@ class moves {
         // Net membership deltas per group: a user both added and removed
         // in the same group cancels out; additions only count when the
         // user does not already hold that state in the group.
+        //
+        // Each list is a per-group SET of userids, keyed by userid: a
+        // set is a statement about PEOPLE, and counting move ROWS was
+        // this engine's central arithmetic error. Two staged moves out
+        // of one source for one student are one departure, not two, so
+        // building the lists with [] appended duplicates and then
+        // array_diff/array_intersect (which preserve them) subtracted
+        // that student twice from every figure below - refusing
+        // compliant sets on the L1 minimum ("Source keeps 0 confirmed
+        // members" of a group that would keep 2) and, on the delta
+        // side, waving a set past the L4 cap. Measured on both engines.
         $removals = [];
         $additions = [];
         foreach ($moves as $move) {
+            $uid = (int) $move->userid;
             if ($move->sourcegroupid) {
-                $removals[(int) $move->sourcegroupid][] = (int) $move->userid;
+                $removals[(int) $move->sourcegroupid][$uid] = $uid;
             }
             if ($move->targetgroupid) {
                 // A park has no target, so it contributes a removal and
                 // nothing else.
-                $additions[(int) $move->targetgroupid][] = (int) $move->userid;
+                $additions[(int) $move->targetgroupid][$uid] = $uid;
             }
         }
         $confirmedin = [];
@@ -313,17 +377,22 @@ class moves {
                 }
             }
         }
+        // Both closures count PEOPLE. array_diff and array_intersect
+        // preserve duplicates of their first argument, so every count
+        // below is only a roster figure while $add and $rem are sets;
+        // array_unique states that here rather than trusting the shape
+        // built above to stay that way.
         $confirmedafter = function (int $gid) use ($additions, $removals, $confirmedin): int {
-            $add = array_diff($additions[$gid] ?? [], $removals[$gid] ?? []);
-            $rem = array_diff($removals[$gid] ?? [], $additions[$gid] ?? []);
+            $add = array_unique(array_diff($additions[$gid] ?? [], $removals[$gid] ?? []));
+            $rem = array_unique(array_diff($removals[$gid] ?? [], $additions[$gid] ?? []));
 
             return count($confirmedin[$gid] ?? [])
                 + count(array_diff($add, $confirmedin[$gid] ?? []))
                 - count(array_intersect($rem, $confirmedin[$gid] ?? []));
         };
         $seatsafterfn = function (int $gid) use ($additions, $removals, $seatsin): int {
-            $add = array_diff($additions[$gid] ?? [], $removals[$gid] ?? []);
-            $rem = array_diff($removals[$gid] ?? [], $additions[$gid] ?? []);
+            $add = array_unique(array_diff($additions[$gid] ?? [], $removals[$gid] ?? []));
+            $rem = array_unique(array_diff($removals[$gid] ?? [], $additions[$gid] ?? []));
 
             return count($seatsin[$gid] ?? [])
                 + count(array_diff($add, $seatsin[$gid] ?? []))
@@ -340,22 +409,55 @@ class moves {
         // staged move can outlive the membership it was staged
         // against, and a stale loss credit would let the commit
         // exceed the cap behind a green verdict.
+        //
+        // The delta is over the SET and counts TEAMS ENTERED and TEAMS
+        // LEFT, not move rows. Summing per move subtracted one source
+        // once per move out of it, so two moves out of Alpha scored
+        // -2 against +2 and a cap of ONE membership committed TWO
+        // (measured, both engines: "Would belong to 1 of 1 groups" on
+        // both verdicts, count_memberships=2 afterwards). Three
+        // targets scored -3.
+        //
+        // A move whose student is ALREADY confirmed in the target is
+        // scored 0/0 and refused by TGT below. It gains nothing by
+        // definition, and crediting its source removal was the net -1
+        // that made a membership-destroying commit look compliant to
+        // the cap check - the mechanism joinrequests::do_accept()
+        // described in a comment while guarding only itself.
+        $enters = [];
+        $leaves = [];
+        foreach ($moves as $move) {
+            $uid = (int) $move->userid;
+            $tid = $move->targetgroupid ? (int) $move->targetgroupid : null;
+            if ($tid !== null && in_array($uid, $confirmedin[$tid] ?? [], true)) {
+                continue;
+            }
+            if ($tid !== null) {
+                $enters[$uid][$tid] = true;
+            }
+            // A park has no target and is pure loss. The source is
+            // KEYED, so one student leaving one team counts once
+            // however many rows name that team.
+            if ($move->sourcegroupid && in_array($uid, $confirmedin[(int) $move->sourcegroupid] ?? [], true)) {
+                $leaves[$uid][(int) $move->sourcegroupid] = true;
+            }
+        }
         $membershipdeltas = [];
         foreach ($moves as $move) {
             $uid = (int) $move->userid;
-            // A park gains nothing anywhere.
-            $gain = $move->targetgroupid
-                && !in_array($uid, $confirmedin[(int) $move->targetgroupid] ?? [], true) ? 1 : 0;
-            $loss = $move->sourcegroupid
-                && in_array($uid, $confirmedin[(int) $move->sourcegroupid] ?? [], true) ? 1 : 0;
-            $membershipdeltas[$uid] = ($membershipdeltas[$uid] ?? 0) + $gain - $loss;
+            $membershipdeltas[$uid] = count($enters[$uid] ?? []) - count($leaves[$uid] ?? []);
         }
 
-        // Leadership evolves WITHIN a set (apply runs in id order): a
-        // makeleader move can hand the source crown to a user whose
-        // own move out was staged while they were plain members. SUCC
-        // must judge the leader apply() will actually see, so track
-        // each group's leader as earlier moves change it.
+        // Leadership evolves WITHIN a set (apply runs in id order), in
+        // both directions: a leader's move out hands the crown to the
+        // successor it names, who may have been staged out of that
+        // same team while still a plain member, and an incoming
+        // makeleader move TAKES the crown from an incumbent whose own
+        // move out is in the same set. SUCC must judge the leader
+        // apply() will actually see - it re-reads leaderid per move -
+        // so track each group's leader as earlier moves change it.
+        // (A makeleader move can no longer crown somebody already
+        // inside the target: TGT refuses that move outright.)
         $liveleader = [];
         $leaderatapply = [];
         foreach ($moves as $move) {
@@ -389,6 +491,34 @@ class moves {
             // one of their blocks would let a move that skipped that
             // block judge itself against the PREVIOUS move's target.
             $targetid = $move->targetgroupid ? (int) $move->targetgroupid : null;
+
+            // TGT (NEVER bypassable, and first so a refused set names
+            // it): the student is already a confirmed member of the
+            // target, so the move gains them nothing while its source
+            // half still deletes a membership - "moved" to a team they
+            // are in, and mailed to say so. A membership deleted in
+            // exchange for nothing is not a repair any staff member
+            // can authorise, so the bypass flag below is a literal
+            // false exactly as SUCC's and LEADR's are, and no override
+            // row can reopen it whatever rule codes it carries.
+            //
+            // It belongs HERE, in the engine, and not at a caller's
+            // seam: staging and committing are separate acts, this
+            // queue is chronological and up to MAX_COMMIT rows wide,
+            // and commit_set() re-runs this validation on the roster
+            // it reads INSIDE its own locks. A set staged against a
+            // correct roster and committed a week later - after the
+            // student joined the target by an invitation, a join
+            // request or another manager's move - is refused on the
+            // roster that exists at commit, with no staff error
+            // anywhere in the story.
+            if ($targetid !== null) {
+                $verdicts['TGT'] = $this->verdict(
+                    !in_array((int) $move->userid, $confirmedin[$targetid] ?? [], true),
+                    false,
+                    get_string('moveruleTGT', 'mod_selfselectadvanced')
+                );
+            }
 
             // L1 on the source group's net post-state.
             if ($move->sourcegroupid) {
@@ -946,10 +1076,24 @@ class moves {
         // "simplified" back inside it (D6-6e): store::delete() acquires
         // override:{scope}:{targetid} - rank 5 in the one global order -
         // which ranks BEFORE activity: (rank 6), so calling it under
-        // cancel()'s activity lock trips locks::check_order() and its
-        // debugging() is a PHPUnit failure. store::delete() also opens
-        // its own transaction and triggers override_deleted inside it,
-        // which requirement 2 forbids under a lock.
+        // cancel()'s activity lock trips locks::check_order().
+        //
+        // What that trip is worth, stated accurately (this comment used
+        // to claim "its debugging() is a PHPUnit failure", which is
+        // false as written - see locks.php's own note): Moodle turns an
+        // unconsumed debugging() into an E_USER_NOTICE, PHPUnit 11
+        // reports it as a Notice rather than a Warning, and a run not
+        // given --fail-on-notice still exits 0. That flag is in the
+        // repository - .github/workflows/moodle-ci.yml passes
+        // --fail-on-warning --fail-on-notice, as does the maintainer's
+        // gate - so an inversion reddens a run anywhere the suite is
+        // driven from this repo's configuration, not only on one
+        // machine; in production debugging() is still a no-op below
+        // DEBUG_DEVELOPER. The ordering constraint is real
+        // regardless of what reports it, which is why the call stays
+        // out here. store::delete() also opens its own transaction and
+        // triggers override_deleted inside it, which requirement 2
+        // forbids under a lock.
         if ($moveoverride) {
             \mod_selfselectadvanced\local\override\store::delete(
                 $this->activity,

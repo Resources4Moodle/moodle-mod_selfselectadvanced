@@ -42,11 +42,13 @@ use mod_selfselectadvanced\local\state;
  * wording claimed PHPUnit turns an unexpected debugging() into a
  * failure, which was measured false). Moodle turns an unconsumed
  * debugging() into an E_USER_NOTICE. PHPUnit 11 reports that as a
- * Notice, and the gate used to run --fail-on-warning only, under which
+ * Notice, and the suite used to run --fail-on-warning only, under which
  * a test that emits one unconsumed debugging() and asserts nothing
- * still exits 0. The gate now passes --fail-on-notice as well, so an
- * unconsumed guard notice does fail a run - but only there, and only
- * for as long as that flag survives.
+ * still exits 0. --fail-on-notice is now passed in BOTH places that
+ * run this suite: .github/workflows/moodle-ci.yml (so it travels with
+ * the repository, to every push and every fork) and the maintainer's
+ * gate. An unconsumed guard notice therefore does fail a run - but
+ * only for as long as that flag survives in those two files.
  *
  * So the flag is the backstop, never the detector. Every test in this
  * file that means to pin the no-mail property ends with an explicit

@@ -34,6 +34,27 @@
   recorded after the activity is released rather than during it, so a
   large recompute does not queue up every student's action behind its
   own logging.
+- **Moodle Managers now actually get the permissions 1.20 says they
+  get — on upgraded sites, not just new ones.** This release grants the
+  Manager role Manage, Unfreeze, Override and View all. Adding a role
+  to a permission's default list only ever affects a *fresh* install,
+  so on every site upgrading from 1.19.x or earlier the Manager was
+  left holding none of them. The upgrade now asserts the four grants
+  explicitly. **It never overrules a decision you have already
+  recorded:** if your site deliberately allowed, prevented or
+  prohibited one of these for the Manager role, that setting is left
+  exactly as it is.
+- **A course group that failed to synchronise is no longer reported as
+  "already in step".** If the synchronisation stopped on an error
+  partway through — a member whose account had been deleted, for
+  instance — the page told the manager everything matched while members
+  were still missing from the course group. The failure is now reported
+  as a warning, and a repair job is queued to try again.
+- **Freezing an already frozen team no longer emails everybody a second
+  time.** Re-freezing is a repair of the course group; two staff both
+  pressing Freeze, or a large bulk freeze whose overflow is finished by
+  cron, used to re-announce the freeze and mail every confirmed member
+  again. The repair now does the repair and nothing else.
 
 ## 1.19.2 (2026-07-31)
 

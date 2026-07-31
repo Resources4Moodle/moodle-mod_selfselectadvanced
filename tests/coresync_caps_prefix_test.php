@@ -230,11 +230,16 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
      * report; a per-user override then clears the push.
      */
     public function test_freeze_refuses_and_flags_over_cap(): void {
-        // T-16: the mirror is written by an inline sync that refuses
-        // to touch core while a transaction is open, and
-        // advanced_testcase opens one before every test on
-        // PostgreSQL. Without this the assertions below are about a
-        // deferral rather than about a course group.
+        // The preventResetByRollback() below keeps this test's
+        // core-group rows out of the harness's own transaction, so what
+        // it reads back is what a live site would hold. It is NO LONGER what makes
+        // the mirror run: sync_core_group() lost its
+        // is_transaction_started() branch in 1.20 (requirement 6) and
+        // now does the same work with a transaction open or not -
+        // measured on both engines, and pinned by coresync_test's
+        // test_sync_does_the_same_work_inside_and_outside_a_transaction.
+        // Forgetting it can no longer make a mirror assertion pass
+        // vacuously on PostgreSQL.
         $this->preventResetByRollback();
         global $DB;
         $this->resetAfterTest();
@@ -297,11 +302,16 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
      * band) stays grandfathered: the audit gates only the first push.
      */
     public function test_freeze_repair_stays_grandfathered(): void {
-        // T-16: the mirror is written by an inline sync that refuses
-        // to touch core while a transaction is open, and
-        // advanced_testcase opens one before every test on
-        // PostgreSQL. Without this the assertions below are about a
-        // deferral rather than about a course group.
+        // The preventResetByRollback() below keeps this test's
+        // core-group rows out of the harness's own transaction, so what
+        // it reads back is what a live site would hold. It is NO LONGER what makes
+        // the mirror run: sync_core_group() lost its
+        // is_transaction_started() branch in 1.20 (requirement 6) and
+        // now does the same work with a transaction open or not -
+        // measured on both engines, and pinned by coresync_test's
+        // test_sync_does_the_same_work_inside_and_outside_a_transaction.
+        // Forgetting it can no longer make a mirror assertion pass
+        // vacuously on PostgreSQL.
         $this->preventResetByRollback();
         global $CFG, $DB;
         $this->resetAfterTest();
@@ -330,11 +340,16 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
      * can resurrect the ghost.
      */
     public function test_user_deleted_clears_rosters_and_snapshots(): void {
-        // T-16: the mirror is written by an inline sync that refuses
-        // to touch core while a transaction is open, and
-        // advanced_testcase opens one before every test on
-        // PostgreSQL. Without this the assertions below are about a
-        // deferral rather than about a course group.
+        // The preventResetByRollback() below keeps this test's
+        // core-group rows out of the harness's own transaction, so what
+        // it reads back is what a live site would hold. It is NO LONGER what makes
+        // the mirror run: sync_core_group() lost its
+        // is_transaction_started() branch in 1.20 (requirement 6) and
+        // now does the same work with a transaction open or not -
+        // measured on both engines, and pinned by coresync_test's
+        // test_sync_does_the_same_work_inside_and_outside_a_transaction.
+        // Forgetting it can no longer make a mirror assertion pass
+        // vacuously on PostgreSQL.
         $this->preventResetByRollback();
         global $DB;
         $this->resetAfterTest();

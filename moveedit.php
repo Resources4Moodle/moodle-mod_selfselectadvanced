@@ -210,6 +210,15 @@ if ($data = $form->get_data()) {
             'errmoveparknolead' => 'makeleader',
             'errmoveparkandtarget' => 'target',
             'refusalmovesourcerequired' => 'source',
+            // Both are target-side refusals and both are actionable on
+            // the target: the student is already in the team named
+            // there. Mapped rather than left to the fallback, and on
+            // the same field move_form's own same-group check uses, so
+            // the two seams cannot contradict each other. stage()
+            // raises errmovesamegroup for a source the form never sees,
+            // because a BLANK source is inferred to the target.
+            'errmovesamegroup' => 'target',
+            'refusalmovetargetalready' => 'target',
         ];
         $form->set_element_error($fieldbyerror[$e->errorcode] ?? 'target', $e->getMessage());
     }

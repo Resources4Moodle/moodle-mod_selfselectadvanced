@@ -268,10 +268,11 @@ final class moves_override_test extends \advanced_testcase {
         global $DB;
         // MUST be first: advanced_testcase opens a delegated
         // transaction before every test on PostgreSQL, and
-        // sync_core_group() defers SILENTLY inside one - so without
-        // this the core-group assertion passes on MariaDB and fails on
-        // PostgreSQL, the exact one-engine split this ticket set exists
-        // to prevent.
+        // sync_core_group() USED TO defer silently inside one, which is
+        // the one-engine split this ticket set exists to prevent. That
+        // branch is gone in 1.20 (requirement 6) and the routine now
+        // behaves the same either way; the call is kept so this test's
+        // core-group rows are ordinary committed rows.
         $this->preventResetByRollback();
         $this->resetAfterTest();
 

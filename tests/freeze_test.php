@@ -87,10 +87,16 @@ final class freeze_test extends \advanced_testcase {
      */
     public function test_freeze_creates_core_group(): void {
         global $DB;
-        // The inline sync only writes to core when no transaction is
-        // open, and advanced_testcase opens one before every test on
-        // PostgreSQL. Without this the whole assertion set is about a
-        // deferral, not about a mirror.
+        // The preventResetByRollback() below keeps this test's
+        // core-group rows out of the harness's own transaction, so what
+        // it reads back is what a live site would hold. It is NO LONGER what makes
+        // the mirror run: sync_core_group() lost its
+        // is_transaction_started() branch in 1.20 (requirement 6) and
+        // now does the same work with a transaction open or not -
+        // measured on both engines, and pinned by coresync_test's
+        // test_sync_does_the_same_work_inside_and_outside_a_transaction.
+        // Forgetting it can no longer make a mirror assertion pass
+        // vacuously on PostgreSQL.
         $this->preventResetByRollback();
         $this->resetAfterTest();
 
@@ -301,6 +307,73 @@ final class freeze_test extends \advanced_testcase {
             $snapshot
         ));
         $this->assertSame(1, groups::count_confirmed((int) $frozen->id));
+    }
+
+    /**
+     * A REPEAT FREEZE IS A REPAIR: it announces nothing a second time.
+     *
+     * freeze_group()'s docblock has said since 1.19 that re-freezing an
+     * already frozen group is "no gates, no state flip, just the sync",
+     * and $isrepair correctly skipped the gates, the state flip, the
+     * snapshot and request_sync - but the trailing block ran anyway,
+     * outside the try. Measured identically on both engines: 'repeat
+     * freeze threw=NULL msgs 4->8 group_frozen 1->2'. Two staff
+     * clicking Freeze produce it through the lock, and
+     * task\bulkfreeze_adhoc re-runs freeze_group() on queued overflow.
+     *
+     * The sync must still run on the second call - that is what a
+     * repair IS - so this asserts the mirror is intact afterwards as
+     * well as that nobody was told twice.
+     */
+    public function test_a_repeat_freeze_adds_to_no_sink_twice(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, , $guide] = $this->setup_firm();
+
+        $msgsink = $this->redirectMessages();
+        $eventsink = $this->redirectEvents();
+
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $firstmessages = count($msgsink->get_messages());
+        $firstfrozen = count(array_filter(
+            $eventsink->get_events(),
+            static fn($e) => $e instanceof \mod_selfselectadvanced\event\group_frozen
+        ));
+        $this->assertGreaterThan(0, $firstmessages, 'the first freeze told nobody');
+        $this->assertSame(1, $firstfrozen);
+
+        // The repair call, byte for byte the same call.
+        $repaired = freeze::freeze_group(
+            $activity,
+            groups::get($activity, (int) $frozen->id),
+            (int) $guide->id
+        );
+
+        $this->assertCount(
+            $firstmessages,
+            $msgsink->get_messages(),
+            'a repeat freeze re-mailed the confirmed members'
+        );
+        $this->assertSame(
+            1,
+            count(array_filter(
+                $eventsink->get_events(),
+                static fn($e) => $e instanceof \mod_selfselectadvanced\event\group_frozen
+            )),
+            'a repeat freeze re-fired group_frozen'
+        );
+        $msgsink->close();
+        $eventsink->close();
+
+        // The repair still did its one job.
+        $this->assertSame((int) $frozen->coregroupid, (int) $repaired->coregroupid);
+        $this->assertTrue(groups_group_exists((int) $repaired->coregroupid));
+        $this->assertSame(
+            3,
+            count(groups_get_members((int) $repaired->coregroupid, 'u.id')),
+            'the repair sync did not run'
+        );
     }
 
     /**

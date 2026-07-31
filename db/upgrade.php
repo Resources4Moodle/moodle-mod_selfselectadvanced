@@ -996,5 +996,85 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073140, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073150) {
+        // The 1.20 Moodle Manager grants reach an UPGRADED site.
+        //
+        // db/access.php gives 'manager' => CAP_ALLOW on :unfreeze,
+        // :manage, :override and :viewall (decision 6, D6-7). Editing
+        // the archetype list is enough for a FRESH install and does
+        // nothing at all for an upgrade: update_capabilities() builds
+        // its "new capabilities" list from the file's capabilities that
+        // are ABSENT from the capabilities table, and only that list
+        // reaches assign_legacy_capabilities() (lib/accesslib.php - the
+        // $newcaps loop). All four names have existed since 1.0, so on
+        // every site that installed 1.19.x or earlier core sees nothing
+        // new and assigns nothing. The last update_capabilities() call
+        // in this file is at savepoint 2026073072, below 1.19.2's tip,
+        // so no later block re-asserts them either. MEASURED on both
+        // engines: delete those four role_capabilities rows - the state
+        // of every pre-1.20 site - and run update_capabilities(); the
+        // manager holds none of the four afterwards.
+        //
+        // So they are asserted here, explicitly, which is the pattern
+        // the 2026073072 block already uses for the coordinator role.
+        // update_capabilities() still runs first: it registers anything
+        // genuinely new and refreshes riskbitmask/contextlevel, and the
+        // assertion below is about the four names only.
+        update_capabilities('mod_selfselectadvanced');
+
+        // NEVER OVERRULE AN ADMINISTRATOR. A site that deliberately
+        // took one of these away from the manager role has a row in
+        // role_capabilities recording that decision (CAP_PREVENT or
+        // CAP_PROHIBIT), and a site that deliberately granted it has
+        // one too. assign_capability()'s $overwrite argument is left at
+        // its default false, and core returns early on any existing row
+        // (accesslib.php: "We want to keep whatever is there already"),
+        // so this writes ONLY where the role has no recorded permission
+        // for the capability at all. It is idempotent: running it twice
+        // changes nothing the second time.
+        //
+        // System context and get_archetype_roles() rather than a
+        // hardcoded role id, because that is where core itself stores a
+        // role definition and because a site may have several roles of
+        // the manager archetype (or have renamed the shipped one - the
+        // shortname is never the key).
+        $syscontext = context_system::instance();
+        $managerroles = get_archetype_roles('manager');
+        $managercaps = [
+            'mod/selfselectadvanced:unfreeze',
+            'mod/selfselectadvanced:manage',
+            'mod/selfselectadvanced:override',
+            'mod/selfselectadvanced:viewall',
+        ];
+        $granted = 0;
+        foreach ($managerroles as $role) {
+            foreach ($managercaps as $capability) {
+                $recorded = $DB->record_exists('role_capabilities', [
+                    'contextid' => $syscontext->id,
+                    'roleid' => $role->id,
+                    'capability' => $capability,
+                ]);
+                if ($recorded) {
+                    continue;
+                }
+                assign_capability($capability, CAP_ALLOW, $role->id, $syscontext->id);
+                $granted++;
+            }
+        }
+        if ($granted) {
+            // Role definitions changed outside update_capabilities()'s
+            // own reset, so the static role cache has to be dropped or
+            // the rest of this request answers from the old picture.
+            accesslib_reset_role_cache();
+            upgrade_log(
+                UPGRADE_LOG_NOTICE,
+                'mod_selfselectadvanced',
+                'Granted ' . $granted . ' manager capability/capabilities that the archetype could not reach on upgrade'
+            );
+        }
+
+        upgrade_mod_savepoint(true, 2026073150, 'selfselectadvanced');
+    }
+
     return true;
 }

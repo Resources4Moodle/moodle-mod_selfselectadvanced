@@ -23,18 +23,28 @@ use mod_selfselectadvanced\task\coresync_adhoc;
 
 /**
  * The one authoritative mirror routine (T-16): the queued convergence
- * backstop, the deferral guard, dangling-pointer repair, the core
- * removal-block callback, the bulk cap-violator query, the idnumber
- * fallback, and the unenrolment observer.
+ * backstop, dangling-pointer repair, the core removal-block callback,
+ * the bulk cap-violator query, the idnumber fallback, and the
+ * unenrolment observer.
  *
- * READ FIRST - the PHPUnit-on-PostgreSQL rule. advanced_testcase opens
- * a delegated transaction before EVERY test on PostgreSQL, and
- * sync_core_group() refuses to write to core while a transaction is
- * open (it defers to the queued adhoc instead). Every test here that
- * asserts a real core-group write - including one that asserts
- * convergence AFTER runAdhocTasks(), because the task runs in the same
- * DB session - therefore calls preventResetByRollback() as its FIRST
- * statement. Running the adhoc is not an escape from the guard.
+ * READ FIRST - what changed in 1.20, because the previous note here
+ * described a guard that no longer exists and must not come back.
+ * sync_core_group() USED TO return status='deferred' and write nothing
+ * whenever $DB->is_transaction_started(). advanced_testcase opens a
+ * delegated transaction before EVERY test on PostgreSQL and none on
+ * MariaDB, so that guard made the mirror run on one engine and be
+ * skipped on the other for identical inputs - requirement 6's named
+ * trap, measured. The branch is gone: the routine now does the same
+ * work with a transaction open or not, and
+ * test_sync_does_the_same_work_inside_and_outside_a_transaction pins
+ * that both ways round.
+ *
+ * The preventResetByRollback() calls that remain are therefore NO
+ * LONGER what makes the mirror run. They are kept where a test needs
+ * the harness's own transaction out of the way for its own reasons -
+ * to own the transaction it asserts about, or to read committed core
+ * rows - and a new test here does not need one to see a core-group
+ * write.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -130,17 +140,22 @@ final class coresync_test extends \advanced_testcase {
     }
 
     /**
-     * 1c step 2: with a transaction open the routine writes nothing to
-     * core and says 'deferred' - silently, because a debugging() here
-     * would fire in every PHPUnit test on PostgreSQL. Convergence is
-     * the queued adhoc's job, and it does it once the transaction is
-     * committed.
+     * REQUIREMENT 6, PINNED BOTH WAYS ROUND: the routine does the SAME
+     * WORK whether a transaction is open or not.
      *
-     * The test owns the transaction it asserts about (opened after
-     * preventResetByRollback()), so it behaves identically on both
-     * engines.
+     * The same starting state and the same call are run twice - once
+     * with no transaction, once inside one this test owns - and the two
+     * results are compared field by field. Before 1.20 the second run
+     * returned status='deferred' with added=[] and wrote nothing, which
+     * on PostgreSQL is the state of EVERY test in the suite; on MariaDB
+     * it wrote. That is the engine split this test exists to keep out.
+     *
+     * preventResetByRollback() is still first, and now for the only
+     * reason left: it makes "no transaction open" TRUE on both engines
+     * so round 1 really is the no-transaction case. It no longer has
+     * anything to do with whether the mirror runs.
      */
-    public function test_sync_defers_inside_transaction(): void {
+    public function test_sync_does_the_same_work_inside_and_outside_a_transaction(): void {
         global $DB;
         $this->preventResetByRollback();
         $this->resetAfterTest();
@@ -149,19 +164,82 @@ final class coresync_test extends \advanced_testcase {
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
         $coreid = (int) $frozen->coregroupid;
         $this->runAdhocTasks();
-        groups_remove_member($coreid, (int) $students[1]->id);
+        $member = (int) $students[1]->id;
 
+        // Round 1 - no transaction open.
+        $this->assertFalse($DB->is_transaction_started());
+        groups_remove_member($coreid, $member);
+        $outside = freeze::sync_core_group($activity, (int) $frozen->id, (int) $guide->id);
+        $this->assertSame('synced', $outside->status);
+        $this->assertSame([$member], $outside->added);
+        $this->assertTrue(groups_is_member($coreid, $member));
+
+        // Round 2 - identical inputs, transaction open.
+        groups_remove_member($coreid, $member);
         $transaction = $DB->start_delegated_transaction();
-        $result = freeze::sync_core_group($activity, (int) $frozen->id, (int) $guide->id);
-        $this->assertSame('deferred', $result->status);
-        $this->assertSame([], $result->added);
-        $this->assertFalse(groups_is_member($coreid, (int) $students[1]->id));
-        freeze::request_sync($activity, groups::get($activity, (int) $frozen->id));
+        $this->assertTrue($DB->is_transaction_started());
+        $inside = freeze::sync_core_group($activity, (int) $frozen->id, (int) $guide->id);
         $transaction->allow_commit();
 
-        $this->runAdhocTasks();
+        $this->assertSame($outside->status, $inside->status);
+        $this->assertSame($outside->added, $inside->added);
+        $this->assertSame($outside->removed, $inside->removed);
+        $this->assertSame($outside->coregroupid, $inside->coregroupid);
+        $this->assertTrue(
+            groups_is_member($coreid, $member),
+            'the mirror was not written inside a transaction - the engine split is back'
+        );
+    }
 
-        $this->assertTrue(groups_is_member($coreid, (int) $students[1]->id));
+    /**
+     * A throw halfway through the add loop is REPORTED, not whispered.
+     *
+     * sync_core_group() used to set status='synced' before
+     * classify_mirror() and both loops, and the catch returned with
+     * that status intact behind a debugging() that is a no-op in
+     * production. Measured: a frozen team with a live mirror, one
+     * confirmed member whose user row is hard-deleted (so core's
+     * groups_add_member() reads it MUST_EXIST and throws) and a second
+     * perfectly addable member queued behind them gave
+     * 'status=synced added=0' - and group.php then chose its green
+     * "already in step" NOTIFY_SUCCESS branch for a mirror that was
+     * missing a member.
+     */
+    public function test_a_throw_in_the_add_loop_does_not_return_synced(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, $group, $students, $guide] = $this->setup_team(2);
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $coreid = (int) $frozen->coregroupid;
+        $this->runAdhocTasks();
+        $this->assertNotEmpty($coreid);
+
+        // Two members the mirror is missing, one of them unaddable.
+        $ghost = (int) $students[1]->id;
+        $addable = (int) $students[2]->id;
+        groups_remove_member($coreid, $ghost);
+        groups_remove_member($coreid, $addable);
+        $DB->delete_records('user', ['id' => $ghost]);
+        // The freeze's own queued job would otherwise be counted below.
+        $DB->delete_records('task_adhoc');
+
+        $result = freeze::sync_core_group($activity, (int) $frozen->id, (int) $guide->id);
+        $this->assertDebuggingCalled();
+
+        $this->assertNotSame('synced', $result->status, 'a failed sync reported itself as in step');
+        $this->assertSame('failed', $result->status);
+        $this->assertNotSame('', $result->error, 'the failure carried no message out to the caller');
+        // The loop stopped: it cannot have added both of them.
+        $this->assertLessThan(2, count($result->added));
+        // The manual-resync path is the one entry point with no adhoc
+        // behind it, so the catch queues the retry itself.
+        $this->assertCount(
+            1,
+            \core\task\manager::get_adhoc_tasks(coresync_adhoc::class),
+            'a failed sync left nothing scheduled to try again'
+        );
     }
 
     /**

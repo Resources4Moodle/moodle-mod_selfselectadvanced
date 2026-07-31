@@ -531,14 +531,20 @@ class joinrequests {
             // refuses at ASK time when the student is already confirmed
             // in the target (refusaljoinalready); between asking and
             // answering they can be admitted to it by another route
-            // entirely - an invitation they accept, a staff move. The
-            // move engine then scores gain=0 (already there) against
-            // loss=1, a NET -1, so the L4 cap check waves it through,
-            // the SOURCE membership is removed for nothing, and
-            // respond() mails the student that they succeeded. Same
-            // in-lock read and the same contract as the guard above:
-            // refuse in the workflow's own words and leave the request
-            // OPEN, so the decider can decline it with a note.
+            // entirely - an invitation they accept, a staff move.
+            //
+            // The ENGINE now refuses that shape for every caller: it
+            // scores such a move 0/0 and raises the non-bypassable TGT
+            // verdict (moves::validate_set), where it used to score
+            // gain=0 against loss=1, a net -1 that the L4 cap check
+            // waved through while the SOURCE membership was removed for
+            // nothing. This guard is no longer the only thing standing
+            // between a stale request and a deleted membership - it is
+            // the workflow's own words for it, with the same in-lock
+            // read and the same contract as the guard above: refuse in
+            // terms of the REQUEST and leave it OPEN, so the decider
+            // can decline it with a note instead of meeting a set
+            // refusal from the move engine.
             $alreadyin = $DB->record_exists('selfselectadvanced_member', [
                 'groupid' => (int) $target->id,
                 'userid' => (int) $request->userid,

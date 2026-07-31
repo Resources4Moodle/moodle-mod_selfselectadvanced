@@ -201,9 +201,11 @@ final class privacybreadth_test extends \advanced_testcase {
      * classify a legacy untagged row afterwards - which is exactly what
      * sync_core_group()'s $forceremove parameter exists for.
      *
-     * preventResetByRollback() first: the sync writes to core only when
-     * no transaction is open, and advanced_testcase opens one before
-     * every test on PostgreSQL.
+     * preventResetByRollback() first, and no longer for the reason this
+     * docblock used to give: the sync writes to core whether or not a
+     * transaction is open - the deferral branch was removed in 1.20
+     * (requirement 6). The call is kept so the core-group rows this
+     * test reads back are ordinary committed rows.
      */
     public function test_delete_data_for_user_purges_frozen_mirror(): void {
         $this->preventResetByRollback();

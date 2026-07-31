@@ -455,9 +455,20 @@ class api {
             }
 
             // The plugin-owned mirror is REMEMBERED here and deleted
-            // after the commit and the release: no core group API call
-            // of any kind runs inside this lock and transaction (T-16's
-            // rule, which this path consumes and does not redefine).
+            // after the commit and the release, so no core group API
+            // call runs inside THIS lock and this transaction.
+            //
+            // Said as a local property and no longer as a universal
+            // one. This comment used to read "no core group API call of
+            // any kind runs inside this lock and transaction (T-16's
+            // rule)", which is false for the plugin as a whole and was
+            // measured false: freeze::sync_core_group() holds
+            // 'group:{id}' across mint_core_group() ->
+            // groups_create_group(), and \core\event\group_created was
+            // observed dispatching at locks::held_count() === 1.
+            // docs/architecture.md A7 names that one exception and what
+            // it drags in with it. dissolve_group() is not that
+            // exception, and the ordering below is what keeps it out.
             $oldcoregroupid = (int) ($fresh->coregroupid ?? 0);
 
             // Every staged move and every live join request that names

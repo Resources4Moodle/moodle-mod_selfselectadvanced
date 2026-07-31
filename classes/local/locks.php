@@ -228,9 +228,12 @@ final class locks {
      * into a failure", which is false as written). Moodle turns an
      * unconsumed debugging() into an E_USER_NOTICE; PHPUnit 11 reports
      * it as a Notice, not a Warning, and a run that is not given
-     * --fail-on-notice still exits 0. The gate passes that flag as of
-     * 2026-07-31, so an inversion does redden a gate run - but only
-     * there, and in production debugging() is a no-op below
+     * --fail-on-notice still exits 0. That flag now travels WITH THE
+     * REPOSITORY - .github/workflows/moodle-ci.yml runs phpunit with
+     * --fail-on-warning --fail-on-notice, and the maintainer's gate
+     * passes the same pair - so an inversion reddens a run wherever
+     * the suite is driven from this repo's own configuration. In
+     * production debugging() is still a no-op below
      * DEBUG_DEVELOPER. Any test that means to pin an ordering property
      * must say so with an explicit assertDebuggingCalled() /
      * assertDebuggingNotCalled(); see docs/architecture.md A7.

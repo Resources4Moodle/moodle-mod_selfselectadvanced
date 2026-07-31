@@ -53,7 +53,18 @@ final class nudge_test extends \advanced_testcase {
 
         $students = [];
         for ($i = 0; $i < 3; $i++) {
-            $student = $generator->create_user();
+            // NAMED, not generated. create_user() draws its names at
+            // random from a pool of 300 first/last combinations
+            // (lib/testing/generator/data_generator.php uses rand(),
+            // and nothing seeds it), so two of these three students
+            // shared a full name on about one run in 280 - measured
+            // 1068/300000. The recipient filter below is a LIKE on the
+            // full name, so that collision made it return two ids and
+            // reddened the gate for a tree that had not changed.
+            $student = $generator->create_user([
+                'firstname' => 'Defaulter',
+                'lastname' => 'Student' . $i,
+            ]);
             $generator->enrol_user($student->id, $course->id, 'student');
             $students[] = $student;
         }

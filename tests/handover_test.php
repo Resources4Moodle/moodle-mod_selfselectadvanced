@@ -240,9 +240,11 @@ final class handover_test extends \advanced_testcase {
      * are in neither the confirmed set nor guideid) and puts the
      * incoming one in.
      *
-     * preventResetByRollback() first: the sync refuses to write to core
-     * while a transaction is open, and advanced_testcase opens one
-     * before every test on PostgreSQL.
+     * preventResetByRollback() first, and no longer for the reason
+     * this docblock used to give: the sync does NOT refuse to write to
+     * core while a transaction is open - that branch was removed in
+     * 1.20 (requirement 6). The call is kept so the core-group rows
+     * this test reads back are ordinary committed rows.
      */
     public function test_accept_on_frozen_group_swaps_core_membership(): void {
         global $DB;

@@ -339,8 +339,10 @@ final class staff_authority_test extends \advanced_testcase {
     public function test_dissolve_deletes_the_core_mirror(): void {
         global $CFG;
         require_once($CFG->dirroot . '/group/lib.php');
-        // The core write only happens outside a transaction, and
-        // advanced_testcase opens one before every test on PostgreSQL.
+        // Kept, but not for the reason this used to give: the core
+        // write no longer depends on there being no transaction (the
+        // requirement-6 branch went in 1.20). It makes the rows this
+        // test reads back ordinary committed rows.
         $this->preventResetByRollback();
         $this->resetAfterTest();
 

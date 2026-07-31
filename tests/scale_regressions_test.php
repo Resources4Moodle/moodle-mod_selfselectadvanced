@@ -199,10 +199,12 @@ final class scale_regressions_test extends \advanced_testcase {
      * reads whatever the roster size - it reads two sets and applies a
      * delta, and the delta of an ordinary change is 0-2 core calls.
      *
-     * preventResetByRollback() first: the sync writes to core only when
-     * no transaction is open, and advanced_testcase opens one before
-     * every test on PostgreSQL - the deferral path would make every
-     * figure below a measurement of nothing.
+     * preventResetByRollback() first, and no longer for the reason this
+     * docblock used to give: the deferral path that would have made
+     * every figure below a measurement of nothing was removed in 1.20
+     * (requirement 6), so the sync now writes to core with a
+     * transaction open or not. The call is kept because the read
+     * counts below are cleaner measured against committed rows.
      */
     public function test_sync_cost_scales_with_delta_not_roster(): void {
         global $DB;

@@ -447,25 +447,87 @@ final class moves_test extends \advanced_testcase {
     }
 
     /**
-     * SUCC judges the leader at APPLY time: a crown gained from an
-     * earlier makeleader move in the same set makes the later
-     * move-out a leader move, so it demands a successor — otherwise
-     * the commit would leave the group leaderless.
+     * SUCC judges the leader at APPLY time, and both ways round: a
+     * crown GAINED earlier in the same set makes a later move-out a
+     * leader move that demands a successor, and a crown LOST earlier
+     * in the same set relieves the outgoing incumbent of naming one.
+     *
+     * The gain is staged through the successor route because that is
+     * the only route left: a makeleader move can no longer designate
+     * somebody already inside the target team (TGT), so a crown
+     * gained by makeleader always belongs to an incomer, who cannot
+     * also be moved out of a team they have not joined yet. The
+     * makeleader branch of the same tracking is exercised below, in
+     * the direction it can still reach.
      */
     public function test_intra_set_leadership_gain_requires_successor(): void {
         $this->resetAfterTest();
 
         [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
-            'maxsize' => 3, 'minsize' => 1, 'maxmembership' => 2,
+            'maxsize' => 4, 'minsize' => 1, 'maxmembership' => 2,
         ]);
+        // A third member, so A still satisfies L1 once two leave and
+        // only the leadership verdicts are in play.
+        $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_member([
+            'groupid' => $a->id,
+            'userid' => (int) $students[4]->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        $leader = (int) $students[0]->id;
         $member = (int) $students[1]->id;
 
-        $crown = $api->moves()->stage($member, null, (int) $a->id, true, null, 99, true);
+        // Staged first, so it applies first: A's crown passes to
+        // $member, who is a plain member when their own move-out is
+        // staged (stage() looks at today's leader and asks nothing).
+        $handover = $api->moves()->stage($leader, (int) $a->id, (int) $b->id, false, $member, 99);
         $out = $api->moves()->stage($member, (int) $a->id, (int) $b->id, false, null, 99);
 
-        $verdicts = $api->moves()->validate_set([(int) $crown->id, (int) $out->id]);
+        $verdicts = $api->moves()->validate_set([(int) $handover->id, (int) $out->id]);
         $this->assertFalse($verdicts->valid);
+        // The verdict EXISTS because the crown was tracked to $member:
+        // judged against today's roster the move-out is not a leader
+        // move at all and no SUCC verdict would be raised.
+        $this->assertArrayHasKey('SUCC', $verdicts->permove[(int) $out->id]);
         $this->assertFalse($verdicts->permove[(int) $out->id]['SUCC']['ok']);
+        // The handover's own SUCC refuses for the sibling reason: the
+        // successor it names is removed from the source by this very
+        // set, so promoting them would leave A leaderless anyway.
+        $this->assertFalse($verdicts->permove[(int) $handover->id]['SUCC']['ok']);
+    }
+
+    /**
+     * The other direction of the same tracking: an incoming leader
+     * takes the target team's crown inside the set, so the incumbent's
+     * own move out of it is no longer a leader move and raises no SUCC
+     * verdict - apply() re-reads the leader and performs no succession
+     * there either. Judged against today's roster instead, the set
+     * would demand a successor for a crown its own first move has
+     * already taken away.
+     */
+    public function test_intra_set_leadership_loss_needs_no_successor(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'maxsize' => 4, 'minsize' => 1, 'maxmembership' => 2,
+        ]);
+        $incomer = (int) $students[4]->id;
+        $incumbent = (int) $students[2]->id;
+
+        // The incomer takes B's crown; the incumbent leaves for A,
+        // naming the successor stage() demands of today's leader.
+        $crown = $api->moves()->stage($incomer, null, (int) $b->id, true, null, 99, true);
+        $outgoing = $api->moves()->stage(
+            $incumbent,
+            (int) $b->id,
+            (int) $a->id,
+            false,
+            (int) $students[3]->id,
+            99
+        );
+
+        $verdicts = $api->moves()->validate_set([(int) $crown->id, (int) $outgoing->id]);
+        $this->assertTrue($verdicts->valid);
+        $this->assertArrayNotHasKey('SUCC', $verdicts->permove[(int) $outgoing->id]);
     }
 
     /**
@@ -589,6 +651,309 @@ final class moves_test extends \advanced_testcase {
             $this->assertSame('refusalmovesourcerequired', $e->errorcode);
         }
         $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * A move into a team the student is ALREADY a confirmed member of
+     * is refused at the seam: it gains them nothing, and its source
+     * half still deletes a membership. Nothing is staged and nothing
+     * is removed.
+     */
+    public function test_a_move_into_the_students_own_team_is_refused(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'minsize' => 1, 'maxsize' => 6, 'maxmembership' => 2,
+        ]);
+        $wanderer = (int) $students[1]->id;
+        // Confirmed in BOTH teams - the roster a staff "move" used to
+        // tidy by deleting the source membership for nothing.
+        $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_member([
+            'groupid' => $b->id,
+            'userid' => $wanderer,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+
+        try {
+            $api->moves()->stage($wanderer, (int) $a->id, (int) $b->id, false, null, 99);
+            $this->fail('Expected the already-in-target refusal');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalmovetargetalready', $e->errorcode);
+        }
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_move', [
+            'activityid' => $activity->id(),
+        ]));
+        $this->assertSame(2, groups::count_memberships($activity, $wanderer));
+        $this->assertTrue($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => $a->id,
+            'userid' => $wanderer,
+            'status' => groups::STATUS_CONFIRMED,
+        ]));
+    }
+
+    /**
+     * The stale queue, which needs no staff error at all: a correct
+     * move is staged, the student then reaches the target by another
+     * route entirely (an invitation they accept), and the queued
+     * commit - still selected, still green when it was staged - is
+     * refused on the roster commit_set() reads inside its own locks.
+     * TGT is the only verdict that fails, and the membership the
+     * commit would have deleted survives.
+     */
+    public function test_a_queued_move_the_student_overtook_is_refused_at_commit(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+
+        [$activity, $api, $students, $a] = $this->setup_two_groups([
+            'minsize' => 1, 'maxsize' => 6, 'maxmembership' => 2,
+        ]);
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        // A forming team, so the ordinary invitation route is open.
+        $c = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[4]->id,
+            'name' => 'C',
+            'state' => state::FORMING,
+        ]);
+        $mover = (int) $students[1]->id;
+
+        // Staged against a correct roster: the set validates.
+        $move = $api->moves()->stage($mover, (int) $a->id, (int) $c->id, false, null, 99);
+        $this->assertTrue($api->moves()->validate_set([(int) $move->id])->valid);
+
+        // The student arrives in the target by another route.
+        $target = groups::get($activity, (int) $c->id);
+        $api->invitations()->send($target, $mover, (int) $students[4]->id);
+        $api->invitations()->accept($target, $mover);
+        $this->assertSame(2, groups::count_memberships($activity, $mover));
+
+        // The same move, untouched, is now refused - by TGT and by
+        // nothing else.
+        $verdicts = $api->moves()->validate_set([(int) $move->id]);
+        $this->assertFalse($verdicts->valid);
+        $this->assertFalse($verdicts->permove[(int) $move->id]['TGT']['ok']);
+        $this->assertSame(['TGT'], array_keys(array_filter(
+            $verdicts->permove[(int) $move->id],
+            static fn($verdict) => !$verdict['ok']
+        )));
+
+        try {
+            $api->moves()->commit_set([(int) $move->id], 99);
+            $this->fail('Expected the commit to refuse the stale move');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('errmovesetinvalid', $e->errorcode);
+        }
+        $this->assertTrue($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => $a->id,
+            'userid' => $mover,
+            'status' => groups::STATUS_CONFIRMED,
+        ]));
+        $this->assertSame(2, groups::count_memberships($activity, $mover));
+        // Still pending: the manager cancels it, the engine does not
+        // quietly consume it.
+        $this->assertSame('pending', $DB->get_field('selfselectadvanced_move', 'status', [
+            'id' => $move->id,
+        ]));
+        $sink->close();
+    }
+
+    /**
+     * TGT is not bypassable, and that is the whole point: no staff
+     * repair deletes a membership in exchange for nothing, so the
+     * override hatch must not reopen the door. A move-scope override
+     * naming every code the UI can produce AND the code itself leaves
+     * the verdict red and the commit refused.
+     */
+    public function test_no_override_reopens_a_move_into_the_students_own_team(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'minsize' => 1, 'maxsize' => 6, 'maxmembership' => 2,
+        ]);
+        $mover = (int) $students[1]->id;
+        $move = $api->moves()->stage($mover, (int) $a->id, (int) $b->id, false, null, 99);
+
+        // The roster moves on under the staged row.
+        $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_member([
+            'groupid' => $b->id,
+            'userid' => $mover,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        store::save($activity, 'move', (int) $move->id, [
+            'rulesbypassed' => 'L1,L2,L3,L4,QUOTA,TGT',
+        ], 99);
+
+        $verdicts = $api->moves()->validate_set([(int) $move->id]);
+        $this->assertFalse($verdicts->valid);
+        $this->assertFalse($verdicts->permove[(int) $move->id]['TGT']['ok']);
+        $this->assertFalse($verdicts->permove[(int) $move->id]['TGT']['bypassed']);
+        // Null both hand-backs: this is the outermost path, the one a
+        // manager's Commit button takes, and a typed reason is on the
+        // table - the strongest form of the ask.
+        $nodeferrednotifications = null;
+        $nodeferredsync = null;
+        try {
+            $api->moves()->commit_set(
+                [(int) $move->id],
+                99,
+                false,
+                $nodeferrednotifications,
+                $nodeferredsync,
+                'staff insists'
+            );
+            $this->fail('Expected the commit to refuse despite the override');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('errmovesetinvalid', $e->errorcode);
+        }
+        $this->assertSame(2, groups::count_memberships($activity, $mover));
+        $this->assertTrue($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => $a->id,
+            'userid' => $mover,
+            'status' => groups::STATUS_CONFIRMED,
+        ]));
+    }
+
+    /**
+     * The L4 cap holds over the SET, counting TEAMS and not move rows.
+     * Two moves out of one source used to subtract that source once
+     * per row, so a cap of ONE membership committed two behind two
+     * verdicts both reading "Would belong to 1 of 1 groups".
+     */
+    public function test_the_membership_cap_is_not_evaded_by_two_moves_out_of_one_source(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'minsize' => 1, 'maxsize' => 6, 'maxmembership' => 1,
+        ]);
+        $c = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[4]->id,
+            'name' => 'C',
+            'state' => state::FIRM,
+        ]);
+        $mover = (int) $students[1]->id;
+
+        $m1 = $api->moves()->stage($mover, (int) $a->id, (int) $b->id, false, null, 99);
+        $m2 = $api->moves()->stage($mover, (int) $a->id, (int) $c->id, false, null, 99);
+
+        // Either alone is a genuine one-for-one move and validates.
+        $this->assertTrue($api->moves()->validate_set([(int) $m1->id])->valid);
+        $this->assertTrue($api->moves()->validate_set([(int) $m2->id])->valid);
+
+        // Together they are two teams entered against one left.
+        $joint = $api->moves()->validate_set([(int) $m1->id, (int) $m2->id]);
+        $this->assertFalse($joint->valid);
+        $this->assertFalse($joint->permove[(int) $m1->id]['L4']['ok']);
+        $this->assertFalse($joint->permove[(int) $m2->id]['L4']['ok']);
+        $this->assertSame(
+            get_string('moveruleL4', 'mod_selfselectadvanced', (object) ['after' => 2, 'max' => 1]),
+            $joint->permove[(int) $m1->id]['L4']['reason']
+        );
+
+        try {
+            $api->moves()->commit_set([(int) $m1->id, (int) $m2->id], 99);
+            $this->fail('Expected the set to be refused at the cap');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('errmovesetinvalid', $e->errorcode);
+        }
+        $this->assertSame(1, groups::count_memberships($activity, $mover));
+        $this->assertTrue($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => $a->id,
+            'userid' => $mover,
+            'status' => groups::STATUS_CONFIRMED,
+        ]));
+    }
+
+    /**
+     * The L1 figure a manager is shown is the roster the commit
+     * actually leaves behind. One member taken out of one source by
+     * two moves was subtracted twice, and a compliant set was refused
+     * on "Source keeps 0 confirmed members (minimum 1)" for a team
+     * that keeps one - on the repair path, with the message inviting
+     * staff to attach an override to a set that never broke a rule.
+     */
+    public function test_the_l1_figure_equals_the_roster_the_commit_leaves(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'minsize' => 1, 'maxsize' => 6, 'maxmembership' => 3,
+        ]);
+        $c = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[4]->id,
+            'name' => 'C',
+            'state' => state::FIRM,
+        ]);
+        // A holds its leader and this member: one departure, twice
+        // staged, must leave one behind.
+        $mover = (int) $students[1]->id;
+        $m1 = $api->moves()->stage($mover, (int) $a->id, (int) $b->id, false, null, 99);
+        $m2 = $api->moves()->stage($mover, (int) $a->id, (int) $c->id, false, null, 99);
+
+        $verdicts = $api->moves()->validate_set([(int) $m1->id, (int) $m2->id]);
+        $this->assertTrue($verdicts->valid);
+        $this->assertSame(
+            get_string('moveruleL1', 'mod_selfselectadvanced', (object) ['after' => 1, 'min' => 1]),
+            $verdicts->permove[(int) $m1->id]['L1']['reason']
+        );
+
+        $this->assertSame(2, $api->moves()->commit_set([(int) $m1->id, (int) $m2->id], 99));
+        // The figure and the roster are the same number.
+        $this->assertSame(1, groups::count_confirmed((int) $a->id));
+        $sink->close();
+    }
+
+    /**
+     * A BLANK source is inferred to the student's only team - which is
+     * the target itself whenever a manager tries to place somebody
+     * where they already are. classes/form/move_form.php cannot see
+     * that shape (its check needs a source the manager typed), so the
+     * seam refuses it. The leader case is why it matters: committing
+     * it demoted the leader in silence, handing the crown to the
+     * successor stage() had just forced the manager to name.
+     */
+    public function test_a_source_inferred_to_be_the_target_is_refused(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a] = $this->setup_two_groups([
+            'minsize' => 1, 'maxsize' => 6, 'maxmembership' => 2,
+        ]);
+        $leader = (int) $students[0]->id;
+        $plain = (int) $students[1]->id;
+
+        // Plain member, blank source, target = their own team.
+        try {
+            $api->moves()->stage($plain, null, (int) $a->id, false, null, 99);
+            $this->fail('Expected the same-group refusal (inferred source)');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('errmovesamegroup', $e->errorcode);
+        }
+        // The leader, with a successor named: the demotion shape.
+        try {
+            $api->moves()->stage($leader, null, (int) $a->id, false, $plain, 99);
+            $this->fail('Expected the same-group refusal (leader, inferred source)');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('errmovesamegroup', $e->errorcode);
+        }
+        // Typed rather than inferred: the same refusal, from the seam
+        // and not only from the form.
+        try {
+            $api->moves()->stage($plain, (int) $a->id, (int) $a->id, false, null, 99);
+            $this->fail('Expected the same-group refusal (explicit source)');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('errmovesamegroup', $e->errorcode);
+        }
+
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_move', [
+            'activityid' => $activity->id(),
+        ]));
+        $this->assertSame($leader, (int) groups::get($activity, (int) $a->id)->leaderid);
     }
 
     /**

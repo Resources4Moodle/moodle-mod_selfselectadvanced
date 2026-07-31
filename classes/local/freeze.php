@@ -132,8 +132,10 @@ class freeze {
      * @param bool $rethrow true inside the adhoc task, so core's retry and
      *        backoff engage; inline callers swallow and report, because the
      *        queued adhoc IS their retry
-     * @return stdClass status ('synced'|'nomirror'|'deferred'), coregroupid,
-     *         added, removed, refused, extra
+     * @return stdClass status ('synced'|'nomirror'|'failed'), coregroupid,
+     *         added, removed, refused, extra, error - 'synced' is set only
+     *         once every add, removal and grouping write has RETURNED, so a
+     *         caller may read it as "the mirror is in step"
      * @throws \Throwable when $rethrow and a core call fails
      */
     public static function sync_core_group(
@@ -153,23 +155,35 @@ class freeze {
             'removed' => [],
             'refused' => [],
             'extra' => [],
+            'error' => '',
         ];
 
-        // Deferral guard, SILENT by design. The adhoc queued by
-        // request_sync() is the convergence contract, so there is
-        // nothing to say here - and saying it would be fatal: under
-        // PHPUnit on PostgreSQL advanced_testcase opens a delegated
-        // transaction before EVERY test, so a debugging() behind this
-        // guard fires in every test on one engine and none on the
-        // other. Being silent is also what makes the routine safe to
-        // call from a core observer, which runs inside its caller's
-        // transaction.
-        if ($DB->is_transaction_started()) {
-            $result->status = 'deferred';
-
-            return $result;
-        }
-
+        // NO AMBIENT-TRANSACTION BRANCH HERE, DELIBERATELY, AND NONE MAY
+        // BE ADDED. This routine used to return status='deferred' the
+        // moment $DB->is_transaction_started() was true. That is
+        // requirement 6's named trap: advanced_testcase opens a
+        // delegated transaction before EVERY test on PostgreSQL and
+        // none on MariaDB, so the guard made the mirror RUN on one
+        // engine and be SKIPPED on the other for identical inputs -
+        // measured with the same probe on both: 'family=postgres
+        // tx_started=1 sync_status=deferred coregroupid=0 coremembers=0'
+        // against 'family=mysql tx_started=0 sync_status=synced
+        // coregroupid=SET coremembers=3'. Two engines were
+        // reported as one number by the gate and any test that forgot
+        // the opt-in preventResetByRollback() passed vacuously on
+        // PostgreSQL. What a routine DOES must never depend on ambient
+        // transaction state; only how it unwinds may ($outermost).
+        //
+        // What the removal costs, stated rather than glossed: a caller
+        // with a transaction open now performs the core group writes
+        // inside that transaction. They are the same DB connection, so
+        // they roll back with it; core buffers the events and the
+        // messages a rollback must not send (\core\event\manager and
+        // \core\message\manager both discard their buffers on
+        // database_transaction_rolledback). The convergence contract is
+        // unchanged: request_sync() queues the adhoc in the SAME
+        // transaction as the plugin write, so a rollback takes the job
+        // with it and a commit keeps it.
         $group = $DB->get_record('selfselectadvanced_group', ['id' => $groupid]);
         if (!$group) {
             // Activity or group deleted meanwhile.
@@ -180,11 +194,24 @@ class freeze {
             $coregroupid = (int) ($group->coregroupid ?? 0);
             $frozen = $group->state === state::FROZEN;
             if ($frozen && (!$coregroupid || !groups_group_exists($coregroupid))) {
-                // Mint or repair. The ONE documented exception to "no
-                // core API under a plugin lock": a single insert, no
-                // open transaction, no membership writes, once per team
-                // lifetime. The lock closes the double-mint race
-                // between an inline caller and the adhoc.
+                // Mint or repair. The ONE exception to "no core API
+                // under a plugin lock", and the honest description of
+                // it - the previous wording, "a single insert", is
+                // false and docs/architecture.md A7 now carries the
+                // corrected list. groups_create_group() also invalidates
+                // the course-wide 'groupdata' cache definition, rebuilds
+                // the course's hidden-groups cache, may create a group
+                // conversation, saves group custom fields, triggers
+                // \core\event\group_created - measured dispatching at
+                // locks::held_count() === 1, the only core group event
+                // in this plugin that does - and dispatches
+                // \core_group\hook\after_group_created, i.e. arbitrary
+                // third-party observer and hook code, per mint, under
+                // this per-team lock. It stays because the lock is what
+                // closes the double-mint race between an inline caller
+                // and the adhoc, and it runs once per team lifetime,
+                // with no membership writes and no open transaction of
+                // this plugin's own.
                 $lock = locks::acquire('group:' . $groupid);
                 try {
                     $group = $DB->get_record('selfselectadvanced_group', ['id' => $groupid]);
@@ -223,7 +250,6 @@ class freeze {
             }
 
             $result->coregroupid = $coregroupid;
-            $result->status = 'synced';
 
             $expected = self::expected_core_members($group);
             $split = self::classify_mirror($groupid, $coregroupid, $expected, $forceremove);
@@ -247,11 +273,41 @@ class freeze {
             }
 
             self::ensure_grouping($activity, $coregroupid);
+
+            // LAST, not first. 'synced' is the caller's licence to tell
+            // a manager the course group is in step, and group.php does
+            // exactly that; setting it before classify_mirror() and the
+            // two loops meant a throw anywhere in them returned
+            // status='synced' with added=0/removed=0 and the page chose
+            // its green "already in step" branch for a mirror missing
+            // the very member the sync had failed to add. The only
+            // signal was a debugging(), which is a no-op in production.
+            $result->status = 'synced';
         } catch (\Throwable $e) {
+            // A refusal, not a whisper: the status carries the failure
+            // out to the caller and the message travels with it, so a
+            // page can say what went wrong instead of showing green.
+            $result->status = 'failed';
+            $result->error = $e->getMessage();
             debugging(
                 'Core-group sync failed for plugin group ' . $groupid . ': ' . $e->getMessage(),
                 DEBUG_DEVELOPER
             );
+
+            // Queue the convergence job even here. group.php's manual
+            // resync was the ONE sync entry point with no adhoc behind
+            // it, so a failure there left the mirror broken with
+            // nothing scheduled to try again; every other caller has
+            // already queued one inside its own transaction and
+            // queue_adhoc_task(..., true) dedupes an identical pending
+            // row, so this adds a retry where there was none and
+            // nothing where there was one. Inside the adhoc itself
+            // ($rethrow) core's own retry and backoff are the
+            // mechanism, and re-queueing under a failing task would
+            // race its rescheduling.
+            if (!$rethrow && $group) {
+                self::request_sync($activity, $group);
+            }
             if ($rethrow) {
                 throw $e;
             }
@@ -260,7 +316,41 @@ class freeze {
         }
 
         if ($result->added || $result->removed || $result->refused || $result->extra) {
-            // Legal here: no lock is held and no transaction is open.
+            // NO LOCK IS HELD. That half is a measured fact, not a
+            // hope: instrumenting this line to record locks::held_count()
+            // and running the whole suite gives ZERO calls with a lock
+            // held, on PostgreSQL and on MariaDB. Every plugin caller
+            // syncs after its own release - moves::commit_set(),
+            // state::, succession::, handover::, joinrequests:: and
+            // freeze's own freeze_group()/unfreeze() all do - and the
+            // nested join-accept path hands the group ids back through
+            // $deferredsyncgroupids instead of calling here at all.
+            //
+            // NO TRANSACTION IS OPEN IS NOT GUARANTEED, and saying it
+            // was is what the 1.20 requirement-6 removal cost. The
+            // is_transaction_started() deferral used to return before
+            // this line, so an ambient transaction was structurally
+            // unreachable here; with the deferral gone, a caller that
+            // has one open reaches this event and, below,
+            // flag_sync_refusals() -> notifier::send(). observer.php's
+            // deleted-user path names that possibility in its own
+            // comment, and coresync_test's
+            // test_sync_does_the_same_work_inside_and_outside_a_transaction
+            // reaches this line with one open by construction (measured
+            // on MariaDB, where the harness opens none of its own:
+            // TX=1 HELD=0, and it is the only such call in 421 tests).
+            //
+            // What that costs, stated rather than glossed: core buffers
+            // both the event and the message and discards the buffers on
+            // database_transaction_rolledback, so nothing escapes a
+            // rollback - but a message queued under a caller's
+            // transaction still travels late, and house rule 1 wants
+            // notifier::send() outside one. The clean repair is the
+            // explicit-mode split already booked as the T-16 follow-up
+            // (sync_now() versus request_sync(), refusing the inline
+            // form when a transaction is open); until it lands this
+            // comment describes the real state instead of the state the
+            // deferral used to enforce.
             $data = [
                 'objectid' => (int) $group->id,
                 'context' => $activity->context(),
@@ -514,7 +604,9 @@ class freeze {
      * the core-group sync, the event and the notifications - all three
      * outside every lock and transaction. Re-freezing an already frozen
      * group is a repair: no gates, no state flip, just the sync, whose
-     * mint recreates an externally deleted mirror.
+     * mint recreates an externally deleted mirror - and NO group_frozen
+     * event and NO mail, because the team was frozen once and is
+     * announced once.
      *
      * @param activity $activity the activity
      * @param stdClass $group the group row
@@ -531,6 +623,11 @@ class freeze {
         $outermost = !$DB->is_transaction_started();
         $lock = locks::acquire('group:' . $group->id);
         $violators = [];
+        // Declared OUT here so it is still readable after the lock
+        // releases: the event and the notifications below are gated on
+        // it, and a variable first assigned inside the try would be
+        // undefined on every path this method can leave the try by.
+        $isrepair = false;
         try {
             $fresh = groups::get($activity, (int) $group->id);
             // An already frozen group is a repair: the mirror is what
@@ -617,13 +714,32 @@ class freeze {
             );
         }
 
+        // The sync runs on BOTH paths - on a repair it is the entire
+        // point of the call, exactly as group.php's action=resynccore
+        // does it.
         $sync = self::sync_core_group($activity, (int) $fresh->id, $actorid);
         $fresh = groups::get($activity, (int) $fresh->id);
         $fresh->sync = $sync;
 
-        // Moved out of the transaction (requirement 2). A deferred or
-        // failed inline sync still leaves the freeze recorded; the
-        // adhoc's own coregroup_synced records the mint when it lands.
+        if ($isrepair) {
+            // A repair is no gates, no state flip, JUST THE SYNC - the
+            // docblock above has said so since 1.19, and everything
+            // below used to run anyway. Measured before this gate:
+            // freezing an already frozen team a second time re-fired
+            // group_frozen and re-mailed every confirmed member ('msgs
+            // 4->8 group_frozen 1->2'), which two staff clicking Freeze
+            // produce through the lock and which
+            // task\bulkfreeze_adhoc re-runs on queued overflow. The
+            // team was frozen once; it is announced once. The plugin's
+            // own repair entry point (group.php action=resynccore)
+            // already behaved this way - it calls sync_core_group()
+            // alone and notifies nobody.
+            return $fresh;
+        }
+
+        // Moved out of the transaction (requirement 2). A failed inline
+        // sync still leaves the freeze recorded; the adhoc's own
+        // coregroup_synced records the mint when it lands.
         \mod_selfselectadvanced\event\group_frozen::create([
             'objectid' => $fresh->id,
             'context' => $activity->context(),
