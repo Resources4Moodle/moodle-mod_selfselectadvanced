@@ -283,6 +283,12 @@ class moves {
             $bypasses = $resolver->move_bypasses($moveid);
             $verdicts = [];
 
+            // The move's target, resolved ONCE per move: several
+            // verdicts below read it, and leaving the assignment inside
+            // one of their blocks would let a move that skipped that
+            // block judge itself against the PREVIOUS move's target.
+            $targetid = $move->targetgroupid ? (int) $move->targetgroupid : null;
+
             // L1 on the source group's net post-state.
             if ($move->sourcegroupid) {
                 $sourceid = (int) $move->sourcegroupid;
@@ -296,7 +302,6 @@ class moves {
             }
 
             // L2 on the target group's net post-state (confirmed + pending seats).
-            $targetid = (int) $move->targetgroupid;
             $seatsafter = $seatsafterfn($targetid);
             $max = $resolver->effective_maxsize($targetid)->value;
             $verdicts['L2'] = $this->verdict(
@@ -369,17 +374,25 @@ class moves {
                 );
             }
 
-            // Quota on both groups' net post-state rosters.
-            $quotaok = $this->quota_after($targetid, $additions[$targetid] ?? [], $removals[$targetid] ?? []);
+            // Quota on both groups' net post-state rosters. Exemption is
+            // a PER-GROUP property (override resolver, gatekeeper.php
+            // check_composition_feasibility()): each group passes when
+            // it complies OR is exempt, and the set passes when both
+            // do. Conjoining the two compliances first and only then
+            // OR-ing one set-level exemption over the pair refused
+            // legitimate moves whenever exactly one side was exempt.
+            // Exemption is tested first, so an exempt group costs no
+            // evaluation at all.
+            $targetok = $resolver->is_quota_exempt($targetid)->enabled
+                || $this->quota_after($targetid, $additions[$targetid] ?? [], $removals[$targetid] ?? []);
+            $sourceok = true;
             if ($move->sourcegroupid) {
                 $sourceid = (int) $move->sourcegroupid;
-                $quotaok = $quotaok
-                    && $this->quota_after($sourceid, $additions[$sourceid] ?? [], $removals[$sourceid] ?? []);
+                $sourceok = $resolver->is_quota_exempt($sourceid)->enabled
+                    || $this->quota_after($sourceid, $additions[$sourceid] ?? [], $removals[$sourceid] ?? []);
             }
-            $exempt = $resolver->is_quota_exempt($targetid)->enabled
-                && (!$move->sourcegroupid || $resolver->is_quota_exempt((int) $move->sourcegroupid)->enabled);
             $verdicts['QUOTA'] = $this->verdict(
-                $quotaok || $exempt,
+                $targetok && $sourceok,
                 in_array('QUOTA', $bypasses, true),
                 get_string('moveruleQUOTA', 'mod_selfselectadvanced')
             );

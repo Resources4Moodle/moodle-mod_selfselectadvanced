@@ -180,9 +180,23 @@ class gatekeeper {
     /**
      * Whether admitting a member leaves the composition reachable: an
      * exceeded counting-rule maximum can never self-heal by adding
-     * members, and a seat-plan deficiency larger than the free seats
-     * below the effective maximum can never be filled. Quota-exempt
-     * groups skip the gate, exactly as the submit gate does.
+     * members, and a demand for more further members than the free
+     * seats below the effective maximum can supply can never be met.
+     * Quota-exempt groups skip the gate, exactly as the submit gate
+     * does.
+     *
+     * The `missing` figure this compares against the free seats is a
+     * PROVEN LOWER BOUND on the further members any compliant
+     * completion of the roster would need. The seat plan is measured by
+     * the exact, order-independent seat engine — so a roster this gate
+     * admits is never one the submit gate would call unreachable — and
+     * the counting-rule arithmetic beside it adds only demands that
+     * need disjoint people (different values of ONE dimension) while
+     * maxing demands one person could serve at once (values in
+     * DIFFERENT dimensions). Under-counting would let a group fill up
+     * into a dead end; over-counting would refuse legitimate
+     * invitations, so the bound is deliberately provable rather than
+     * merely plausible.
      *
      * @param \stdClass $group group row
      * @param int|null $candidateid prospective member, null when already seated

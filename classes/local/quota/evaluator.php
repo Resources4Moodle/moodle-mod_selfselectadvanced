@@ -70,10 +70,17 @@ class evaluator {
      * members already hold reserved seats, L2), plus the candidate
      * when they are not seated yet. Two unreachability conditions:
      * an exceeded counting-rule MAXIMUM (adding members can never
-     * repair it), and a seat-plan deficiency larger than the free
-     * seats left below the effective maximum. The same greedy booking
-     * that gates submission measures the deficiency, so this gate can
-     * never admit a roster the submit gate would call unreachable.
+     * repair it), and a demand for more further members than the free
+     * seats left below the effective maximum could ever supply.
+     *
+     * That demand — `missing` — is a PROVEN LOWER BOUND on the number
+     * of additional members any compliant completion of this roster
+     * would need. It is measured by the same exact seat engine that
+     * gates submission, plus counting-rule arithmetic that adds
+     * demands which need DISJOINT people and only maxes demands one
+     * person could serve at once (see feasibility_from_data()). A
+     * lower bound is the only safe direction here: over-estimating
+     * would refuse legitimate invitations.
      *
      * @param activity $activity the activity
      * @param int $groupid the group
@@ -117,6 +124,28 @@ class evaluator {
      * there is exactly one implementation of the verdict and the picker
      * can never disagree with the gate that follows it.
      *
+     * How `missing` is bounded (this arithmetic is the gate, so each
+     * step below is a bound that can be PROVED, never an estimate):
+     *
+     *  - `slotbound`, the unfilled seats of the exact seat engine.
+     *    Restricting any complete seating of a finished roster to the
+     *    members present today is still a valid seating — dropping
+     *    bookings only drops consumed values, which relaxes the
+     *    no-overlap rule — so today's members can already fill at least
+     *    as many seats as the engine says. The rest must come from new
+     *    members, and a member fills at most one seat;
+     *  - per dimension, the SUM over values of `max(seat demand, rule
+     *    minimum) - members already holding that value`. Members
+     *    holding different values of one dimension are necessarily
+     *    different people, so demands on different values of the same
+     *    dimension add;
+     *  - per dimension, a distinct rule's own shortfall in values, as
+     *    each new member adds at most one value. Combined with the sum
+     *    above by max, never by +, because members brought in for the
+     *    value demands may or may not also repair distinctness;
+     *  - ACROSS dimensions, max: one new member holds a value in every
+     *    dimension at once and can serve one demand per dimension.
+     *
      * @param stdClass[] $rules the activity's quota rules, priority order
      * @param stdClass[] $template the activity's seat plan
      * @param int[] $memberids the roster to judge, candidate included
@@ -130,11 +159,12 @@ class evaluator {
         array $attrs
     ): stdClass {
         // Counting rules: an exceeded MAXIMUM can never self-heal by
-        // adding members; an unmet MINIMUM demands at least its deficit
-        // in further members, since each admitted member raises one
-        // value's count (or the distinct tally) by at most one.
+        // adding members and stops the scan where it always has; an
+        // unmet MINIMUM records how many members of its value the
+        // finished roster must hold.
         $maxexceeded = null;
-        $ruledeficit = 0;
+        $rulemin = [];              // Dimension => value => required members.
+        $distinctbound = [];        // Dimension => further values a distinct rule needs.
         foreach ($rules as $rule) {
             if ($rule->rtype === 'distinct') {
                 $distinct = [];
@@ -144,7 +174,11 @@ class evaluator {
                         $distinct[\core_text::strtolower($value)] = true;
                     }
                 }
-                $ruledeficit = max($ruledeficit, (int) $rule->mincount - count($distinct));
+                $distinctbound[$rule->dimension] = max(
+                    $distinctbound[$rule->dimension] ?? 0,
+                    (int) $rule->mincount - count($distinct),
+                    0
+                );
                 continue;
             }
             $target = \core_text::strtolower((string) $rule->value);
@@ -164,8 +198,44 @@ class evaluator {
                 break;
             }
             if ($rule->mincount !== null) {
-                $ruledeficit = max($ruledeficit, (int) $rule->mincount - $current);
+                $rulemin[$rule->dimension][$target] = max(
+                    $rulemin[$rule->dimension][$target] ?? 0,
+                    (int) $rule->mincount
+                );
             }
+        }
+
+        // Fixed-value seats demand DISTINCT members of their value, so
+        // their mincounts add. Null-value and distinct seats demand no
+        // particular value and are covered by the seat bound instead.
+        $seatdemand = [];
+        foreach ($template as $slot) {
+            if ($slot->matchtype !== 'value' || $slot->value === null) {
+                continue;
+            }
+            $value = \core_text::strtolower((string) $slot->value);
+            $seatdemand[$slot->dimension][$value] = ($seatdemand[$slot->dimension][$value] ?? 0)
+                + max(0, (int) $slot->mincount);
+        }
+
+        $present = self::value_supply($memberids, $attrs);
+        $dimbound = 0;
+        $dimensions = array_unique(array_merge(
+            array_keys($seatdemand),
+            array_keys($rulemin),
+            array_keys($distinctbound)
+        ));
+        foreach ($dimensions as $dimension) {
+            $sum = 0;
+            $values = array_unique(array_merge(
+                array_keys($seatdemand[$dimension] ?? []),
+                array_keys($rulemin[$dimension] ?? [])
+            ));
+            foreach ($values as $value) {
+                $required = max($seatdemand[$dimension][$value] ?? 0, $rulemin[$dimension][$value] ?? 0);
+                $sum += max(0, $required - ($present[$dimension][$value] ?? 0));
+            }
+            $dimbound = max($dimbound, $sum, $distinctbound[$dimension] ?? 0);
         }
 
         $slotresult = slots::evaluate_from_data($template, $memberids, $attrs);
@@ -175,13 +245,44 @@ class evaluator {
         }
 
         return (object) [
-            // Members still needed is bounded below by the unfilled
-            // seats AND by every rule's own deficit; the largest bound
-            // is what the free seats must cover.
-            'missing' => max($slotmissing, $ruledeficit, 0),
+            // Every term is a proven lower bound on the further members
+            // a compliant completion needs, so the largest of them is
+            // what the free seats must cover.
+            'missing' => max($slotmissing, $dimbound, 0),
             'seated' => count(array_unique($memberids)),
             'maxexceeded' => $maxexceeded,
         ];
+    }
+
+    /**
+     * How many members of a roster hold each value of each dimension.
+     *
+     * Member values are lower-cased AND trimmed, as the seat engine
+     * matches them; configured rule and slot values are lower-cased
+     * only, as the rule engine has always matched them. Attributes are
+     * trimmed at write time (attributes\manager::set()), so on real
+     * data the two agree; where a configured value is malformed, this
+     * counts MORE members rather than fewer, which can only make the
+     * bound looser and never turns it into an over-estimate.
+     *
+     * @param int[] $memberids the roster
+     * @param stdClass[] $attrs attributes keyed by user id
+     * @return array dimension => value => member count
+     */
+    private static function value_supply(array $memberids, array $attrs): array {
+        $supply = [];
+        foreach (array_unique(array_map('intval', $memberids)) as $userid) {
+            $record = $attrs[$userid] ?? null;
+            foreach (manager::DIMENSIONS as $dimension) {
+                $value = \core_text::strtolower(trim((string) ($record->{$dimension} ?? '')));
+                if ($value === '') {
+                    continue;
+                }
+                $supply[$dimension][$value] = ($supply[$dimension][$value] ?? 0) + 1;
+            }
+        }
+
+        return $supply;
     }
 
     /**
@@ -279,10 +380,11 @@ class evaluator {
      * The single evaluator behind evaluate() and
      * compliance_for_activity(): both the per-group path and the batch
      * path funnel through here, using the same rule logic, the same
-     * slot booking logic (slots::evaluate_from_data(), including
+     * exact seat evaluation (slots::evaluate_from_data(), including
      * matchtype value or distinct and allowoverlap) and the same
      * unknown-attribute handling, so their verdicts can never drift
-     * apart.
+     * apart. A seat plan is reported unsatisfied only when NO seating
+     * of the roster satisfies it.
      *
      * @param stdClass[] $rules quota rule rows, priority order
      * @param stdClass[] $template slot rows in slot order

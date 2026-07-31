@@ -281,4 +281,143 @@ final class feasibility_test extends \advanced_testcase {
         // A Female shrinks the deficit with the seat she takes.
         $this->assertNull($api->gatekeeper()->can_invite($group, (int) $female->id));
     }
+
+    /**
+     * A team of four whose members hold none of the demanded values,
+     * with room for seven, and a fifth candidate who holds none either.
+     *
+     * The rosters are built through the generator rather than through
+     * invitations on purpose: the point of these fixtures is a roster
+     * the admission gate would itself refuse to assemble.
+     *
+     * @param int $maxsize the group maximum
+     * @return array [activity, api, group row, candidate user]
+     */
+    private function setup_bare_roster(int $maxsize): array {
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => $maxsize,
+            'maxlead' => 1,
+            'maxmembership' => 1,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+
+        $students = [];
+        for ($i = 0; $i < 5; $i++) {
+            $user = $generator->create_user();
+            $generator->enrol_user($user->id, $course->id, 'student');
+            manager::set((int) $user->id, ['department' => 'Elsewhere', 'gender' => 'Male'], 2);
+            $students[] = $user;
+        }
+
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[0]->id,
+            'name' => 'Bare',
+            'state' => state::FORMING,
+        ]);
+        for ($i = 1; $i < 4; $i++) {
+            $plugingen->create_member([
+                'groupid' => $group->id,
+                'userid' => (int) $students[$i]->id,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+        }
+
+        return [$activity, new api($activity), groups::get($activity, (int) $group->id), $students[4]];
+    }
+
+    /**
+     * Two unmet MINIMA on the SAME dimension demand disjoint people, so
+     * their deficits ADD. Taking the larger of the two - as the gate
+     * used to - admitted members into a team whose composition was
+     * already out of reach.
+     */
+    public function test_same_dimension_minima_sum(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $group, $candidate] = $this->setup_bare_roster(7);
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        foreach (['DeptA', 'DeptB'] as $value) {
+            $plugingen->create_quota([
+                'activityid' => $activity->id(),
+                'dimension' => 'department',
+                'rtype' => 'value',
+                'value' => $value,
+                'mincount' => 2,
+            ]);
+        }
+
+        $feasibility = evaluator::feasibility($activity, (int) $group->id, null);
+        $this->assertSame(4, $feasibility->missing, 'Two DeptA plus two DeptB are four different people');
+
+        // Four seated, five with the candidate, seven allowed: two free
+        // seats can never carry four further members.
+        $this->assertSame(
+            'refusalcompositionunreachable',
+            $api->gatekeeper()->can_invite($group, (int) $candidate->id)?->stringkey
+        );
+    }
+
+    /**
+     * The guard against over-correcting: minima on DIFFERENT dimensions
+     * can be met by the SAME people, so their deficits do not add. A
+     * naive "sum every deficit" would refuse this admission, and
+     * refusing a legitimate invitation is as much a defect as admitting
+     * a doomed one.
+     */
+    public function test_cross_dimension_minima_share_members(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $group, $candidate] = $this->setup_bare_roster(7);
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $plugingen->create_quota([
+            'activityid' => $activity->id(),
+            'dimension' => 'gender',
+            'rtype' => 'value',
+            'value' => 'Female',
+            'mincount' => 2,
+        ]);
+        $plugingen->create_quota([
+            'activityid' => $activity->id(),
+            'dimension' => 'department',
+            'rtype' => 'value',
+            'value' => 'DeptX',
+            'mincount' => 2,
+        ]);
+
+        $feasibility = evaluator::feasibility($activity, (int) $group->id, null);
+        $this->assertSame(2, $feasibility->missing, 'Two Female DeptX students satisfy both minima at once');
+        $this->assertNull($api->gatekeeper()->can_invite($group, (int) $candidate->id));
+    }
+
+    /**
+     * A counting rule and a seat plan on ONE dimension demand disjoint
+     * people just as two rules do: the seat needs members of its value,
+     * the rule needs members of another, and nobody holds two values of
+     * one dimension.
+     */
+    public function test_rule_and_slot_on_one_dimension_sum(): void {
+        $this->resetAfterTest();
+
+        [$activity, , $group] = $this->setup_bare_roster(7);
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $plugingen->create_quota([
+            'activityid' => $activity->id(),
+            'dimension' => 'department',
+            'rtype' => 'value',
+            'value' => 'DeptA',
+            'mincount' => 2,
+        ]);
+        slots::create($activity, (object) [
+            'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value',
+            'value' => 'DeptB', 'allowoverlap' => 0,
+        ]);
+
+        $this->assertSame(4, evaluator::feasibility($activity, (int) $group->id, null)->missing);
+    }
 }

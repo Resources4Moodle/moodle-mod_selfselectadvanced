@@ -58,6 +58,12 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                 'required' => ['selfselectadvanced', 'dimension'],
                 'switchids' => ['selfselectadvanced' => 'activityid'],
             ],
+            'slots' => [
+                'singular' => 'slot',
+                'datagenerator' => 'slot',
+                'required' => ['selfselectadvanced', 'dimension', 'matchtype'],
+                'switchids' => ['selfselectadvanced' => 'activityid'],
+            ],
             'moves' => [
                 'singular' => 'move',
                 'datagenerator' => 'move',

@@ -9,6 +9,8 @@ Feature: Composition quotas with a live deficiency panel
       | username | firstname | lastname | email                |
       | student1 | Sam       | One      | student1@example.com |
       | student2 | Tara      | Two      | student2@example.com |
+      | student3 | Raj       | Three    | student3@example.com |
+      | student4 | Nia       | Four     | student4@example.com |
       | teacher1 | Tina      | Teach    | teach1@example.com   |
     And the following "courses" exist:
       | fullname | shortname |
@@ -17,11 +19,15 @@ Feature: Composition quotas with a live deficiency panel
       | user     | course | role           |
       | student1 | C1     | student        |
       | student2 | C1     | student        |
+      | student3 | C1     | student        |
+      | student4 | C1     | student        |
       | teacher1 | C1     | editingteacher |
     And the following "mod_selfselectadvanced > attributes" exist:
       | user     | gender | department | subdepartment |
       | student1 | Male   | Civil      | Structures    |
       | student2 | Female | Civil      | Hydraulics    |
+      | student3 | Male   | Maths      | Algebra       |
+      | student4 | Male   | Maths      | Geometry      |
     And the following "activities" exist:
       | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership |
       | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 4       | 1       | 2             |
@@ -78,3 +84,29 @@ Feature: Composition quotas with a live deficiency panel
     Then I should see "You have joined the group \"Team Blue\"."
     And I should not see "Needs 1 more from Gender Female"
     And I should see "Satisfied"
+
+  Scenario: A team the seat plan can satisfy only by an exact allocation may submit
+    Given the following "users" exist:
+      | username | firstname | lastname | email              |
+      | guide1   | Gita      | Guide    | guide1@example.com |
+    And the following "course enrolments" exist:
+      | user   | course | role    |
+      | guide1 | C1     | teacher |
+    And the following "mod_selfselectadvanced > slots" exist:
+      | selfselectadvanced | mincount | dimension  | matchtype | value | allowoverlap |
+      | ssa1               | 2        | department | value     |       | 0            |
+      | ssa1               | 1        | department | value     | Civil | 0            |
+    And the following "mod_selfselectadvanced > members" exist:
+      | ssagroup  | user     | status    |
+      | Team Blue | student2 | confirmed |
+      | Team Blue | student3 | confirmed |
+      | Team Blue | student4 | confirmed |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    And I follow "Team Blue"
+    Then I should see "Composition requirements"
+    # The two Maths students share the "any one department" seats, which
+    # leaves a Civil student for the Civil seat. Booking the seats in
+    # declaration order instead takes the Civil pair first and starves
+    # the Civil seat, which is what used to happen here.
+    And I should not see "Need 1 more"
+    And the "Submit to guide" "button" should be enabled

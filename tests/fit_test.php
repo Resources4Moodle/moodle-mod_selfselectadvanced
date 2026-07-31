@@ -270,4 +270,127 @@ final class fit_test extends \advanced_testcase {
         $this->assertNotSame('', $verdict->caution);
         $this->assertNull($verdict->seat, 'A team that is not forming has no seat to offer');
     }
+
+    /**
+     * When a candidate could complete either of two seats, the seat
+     * they are told about is the LEAST restrictive one - the one more
+     * people could fill - because the shortfall belongs on the seat
+     * that is genuinely hard to fill.
+     *
+     * The team wants one Female and two Computer members and has a
+     * single Computer male. The arriving Computer female completes the
+     * Female seat OR the second Computer seat; both leave two seats
+     * filled, and the Computer pair is the roomier of the two.
+     */
+    public function test_seat_named_is_the_least_restrictive_available(): void {
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 5,
+            'maxlead' => 1,
+            'maxmembership' => 1,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+
+        $leader = $generator->create_user();
+        $generator->enrol_user($leader->id, $course->id, 'student');
+        manager::set((int) $leader->id, ['department' => 'Computer', 'gender' => 'Male'], 2);
+        $candidate = $generator->create_user();
+        $generator->enrol_user($candidate->id, $course->id, 'student');
+        manager::set((int) $candidate->id, ['department' => 'Computer', 'gender' => 'Female'], 2);
+
+        $female = slots::create($activity, (object) [
+            'mincount' => 1, 'dimension' => 'gender', 'matchtype' => 'value',
+            'value' => 'Female', 'allowoverlap' => 1,
+        ]);
+        $computer = slots::create($activity, (object) [
+            'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value',
+            'value' => 'Computer', 'allowoverlap' => 1,
+        ]);
+
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => $leader->id,
+            'name' => 'Team Choice',
+        ]);
+
+        $verdict = fit::for_person($activity, $group, (int) $candidate->id);
+
+        $this->assertTrue($verdict->fits);
+        $this->assertSame((int) $computer->slotno, $verdict->seatno, 'The roomier Computer seat is the one named');
+        $this->assertNotSame((int) $female->slotno, $verdict->seatno);
+        $this->assertStringContainsStringIgnoringCase('computer', (string) $verdict->seat);
+    }
+
+    /**
+     * The picker and the gate must reach the same verdict on combined
+     * deficits. Two minima on one dimension need four further members;
+     * two free seats cannot carry them, so both the row's caution and
+     * the gate's refusal say so, with the same figures.
+     */
+    public function test_picker_agrees_with_the_gate_on_combined_deficits(): void {
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 7,
+            'maxlead' => 1,
+            'maxmembership' => 1,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+        foreach (['DeptA', 'DeptB'] as $value) {
+            $plugingen->create_quota([
+                'activityid' => $activity->id(),
+                'dimension' => 'department',
+                'rtype' => 'value',
+                'value' => $value,
+                'mincount' => 2,
+            ]);
+        }
+
+        $students = [];
+        for ($i = 0; $i < 5; $i++) {
+            $user = $generator->create_user();
+            $generator->enrol_user($user->id, $course->id, 'student');
+            manager::set((int) $user->id, ['department' => 'Elsewhere', 'gender' => 'Male'], 2);
+            $students[] = $user;
+        }
+
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[0]->id,
+            'name' => 'Team Deficit',
+        ]);
+        for ($i = 1; $i < 4; $i++) {
+            $plugingen->create_member([
+                'groupid' => $group->id,
+                'userid' => (int) $students[$i]->id,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+        }
+
+        $candidate = (int) $students[4]->id;
+        $expected = get_string(
+            'refusalcompositionunreachable',
+            'mod_selfselectadvanced',
+            (object) ['missing' => 4, 'free' => 2]
+        );
+
+        $row = fit::for_groups($activity, [$group], $candidate)[(int) $group->id];
+        $this->assertFalse($row->fits, 'A team whose composition is already out of reach cannot fit anybody');
+        $this->assertSame($expected, $row->caution);
+
+        $single = fit::for_person($activity, $group, $candidate);
+        $this->assertFalse($single->fits, 'Picker and gate must not disagree');
+        $this->assertSame($expected, $single->caution);
+    }
 }

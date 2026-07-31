@@ -253,4 +253,68 @@ final class slots_test extends \advanced_testcase {
         ]);
         $this->assertFalse(evaluator::is_compliant($activity, $groupid));
     }
+
+    /**
+     * A team the plan can satisfy only by an EXOTIC seating - one no
+     * single pass through the slots in order would find - is accepted.
+     *
+     * Two Computer and two Maths students, a "two from ONE department"
+     * seat followed by a "one from Computer" seat: the only seating
+     * that works puts the MATHS pair in the shared seat, which the old
+     * single-pass booking never tried because it always took the first
+     * largest group it saw.
+     */
+    public function test_exact_engine_accepts_a_valid_exotic_assignment(): void {
+        $this->resetAfterTest();
+
+        [$activity, $groupid] = $this->setup_group([
+            ['Computer', 'Male'], ['Computer', 'Female'],
+            ['Math', 'Male'], ['Math', 'Female'],
+        ]);
+        slots::create($activity, (object) [
+            'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => '',
+        ]);
+        slots::create($activity, (object) [
+            'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
+        ]);
+
+        $result = slots::evaluate($activity, $groupid);
+
+        $this->assertTrue($result->ok, 'Maths pair in the shared seat, a Computer in the fixed one');
+        $this->assertSame(3, $result->totalfilled);
+    }
+
+    /**
+     * The same roster and the same two seats declared in either order
+     * reach the same verdict. Declaration order still decides which
+     * values a later seat must avoid; what it must never decide is
+     * whether the team can be seated at all.
+     */
+    public function test_slot_order_does_not_change_the_verdict(): void {
+        $this->resetAfterTest();
+
+        $roster = [
+            ['Computer', 'Male'], ['Computer', 'Female'],
+            ['Math', 'Male'], ['Math', 'Female'],
+        ];
+
+        [$first, $firstgroup] = $this->setup_group($roster);
+        slots::create($first, (object) [
+            'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => '',
+        ]);
+        slots::create($first, (object) [
+            'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
+        ]);
+
+        [$second, $secondgroup] = $this->setup_group($roster);
+        slots::create($second, (object) [
+            'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
+        ]);
+        slots::create($second, (object) [
+            'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => '',
+        ]);
+
+        $this->assertTrue(slots::evaluate($first, $firstgroup)->ok);
+        $this->assertTrue(slots::evaluate($second, $secondgroup)->ok);
+    }
 }

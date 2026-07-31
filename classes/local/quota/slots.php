@@ -30,17 +30,39 @@ use stdClass;
  * value = any one shared value) or are pairwise different (matchtype
  * "distinct"). A member is booked into at most ONE slot — once booked
  * under a slot, later slots no longer see them, so the remaining
- * requirements adjust themselves. Unless a slot sets `allowoverlap`,
- * a member is excluded from it when ANY of their attribute values —
- * in any dimension, not just the slot's own — was consumed by an
- * earlier slot ("must not match"): after "2 with Department Computer",
- * a third Computer student cannot fill a distinct-sub-department seat.
- * With `allowoverlap` such members stay eligible.
+ * requirements adjust themselves.
  *
- * The evaluation is a GREEDY HEURISTIC (documented, audit item 14):
- * slots book in order and never backtrack, so a rare roster with a
- * valid exotic assignment can still report a deficiency; managers can
- * reorder slots to guide the booking.
+ * `allowoverlap` governs the consumption registry. A slot that books
+ * at least one member RECORDS what it used — its own value, or every
+ * booked member's value for a distinct slot — whether or not it allows
+ * overlap; a slot that books nobody records nothing. A slot WITHOUT
+ * `allowoverlap` then refuses a member when ANY of their attribute
+ * values, in any dimension and not just the slot's own, was recorded
+ * by an EARLIER slot ("must not match"): after "2 with Department
+ * Computer", a third Computer student cannot fill a
+ * distinct-sub-department seat. With `allowoverlap` such members stay
+ * eligible, and the slot still records.
+ *
+ * The evaluation is EXACT (1.20, replacing the greedy heuristic of
+ * audit item 14): {@see \mod_selfselectadvanced\local\quota\allocator}
+ * searches every assignment, so a template is reported satisfied if and
+ * only if SOME seating of the roster satisfies it. The verdict does not
+ * depend on the order the search explores. Slot ORDER remains
+ * load-bearing SEMANTICS, because the no-overlap rule above is defined
+ * against EARLIER slots; what is gone is slot order deciding
+ * satisfiability by accident. One caveat, stated plainly rather than
+ * buried: an unusually large roster or template can exhaust the
+ * allocator's node budget, and that team is then answered by the old
+ * heuristic and flagged with `exact => false`. The heuristic books a
+ * genuinely valid seating, so it can only ever under-report a team's
+ * fill - it can never call a team compliant that is not.
+ *
+ * Where several maximum-fill assignments exist, the one reported is the
+ * one leaving the shortfall on the MOST restrictive seats (the
+ * maintainer's least-restrictive placement rule: a seat many people
+ * could fill is offered before a seat almost nobody can). So WHICH slot
+ * shows a shortfall can differ from the old heuristic. The total fill,
+ * and therefore `ok`, is canonical.
  *
  * Example — "two members from one department, and three each from
  * distinct other departments, computer students also permitted":
@@ -162,24 +184,21 @@ class slots {
     /**
      * Evaluate the template against a group's confirmed members.
      *
-     * Booking is greedy in slot order. For a "value" slot with a fixed
-     * value, matching unbooked members are booked up to mincount. For
-     * a null-value "value" slot ("n from ONE x"), the largest unbooked
-     * value-group is used. For a "distinct" slot, one member per
-     * eligible value is booked, preferring values with the FEWEST
-     * remaining members (so plentiful values stay available for later
-     * slots). Deterministic: ties resolve by value name, then userid.
+     * Two queries — the template and the roster — then the exact
+     * evaluation of evaluate_from_data() below, which is the single
+     * implementation every composition verdict funnels through.
      *
      * @param activity $activity the activity
      * @param int $groupid the group
-     * @return stdClass {ok, slots: [{slot, filled, missing, label, deficiency}]}
+     * @return stdClass {ok, slots: [{slot, filled, missing, label,
+     *                  deficiency}], assignment, totalfilled, exact}
      */
     public static function evaluate(activity $activity, int $groupid): stdClass {
         global $DB;
 
         $template = self::get_all($activity);
         if (!$template) {
-            return (object) ['ok' => true, 'slots' => []];
+            return self::evaluate_from_data([], [], []);
         }
 
         $memberids = $DB->get_fieldset_select(
@@ -198,82 +217,49 @@ class slots {
      * Evaluate the template against an already-loaded confirmed member
      * set of one group.
      *
-     * The booking algorithm behind evaluate(), extracted so the batch
-     * quota compliance path (evaluator::compliance_for_activity()) can
-     * reuse the exact same logic against data it loaded once for a
-     * whole activity, instead of these three queries per group. Booking
-     * is the greedy heuristic described in the class docblock; this
-     * method issues no queries of its own.
+     * The evaluation behind evaluate(), extracted so the batch quota
+     * compliance path (evaluator::compliance_for_activity()) can reuse
+     * the exact same logic against data it loaded once for a whole
+     * activity, instead of these three queries per group. The seating
+     * itself is the exact search described in the class docblock and
+     * implemented in allocator::solve(); this method issues no queries
+     * of its own, and given identical inputs it returns an identical
+     * result — which is what lets a pre-lock check and the in-lock
+     * re-check of the same data agree.
+     *
+     * The result carries three fields beyond the panel's own shape:
+     * `assignment` maps each seated userid to the ARRAY INDEX of its
+     * entry in `slots` (not to `slotno`), `totalfilled` is the number
+     * of seats filled across the template, and `exact` is false only in
+     * the rare case where the input-size guard or the search budget
+     * made the allocator fall back to its heuristic.
      *
      * @param stdClass[] $template slot rows in slot order
      * @param int[] $memberids the group's confirmed member ids
      * @param stdClass[] $attrs participant attribute records keyed by userid
-     * @return stdClass {ok, slots: [{slot, filled, missing, label, deficiency}]}
+     * @return stdClass {ok, slots: [{slot, filled, missing, label,
+     *                  deficiency}], assignment, totalfilled, exact}
      */
     public static function evaluate_from_data(array $template, array $memberids, array $attrs): stdClass {
-        $result = (object) ['ok' => true, 'slots' => []];
+        $result = (object) [
+            'ok' => true,
+            'slots' => [],
+            'assignment' => [],
+            'totalfilled' => 0,
+            'exact' => true,
+        ];
         if (!$template) {
             return $result;
         }
 
-        $memberids = array_values(array_unique(array_map('intval', $memberids)));
-        sort($memberids);
+        $template = array_values($template);
+        $solution = allocator::solve($template, $memberids, $attrs);
+        $result->assignment = $solution->assignment;
+        $result->totalfilled = (int) $solution->totalfilled;
+        $result->exact = (bool) $solution->exact;
 
-        $booked = [];               // Userid => slotno.
-        $usedvalues = [];           // Dimension => value => true (consumed by earlier slots).
-        foreach ($template as $slot) {
-            $eligible = [];         // Value => userids, unbooked members with a usable value.
-            foreach ($memberids as $userid) {
-                if (isset($booked[$userid])) {
-                    continue;
-                }
-                $value = \core_text::strtolower(trim((string) ($attrs[$userid]->{$slot->dimension} ?? '')));
-                if ($value === '') {
-                    continue;
-                }
-                if (!$slot->allowoverlap && self::consumed($attrs[$userid] ?? null, $usedvalues)) {
-                    continue;
-                }
-                $eligible[$value][] = (int) $userid;
-            }
-            ksort($eligible);
-
-            $bookednow = [];
-            if ($slot->matchtype === 'value') {
-                $target = $slot->value !== null ? \core_text::strtolower($slot->value) : null;
-                if ($target === null) {
-                    // Null value = "n from ONE value": pick the largest value-group.
-                    $best = null;
-                    foreach ($eligible as $value => $ids) {
-                        if ($best === null || count($ids) > count($eligible[$best])) {
-                            $best = $value;
-                        }
-                    }
-                    $target = $best;
-                }
-                $pool = $target !== null ? ($eligible[$target] ?? []) : [];
-                sort($pool);
-                $bookednow = array_slice($pool, 0, (int) $slot->mincount);
-                if ($bookednow && $target !== null) {
-                    $usedvalues[$slot->dimension][$target] = true;
-                }
-            } else {
-                // Distinct: one member per value, scarcest values first.
-                uksort($eligible, static fn($a, $b) => [count($eligible[$a]), $a] <=> [count($eligible[$b]), $b]);
-                foreach ($eligible as $value => $ids) {
-                    if (count($bookednow) >= (int) $slot->mincount) {
-                        break;
-                    }
-                    sort($ids);
-                    $bookednow[] = $ids[0];
-                    $usedvalues[$slot->dimension][$value] = true;
-                }
-            }
-            foreach ($bookednow as $userid) {
-                $booked[$userid] = (int) $slot->slotno;
-            }
-
-            $filled = count($bookednow);
+        foreach ($template as $index => $slot) {
+            $filled = (int) ($solution->filled[$index] ?? 0);
             $missing = max(0, (int) $slot->mincount - $filled);
             $label = self::label($slot);
             $result->slots[] = (object) [
@@ -294,27 +280,6 @@ class slots {
         }
 
         return $result;
-    }
-
-    /**
-     * Whether any of a member's attribute values — in any dimension —
-     * was already consumed by an earlier slot. This is the no-overlap
-     * exclusion: after "2 with Department Computer", a third Computer
-     * student must not fill a later distinct-sub-department seat.
-     *
-     * @param stdClass|null $attr the member's attribute record
-     * @param array $usedvalues dimension => value => true, consumed so far
-     * @return bool
-     */
-    protected static function consumed(?stdClass $attr, array $usedvalues): bool {
-        foreach ($usedvalues as $dimension => $values) {
-            $own = \core_text::strtolower(trim((string) ($attr->{$dimension} ?? '')));
-            if ($own !== '' && isset($values[$own])) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

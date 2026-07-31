@@ -363,4 +363,47 @@ final class joinrequests_test extends \advanced_testcase {
         joinrequests::request($activity, (int) $beta->id, 'Asking properly', (int) $wanderer->id);
         $sink->close();
     }
+
+    /**
+     * Acceptance funnels through the move engine, so the move engine's
+     * per-group quota exemption reaches it: a request into a team that
+     * is EXEMPT from the composition rules is accepted even though the
+     * team does not satisfy them, as long as the team the student
+     * leaves still does.
+     *
+     * The set-level reading of exemption used to refuse this, and the
+     * student saw only "refusaljoinrules" with no way to act on it.
+     */
+    public function test_accept_into_exempt_group_commits(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $alpha, $beta, $wanderer] = $this->setup_world();
+
+        // One Computer seat. Alpha's leader fills it and stays; Beta
+        // can never fill it, so Beta is exempted instead.
+        \mod_selfselectadvanced\local\quota\slots::create($activity, (object) [
+            'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value',
+            'value' => 'Computer', 'allowoverlap' => 0,
+        ]);
+        \mod_selfselectadvanced\local\attributes\manager::set((int) $alpha->leaderid, ['department' => 'Computer'], 2);
+        \mod_selfselectadvanced\local\attributes\manager::set((int) $beta->leaderid, ['department' => 'Elsewhere'], 2);
+        \mod_selfselectadvanced\local\attributes\manager::set((int) $wanderer->id, ['department' => 'Elsewhere'], 2);
+        \mod_selfselectadvanced\local\override\store::save(
+            $activity,
+            'group',
+            (int) $beta->id,
+            ['quotaexempt' => 1],
+            0
+        );
+
+        $request = joinrequests::request($activity, (int) $beta->id, 'Please', (int) $wanderer->id);
+        $decided = joinrequests::respond($activity, (int) $request->id, true, 'ok', (int) $beta->leaderid);
+
+        $this->assertSame('committed', $decided->status);
+        $this->assertSame(
+            (int) $beta->id,
+            (int) joinrequests::current_group($activity, (int) $wanderer->id)->id
+        );
+        $sink->close();
+    }
 }

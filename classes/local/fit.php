@@ -43,11 +43,11 @@ use stdClass;
  *     exists, say WHICH seat the person would take.
  *
  * The seat answer is worked out by evaluating the plan twice: once
- * against the team as it stands, once with the candidate added. The seat
- * whose shortfall drops is the seat they would take. That reuses the
- * booking algorithm the compliance report already uses, rather than a
- * second, subtly different one - which is the whole point of doing it
- * this way.
+ * against the team as it stands, once with the candidate added. If the
+ * total number of filled seats rises, the seat they would take is the
+ * one the canonical assignment gives them. That reuses the seat engine
+ * the compliance report already uses, rather than a second, subtly
+ * different one - which is the whole point of doing it this way.
  *
  * Two entry points, because the two callers have opposite shapes:
  *
@@ -295,10 +295,24 @@ class fit {
     /**
      * Which seat a candidate takes, over data already in hand.
      *
-     * 'missing' is the shortfall on a seat, so the seat this person
-     * takes is the one whose shortfall drops when they are added.
-     * Comparing shortfalls rather than "is it full now" also names the
-     * right seat on a plan that reserves several of a kind.
+     * The plan is evaluated twice — as the team stands, and with the
+     * candidate added. If the total number of filled seats does not
+     * rise, no seat was waiting for this person. If it does rise, the
+     * seat they take is simply the one the canonical assignment puts
+     * them in.
+     *
+     * That the assignment always names them is a proof, not a hope: if
+     * a maximum-fill seating of the LARGER roster left the candidate
+     * unassigned, that same seating would be a valid seating of the
+     * roster without them, with the same fill — so the total could not
+     * have risen. Whenever the guard above passes, the candidate is
+     * seated. The defensive null below therefore never fires; it is
+     * there so a future change to the engine's shape degrades to "no
+     * seat named" rather than to a warning.
+     *
+     * Which seat that is follows the engine's least-restrictive
+     * placement rule, so a candidate who could complete either of two
+     * seats is shown in the roomier one.
      *
      * @param stdClass[] $template the seat plan
      * @param int[] $memberids the roster without the candidate
@@ -315,20 +329,15 @@ class fit {
         $before = slots::evaluate_from_data($template, $memberids, $attrs);
         $after = slots::evaluate_from_data($template, array_merge($memberids, [$userid]), $attrs);
 
-        $shortbefore = [];
-        foreach ($before->slots as $entry) {
-            $shortbefore[(int) $entry->slot->slotno] = (int) $entry->missing;
+        if ($after->totalfilled <= $before->totalfilled) {
+            return null;
         }
-        foreach ($after->slots as $entry) {
-            $no = (int) $entry->slot->slotno;
-            if (!isset($shortbefore[$no])) {
-                continue;
-            }
-            if ((int) $entry->missing < $shortbefore[$no]) {
-                return (object) ['slotno' => $no, 'label' => $entry->label];
-            }
+        $index = $after->assignment[$userid] ?? null;
+        if ($index === null || !isset($after->slots[$index])) {
+            return null;
         }
+        $entry = $after->slots[$index];
 
-        return null;
+        return (object) ['slotno' => (int) $entry->slot->slotno, 'label' => $entry->label];
     }
 }

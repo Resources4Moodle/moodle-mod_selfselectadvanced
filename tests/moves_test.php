@@ -532,4 +532,135 @@ final class moves_test extends \advanced_testcase {
             $this->assertSame('refusalmovesourcerequired', $e->errorcode);
         }
     }
+
+    /**
+     * Two groups of two under a seat plan wanting one Computer member,
+     * plus a groupless fifth student.
+     *
+     * @param array $departments department per student, index 0-4
+     * @return array [activity, api, students[], groupA, groupB]
+     */
+    private function setup_quota_pair(array $departments): array {
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'minsize' => 1,
+            'maxsize' => 3,
+        ]);
+        foreach ($students as $index => $student) {
+            \mod_selfselectadvanced\local\attributes\manager::set(
+                (int) $student->id,
+                ['department' => $departments[$index] ?? 'Elsewhere'],
+                2
+            );
+        }
+        \mod_selfselectadvanced\local\quota\slots::create($activity, (object) [
+            'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value',
+            'value' => 'Computer', 'allowoverlap' => 0,
+        ]);
+
+        return [$activity, $api, $students, $a, $b];
+    }
+
+    /**
+     * Mark one group quota-exempt.
+     *
+     * @param activity $activity the activity
+     * @param int $groupid the group
+     */
+    private function exempt_group(activity $activity, int $groupid): void {
+        store::save($activity, 'group', $groupid, ['quotaexempt' => 1], 0);
+    }
+
+    /**
+     * Quota exemption is a PER-GROUP property: a move into an exempt
+     * team is judged on the SOURCE's compliance alone, because the
+     * exempt team is not held to the rules at all. Conjoining both
+     * groups' compliance and only then allowing one set-level
+     * exemption refused this legitimate move.
+     */
+    public function test_quota_exemption_is_per_group_target_exempt(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+
+        // A keeps its Computer member when s1 leaves; B never had one.
+        [$activity, $api, $students, $a, $b] = $this->setup_quota_pair([
+            0 => 'Computer', 1 => 'Elsewhere', 2 => 'Elsewhere', 3 => 'Elsewhere', 4 => 'Elsewhere',
+        ]);
+        $this->exempt_group($activity, (int) $b->id);
+
+        $api2 = new api($activity);
+        $move = $api2->moves()->stage((int) $students[1]->id, (int) $a->id, (int) $b->id, false, null, 99);
+        $verdicts = $api2->moves()->validate_set([(int) $move->id]);
+
+        $this->assertTrue($verdicts->permove[(int) $move->id]['QUOTA']['ok']);
+        $this->assertTrue($verdicts->valid);
+        $this->assertSame(1, $api2->moves()->commit_set([(int) $move->id], 99));
+        $sink->close();
+    }
+
+    /**
+     * The mirror image: the SOURCE is exempt and non-compliant after
+     * the move, the target complies, and the set is valid.
+     */
+    public function test_quota_exemption_is_per_group_source_exempt(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+
+        // A has no Computer member at all; B keeps one throughout.
+        [$activity, $api, $students, $a, $b] = $this->setup_quota_pair([
+            0 => 'Elsewhere', 1 => 'Elsewhere', 2 => 'Computer', 3 => 'Elsewhere', 4 => 'Elsewhere',
+        ]);
+        $this->exempt_group($activity, (int) $a->id);
+
+        $api2 = new api($activity);
+        $move = $api2->moves()->stage((int) $students[1]->id, (int) $a->id, (int) $b->id, false, null, 99);
+        $verdicts = $api2->moves()->validate_set([(int) $move->id]);
+
+        $this->assertTrue($verdicts->permove[(int) $move->id]['QUOTA']['ok']);
+        $sink->close();
+    }
+
+    /**
+     * The negative control for the two above: with NEITHER group exempt
+     * and the source left non-compliant, QUOTA still refuses. The fix
+     * makes exemption per group; it does not wave the rules through.
+     */
+    public function test_quota_verdict_fails_when_neither_group_is_exempt(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_quota_pair([
+            0 => 'Elsewhere', 1 => 'Elsewhere', 2 => 'Computer', 3 => 'Elsewhere', 4 => 'Elsewhere',
+        ]);
+
+        $move = $api->moves()->stage((int) $students[1]->id, (int) $a->id, (int) $b->id, false, null, 99);
+        $verdicts = $api->moves()->validate_set([(int) $move->id]);
+
+        $this->assertFalse($verdicts->permove[(int) $move->id]['QUOTA']['ok']);
+        $this->assertFalse($verdicts->valid);
+        $sink->close();
+    }
+
+    /**
+     * A move with NO source into an exempt, non-compliant target stays
+     * valid: there is no second group to hold to the rules, and the one
+     * group in the move is exempt.
+     */
+    public function test_null_source_move_into_exempt_target(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+
+        [$activity, $api, $students, $a] = $this->setup_quota_pair([
+            0 => 'Elsewhere', 1 => 'Elsewhere', 2 => 'Elsewhere', 3 => 'Elsewhere', 4 => 'Elsewhere',
+        ]);
+        $this->exempt_group($activity, (int) $a->id);
+
+        $api2 = new api($activity);
+        $move = $api2->moves()->stage((int) $students[4]->id, null, (int) $a->id, false, null, 99);
+        $verdicts = $api2->moves()->validate_set([(int) $move->id]);
+
+        $this->assertNull($move->sourcegroupid);
+        $this->assertTrue($verdicts->permove[(int) $move->id]['QUOTA']['ok']);
+        $this->assertSame(1, $api2->moves()->commit_set([(int) $move->id], 99));
+        $sink->close();
+    }
 }

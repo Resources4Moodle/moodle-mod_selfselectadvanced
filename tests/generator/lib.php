@@ -229,6 +229,45 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
     }
 
     /**
+     * Create a composition template slot.
+     *
+     * Required: activityid, dimension, matchtype. Optional: mincount
+     * (default 1), value (empty means "any one value"), allowoverlap
+     * (default off), slotno (default appends).
+     *
+     * @param array|stdClass $record slot fields
+     * @return stdClass the slot row
+     */
+    public function create_slot($record): stdClass {
+        global $DB;
+
+        $record = (object) (array) $record;
+        foreach (['activityid', 'dimension', 'matchtype'] as $required) {
+            if (!isset($record->$required)) {
+                throw new coding_exception('create_slot requires ' . $required);
+            }
+        }
+        $now = time();
+        $slot = (object) [
+            'activityid' => (int) $record->activityid,
+            'slotno' => $record->slotno ?? (1 + (int) $DB->get_field_sql(
+                'SELECT COALESCE(MAX(slotno), 0) FROM {selfselectadvanced_qslot} WHERE activityid = ?',
+                [(int) $record->activityid]
+            )),
+            'mincount' => isset($record->mincount) ? (int) $record->mincount : 1,
+            'dimension' => $record->dimension,
+            'matchtype' => $record->matchtype,
+            'value' => trim((string) ($record->value ?? '')) !== '' ? trim((string) $record->value) : null,
+            'allowoverlap' => empty($record->allowoverlap) ? 0 : 1,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ];
+        $slot->id = $DB->insert_record('selfselectadvanced_qslot', $slot);
+
+        return $slot;
+    }
+
+    /**
      * Create an override row through the store (fires events).
      *
      * Required: activityid, scope, targetid. Values per B5 field set.
