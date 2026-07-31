@@ -184,4 +184,163 @@ final class override_guard_test extends \advanced_testcase {
         $this->assertSame(0, $loads[(int) $guide1->id]->remaining);
         $this->assertArrayNotHasKey((int) $guide2->id, $loads);
     }
+
+    /**
+     * D6-11: the conflict-of-interest guard had branches for user,
+     * guide and group and simply RETURNED for scope 'move' - the one
+     * scope that moves rosters. Latent while only :manage holders could
+     * reach moveedit.php, armed the moment override authority reaches
+     * anyone coordinate-shaped.
+     */
+    public function test_coordinator_coi_move_scope(): void {
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 4,
+            'maxlead' => 1,
+            'maxmembership' => 2,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+        $coursecontext = \context_course::instance($course->id);
+
+        $mk = function (string $role) use ($generator, $course) {
+            $user = $generator->create_user();
+            $generator->enrol_user($user->id, $course->id, $role);
+
+            return $user;
+        };
+        $sourcelead = $mk('student');
+        $targetlead = $mk('student');
+        $mover = $mk('student');
+        $manager = $mk('editingteacher');
+        $coordinator = $mk('student');
+        role_assign(\mod_selfselectadvanced\local\coordinatorrole::ensure(), $coordinator->id, $coursecontext);
+        accesslib_clear_all_caches_for_unit_testing();
+
+        $source = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $sourcelead->id,
+            'name' => 'Source',
+            'state' => state::FIRM,
+        ]);
+        $plugingen->create_member([
+            'groupid' => $source->id,
+            'userid' => (int) $mover->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        $target = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $targetlead->id,
+            'name' => 'Target',
+            'state' => state::FIRM,
+        ]);
+
+        $api = new \mod_selfselectadvanced\local\api($activity);
+        $stage = fn() => $api->moves()->stage(
+            (int) $mover->id,
+            (int) $source->id,
+            (int) $target->id,
+            false,
+            null,
+            (int) $manager->id
+        );
+
+        // Case A: a confirmed member of the TARGET team may not grant it.
+        $plugingen->create_member([
+            'groupid' => $target->id,
+            'userid' => (int) $coordinator->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        $move = $stage();
+        $this->assert_move_refused(
+            'refusalcoiinvolved',
+            fn() => store::save(
+                $activity,
+                'move',
+                (int) $move->id,
+                ['rulesbypassed' => 'L2'],
+                (int) $coordinator->id
+            )
+        );
+        // The manager exemption is intact.
+        $saved = store::save($activity, 'move', (int) $move->id, ['rulesbypassed' => 'L2'], (int) $manager->id);
+        $this->assertNotEmpty($saved->id);
+
+        // Case B: the assigned guide of the SOURCE team may not grant it.
+        $guidecoordinator = $mk('teacher');
+        role_assign(
+            \mod_selfselectadvanced\local\coordinatorrole::ensure(),
+            $guidecoordinator->id,
+            $coursecontext
+        );
+        accesslib_clear_all_caches_for_unit_testing();
+        global $DB;
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $guidecoordinator->id, ['id' => $source->id]);
+        $move2 = $stage();
+        $this->assert_move_refused(
+            'refusalcoiinvolved',
+            fn() => store::save(
+                $activity,
+                'move',
+                (int) $move2->id,
+                ['rulesbypassed' => 'L2'],
+                (int) $guidecoordinator->id
+            )
+        );
+
+        // Case C: never for oneself.
+        $selfcoordinator = $mk('student');
+        role_assign(
+            \mod_selfselectadvanced\local\coordinatorrole::ensure(),
+            $selfcoordinator->id,
+            $coursecontext
+        );
+        accesslib_clear_all_caches_for_unit_testing();
+        $selfmove = $api->moves()->stage(
+            (int) $selfcoordinator->id,
+            null,
+            (int) $target->id,
+            false,
+            null,
+            (int) $manager->id
+        );
+        $this->assert_move_refused(
+            'refusalcoiself',
+            fn() => store::save(
+                $activity,
+                'move',
+                (int) $selfmove->id,
+                ['rulesbypassed' => 'L2'],
+                (int) $selfcoordinator->id
+            )
+        );
+        // The manager passes all three (exemption regression).
+        $this->assertNotEmpty(store::save(
+            $activity,
+            'move',
+            (int) $selfmove->id,
+            ['rulesbypassed' => 'L2'],
+            (int) $manager->id
+        )->id);
+    }
+
+    /**
+     * Expect one refusal string key from a callable.
+     *
+     * @param string $stringkey the expected errorcode
+     * @param callable $fn the action
+     */
+    private function assert_move_refused(string $stringkey, callable $fn): void {
+        try {
+            $fn();
+            $this->fail('Expected refusal ' . $stringkey);
+        } catch (\moodle_exception $e) {
+            $this->assertSame($stringkey, $e->errorcode);
+        }
+    }
 }

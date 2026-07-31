@@ -69,3 +69,30 @@ Feature: Students create groups under the lead cap
     And I press "Delete group"
     Then I should see "deleted"
     And I should see "No groups yet"
+
+  @javascript
+  Scenario: Staff create a destination team after the cutoff and nominate its leader
+    Given the following "users" exist:
+      | username | firstname | lastname | email              |
+      | teacher1 | Tina      | Teach    | teach1@example.com |
+    And the following "course enrolments" exist:
+      | user     | course | role           |
+      | teacher1 | C1     | editingteacher |
+    And the following "activities" exist:
+      | activity           | course | name        | idnumber | minsize | maxsize | maxlead | maxmembership | timedue         | timecutoff      |
+      | selfselectadvanced | C1     | Late labs   | ssa9     | 1       | 4       | 1       | 1             | ##2 days ago##  | ##yesterday##   |
+    # An editing teacher does not hold the STUDENT :creategroup
+    # capability, which the page used to demand of everybody before the
+    # branch that admits a manager (D6-4).
+    When I am on the "Late labs" "mod_selfselectadvanced > manage" page logged in as teacher1
+    And I follow "New team"
+    Then I should see "Leader of the new team"
+    When I set the following fields to these values:
+      | Group name    | Repair team     |
+      | Title of work | Salvage work    |
+      | Brief of work | Late formation. |
+    And I set the field "Leader of the new team" to "Tara Two"
+    And I press "Create group"
+    Then I should see "Repair team"
+    And I should see "Tara" in the ".selfselectadvanced-roster" "css_element"
+    And I should see "Leader"

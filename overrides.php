@@ -32,7 +32,7 @@ $id = required_param('id', PARAM_INT);
 $mode = optional_param('mode', 'user', PARAM_ALPHA);
 $action = optional_param('action', '', PARAM_ALPHA);
 
-if (!in_array($mode, ['user', 'group', 'guide'], true)) {
+if (!in_array($mode, ['user', 'group', 'guide', 'move'], true)) {
     $mode = 'user';
 }
 
@@ -116,7 +116,7 @@ if ($action === 'delete' && data_submitted() && confirm_sesskey()) {
     );
 }
 
-if ($action === 'edit') {
+if ($action === 'edit' && $mode !== 'move') {
     $overrideid = optional_param('override', 0, PARAM_INT);
     $existing = null;
     $targetlabel = '';
@@ -193,6 +193,125 @@ if ($action === 'edit') {
     die;
 }
 
+if ($mode === 'move') {
+    // Move-scope overrides are READ-ONLY plus delete (D6-6d): they are
+    // minted only by the staging and join-accept flows, so there is no
+    // add button and no edit form. store::get_all(..., 'move') finally
+    // gains the caller it was written for.
+    //
+    // Paged FIRST, then the page's rows are labelled with three batched
+    // queries - never a query per row.
+    $moveoverrides = \mod_selfselectadvanced\local\override\store::get_all($activity, 'move');
+    $movetotal = count($moveoverrides);
+    $moveperpage = \mod_selfselectadvanced\local\perpage::current();
+    $movepage = optional_param('page', 0, PARAM_INT);
+    $pagerows = array_slice($moveoverrides, $movepage * $moveperpage, $moveperpage);
+
+    $moverows = [];
+    $moveusers = [];
+    $movegroups = [];
+    if ($pagerows) {
+        $moverows = $DB->get_records_list(
+            'selfselectadvanced_move',
+            'id',
+            array_map(static fn($row) => (int) $row->moveid, $pagerows)
+        );
+        $namefields = \core_user\fields::for_name()->get_sql('', false, '', '', true)->selects;
+        $userids = [];
+        $groupids = [];
+        foreach ($moverows as $moverow) {
+            $userids[(int) $moverow->userid] = true;
+            foreach ([$moverow->sourcegroupid, $moverow->targetgroupid] as $gid) {
+                if ($gid) {
+                    $groupids[(int) $gid] = true;
+                }
+            }
+        }
+        foreach ($pagerows as $row) {
+            $userids[(int) $row->usermodified] = true;
+        }
+        $userids = array_keys(array_filter($userids, static fn($v, $k) => $k > 0, ARRAY_FILTER_USE_BOTH));
+        if ($userids) {
+            [$uinsql, $uparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'mo');
+            foreach (
+                $DB->get_records_sql("SELECT id{$namefields} FROM {user} WHERE id $uinsql", $uparams) as $user
+            ) {
+                $moveusers[(int) $user->id] = fullname($user);
+            }
+        }
+        if ($groupids) {
+            [$ginsql, $gparams] = $DB->get_in_or_equal(array_keys($groupids), SQL_PARAMS_NAMED, 'mgp');
+            $gparams['activityid'] = $activity->id();
+            $grouprows = $DB->get_records_select(
+                'selfselectadvanced_group',
+                "id $ginsql AND activityid = :activityid",
+                $gparams,
+                '',
+                'id, name'
+            );
+            foreach ($grouprows as $grouprow) {
+                $movegroups[(int) $grouprow->id] = format_string($grouprow->name);
+            }
+        }
+    }
+
+    $rows = [];
+    foreach ($pagerows as $override) {
+        $moverow = $moverows[(int) $override->moveid] ?? null;
+        $rows[] = (object) [
+            'overrideid' => (int) $override->id,
+            // Names only - never an email address or a phone number.
+            'student' => $moverow ? ($moveusers[(int) $moverow->userid] ?? '') : get_string('deleted'),
+            'source' => $moverow && $moverow->sourcegroupid
+                ? ($movegroups[(int) $moverow->sourcegroupid] ?? '')
+                : get_string('movenosource', 'mod_selfselectadvanced'),
+            'target' => $moverow && $moverow->targetgroupid
+                ? ($movegroups[(int) $moverow->targetgroupid] ?? '')
+                : get_string('movenotarget', 'mod_selfselectadvanced'),
+            'rules' => (string) $override->rulesbypassed,
+            'reason' => $moverow ? (string) ($moverow->responsenote ?? '') : '',
+            'status' => $moverow
+                ? (get_string_manager()->string_exists('movestatus' . $moverow->status, 'mod_selfselectadvanced')
+                    ? get_string('movestatus' . $moverow->status, 'mod_selfselectadvanced')
+                    : (string) $moverow->status)
+                : get_string('deleted'),
+            'grantedby' => $moveusers[(int) $override->usermodified] ?? '',
+            'granted' => userdate((int) $override->timemodified, get_string('strftimedatetimeshort')),
+            // Deleting the override of a COMMITTED move would falsify
+            // history: the bypass is what let that move commit.
+            'candelete' => $moverow && $moverow->status === 'pending',
+        ];
+    }
+
+    $tabs = [];
+    foreach (['user', 'group', 'guide', 'move'] as $tab) {
+        $tabs[] = (object) [
+            'label' => get_string('overrides' . $tab, 'mod_selfselectadvanced'),
+            'url' => (new moodle_url('/mod/selfselectadvanced/overrides.php', [
+                'id' => $cm->id,
+                'mode' => $tab,
+            ]))->out(false),
+            'active' => $tab === $mode,
+        ];
+    }
+
+    echo $OUTPUT->header();
+    echo $OUTPUT->render_from_template('mod_selfselectadvanced/overrides_moves', (object) [
+        'tabs' => $tabs,
+        'rows' => $rows,
+        'hasrows' => !empty($rows),
+        'actionurl' => $baseurl->out(false),
+        'cmid' => $cm->id,
+        'mode' => $mode,
+        'sesskey' => sesskey(),
+        'backurl' => (new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]))->out(false),
+    ]);
+    echo $OUTPUT->paging_bar($movetotal, $movepage, $moveperpage, $baseurl);
+    echo \mod_selfselectadvanced\local\perpage::controls($baseurl);
+    echo $OUTPUT->footer();
+    die;
+}
+
 // List view. The labels are fetched for the ids these rows carry and
 // for nothing else - the page never builds the full target list.
 $overrides = \mod_selfselectadvanced\local\override\store::get_all($activity, $mode);
@@ -226,7 +345,7 @@ foreach ($overrides as $override) {
 }
 
 $tabs = [];
-foreach (['user', 'group', 'guide'] as $tab) {
+foreach (['user', 'group', 'guide', 'move'] as $tab) {
     $tabs[] = (object) [
         'label' => get_string('overrides' . $tab, 'mod_selfselectadvanced'),
         'url' => (new moodle_url('/mod/selfselectadvanced/overrides.php', [

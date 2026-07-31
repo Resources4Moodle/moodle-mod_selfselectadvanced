@@ -341,6 +341,56 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
     }
 
     /**
+     * Write pending move rows straight to the table, bypassing the
+     * service.
+     *
+     * The paging scenario needs sixty pending moves; staging sixty real
+     * ones would need sixty compliant rosters and would be testing the
+     * engine rather than the pager. These rows exist to be LISTED.
+     *
+     * Required: activityid, userid, targetgroupid. Optional count for
+     * a run of rows (all for the same student and target), and
+     * timecreated to pin where the run sits in the queue - the page
+     * orders by timecreated then id, and two runs made in the same
+     * second are a tie, which is no order at all.
+     *
+     * @param array|stdClass $record activityid, userid, targetgroupid, count, timecreated
+     * @return stdClass the LAST row written
+     */
+    public function create_pendingmove($record): stdClass {
+        global $DB;
+
+        $record = (object) (array) $record;
+        foreach (['activityid', 'userid', 'targetgroupid'] as $required) {
+            if (!isset($record->$required)) {
+                throw new coding_exception('create_pendingmove requires ' . $required);
+            }
+        }
+
+        $now = (int) ($record->timecreated ?? time());
+        $row = null;
+        for ($i = 0; $i < (int) ($record->count ?? 1); $i++) {
+            $row = (object) [
+                'activityid' => (int) $record->activityid,
+                'userid' => (int) $record->userid,
+                'sourcegroupid' => isset($record->sourcegroupid) ? (int) $record->sourcegroupid : null,
+                'targetgroupid' => (int) $record->targetgroupid,
+                'makeleader' => 0,
+                'replaceleader' => 0,
+                'successorid' => null,
+                'status' => 'pending',
+                'statusinfo' => null,
+                'usermodified' => (int) ($record->actorid ?? 0),
+                'timecreated' => $now + $i,
+                'timemodified' => $now + $i,
+            ];
+            $row->id = $DB->insert_record('selfselectadvanced_move', $row);
+        }
+
+        return $row;
+    }
+
+    /**
      * Create a membership/invitation row.
      *
      * Required: groupid, userid. Status defaults to confirmed.

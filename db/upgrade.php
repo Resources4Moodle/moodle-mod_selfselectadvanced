@@ -873,5 +873,43 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073110, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073120) {
+        // No schema change and no data step. This savepoint exists
+        // solely so the site re-reads db/events.php, which now
+        // registers an observer for \core\event\user_enrolment_deleted:
+        // observer registration is only refreshed on upgrade, so
+        // without a version bump the observer would never fire on an
+        // upgraded site (T-16).
+        upgrade_mod_savepoint(true, 2026073120, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026073130) {
+        // Decision 6: a staff removal no longer needs a destination team.
+        // A park is a move to nowhere, so targetgroupid relaxes to
+        // nullable. $dbman only - no plugin class is loaded and no
+        // plugin table is queried, which is what keeps this block safe
+        // to run against a half-upgraded codebase.
+        //
+        // The foreign key on this column is implemented as an index,
+        // and database_manager::check_field_dependencies() refuses to
+        // modify ANY column an index references. So the key is dropped
+        // and put back around the change - which is also why this is
+        // three calls rather than the one the ticket drafted.
+        $table = new xmldb_table('selfselectadvanced_move');
+        $key = new xmldb_key(
+            'fk_targetgroupid',
+            XMLDB_KEY_FOREIGN,
+            ['targetgroupid'],
+            'selfselectadvanced_group',
+            ['id']
+        );
+        $field = new xmldb_field('targetgroupid', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'sourcegroupid');
+        $dbman->drop_key($table, $key);
+        $dbman->change_field_notnull($table, $field);
+        $dbman->add_key($table, $key);
+
+        upgrade_mod_savepoint(true, 2026073130, 'selfselectadvanced');
+    }
+
     return true;
 }

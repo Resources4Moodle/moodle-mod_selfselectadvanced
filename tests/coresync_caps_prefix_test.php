@@ -230,6 +230,12 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
      * report; a per-user override then clears the push.
      */
     public function test_freeze_refuses_and_flags_over_cap(): void {
+        // T-16: the mirror is written by an inline sync that refuses
+        // to touch core while a transaction is open, and
+        // advanced_testcase opens one before every test on
+        // PostgreSQL. Without this the assertions below are about a
+        // deferral rather than about a course group.
+        $this->preventResetByRollback();
         global $DB;
         $this->resetAfterTest();
         [$activity, $group, $second, $students, $guide, $manager] = $this->setup_shared_member();
@@ -291,6 +297,12 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
      * band) stays grandfathered: the audit gates only the first push.
      */
     public function test_freeze_repair_stays_grandfathered(): void {
+        // T-16: the mirror is written by an inline sync that refuses
+        // to touch core while a transaction is open, and
+        // advanced_testcase opens one before every test on
+        // PostgreSQL. Without this the assertions below are about a
+        // deferral rather than about a course group.
+        $this->preventResetByRollback();
         global $CFG, $DB;
         $this->resetAfterTest();
         require_once($CFG->dirroot . '/group/lib.php');
@@ -318,6 +330,12 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
      * can resurrect the ghost.
      */
     public function test_user_deleted_clears_rosters_and_snapshots(): void {
+        // T-16: the mirror is written by an inline sync that refuses
+        // to touch core while a transaction is open, and
+        // advanced_testcase opens one before every test on
+        // PostgreSQL. Without this the assertions below are about a
+        // deferral rather than about a course group.
+        $this->preventResetByRollback();
         global $DB;
         $this->resetAfterTest();
         [$activity, $group, $second, $students, $guide] = $this->setup_shared_member();
@@ -372,6 +390,15 @@ final class coresync_caps_prefix_test extends \advanced_testcase {
         );
         $this->assertNotContains((int) $students[1]->id, $rosterids);
         $this->assertContains((int) $students[0]->id, $rosterids);
+
+        // D7-F1: the ghost is out of the mirror too, and the mirror is
+        // in step with the plugin - the deleted account used to sit in
+        // the course group and be reported forever as out-of-band
+        // drift that nothing could clear.
+        $this->assertFalse(groups_is_member((int) $frozen->coregroupid, (int) $students[1]->id));
+        $drift = freeze::drift(groups::get($activity, (int) $frozen->id));
+        $this->assertSame([], $drift['extra']);
+        $this->assertSame([], $drift['missing']);
 
         $unfrozen = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), (int) $guide->id);
         $this->assertSame(state::FIRM, $unfrozen->state);

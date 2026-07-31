@@ -38,11 +38,23 @@ Feature: Bulk operations, the manager dashboard and the flagged report
     And I follow "Groups I guide"
     Then I should see "Team Fir"
     And I should see "Team Oak"
-    When I press "Freeze selected groups"
+    When I set the field "Select Team Fir" to "1"
+    And I set the field "Select Team Oak" to "1"
+    And I press "Freeze selected groups"
     Then I should see "2 group(s) frozen."
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page
     And I follow "Groups I guide"
     Then I should not see "Freeze selected groups"
+
+  Scenario: Nothing is frozen unless the guide ticks a team
+    When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
+    And I press "Freeze selected groups"
+    Then I should see "0 group(s) frozen."
+    When I am on the "Lab groups" "mod_selfselectadvanced > guide" page
+    And I follow "Groups I guide"
+    Then I should see "Freeze selected groups"
+    And I should see "Firm" in the "Team Fir" "table_row"
 
   Scenario: The manager dashboard filters by state and offers unfreeze
     When I am on the "Lab groups" "mod_selfselectadvanced > manage" page logged in as teacher1

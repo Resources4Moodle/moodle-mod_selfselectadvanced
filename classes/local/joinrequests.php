@@ -304,6 +304,9 @@ class joinrequests {
      * @param bool $accept true to admit them
      * @param string $note what the decider said
      * @param int $actorid the leader, coordinator or manager deciding
+     * @param string[] $bypass composition rule codes the decider is
+     *        overriding (decision 6); refused unless the ACTOR holds
+     *        :overriderules, so a crafted student POST cannot use it
      * @return stdClass the decided request
      * @throws \moodle_exception when refused
      */
@@ -312,7 +315,8 @@ class joinrequests {
         int $requestid,
         bool $accept,
         string $note,
-        int $actorid
+        int $actorid,
+        array $bypass = []
     ): stdClass {
         global $DB;
 
@@ -326,6 +330,8 @@ class joinrequests {
         // engine takes the activity lock itself, so the order is always
         // joinrequest -> activity and cannot deadlock against it.
         $deferred = [];
+        $deferredsync = [];
+        $deferredoverrides = [];
         $lock = locks::acquire('joinrequest:' . $requestid);
         try {
             $request = self::get($activity, $requestid);
@@ -336,10 +342,29 @@ class joinrequests {
             self::require_decider($activity, $target, $actorid);
 
             $fresh = $accept
-                ? self::do_accept($activity, $request, $target, $note, $actorid, $deferred)
+                ? self::do_accept(
+                    $activity,
+                    $request,
+                    $target,
+                    $note,
+                    $actorid,
+                    $deferred,
+                    $deferredsync,
+                    $deferredoverrides,
+                    $bypass
+                )
                 : self::do_decline($activity, $request, $note, $actorid);
         } finally {
             $lock->release();
+        }
+
+        // A new event never travels under a lock or an open transaction
+        // (requirement 2): the move engine collected these while our
+        // joinrequest:{id} lock was still held, and they fire here.
+        foreach ($deferredoverrides as $overridden) {
+            \mod_selfselectadvanced\event\move_rules_overridden::create(
+                $overridden + ['context' => $activity->context()]
+            )->trigger();
         }
 
         // Mail never travels under a lock - not even the per-request
@@ -347,6 +372,14 @@ class joinrequests {
         // through do_accept() because it ran under activity:/group: AND
         // inside this joinrequest:{id} lock (T-02 R6).
         notifier::send_all($activity, $deferred);
+
+        // Same hand-back, same reason: core's groups API fires events
+        // and writes group conversations per member, so the mirror is
+        // converged here - after this lock released and the accept
+        // committed - and never inside either (T-16).
+        foreach (array_unique($deferredsync) as $syncgroupid) {
+            freeze::sync_core_group($activity, (int) $syncgroupid, $actorid);
+        }
 
         // Mail never travels under a lock (the 1.15 lesson).
         self::notify(
@@ -418,6 +451,14 @@ class joinrequests {
      * @param int $actorid who decided
      * @param array $deferred collects the move engine's notifications,
      *        flushed by respond() after ITS lock release
+     * @param array $deferredsync collects the plugin group ids whose
+     *        mirrored course group needs converging, applied by
+     *        respond() after ITS lock release
+     * @param array $deferredoverrides collects the move engine's
+     *        move_rules_overridden payloads, fired by respond() after
+     *        ITS lock release
+     * @param string[] $bypass composition rule codes the decider is
+     *        overriding (decision 6)
      * @return stdClass the decided request
      * @throws \moodle_exception when the composition rules refuse it
      */
@@ -427,11 +468,15 @@ class joinrequests {
         stdClass $target,
         string $note,
         int $actorid,
-        array &$deferred
+        array &$deferred,
+        array &$deferredsync,
+        array &$deferredoverrides,
+        array $bypass = []
     ): stdClass {
         global $DB;
 
-        $moves = (new api($activity))->moves();
+        $api = new api($activity);
+        $moves = $api->moves();
 
         // The move engine's own locks, taken HERE so they cover the
         // outer transaction too: commit_set releases at its finally,
@@ -492,6 +537,40 @@ class joinrequests {
                 false,
                 $source === null
             );
+
+            // Decision 6: the staff override reaches the join-request
+            // path too - the same move-scope mechanism, never a second
+            // one. The capability is checked on the ACTOR server-side,
+            // so the target team's own student leader posting a crafted
+            // bypass[] is refused whatever the form rendered; and
+            // save_for_new_move() runs the conflict-of-interest guard,
+            // so a conflicted coordinator is refused at the same seam.
+            $bypass = array_values(array_intersect(
+                array_map(static fn($code) => clean_param($code, PARAM_ALPHANUM), $bypass),
+                moves::BYPASSABLE
+            ));
+            if ($bypass) {
+                if (!has_capability('mod/selfselectadvanced:overriderules', $activity->context(), $actorid)) {
+                    throw new \moodle_exception('refusaljoinbypasscap', 'mod_selfselectadvanced');
+                }
+                if (trim($note) === '') {
+                    throw new \moodle_exception('errmoveoverridereasonrequired', 'mod_selfselectadvanced');
+                }
+                \mod_selfselectadvanced\local\override\store::save_for_new_move(
+                    $activity,
+                    (int) $staged->id,
+                    implode(',', $bypass),
+                    $actorid
+                );
+                // The resolver caches every override row on its first
+                // read, and stage() has already resolved this move's
+                // (empty) bypass set. Without this the validate_set()
+                // below - and commit_set()'s own re-validation, which
+                // shares this gatekeeper - would judge the move against
+                // the cache taken before the row existed (T-04).
+                $api->gatekeeper()->resolver()->invalidate();
+            }
+
             $verdicts = $moves->validate_set([(int) $staged->id]);
             if (empty($verdicts->valid)) {
                 // Refusing here rolls the staging back with everything
@@ -503,7 +582,15 @@ class joinrequests {
                     self::first_reason($verdicts, (int) $staged->id)
                 );
             }
-            $moves->commit_set([(int) $staged->id], $actorid, true, $deferred);
+            $moves->commit_set(
+                [(int) $staged->id],
+                $actorid,
+                true,
+                $deferred,
+                $deferredsync,
+                $note,
+                $deferredoverrides
+            );
 
             $DB->update_record('selfselectadvanced_move', (object) [
                 'id' => $request->id,
@@ -706,14 +793,20 @@ class joinrequests {
     /**
      * The first rule that refused a staged move, for the message.
      *
+     * moves::validate_set() returns each verdict as an ARRAY; this read
+     * it with object syntax, so every branch was empty and the refusal
+     * always fell through to the general string - the leader was told
+     * "the rules refused it" and never which rule or by how much
+     * (D6-5). It now names the rule and carries its figures.
+     *
      * @param stdClass $verdicts what validate_set() returned
      * @param int $moveid the staged move
      * @return string a localised reason, or a general one
      */
     private static function first_reason(stdClass $verdicts, int $moveid): string {
-        foreach ($verdicts->permove[$moveid] ?? [] as $verdict) {
-            if (empty($verdict->ok) && !empty($verdict->reason)) {
-                return (string) $verdict->reason;
+        foreach ($verdicts->permove[$moveid] ?? [] as $rule => $verdict) {
+            if (empty($verdict['ok']) && empty($verdict['bypassed']) && !empty($verdict['reason'])) {
+                return $rule . ': ' . $verdict['reason'];
             }
         }
 

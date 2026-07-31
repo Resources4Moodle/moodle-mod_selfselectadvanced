@@ -169,11 +169,20 @@ class succession {
                 ],
             ])->trigger();
 
+            // A step-out removes the outgoing leader from the roster,
+            // so the mirror has to follow. The gatekeeper limits this
+            // path to FORMING today, where no mirror can exist and both
+            // calls are no-ops - they are here so a later relaxation of
+            // that gate cannot silently strand a mirror.
+            freeze::request_sync($this->activity, $fresh);
+
             $transaction->allow_commit();
         } finally {
             $lock->release();
             $activitylock->release();
         }
+
+        freeze::sync_core_group($this->activity, (int) $fresh->id, $userid);
 
         notifier::send(
             $this->activity,

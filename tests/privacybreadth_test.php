@@ -194,4 +194,109 @@ final class privacybreadth_test extends \advanced_testcase {
             'A purged context kept its auto-grouping logs, raw user ids and all'
         );
     }
+
+    /**
+     * D7-F1: a GDPR erasure has to reach the mirrored course group too.
+     * The member row goes first, so the ownership discriminator cannot
+     * classify a legacy untagged row afterwards - which is exactly what
+     * sync_core_group()'s $forceremove parameter exists for.
+     *
+     * preventResetByRollback() first: the sync writes to core only when
+     * no transaction is open, and advanced_testcase opens one before
+     * every test on PostgreSQL.
+     */
+    public function test_delete_data_for_user_purges_frozen_mirror(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, $frozen, $students, $guide, $context] = $this->frozen_fixture();
+        $coreid = (int) $frozen->coregroupid;
+        $this->assertTrue(groups_is_member($coreid, (int) $students[1]->id));
+
+        provider::delete_data_for_user(new \core_privacy\local\request\approved_contextlist(
+            \core_user::get_user((int) $students[1]->id),
+            'mod_selfselectadvanced',
+            [$context->id]
+        ));
+
+        $this->assertFalse(groups_is_member($coreid, (int) $students[1]->id), 'the erased person stayed in the mirror');
+        $this->assertTrue(groups_is_member($coreid, (int) $students[0]->id));
+        $this->assertTrue(groups_is_member($coreid, (int) $guide->id));
+    }
+
+    /**
+     * Purging the whole context empties every mirror of every row this
+     * plugin owns - and leaves a stranger a teacher added by hand
+     * exactly where they are (14.5).
+     */
+    public function test_delete_all_in_context_empties_mirrors(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, $frozen, $students, $guide, $context] = $this->frozen_fixture();
+        $coreid = (int) $frozen->coregroupid;
+        $stranger = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($stranger->id, $activity->courseid(), 'student');
+        groups_add_member($coreid, (int) $stranger->id);
+
+        provider::delete_data_for_all_users_in_context($context);
+
+        foreach ([$students[0], $students[1], $guide] as $gone) {
+            $this->assertFalse(
+                groups_is_member($coreid, (int) $gone->id),
+                'a plugin-owned membership survived the purge'
+            );
+        }
+        $this->assertTrue(groups_is_member($coreid, (int) $stranger->id), 'a stranger was deleted by the purge');
+    }
+
+    /**
+     * A frozen team of two with a guide, and its mirror.
+     *
+     * @return array [activity, frozen group row, students[], guide, module context]
+     */
+    private function frozen_fixture(): array {
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 4,
+            'maxlead' => 1,
+            'maxmembership' => 2,
+        ], ['idnumber' => 'SSAPRV']);
+        $cm = get_coursemodule_from_instance('selfselectadvanced', $instance->id, $course->id, false, MUST_EXIST);
+
+        $students = [];
+        for ($i = 0; $i < 2; $i++) {
+            $user = $generator->create_user();
+            $generator->enrol_user($user->id, $course->id, 'student');
+            $students[] = $user;
+        }
+        $guide = $generator->create_user();
+        $generator->enrol_user($guide->id, $course->id, 'teacher');
+
+        $activity = activity::from_instance((int) $instance->id);
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[0]->id,
+            'name' => 'Erasable',
+            'state' => \mod_selfselectadvanced\local\state::FIRM,
+            'guideid' => (int) $guide->id,
+            'timeapproved' => time(),
+        ]);
+        $plugingen->create_member([
+            'groupid' => $group->id,
+            'userid' => (int) $students[1]->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        $frozen = \mod_selfselectadvanced\local\freeze::freeze_group(
+            $activity,
+            \mod_selfselectadvanced\local\groups::get($activity, (int) $group->id),
+            (int) $guide->id
+        );
+
+        return [$activity, $frozen, $students, $guide, \context_module::instance((int) $cm->id)];
+    }
 }

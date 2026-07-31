@@ -29,4 +29,12 @@ $observers = [
         'eventname' => '\core\event\user_deleted',
         'callback' => '\mod_selfselectadvanced\observer::user_deleted',
     ],
+    [
+        // An unenrolled student cannot hold a seat, and core purges
+        // their course-group rows on the last enrolment. Without this
+        // the plugin roster kept counting them and the mirror silently
+        // disagreed with the course (T-16, D7-F1).
+        'eventname' => '\core\event\user_enrolment_deleted',
+        'callback' => '\mod_selfselectadvanced\observer::user_enrolment_deleted',
+    ],
 ];

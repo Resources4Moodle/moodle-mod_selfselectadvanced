@@ -46,26 +46,35 @@ use mod_selfselectadvanced\local\state;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class flagged_anomalies_table extends \flexible_table {
+    /** @var bool Whether the viewer may dissolve a team (decision 6). */
+    private bool $candissolve;
+
     /**
      * Constructor.
      *
      * @param string $uniqueid table id
      * @param \moodle_url $baseurl page url (with active filters)
+     * @param bool $candissolve whether the viewer holds :manage AND
+     *        :overriderules, and so may dissolve a dead-end team
      */
-    public function __construct(string $uniqueid, \moodle_url $baseurl) {
+    public function __construct(string $uniqueid, \moodle_url $baseurl, bool $candissolve = false) {
         parent::__construct($uniqueid);
 
-        $this->define_columns(['name', 'pluginuid', 'state', 'issues']);
+        $this->candissolve = $candissolve;
+
+        $this->define_columns(['name', 'pluginuid', 'state', 'issues', 'actions']);
         $this->define_headers([
             get_string('groupname', 'mod_selfselectadvanced'),
             get_string('pluginid', 'mod_selfselectadvanced'),
             get_string('state', 'mod_selfselectadvanced'),
             get_string('flagissues', 'mod_selfselectadvanced'),
+            get_string('actions'),
         ]);
         $this->define_baseurl($baseurl);
         $this->sortable(true, 'name');
         $this->no_sorting('pluginuid');
         $this->no_sorting('issues');
+        $this->no_sorting('actions');
         $this->pageable(true);
         $this->is_downloadable(false);
         $this->set_attribute('class', 'generaltable selfselectadvanced-anomalies');
@@ -85,7 +94,7 @@ class flagged_anomalies_table extends \flexible_table {
      * Sort (per the current sort preferences), paginate and render an
      * already-filtered array of anomalous groups.
      *
-     * @param \stdClass[] $rows entries with name, pluginuid, statelabel, issues, url (see flagged.php)
+     * @param \stdClass[] $rows entries with name, pluginuid, statelabel, issues, url, dissolveurl
      * @param int $perpage rows per page
      */
     public function display_rows(array $rows, int $perpage): void {
@@ -111,6 +120,16 @@ class flagged_anomalies_table extends \flexible_table {
                 'pluginuid' => $row->pluginuid,
                 'state' => $row->statelabel,
                 'issues' => $row->issues,
+                // A team below minimum with nobody to add is the dead
+                // end dissolve exists for; the link goes to its own
+                // confirm page, where the reason is typed (D6-3).
+                'actions' => $this->candissolve
+                    ? \html_writer::link(
+                        $row->dissolveurl,
+                        get_string('dissolvegroup', 'mod_selfselectadvanced'),
+                        ['class' => 'btn btn-outline-danger btn-sm']
+                    )
+                    : '',
             ]);
         }
         $this->finish_output();
@@ -240,6 +259,37 @@ class flagged_anomalies_table extends \flexible_table {
             }
         }
 
+        // Mirror health (T-16): THREE bulk queries for the whole
+        // activity, never one per group - which course groups still
+        // exist, who is in them and with what ownership tag, and the
+        // confirmed roster of every group. The comparison itself is
+        // plain PHP over those maps.
+        $coreids = array_values(array_unique(array_filter(array_map(
+            static fn($group) => (int) ($group->coregroupid ?? 0),
+            $allgroups
+        ))));
+        $coreexists = [];
+        $coremembers = [];
+        if ($coreids) {
+            foreach (array_chunk($coreids, 1000) as $corechunk) {
+                [$coreinsql, $coreparams] = $DB->get_in_or_equal($corechunk, SQL_PARAMS_NAMED, 'cg');
+                foreach ($DB->get_fieldset_sql("SELECT id FROM {groups} WHERE id $coreinsql", $coreparams) as $liveid) {
+                    $coreexists[(int) $liveid] = true;
+                }
+                $memberrows = $DB->get_records_sql(
+                    "SELECT gm.id, gm.groupid, gm.userid, gm.component
+                       FROM {groups_members} gm
+                      WHERE gm.groupid $coreinsql",
+                    $coreparams
+                );
+                foreach ($memberrows as $memberrow) {
+                    $coremembers[(int) $memberrow->groupid][(int) $memberrow->userid] =
+                        (string) $memberrow->component;
+                }
+            }
+        }
+        $confirmedmembers = groups::members_confirmed_bulk($allgroupids);
+
         // First pass: decide which groups are anomalous and why.
         // Member names are deliberately not looked up here - see the
         // batched query below, which runs once for exactly the
@@ -278,6 +328,41 @@ class flagged_anomalies_table extends \flexible_table {
             // legitimately be guideless.
             if ($confirmed >= $max && empty($group->guideid) && in_array($group->state, $liveguidelessstates, true)) {
                 $issues[] = get_string('flagfullnoguide', 'mod_selfselectadvanced');
+            }
+            // Mirror health, per group, from the maps above.
+            $coregroupid = (int) ($group->coregroupid ?? 0);
+            if ($group->state === state::FROZEN && (!$coregroupid || !isset($coreexists[$coregroupid]))) {
+                // Catches the restore hole too: a restored group can
+                // arrive frozen with no coregroupid, and until now
+                // nothing said so anywhere.
+                $issues[] = get_string('coregroupmissing', 'mod_selfselectadvanced');
+            } else if ($coregroupid && isset($coreexists[$coregroupid])) {
+                $expected = $confirmedmembers[$groupid] ?? [];
+                if (!empty($group->guideid) && !in_array((int) $group->guideid, $expected, true)) {
+                    $expected[] = (int) $group->guideid;
+                }
+                // The report judges ownership by the component tag
+                // alone. A resync additionally reclaims legacy untagged
+                // rows of people who still hold a plugin member row, so
+                // it can remove slightly more than this counts - the
+                // link on the row goes to the page where that button is.
+                $live = $coremembers[$coregroupid] ?? [];
+                $missing = array_values(array_diff($expected, array_keys($live)));
+                $strangers = 0;
+                foreach ($live as $liveuserid => $component) {
+                    if (in_array((int) $liveuserid, $expected, true)) {
+                        continue;
+                    }
+                    if ($component !== \mod_selfselectadvanced\local\freeze::COMPONENT) {
+                        $strangers++;
+                    }
+                }
+                if ($missing) {
+                    $issues[] = get_string('coregroupincomplete', 'mod_selfselectadvanced', count($missing));
+                }
+                if ($strangers) {
+                    $issues[] = get_string('coregroupstranger', 'mod_selfselectadvanced', $strangers);
+                }
             }
             if (isset($overcapbygroup[$groupid])) {
                 // A frozen group is already pushed and grandfathered -
@@ -338,6 +423,13 @@ class flagged_anomalies_table extends \flexible_table {
                 'url' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
                     'id' => $activity->cm()->id,
                     'g' => $groupid,
+                ]))->out(false),
+                // Built from the group id already in the row: no extra
+                // query, display only.
+                'dissolveurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                    'id' => $activity->cm()->id,
+                    'g' => $groupid,
+                    'action' => 'dissolve',
                 ]))->out(false),
             ];
         }

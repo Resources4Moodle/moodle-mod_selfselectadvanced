@@ -84,6 +84,9 @@ if ($prefillsuccessor && ($prefillsuccessoruser = core_user::get_user($prefillsu
 }
 $prefillsource = optional_param('source', 0, PARAM_INT);
 $prefilltarget = optional_param('target', 0, PARAM_INT);
+// A park has no target, so nothing else in this prefill set records
+// that the pending row it restages was one (D6-2).
+$prefillpark = optional_param('park', false, PARAM_BOOL);
 $prefillmakeleader = optional_param('makeleader', false, PARAM_BOOL);
 $prefillreplaceleader = optional_param('replaceleader', false, PARAM_BOOL);
 $replaces = optional_param('replaces', 0, PARAM_INT);
@@ -94,7 +97,20 @@ $replaces = optional_param('replaces', 0, PARAM_INT);
 // (strategy 1.18 B).
 $selectedsource = selfselectadvanced_move_group_label($activity, $prefillsource);
 $selectedtarget = selfselectadvanced_move_group_label($activity, $prefilltarget);
-$canbypass = has_capability('mod/selfselectadvanced:override', $context);
+// Decision 6: the hatch is a NAMED authority now, not a side effect of
+// "may edit the override table". clonepermissionsfrom in db/access.php
+// gives every role that held :override the new capability on upgrade,
+// so no site loses bypass authority and no OR-check is needed here.
+$canbypass = has_capability('mod/selfselectadvanced:overriderules', $context);
+
+// Prefill from a "Override this rule…" link beside a red chip on
+// moves.php: the codes are intersected with the legal five, so a
+// crafted URL cannot pre-tick anything else (and the checkbox is only
+// rendered for holders anyway).
+$prefillbypass = array_values(array_intersect(
+    optional_param_array('bypass', [], PARAM_ALPHANUM),
+    \mod_selfselectadvanced\local\moves::BYPASSABLE
+));
 
 $form = new \mod_selfselectadvanced\form\move_form(null, [
     'cmid' => $cm->id,
@@ -124,6 +140,17 @@ if ($prefillreplaceleader) {
 if ($prefillsuccessor) {
     $setdata['successor'] = $prefillsuccessor;
 }
+if ($canbypass && $prefillpark) {
+    // The checkbox only exists for holders, so a crafted park=1 from
+    // anybody else prefills nothing - and stage() refuses a park from
+    // a non-holder in any case.
+    $setdata['park'] = 1;
+}
+if ($canbypass && $prefillbypass) {
+    // Matches the group element names: move_form builds
+    // bypassgroup[{CODE}].
+    $setdata['bypassgroup'] = array_fill_keys($prefillbypass, 1);
+}
 $form->set_data($setdata);
 
 if ($form->is_cancelled()) {
@@ -134,7 +161,8 @@ if ($data = $form->get_data()) {
         $move = $api->moves()->stage(
             (int) $data->student,
             empty($data->source) ? null : (int) $data->source,
-            (int) $data->target,
+            // A park is a removal with no destination team (D6-2).
+            empty($data->park) ? (int) $data->target : null,
             !empty($data->makeleader),
             empty($data->successor) ? null : (int) $data->successor,
             (int) $USER->id,
@@ -176,6 +204,11 @@ if ($data = $form->get_data()) {
             'errmovenotmember' => 'source',
             'errmovesuccessorrequired' => 'successor',
             'errmovebadsuccessor' => 'successor',
+            'errmovesololeader' => 'successor',
+            'errmovenotparticipant' => 'student',
+            'errmoveparkcapability' => 'target',
+            'errmoveparknolead' => 'makeleader',
+            'errmoveparkandtarget' => 'target',
             'refusalmovesourcerequired' => 'source',
         ];
         $form->set_element_error($fieldbyerror[$e->errorcode] ?? 'target', $e->getMessage());

@@ -121,6 +121,7 @@ $links = [
     ['tickets.php', 'tickets'],
     ['coordinators.php', 'coordinators'],
     ['moveedit.php', 'movestudents'],
+    ['groupedit.php', 'newteam'],
     ['overrides.php', 'overrides'],
     ['ledger.php', 'penaltyledger'],
     ['flagged.php', 'flaggedreport'],

@@ -695,6 +695,28 @@ class provider implements
         if (!$cm) {
             return;
         }
+        // T-16: every mirrored course group of this activity, plus the
+        // members it currently holds, read BEFORE the purge. Afterwards
+        // the expected set is empty and the guide is null, so every
+        // plugin-owned or forced row leaves the mirror; rows a teacher
+        // added by hand are not ours and stay.
+        $mirroredgroups = $DB->get_records_select(
+            'selfselectadvanced_group',
+            'activityid = ? AND coregroupid IS NOT NULL',
+            [$cm->instance],
+            '',
+            'id, coregroupid, guideid'
+        );
+        $priormembers = [];
+        foreach ($mirroredgroups as $mirroredgroup) {
+            // The set the plugin was responsible for, NOT everyone the
+            // course group happens to hold: a stranger a teacher added
+            // by hand is not the plugin's row to delete, here or
+            // anywhere else (14.5).
+            $priormembers[(int) $mirroredgroup->id] =
+                \mod_selfselectadvanced\local\freeze::expected_core_members($mirroredgroup);
+        }
+
         $groupids = $DB->get_fieldset_select('selfselectadvanced_group', 'id', 'activityid = ?', [$cm->instance]);
         if ($groupids) {
             [$insql, $params] = $DB->get_in_or_equal($groupids);
@@ -726,6 +748,23 @@ class provider implements
         $DB->set_field('selfselectadvanced_group', 'guideid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'successorid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'guidesuccessorid', null, ['activityid' => $cm->instance]);
+
+        // Empty every mirror of every plugin-owned membership. The cost
+        // per group equals the roster being purged - unavoidable, and
+        // off the web path (privacy cron context).
+        if ($mirroredgroups) {
+            $activity = self::activity_or_null((int) $cm->instance);
+            if ($activity !== null) {
+                foreach ($mirroredgroups as $mirroredgroup) {
+                    \mod_selfselectadvanced\local\freeze::sync_core_group(
+                        $activity,
+                        (int) $mirroredgroup->id,
+                        (int) get_admin()->id,
+                        $priormembers[(int) $mirroredgroup->id] ?? []
+                    );
+                }
+            }
+        }
     }
 
     /**
@@ -803,6 +842,25 @@ class provider implements
                 );
             }
         }
+
+        // T-16: the mirrored course groups this erasure has to reach.
+        // Collected BEFORE the member rows go, because afterwards the
+        // ownership discriminator has nothing left to classify - which
+        // is exactly what sync_core_group()'s $forceremove is for.
+        $mirrored = array_map('intval', $DB->get_fieldset_sql(
+            "SELECT g.id
+               FROM {selfselectadvanced_group} g
+               JOIN {selfselectadvanced_member} m ON m.groupid = g.id AND m.userid = :userid
+              WHERE g.activityid = :activityid AND g.coregroupid IS NOT NULL",
+            ['userid' => $userid, 'activityid' => $activityid]
+        ));
+        $mirrored = array_merge($mirrored, array_map('intval', $DB->get_fieldset_select(
+            'selfselectadvanced_group',
+            'id',
+            'activityid = ? AND guideid = ? AND coregroupid IS NOT NULL',
+            [$activityid, $userid]
+        )));
+        $mirrored = array_values(array_unique($mirrored));
 
         $groupids = $DB->get_fieldset_select('selfselectadvanced_group', 'id', 'activityid = ?', [$activityid]);
         if ($groupids) {
@@ -962,6 +1020,40 @@ class provider implements
                 });
                 $DB->set_field('selfselectadvanced_agrun', 'log', json_encode($decoded), ['id' => $agrun->id]);
             }
+        }
+
+        // The erased person must leave the course group too, or the
+        // mirror keeps a membership row for someone the plugin no
+        // longer knows (D7-F1). Privacy providers run from cron with no
+        // ambient transaction; where one exists, the deferral guard
+        // hands the work to the queued adhoc instead.
+        if ($mirrored) {
+            $activity = self::activity_or_null($activityid);
+            if ($activity !== null) {
+                foreach ($mirrored as $mirroredgroupid) {
+                    \mod_selfselectadvanced\local\freeze::sync_core_group(
+                        $activity,
+                        $mirroredgroupid,
+                        (int) get_admin()->id,
+                        [$userid]
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * The activity wrapper for an instance id, or null when the
+     * instance or its course module has gone.
+     *
+     * @param int $activityid the instance id
+     * @return \mod_selfselectadvanced\activity|null
+     */
+    private static function activity_or_null(int $activityid): ?\mod_selfselectadvanced\activity {
+        try {
+            return \mod_selfselectadvanced\activity::from_instance($activityid);
+        } catch (\dml_missing_record_exception | \moodle_exception $e) {
+            return null;
         }
     }
 }

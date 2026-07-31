@@ -874,4 +874,128 @@ final class joinrequests_test extends \advanced_testcase {
         $sink->close();
         $this->assertDebuggingNotCalled();
     }
+
+    /**
+     * D6-5: the refusal used to say nothing. validate_set() returns
+     * each verdict as an ARRAY and first_reason() read it with OBJECT
+     * syntax, so every branch was empty and the message always fell
+     * through to the general string - the staff member never saw which
+     * rule refused, or by how much.
+     */
+    public function test_first_reason_names_rule_regression(): void {
+        $this->resetAfterTest();
+        // With maxsize 1 Beta's leader alone already fills it, so an
+        // acceptance breaks L2 with real figures.
+        [$activity, , $beta, $wanderer, , , $manager] = $this->setup_world(['maxsize' => 1]);
+
+        $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
+        try {
+            joinrequests::respond($activity, (int) $request->id, true, 'ok', (int) $manager->id);
+            $this->fail('Expected refusaljoinrules');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusaljoinrules', $e->errorcode);
+            $this->assertStringContainsString('L2', $e->getMessage());
+            $this->assertStringContainsString(
+                get_string('moveruleL2', 'mod_selfselectadvanced', (object) ['after' => 2, 'max' => 1]),
+                $e->getMessage()
+            );
+            $this->assertStringNotContainsString(
+                get_string('refusaljoinrulesgeneral', 'mod_selfselectadvanced'),
+                $e->getMessage()
+            );
+        }
+    }
+
+    /**
+     * Decision 6: staff may accept over a failing rule, with a note,
+     * through the SAME move-scope override the staging form uses.
+     */
+    public function test_staff_accept_with_bypass(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, , $beta, $wanderer, , , $manager] = $this->setup_world(['maxsize' => 1]);
+
+        $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
+        $sink = $this->redirectEvents();
+        joinrequests::respond(
+            $activity,
+            (int) $request->id,
+            true,
+            'Guide agreed: one over on Beta',
+            (int) $manager->id,
+            ['L2']
+        );
+        $overridden = array_values(array_filter(
+            $sink->get_events(),
+            static fn($e) => $e instanceof \mod_selfselectadvanced\event\move_rules_overridden
+        ));
+        $sink->close();
+
+        $this->assertSame('committed', $DB->get_field('selfselectadvanced_move', 'status', ['id' => $request->id]));
+        $this->assertTrue($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => (int) $beta->id,
+            'userid' => (int) $wanderer->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]));
+        $this->assertCount(1, $overridden);
+        $this->assertSame(['L2'], $overridden[0]->other['rules']);
+        $this->assertSame('Guide agreed: one over on Beta', $overridden[0]->other['reason']);
+        $this->assertSame((int) $wanderer->id, (int) $overridden[0]->relateduserid);
+    }
+
+    /**
+     * T-10 boundary: the staff override never leaks into the
+     * participant matrix. The target team's own student leader posting
+     * a crafted bypass[] is refused on the ACTOR's capability, whatever
+     * the form rendered.
+     */
+    public function test_student_leader_crafted_bypass_refused(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, , $beta, $wanderer] = $this->setup_world(['maxsize' => 1]);
+        $betaleader = (int) $beta->leaderid;
+
+        $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
+        $this->assert_refused('refusaljoinbypasscap', fn() => joinrequests::respond(
+            $activity,
+            (int) $request->id,
+            true,
+            'I say so',
+            $betaleader,
+            ['L2']
+        ));
+
+        $this->assertSame(
+            joinrequests::STATUS_REQUESTED,
+            $DB->get_field('selfselectadvanced_move', 'status', ['id' => $request->id])
+        );
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_override', [
+            'activityid' => $activity->id(),
+            'scope' => 'move',
+        ]));
+        $this->assertFalse($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => (int) $beta->id,
+            'userid' => (int) $wanderer->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]));
+    }
+
+    /**
+     * The note IS the reason: a bypass with an empty one is refused at
+     * the same seam a staged commit is.
+     */
+    public function test_bypass_requires_note(): void {
+        $this->resetAfterTest();
+        [$activity, , $beta, $wanderer, , , $manager] = $this->setup_world(['maxsize' => 1]);
+
+        $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
+        $this->assert_refused('errmoveoverridereasonrequired', fn() => joinrequests::respond(
+            $activity,
+            (int) $request->id,
+            true,
+            '   ',
+            (int) $manager->id,
+            ['L2']
+        ));
+    }
 }

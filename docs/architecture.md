@@ -277,7 +277,7 @@ App-level uniqueness per (activityid, scope, target); duplicates impossible via 
 | activityid | int(10) | NN | **index** |
 | userid | int(10) | NN | moved student, **index** |
 | sourcegroupid | int(10) | NULL | NULL = groupless (§9.4 residue placement) |
-| targetgroupid | int(10) | NN | spec §7: removal is always a move *to* somewhere |
+| targetgroupid | int(10) | NULL | spec §7 said a removal is always a move *to* somewhere; **1.20.0 (decision 6, D6-2) relaxed it to nullable** — a NULL target is a staff PARK, a removal with no destination team |
 | makeleader | int(1) | NN 0 | §7 leader designation on target |
 | successorid | int(10) | NULL | required when moving the source group's leader out |
 | status | char(10) | NN | `pending` \| `committed` \| `cancelled`, **index** |
@@ -349,11 +349,12 @@ On save (`lib.php` update): **grandfathering pass** (§4A.8) — `gatekeeper::co
 | `mod/selfselectadvanced:respond` | module | student | — |
 | `mod/selfselectadvanced:guide` | module | teacher | — |
 | `mod/selfselectadvanced:freeze` | module | **teacher** (D4) | — |
-| `mod/selfselectadvanced:unfreeze` | module | **editingteacher** (D4) | — |
-| `mod/selfselectadvanced:manage` | module | editingteacher | RISK_CONFIG |
-| `mod/selfselectadvanced:override` | module | editingteacher | RISK_CONFIG |
+| `mod/selfselectadvanced:unfreeze` | module | **editingteacher**, **manager** (D4; the manager grant landed in 1.20.0 — the comment in db/access.php had always claimed it) | — |
+| `mod/selfselectadvanced:manage` | module | editingteacher, **manager** (1.20.0) | RISK_CONFIG |
+| `mod/selfselectadvanced:override` | module | editingteacher, **manager** (1.20.0) | RISK_CONFIG |
+| `mod/selfselectadvanced:overriderules` | module | editingteacher, manager | RISK_CONFIG \| RISK_DATALOSS |
 | `mod/selfselectadvanced:ingestattributes` | **system** | *(none — site admins only)* | RISK_PERSONAL |
-| `mod/selfselectadvanced:viewall` | module | editingteacher, teacher | RISK_PERSONAL |
+| `mod/selfselectadvanced:viewall` | module | editingteacher, teacher, **manager** (1.20.0) | RISK_PERSONAL |
 
 Every check is capability-based (`has_capability`), never role/archetype-based (§3). "Manager" in this document = holder of `:manage`; "guide" = holder of `:guide`. The candidate pool (§ Glossary) = users enrolled in the course holding `:respond` — computed via `get_enrolled_users($context, 'mod/selfselectadvanced:respond')`, *not* activity viewers (C10).
 
@@ -434,6 +435,31 @@ Invalid scope/type combinations (e.g. a user-scope `minsize`) are rejected by `o
 2. No enforcement point reads raw settings: gatekeeper's constructor takes the resolver; raw-column reads outside `activity.php`/resolver are grep-audited per slice (review gate item).
 3. Every override create/update/delete → `override_created/updated/deleted` event with actor, target, old and new values.
 
+### 6.3a Staff override authority (1.20.0, decision 6)
+
+A holder of `:overriderules` (editing teacher and Moodle Manager by default; `clonepermissionsfrom`
+`:override`, so no site loses the bypass authority it already granted) repairs any non-compliant
+roster state through exactly ONE mechanism — the move-scope override — on every staff mutation path:
+
+| Path | Where the authority is enforced | Record |
+|---|---|---|
+| staged move with a rule bypass | `moves::commit_set()` refuses a bypassed set with no reason | `move_committed.other['bypassedrules']` + `move_rules_overridden` |
+| **park** (removal, no destination) | `moves::stage()` — null target needs `:overriderules` | as above, `kind = 'park'` |
+| **dissolve** (close a dead-end team) | `api::dissolve_group()` — needs `:manage` AND `:overriderules` | one committed park move row per member + `move_rules_overridden` `kind = 'dissolve'` |
+| staff team creation | `api::create_group($staff = true)` — needs `:manage` | `group_created.other['createdbystaff']` |
+| join-request acceptance | `joinrequests::respond($bypass)` — checked on the ACTOR | `move_rules_overridden` |
+| unfreeze with a restore delta | `freeze::unfreeze()` refuses a delta with no reason | `group_unfrozen.other['added'/'removed'/'reason']` |
+
+Every one of those requires a typed reason, is refused to a conflicted coordinate-shaped actor
+(`tickets::require_uninvolved_override()` now covers scope `move` too), and fires its event AFTER
+the commit and AFTER every lock has been released. Move-scope rows are listed and revocable on the
+Overrides page's Moves tab (revocable only while the move is still pending — revoking the bypass of
+a committed move would falsify history).
+
+Two rules are deliberately NOT bypassable: `LEADR` (the remedy is the explicit `replaceleader`
+consent) and `SUCC` (it guards against promoting a stale successor). A solo leader who cannot name
+one is told to use **Dissolve team**, which is the verb that resolves that dead end.
+
 ### 6.4 Override UI (mod_assign pattern)
 
 `overrides.php?mode=user|group|guide` — three core tables (target, overridden fields with provenance badges, actions) + `overrideedit.php` moodleforms. **Field set per mode is fixed [B5]** — the form can never offer a scope/type pair the store would reject:
@@ -511,22 +537,33 @@ Display duties (§4A.6) rendered from the same gatekeeper DTOs: student landing 
 
 `local\freeze` — the only code touching core groups, exclusively via `groups_*` API (C: §14.5):
 
-- **Freeze:** create core group `[{activity idnumber|name}] {group name}`; add confirmed members (`groups_add_member`); ensure grouping `Self-selection: {activity name}` (created once per activity, id remembered); append snapshot (roster JSON); set coregroupid/timefrozen. Idempotent: existing owned core group is reconciled member-by-member; core group deleted externally → recreated on re-freeze (§12 drift rule).
-- **Bulk freeze:** guide dashboard core table filtered (state, quota-compliant, approved before/after, department) + select-all-matching → per-group freeze loop, per-group transaction, summary report.
-- **Unfreeze:** `:unfreeze` only. Pre-check: core group referenced in course `availability` restrictions → warning list first (§12). Delete **only plugin-owned** core group (`coregroupid` match), remove from grouping, restore roster to **latest snapshot** verbatim (A6), state `firm`, flag out-of-limit vs current settings (§4A.8). Out-of-band core-group membership drift (vs snapshot) is **reported** (manager notice + event payload), never merged (§14.5).
-- **Uninstall:** plugin tables dropped; frozen core groups/groupings **left in place** as course data, admin informed via uninstall notice (§14.5).
+- **One routine.** `freeze::sync_core_group(activity, groupid, actorid, forceremove = [], rethrow = false)` is the only code that writes core-group membership. It is idempotent, diff-based and convergent, and it runs **outside every plugin lock and open transaction** — core's groups API fires events, invalidates caches and writes a group conversation per member, none of which belongs inside a 10-second lock budget. Its in-transaction half is `freeze::request_sync()`, which queues a deduped `task\coresync_adhoc` in the SAME transaction as the plugin write: a crash between the plugin commit and the inline sync is repaired by cron, never silently diverged. Called with a transaction open (a core observer, for instance) it returns `status = 'deferred'` **silently** and leaves convergence to that adhoc.
+- **Expected set** = confirmed plugin members **∪ the assigned guide** (decision 7), recomputed by `freeze::expected_core_members()` and never cached. The guide is never written to `selfselectadvanced_member` or the snapshot roster, because unfreeze replays that roster as CONFIRMED members.
+- **Ownership is machine-readable.** The course group carries `idnumber = pluginuid` (falling back to no idnumber when a course group already claims it); every membership this plugin writes carries `component = 'mod_selfselectadvanced'` and `itemid` = the plugin group id. A sync removes only rows it owns — plus untagged rows of users who still hold a plugin member row (legacy exports predating tagging), plus rows the caller forces out (GDPR erasure, where the member row is already gone). Everything else is a stranger: **reported, never touched**.
+- **Refusals are visible.** `groups_add_member()` returns false for a deleted account and for anyone not enrolled in the course — including a guide holding the capability through a category or system role. Every refusal lands in the result's `refused` list, in a `capaudit` notification to every manager (names only) and in the interactive redirect notice.
+- **Freeze:** lock, gates, ONE transaction of plugin writes only (state flip, `timefrozen`, `frozenbystaff`, snapshot, `request_sync`), release, then sync (which mints the core group `[{activity idnumber|name}] {group name}` and ensures the grouping `Self-selection: {activity name}`), then the `group_frozen` event, then the notifications. Re-freezing an already frozen team is a **repair**: no gates, no state flip, just the sync, whose mint recreates an externally deleted mirror.
+- **Bulk freeze:** guide dashboard table + explicit selection (nothing pre-checked). The first `freeze::BULK_FREEZE_INLINE_MAX` (20) are frozen inline; the remainder goes to one `task\bulkfreeze_adhoc`.
+- **Unfreeze:** `:unfreeze` only (or the team's own guide while no staff freeze stands). Pre-check: core group referenced in course `availability` restrictions → warning list first (§12). The core group and `coregroupid` are **RETAINED** — `state = firm` already distinguishes the two situations, so a later refreeze reuses the same id and availability conditions, grouping links, group calendar events and the group conversation all survive freeze → change → refreeze. The roster is restored to the **latest snapshot** verbatim (A6), out-of-limit vs current settings is flagged (§4A.8), the `group_unfrozen` event fires after commit and release, and the mirror is resynced to the restored roster.
+- **Discard:** deleting the mirror is an explicit, capability-gated manager action (`freeze::discard_core_group()`, `mod/selfselectadvanced:manage`, POST + sesskey, confirm page). Refused while frozen — the next sync would simply mint it again. It severs `coregroupid` under the group lock in its own transaction and deletes the course group only after release, so a crash leaves an orphaned but idnumber-marked course group rather than a dangling pointer.
+- **Drift** (`freeze::drift()`) is the CORE-MIRROR report and nothing else: `extra` = strangers only, `missing` = expected members absent from the mirror, `repairable` = what a resync would fix. Zero on a healthy frozen team. It is **not** the unfreeze restore delta (snapshot roster vs live confirmed roster), which is a different quantity.
+- **Convergence hooks.** Every path that changes confirmed membership or the guide on a group with a mirror calls `request_sync()` inside its transaction and `sync_core_group()` after release: staged moves (`moves::commit_set`, handed back to `joinrequests::do_accept` on the nested accept path), guide handover, manager guide assignment, succession, GDPR erasure (both privacy deletion paths), `user_deleted` and `user_enrolment_deleted`. The unenrolment observer deliberately does NOT sync inline — it fires in bulk — and relies on the queued adhoc.
+- **Core UI cannot break a frozen mirror:** `selfselectadvanced_allow_group_member_remove()` (lib.php, called by core's `groups_remove_member_allowed()` for tagged rows only) refuses removal of a plugin-owned membership while the team is FROZEN.
+- **Flagged report** surfaces mirror health per activity in three bulk queries: `coregroupmissing` (frozen with no live mirror — also the backup/restore hole), `coregroupincomplete` (expected members absent) and `coregroupstranger` (unowned rows present).
+- **Uninstall:** plugin tables dropped; frozen core groups/groupings **left in place** as course data, admin informed via uninstall notice (§14.5). Ownership of the surviving artefacts is now machine-readable through the group `idnumber` and the membership `component`.
 
 ---
 
 ## 12. Events, messaging, scheduled tasks
 
-**Events** (`\core\event` base, CRUD verbs, objecttable set, module logstore-visible — §14.7): `group_created`, `group_deleted`, `invitation_sent`, `invitation_accepted`, `invitation_declined`, `invitation_expired`, `invitation_withdrawn`, `leadership_transferred`, `group_submitted`, `group_returned`, `group_approved`, `group_frozen`, `group_unfrozen`, `move_staged`, `move_committed`, `move_cancelled`, `autogroup_run`, `attributes_imported`, `attributes_updated`, `limits_changed` (old+new §4A values), `override_created`, `override_updated`, `override_deleted`, `penalty_recomputed` (A12), `leave_requested`, `course_module_viewed`.
+**Events** (`\core\event` base, CRUD verbs, objecttable set, module logstore-visible — §14.7): `group_created`, `group_deleted`, `invitation_sent`, `invitation_accepted`, `invitation_declined`, `invitation_expired`, `invitation_withdrawn`, `leadership_transferred`, `group_submitted`, `group_returned`, `group_approved`, `group_frozen`, `group_unfrozen`, `move_staged`, `move_committed`, `move_cancelled`, `autogroup_run`, `attributes_imported`, `attributes_updated`, `limits_changed` (old+new §4A values), `override_created`, `override_updated`, `override_deleted`, `penalty_recomputed` (A12), `leave_requested`, `course_module_viewed`, `coregroup_synced` (mirror converged: added/removed/refused/unowned counts), `coregroup_discarded` (mirror deleted by a manager).
 
 **Message providers** (`db/messages.php`, all user-preference-respecting, deep links — §14.8): `invitation` (→invitee), `invitationresult` (→leader: accept/decline/expire/cascade with reason), `nomination` (→nominee), `nominationresult` (→leader), `leaverequest` (→leader), `leaveresult` (→member), `guidequeue` (→guide on submission / manager in A5 mode), `groupreturned` (→leader, with comment), `groupapproved` (→all confirmed members), `groupfrozen` (→members), `groupunfrozen` (→members+guide), `movecommitted` (→moved student, both leaders), `autogroupresult` (→placed students; →manager summary incl. residue), `deadlinereminder` (→students not yet in a firm group, 24 h before eff. due), `gradepenalty`? — no: penalties surface via gradebook + ledger (not a nag). Sends centralised in `local\notifier`.
 
 **Scheduled tasks** (`db/tasks.php` — §14.9): `expire_invitations` (hourly; effective expiry via resolver; auto-decline + seat release + notify), `run_autogrouping` (5-min cadence; fires per enabled activity whenever unprocessed groupless students exist whose **per-user effective cutoff** has passed [B4] — i.e. it re-runs as override-extended windows close, not only once at activity cutoff), `reconcile_penalties` (nightly full recompute — catches date-override edits), `deadline_reminder` (hourly window scan, per-user effective due, sent-marker via user preference key).
 
-**Observer** (`db/events.php`) [M3]: `\core\event\user_deleted` → delete the user's `userattr` row, scrub pending member/nomination references, purge the distinct-value MUC cache (which is also invalidated on ingest and inline edit).
+**Observers** (`db/events.php`) [M3]: `\core\event\user_deleted` → delete the user's `userattr` row, scrub pending member/nomination references, purge the distinct-value MUC cache (which is also invalidated on ingest and inline edit), and converge each affected mirror. `\core\event\user_enrolment_deleted` → when that was the user's LAST enrolment in the course (core only purges group memberships then), drop their live memberships in that course's activities and queue the mirror sync; no inline sync, because this event fires in bulk. A removed leader or guide is never auto-reassigned — the flagged reports surface both.
+
+**Adhoc tasks** (no `db/tasks.php` entry): `task\coresync_adhoc` (the mirror convergence backstop, queued inside the mutating transaction, deduped, failures rethrown so core's retry/backoff owns them) and `task\bulkfreeze_adhoc` (the overflow of a bulk freeze).
 
 ---
 

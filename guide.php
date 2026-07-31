@@ -41,27 +41,29 @@ $api = new \mod_selfselectadvanced\local\api($activity);
 $action = optional_param('action', '', PARAM_ALPHA);
 if ($action === 'bulkfreeze' && data_submitted() && confirm_sesskey()) {
     require_capability('mod/selfselectadvanced:freeze', $context);
-    $selected = optional_param_array('selected', [], PARAM_INT);
-    $done = 0;
-    $skipped = [];
-    foreach ($selected as $sgid) {
-        try {
-            $sgroup = \mod_selfselectadvanced\local\groups::get($activity, $sgid);
-            \mod_selfselectadvanced\local\freeze::freeze_group($activity, $sgroup, (int) $USER->id);
-            $done++;
-        } catch (moodle_exception $e) {
-            $skipped[] = format_string($sgroup->name ?? (string) $sgid) . ': ' . $e->getMessage();
-        }
+    // One request freezes a bounded number of teams; the remainder
+    // goes to cron, where the same work is legal and nothing times out.
+    // The loop itself lives on the freeze class so a test can pin the
+    // cap to the path this page actually takes.
+    $bulk = \mod_selfselectadvanced\local\freeze::bulk_freeze(
+        $activity,
+        optional_param_array('selected', [], PARAM_INT),
+        (int) $USER->id
+    );
+    $notice = get_string('bulkfrozen', 'mod_selfselectadvanced', $bulk->done);
+    if ($bulk->queued) {
+        $notice .= ' ' . get_string('bulkfreezequeued', 'mod_selfselectadvanced', $bulk->queued);
     }
-    $notice = get_string('bulkfrozen', 'mod_selfselectadvanced', $done);
-    if ($skipped) {
-        $notice .= ' ' . get_string('bulkskipped', 'mod_selfselectadvanced', implode(' ', $skipped));
+    if ($bulk->skipped) {
+        $notice .= ' ' . get_string('bulkskipped', 'mod_selfselectadvanced', implode(' ', $bulk->skipped));
     }
     redirect(
         new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
         $notice,
         null,
-        $skipped ? \core\output\notification::NOTIFY_WARNING : \core\output\notification::NOTIFY_SUCCESS
+        ($bulk->skipped || $bulk->queued)
+            ? \core\output\notification::NOTIFY_WARNING
+            : \core\output\notification::NOTIFY_SUCCESS
     );
 }
 

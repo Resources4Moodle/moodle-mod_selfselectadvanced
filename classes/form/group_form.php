@@ -72,9 +72,48 @@ class group_form extends \moodleform {
         $mform->setType('brief', PARAM_RAW);
         $mform->addRule('brief', get_string('required'), 'required', null, 'client');
 
+        if (!empty($this->_customdata['staffmode'])) {
+            // Decision 6, D6-4: staff create a DESTINATION team, so the
+            // leader is somebody else. Same searching picker the move
+            // form uses - a preloaded list of ten thousand students is
+            // not workable and never was (strategy 1.18 B).
+            $mform->addElement(
+                'autocomplete',
+                'leader',
+                get_string('newteamleader', 'mod_selfselectadvanced'),
+                $this->_customdata['selectedleader'] ?? [],
+                [
+                    'ajax' => 'mod_selfselectadvanced/participantselector',
+                    'noselectionstring' => get_string('choosedots'),
+                    'valuehtmlcallback' => function ($userid) {
+                        $user = \core_user::get_user((int) $userid);
+
+                        return $user ? fullname($user) : '';
+                    },
+                    'data-cmid' => $this->_customdata['cmid'],
+                ]
+            );
+            $mform->setType('leader', PARAM_INT);
+            $mform->addRule('leader', get_string('required'), 'required', null, 'client');
+            $mform->addHelpButton('leader', 'newteamleader', 'mod_selfselectadvanced');
+        }
+
         $this->add_action_buttons(true, $editing
             ? get_string('savechanges')
             : get_string('creategroup', 'mod_selfselectadvanced'));
+    }
+
+    /**
+     * Attach an error message to one field and have it survive the next
+     * display() of THIS form instance, without discarding the submitted
+     * values - the catch-and-surface pattern move_form uses, so a
+     * refused staff creation never loses the manager's input.
+     *
+     * @param string $element the element name to attach the error to
+     * @param string $message the error message, already localised
+     */
+    public function set_element_error(string $element, string $message): void {
+        $this->_form->setElementError($element, $message);
     }
 
     /**
@@ -99,6 +138,9 @@ class group_form extends \moodleform {
         }
         if (trim($data['title'] ?? '') === '') {
             $errors['title'] = get_string('required');
+        }
+        if (!empty($this->_customdata['staffmode']) && empty($data['leader'])) {
+            $errors['leader'] = get_string('required');
         }
 
         return $errors;

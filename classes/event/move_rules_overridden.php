@@ -17,13 +17,21 @@
 namespace mod_selfselectadvanced\event;
 
 /**
- * Event fired when a staged move is committed (spec 7).
+ * Event fired when a staff roster action commits over a composition or
+ * limit rule (decision 6).
+ *
+ * The bypass hatch existed for two releases as a set of checkboxes on
+ * one form, recorded in a table nothing listed and absent from the
+ * commit event (D6-1, D6-6). This is the named record: which rules were
+ * overridden, with the figures that refused them, why, by whom, and for
+ * which student. It fires AFTER the commit and AFTER every lock has
+ * been released - a new event never travels under either.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class move_committed extends \core\event\base {
+class move_rules_overridden extends \core\event\base {
     /**
      * Initialise the event data.
      */
@@ -39,7 +47,7 @@ class move_committed extends \core\event\base {
      * @return string
      */
     public static function get_name(): string {
-        return get_string('eventmovecommitted', 'mod_selfselectadvanced');
+        return get_string('eventmoverulesoverridden', 'mod_selfselectadvanced');
     }
 
     /**
@@ -49,17 +57,10 @@ class move_committed extends \core\event\base {
      */
     public function get_description(): string {
         $o = $this->other;
-        $source = $o['sourcegroupid'] ?? 'none';
-        // A null target is a staff park: a removal with no destination
-        // team (decision 6). Saying "to group ''" would read as a bug.
-        $target = $o['targetgroupid'] ?? 'none';
-        $description = "The user with id '$this->userid' committed the move of user "
-            . "'$this->relateduserid' from group '$source' to group '$target'";
-        if (!empty($o['bypassedrules'])) {
-            $description .= ', overriding rules ' . implode(', ', (array) $o['bypassedrules']);
-        }
+        $rules = implode(', ', (array) ($o['rules'] ?? []));
 
-        return $description . '.';
+        return "The user with id '$this->userid' committed a roster change for the user with id "
+            . "'$this->relateduserid' overriding rules $rules: {$o['reason']}";
     }
 
     /**
@@ -73,11 +74,19 @@ class move_committed extends \core\event\base {
 
     /**
      * Validate required custom data.
+     *
+     * The two things that make this event worth having are the rules
+     * and the reason; an override with neither is exactly the silent
+     * bypass decision 6 exists to end, so it is a coding error here
+     * rather than an empty log line later.
      */
     protected function validate_data(): void {
         parent::validate_data();
-        if (!array_key_exists('targetgroupid', $this->other)) {
-            throw new \coding_exception('The targetgroupid must be set in other.');
+        if (empty($this->other['rules']) || !is_array($this->other['rules'])) {
+            throw new \coding_exception('The rules must be a non-empty array in other.');
+        }
+        if (trim((string) ($this->other['reason'] ?? '')) === '') {
+            throw new \coding_exception('The reason must be a non-empty string in other.');
         }
     }
 }

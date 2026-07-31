@@ -11,6 +11,7 @@ Feature: Transactional staged moves
       | student2 | Tara      | Two      | student2@example.com |
       | student3 | Uma       | Three    | student3@example.com |
       | student4 | Vik       | Four     | student4@example.com |
+      | student5 | Wei       | Five     | student5@example.com |
       | teacher1 | Tina      | Teach    | teach1@example.com   |
     And the following "courses" exist:
       | fullname | shortname |
@@ -21,6 +22,7 @@ Feature: Transactional staged moves
       | student2 | C1     | student        |
       | student3 | C1     | student        |
       | student4 | C1     | student        |
+      | student5 | C1     | student        |
       | teacher1 | C1     | editingteacher |
     And the following "role capabilities" exist:
       | role           | moodle/user:viewalldetails |
@@ -85,3 +87,60 @@ Feature: Transactional staged moves
     And I should see "Tara Two"
     When I am on the "Lab groups" "mod_selfselectadvanced > moves" page
     Then I should see "Edit and restage"
+
+  @javascript
+  Scenario: A manager overrides a failing rule with a typed reason
+    Given the following "mod_selfselectadvanced > moves" exist:
+      | selfselectadvanced | user     | targetgroup |
+      | ssa1               | student5 | Team A      |
+    When I am on the "Lab groups" "mod_selfselectadvanced > moves" page logged in as teacher1
+    Then I should see "L2" in the ".selfselectadvanced-moves" "css_element"
+    When I click on "Override this rule…" "link" in the ".ssa-rulechip-L2" "css_element"
+    Then I should see "Stage a move"
+    When I press "Stage a move"
+    Then I should see "Move staged. It takes effect when committed."
+    When I set the field "Select Wei Five" to "1"
+    And I press "Commit selected moves"
+    Then I should see "Confirm a commit that overrides the rules"
+    And I should see "L2"
+    And I should see "Wei Five"
+    When I press "Commit with override"
+    Then I should see "Overriding a composition rule needs a typed reason"
+    When I set the field "Select Wei Five" to "1"
+    And I press "Commit selected moves"
+    And I set the field "Reason for the override" to "Agreed with the guide"
+    And I press "Commit with override"
+    Then I should see "move(s) committed."
+    And I should see "No pending moves."
+
+  Scenario: Pending moves paginate
+    Given the following "mod_selfselectadvanced > pendingmoves" exist:
+      | selfselectadvanced | user     | targetgroup | count | timecreated          |
+      | ssa1               | student4 | Team A      | 50    | ##2026-01-01 09:00## |
+      | ssa1               | student2 | Team B      | 10    | ##2026-06-01 09:00## |
+    When I am on the "Lab groups" "mod_selfselectadvanced > moves" page logged in as teacher1
+    Then I should see "Pending moves"
+    And I should see "Vik Four"
+    And I should not see "Tara Two"
+    And "2" "link" should exist in the ".pagination" "css_element"
+    When I click on "2" "link" in the ".pagination" "css_element"
+    Then I should see "Tara Two"
+
+  @javascript
+  Scenario: A manager parks a student and the flagged report offers to re-place them
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
+    And I am on the "Lab groups" "mod_selfselectadvanced > stage move" page
+    And I set the field "Student" to "Vik Four"
+    And I set the field "Remove without a destination team (park)" to "1"
+    And I set the field "Minimum group size (L1)" to "1"
+    And I press "Stage a move"
+    Then I should see "Move staged. It takes effect when committed."
+    And I should see "No team (removal)"
+    When I set the field "Select Vik Four" to "1"
+    And I press "Commit selected moves"
+    Then I should see "Confirm a commit that overrides the rules"
+    When I set the field "Reason for the override" to "Left the programme"
+    And I press "Commit with override"
+    Then I should see "move(s) committed."
+    When I am on the "Lab groups" "mod_selfselectadvanced > flagged" page
+    Then I should see "Vik Four"

@@ -193,4 +193,222 @@ final class scale_regressions_test extends \advanced_testcase {
         );
         $this->assertEquals($counted, $fromrow);
     }
+
+    /**
+     * T-16 requirement 1: the mirror sync costs the same number of
+     * reads whatever the roster size - it reads two sets and applies a
+     * delta, and the delta of an ordinary change is 0-2 core calls.
+     *
+     * preventResetByRollback() first: the sync writes to core only when
+     * no transaction is open, and advanced_testcase opens one before
+     * every test on PostgreSQL - the deferral path would make every
+     * figure below a measurement of nothing.
+     */
+    public function test_sync_cost_scales_with_delta_not_roster(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$smallactivity, $smallfrozen] = $this->frozen_team(3);
+        [$bigactivity, $bigfrozen] = $this->frozen_team(20);
+
+        // Warm the per-activity caches on BOTH sides first (course,
+        // course module, module context): a cold second course would
+        // otherwise be measured as if the roster had cost it.
+        \mod_selfselectadvanced\local\freeze::sync_core_group($smallactivity, (int) $smallfrozen->id, 0);
+        \mod_selfselectadvanced\local\freeze::sync_core_group($bigactivity, (int) $bigfrozen->id, 0);
+
+        $before = $DB->perf_get_reads();
+        \mod_selfselectadvanced\local\freeze::sync_core_group($smallactivity, (int) $smallfrozen->id, 0);
+        $smallreads = $DB->perf_get_reads() - $before;
+
+        $before = $DB->perf_get_reads();
+        \mod_selfselectadvanced\local\freeze::sync_core_group($bigactivity, (int) $bigfrozen->id, 0);
+        $bigreads = $DB->perf_get_reads() - $before;
+
+        $this->assertSame(
+            $smallreads,
+            $bigreads,
+            "an in-step sync scaled with the roster: $smallreads reads for 4 members, $bigreads for 21"
+        );
+
+        // One member removed out of band: the repair costs a small
+        // constant more, not a function of the roster.
+        $membertoremove = (int) $DB->get_field_sql(
+            "SELECT userid FROM {selfselectadvanced_member} WHERE groupid = ? AND status = ? ORDER BY id",
+            [(int) $bigfrozen->id, groups::STATUS_CONFIRMED],
+            IGNORE_MULTIPLE
+        );
+        $DB->delete_records('groups_members', [
+            'groupid' => (int) $bigfrozen->coregroupid,
+            'userid' => $membertoremove,
+        ]);
+
+        $before = $DB->perf_get_reads();
+        $sync = \mod_selfselectadvanced\local\freeze::sync_core_group($bigactivity, (int) $bigfrozen->id, 0);
+        $repairreads = $DB->perf_get_reads() - $before;
+
+        $this->assertSame([$membertoremove], $sync->added);
+        $this->assertLessThanOrEqual(
+            $bigreads + 10,
+            $repairreads,
+            "repairing one member cost $repairreads reads against an in-step $bigreads"
+        );
+    }
+
+    /**
+     * D7-E1: one bulk-freeze request never freezes an unbounded
+     * selection. The first BULK_FREEZE_INLINE_MAX are handled inline
+     * and the remainder is handed to cron, which freezes them there.
+     */
+    public function test_bulk_freeze_caps_inline(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        $ids = range(1, 25);
+        $split = \mod_selfselectadvanced\local\freeze::split_bulk_selection($ids);
+
+        $this->assertCount(20, $split['inline']);
+        $this->assertCount(5, $split['queued']);
+        $this->assertSame(range(21, 25), array_values($split['queued']));
+
+        // End to end, through the SAME entry point guide.php calls -
+        // asserting the split helper on its own leaves the page free to
+        // stop calling it, which is the defect, not the helper.
+        [$activity, $guideid, $groupids] = $this->firm_teams(25);
+        $result = \mod_selfselectadvanced\local\freeze::bulk_freeze($activity, $groupids, $guideid);
+
+        $this->assertSame(20, $result->done, 'the request did not stop at the inline cap');
+        $this->assertSame([], $result->skipped);
+        $this->assertSame(5, $result->queued);
+        $states = [];
+        foreach ($groupids as $groupid) {
+            $states[] = groups::get($activity, $groupid)->state;
+        }
+        $this->assertSame(20, count(array_filter($states, static fn($s) => $s === state::FROZEN)));
+        $this->assertSame(5, count(array_filter($states, static fn($s) => $s === state::FIRM)));
+
+        // Exactly one task, holding exactly the overflow.
+        $tasks = \core\task\manager::get_adhoc_tasks(\mod_selfselectadvanced\task\bulkfreeze_adhoc::class);
+        $this->assertCount(1, $tasks);
+        $queueddata = (object) reset($tasks)->get_custom_data();
+        $this->assertSame(
+            array_slice($groupids, 20),
+            array_map('intval', (array) $queueddata->groupids)
+        );
+
+        // And cron really does freeze the remainder.
+        $this->runAdhocTasks();
+
+        foreach ($groupids as $groupid) {
+            $after = groups::get($activity, $groupid);
+            $this->assertSame(state::FROZEN, $after->state);
+            $this->assertNotEmpty($after->coregroupid);
+        }
+    }
+
+    /**
+     * A course of firm one-person teams sharing one guide, ready to be
+     * bulk-frozen.
+     *
+     * @param int $count how many teams
+     * @return array [activity, guide userid, plugin group ids in creation order]
+     */
+    private function firm_teams(int $count): array {
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 5,
+            'maxlead' => 1,
+            'maxmembership' => 1,
+        ], ['idnumber' => 'SSABLK']);
+        $activity = activity::from_instance((int) $instance->id);
+
+        $guide = $generator->create_user();
+        $generator->enrol_user($guide->id, $course->id, 'teacher');
+        $groupids = [];
+        for ($i = 0; $i < $count; $i++) {
+            $leader = $generator->create_user();
+            $generator->enrol_user($leader->id, $course->id, 'student');
+            $row = $plugingen->create_group([
+                'activityid' => $activity->id(),
+                'leaderid' => (int) $leader->id,
+                'name' => 'Bulk ' . $i,
+                'state' => state::FIRM,
+                'guideid' => (int) $guide->id,
+                'timeapproved' => time(),
+            ]);
+            $groupids[] = (int) $row->id;
+        }
+
+        return [$activity, (int) $guide->id, $groupids];
+    }
+
+    /**
+     * A frozen team of the given size, with its mirror in step.
+     *
+     * @param int $members confirmed members besides the leader
+     * @param int $spares extra FIRM teams to leave unfrozen
+     * @return array [activity, frozen group row, first spare group row|null]
+     */
+    private function frozen_team(int $members, int $spares = 0): array {
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 30,
+            'maxlead' => 5,
+            'maxmembership' => 5,
+        ], ['idnumber' => 'SSASCL']);
+        $activity = activity::from_instance((int) $instance->id);
+
+        $guide = $generator->create_user();
+        $generator->enrol_user($guide->id, $course->id, 'teacher');
+        $leader = $generator->create_user();
+        $generator->enrol_user($leader->id, $course->id, 'student');
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $leader->id,
+            'name' => 'Scaled',
+            'state' => state::FIRM,
+            'guideid' => (int) $guide->id,
+            'timeapproved' => time(),
+        ]);
+        for ($i = 0; $i < $members; $i++) {
+            $member = $generator->create_user();
+            $generator->enrol_user($member->id, $course->id, 'student');
+            $plugingen->create_member([
+                'groupid' => $group->id,
+                'userid' => (int) $member->id,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+        }
+        $frozen = \mod_selfselectadvanced\local\freeze::freeze_group(
+            $activity,
+            groups::get($activity, (int) $group->id),
+            (int) $guide->id
+        );
+
+        $spare = null;
+        for ($i = 0; $i < $spares; $i++) {
+            $sparelead = $generator->create_user();
+            $generator->enrol_user($sparelead->id, $course->id, 'student');
+            $row = $plugingen->create_group([
+                'activityid' => $activity->id(),
+                'leaderid' => (int) $sparelead->id,
+                'name' => 'Spare' . $i,
+                'state' => state::FIRM,
+                'guideid' => (int) $guide->id,
+                'timeapproved' => time(),
+            ]);
+            $spare ??= groups::get($activity, (int) $row->id);
+        }
+
+        return [$activity, $frozen, $spare];
+    }
 }

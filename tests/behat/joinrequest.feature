@@ -185,6 +185,31 @@ Feature: Asking to join another team, and the guide releasing a settled one
     And I press "Unfreeze"
     Then I should see "unfrozen"
 
+  @javascript
+  Scenario: Staff see the override disclosure and can accept over a failing rule
+    Given the following "activities" exist:
+      | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership |
+      | selfselectadvanced | C1     | Tight labs | ssa3     | 1       | 1       | 1       | 1             |
+    And the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name       | leader   | state   |
+      | ssa3               | Tight Gold | student2 | forming |
+    And the following "mod_selfselectadvanced > joinrequests" exist:
+      | selfselectadvanced | user     | ssagroup   | reason                 |
+      | ssa3               | student3 | Tight Gold | Closer to my programme |
+    When I am on the "Tight labs" "mod_selfselectadvanced > join" page logged in as teacher1
+    And I follow "Asked of my team"
+    Then I should see "Override composition rules…"
+    # Without the override the refusal now NAMES the rule and its
+    # figures, instead of the general "the rules refused it" (D6-5).
+    When I press "Accept"
+    Then I should see "L2"
+    And I should see "Nina Three"
+    When I click on "//summary[contains(., 'Override composition rules')]" "xpath_element"
+    And I set the field "Maximum group size / reserved seats (L2)" to "1"
+    And I set the field with xpath "//input[@name='note']" to "Agreed with the guide"
+    And I press "Accept"
+    Then I should see "Accepted."
+
   # That a STAFF freeze blocks the guide's release is checked in
   # joinrequests_test, for a manager's freeze and a coordinator's alike:
   # it is an authority rule, and the capability archetypes make it

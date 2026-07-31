@@ -381,6 +381,85 @@ function selfselectadvanced_reset_userdata($data): array {
 }
 
 /**
+ * Whether staff may delete one of THIS plugin's memberships from a
+ * mirrored course group through a core UI.
+ *
+ * Core calls this from groups_remove_member_allowed(), and only for
+ * rows whose `component` column is set - i.e. exactly the memberships
+ * this plugin writes. While the team is FROZEN the answer is no: the
+ * plugin roster is authoritative, and a removal made in the groups UI,
+ * the participants page, the enrolment UI or the web service would be
+ * re-added by the next sync anyway. Refusing it turns "missing" drift
+ * from something merely reported into something that cannot happen.
+ *
+ * While the team is FIRM the edit is allowed - the mirror still
+ * converges on the plugin roster at the next sync, so composition
+ * stays plugin-authoritative either way, and the way out for staff is
+ * the plugin's own tools. A stale itemid (the plugin group is gone)
+ * yields false from get_field, which is not FROZEN, so removal is
+ * allowed - the right answer for an orphan.
+ *
+ * @param int $itemid the plugin group id recorded on the membership
+ * @param int $groupid the course group id
+ * @param int $userid the user being removed
+ * @return bool true when core may delete the row
+ */
+function selfselectadvanced_allow_group_member_remove($itemid, $groupid, $userid): bool {
+    global $DB;
+
+    $state = $DB->get_field('selfselectadvanced_group', 'state', ['id' => (int) $itemid]);
+
+    return $state !== \mod_selfselectadvanced\local\state::FROZEN;
+}
+
+/**
+ * The full names of the people a core-group sync could not add.
+ *
+ * Names ONLY. A refusal notice is read by guides and managers, and the
+ * per-activity contact-privacy setting means neither an email address
+ * nor a phone number may travel in one (cardinal rule).
+ *
+ * @param int[] $userids the refused userids from freeze::sync_core_group()
+ * @return string comma-separated full names
+ */
+function selfselectadvanced_refused_names(array $userids): string {
+    return implode(', ', selfselectadvanced_user_names($userids));
+}
+
+/**
+ * Full names for a bounded list of userids, in ONE query.
+ *
+ * Names ONLY, never an email address or a phone number: the confirm
+ * pages that use this (unfreeze restore preview, dissolve parking list)
+ * are read by managers and non-editing teachers, the exact audience the
+ * per-activity contact-privacy setting restricts (cardinal rule).
+ *
+ * The lists this serves are bounded by a team's roster, so one batched
+ * read is the whole cost.
+ *
+ * @param int[] $userids the people to name
+ * @return string[] userid => full name, in the order given
+ */
+function selfselectadvanced_user_names(array $userids): array {
+    global $DB;
+
+    $userids = array_values(array_unique(array_filter(array_map('intval', $userids))));
+    if (!$userids) {
+        return [];
+    }
+    [$insql, $params] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'un');
+    $namefields = \core_user\fields::for_name()->get_sql('', false, '', '', true)->selects;
+    $rows = $DB->get_records_sql("SELECT id{$namefields} FROM {user} WHERE id $insql", $params);
+
+    $names = [];
+    foreach ($userids as $userid) {
+        $names[$userid] = isset($rows[$userid]) ? fullname($rows[$userid]) : (string) $userid;
+    }
+
+    return $names;
+}
+
+/**
  * Serve files from the proposal filearea (itemid = plugin group id).
  * Visible to confirmed members of that group, to the guide assigned to
  * it, and to staff with viewall.

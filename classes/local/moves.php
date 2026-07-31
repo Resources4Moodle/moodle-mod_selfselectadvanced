@@ -24,7 +24,11 @@ use stdClass;
 /**
  * Staged manager moves (spec 7, decisions A4/A6, review item B3).
  *
- * A removal is always expressed as a move to somewhere. Moves sit in
+ * A removal is normally expressed as a move to somewhere. The one
+ * exception is a staff PARK - a null targetgroupid, authorised by
+ * :overriderules at the stage() seam - which removes a student with no
+ * destination team (decision 6, D6-2); every target-side rule and write
+ * is skipped for it. Moves sit in
  * `pending` with NO visible change until a manager commits a selected
  * SET; the set is validated jointly against the net post-state of
  * every touched group (a swap of two students commits as a set).
@@ -39,6 +43,21 @@ use stdClass;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class moves {
+    /**
+     * The most moves one commit may carry.
+     *
+     * A commit holds the activity lock plus one lock per touched group
+     * while it re-validates and applies every row, so an unbounded
+     * selection is an unbounded lock hold against a 10s acquire budget
+     * on a site with 1500 teams (decision 6, D6-8).
+     *
+     * @var int
+     */
+    public const MAX_COMMIT = 100;
+
+    /** @var string[] The rule codes a move-scope override may bypass. */
+    public const BYPASSABLE = ['L1', 'L2', 'L3', 'L4', 'QUOTA'];
+
     /** @var activity The activity. */
     private readonly activity $activity;
 
@@ -59,9 +78,14 @@ class moves {
     /**
      * Stage a move (no visible change occurs).
      *
+     * A null target is a PARK (decision 6, D6-2): a staff removal with
+     * no destination team. It is authorised by :overriderules at this
+     * seam, never designates a leader, and must have a source to remove
+     * the student from.
+     *
      * @param int $userid the student to move
      * @param int|null $sourcegroupid group to leave, null when placing a groupless student
-     * @param int $targetgroupid group to join
+     * @param int|null $targetgroupid group to join, null for a staff park (removal, no destination)
      * @param bool $makeleader designate the student leader of the target
      * @param int|null $successorid new leader for the source when moving its leader out
      * @param int $actorid the acting manager
@@ -74,7 +98,7 @@ class moves {
     public function stage(
         int $userid,
         ?int $sourcegroupid,
-        int $targetgroupid,
+        ?int $targetgroupid,
         bool $makeleader,
         ?int $successorid,
         int $actorid,
@@ -84,7 +108,43 @@ class moves {
         global $DB;
 
         // Server-side ownership of every id (IDOR).
-        groups::get($this->activity, $targetgroupid);
+        if ($targetgroupid !== null) {
+            groups::get($this->activity, $targetgroupid);
+        }
+
+        // Server-side ownership of the USER id too (IDOR): the picker
+        // restricts to enrolled :respond holders
+        // (external/search_participants.php) but the seam must not trust
+        // the picker - the comment above claimed this check for two
+        // releases while only the GROUPS were validated, so a groupless
+        // id posted straight at this service skipped every membership
+        // test and apply() inserted the member row unconditionally
+        // (D6-10). A park (null target) is a pure removal and stays
+        // possible for a suspended or unenrolled user; a placement must
+        // land on a live participant.
+        if (
+            $targetgroupid !== null
+            && !is_enrolled($this->activity->context(), $userid, 'mod/selfselectadvanced:respond', true)
+        ) {
+            throw new \moodle_exception('errmovenotparticipant', 'mod_selfselectadvanced');
+        }
+
+        // Park authorisation lives at the seam, so every caller - the
+        // form, a dissolve, a future script - inherits it.
+        if ($targetgroupid === null) {
+            if (!has_capability('mod/selfselectadvanced:overriderules', $this->activity->context(), $actorid)) {
+                throw new \moodle_exception('errmoveparkcapability', 'mod_selfselectadvanced');
+            }
+            if ($makeleader) {
+                throw new \moodle_exception('errmoveparknolead', 'mod_selfselectadvanced');
+            }
+            if ($explicitnosource) {
+                // Removes nothing and adds nothing: an incoherent ask,
+                // not a no-op to be silently accepted.
+                throw new \moodle_exception('errmoveparkandtarget', 'mod_selfselectadvanced');
+            }
+        }
+
         if ($sourcegroupid === null && !$explicitnosource) {
             // A blank source for a student who IS confirmed somewhere
             // would silently create a second membership on commit:
@@ -113,6 +173,11 @@ class moves {
                 throw new \moodle_exception('refusalmovesourcerequired', 'mod_selfselectadvanced', '', $names);
             }
         }
+        // A park removes somebody from somewhere; with no source there
+        // is nothing to remove and nothing to add.
+        if ($targetgroupid === null && $sourcegroupid === null) {
+            throw new \moodle_exception('errmovenotmember', 'mod_selfselectadvanced');
+        }
         if ($sourcegroupid !== null) {
             $source = groups::get($this->activity, $sourcegroupid);
             $ismember = $DB->record_exists('selfselectadvanced_member', [
@@ -124,8 +189,32 @@ class moves {
                 throw new \moodle_exception('errmovenotmember', 'mod_selfselectadvanced');
             }
             if ((int) $source->leaderid === $userid && !$successorid) {
-                throw new \moodle_exception('errmovesuccessorrequired', 'mod_selfselectadvanced');
+                // A one-member team can never name a successor, so
+                // "name a successor" is a dead end there and used to be
+                // the only thing this seam said (D6-3). Name the verb
+                // that actually resolves it instead. The refusal stays
+                // at stage time deliberately: a committed leader-out
+                // with nobody left would strand leaderid (NOT NULL)
+                // pointing at a removed member.
+                $others = $DB->record_exists_select(
+                    'selfselectadvanced_member',
+                    'groupid = ? AND userid <> ? AND status = ?',
+                    [$sourcegroupid, $userid, groups::STATUS_CONFIRMED]
+                );
+                throw new \moodle_exception(
+                    $others ? 'errmovesuccessorrequired' : 'errmovesololeader',
+                    'mod_selfselectadvanced'
+                );
             }
+        }
+        // The successor is a roster id posted from a 5000-user
+        // autocomplete: verify enrolment before membership so a foreign
+        // id is named as such (D6-10).
+        if (
+            $successorid
+            && !is_enrolled($this->activity->context(), $successorid, 'mod/selfselectadvanced:respond', true)
+        ) {
+            throw new \moodle_exception('errmovenotparticipant', 'mod_selfselectadvanced');
         }
         // A successor must be a confirmed member of the source group
         // other than the student being moved (5000-user autocomplete
@@ -199,7 +288,11 @@ class moves {
             if ($move->sourcegroupid) {
                 $removals[(int) $move->sourcegroupid][] = (int) $move->userid;
             }
-            $additions[(int) $move->targetgroupid][] = (int) $move->userid;
+            if ($move->targetgroupid) {
+                // A park has no target, so it contributes a removal and
+                // nothing else.
+                $additions[(int) $move->targetgroupid][] = (int) $move->userid;
+            }
         }
         $confirmedin = [];
         $seatsin = [];
@@ -250,7 +343,9 @@ class moves {
         $membershipdeltas = [];
         foreach ($moves as $move) {
             $uid = (int) $move->userid;
-            $gain = in_array($uid, $confirmedin[(int) $move->targetgroupid] ?? [], true) ? 0 : 1;
+            // A park gains nothing anywhere.
+            $gain = $move->targetgroupid
+                && !in_array($uid, $confirmedin[(int) $move->targetgroupid] ?? [], true) ? 1 : 0;
             $loss = $move->sourcegroupid
                 && in_array($uid, $confirmedin[(int) $move->sourcegroupid] ?? [], true) ? 1 : 0;
             $membershipdeltas[$uid] = ($membershipdeltas[$uid] ?? 0) + $gain - $loss;
@@ -274,7 +369,7 @@ class moves {
                     $liveleader[$sourceid] = (int) $move->successorid;
                 }
             }
-            if ($move->makeleader) {
+            if ($move->makeleader && $move->targetgroupid) {
                 $targetid = (int) $move->targetgroupid;
                 if (!array_key_exists($targetid, $liveleader)) {
                     $liveleader[$targetid] = (int) groups::get($this->activity, $targetid)->leaderid;
@@ -307,14 +402,23 @@ class moves {
                 );
             }
 
-            // L2 on the target group's net post-state (confirmed + pending seats).
-            $seatsafter = $seatsafterfn($targetid);
-            $max = $resolver->effective_maxsize($targetid)->value;
-            $verdicts['L2'] = $this->verdict(
-                $seatsafter <= $max,
-                in_array('L2', $bypasses, true),
-                get_string('moveruleL2', 'mod_selfselectadvanced', (object) ['after' => $seatsafter, 'max' => $max])
-            );
+            // L2 on the target group's net post-state (confirmed +
+            // pending seats). A park has no target, so the target-side
+            // rules do not apply to it at all: its per-move verdicts are
+            // exactly L1, (SUCC when it moves the leader), source QUOTA
+            // and L4.
+            if ($targetid !== null) {
+                $seatsafter = $seatsafterfn($targetid);
+                $max = $resolver->effective_maxsize($targetid)->value;
+                $verdicts['L2'] = $this->verdict(
+                    $seatsafter <= $max,
+                    in_array('L2', $bypasses, true),
+                    get_string('moveruleL2', 'mod_selfselectadvanced', (object) [
+                        'after' => $seatsafter,
+                        'max' => $max,
+                    ])
+                );
+            }
 
             // L4 for the moved user's net memberships across the SET.
             $membershipsafter = groups::count_memberships($this->activity, (int) $move->userid)
@@ -329,8 +433,11 @@ class moves {
                 ])
             );
 
-            // L3 when the move designates a leader (target) or a successor (source).
-            if ($move->makeleader) {
+            // L3 when the move designates a leader (target) or a
+            // successor (source). stage() refuses makeleader on a park,
+            // so $targetid is never null here - the guard states it
+            // rather than trusting a row written by an older release.
+            if ($move->makeleader && $targetid !== null) {
                 $verdicts['L3'] = $this->leadverdict((int) $move->userid, $moves, $bypasses);
 
                 // Deliberate leadership change (not code-bypassable):
@@ -389,8 +496,13 @@ class moves {
             // legitimate moves whenever exactly one side was exempt.
             // Exemption is tested first, so an exempt group costs no
             // evaluation at all.
-            $targetok = $resolver->is_quota_exempt($targetid)->enabled
-                || $this->quota_after($targetid, $additions[$targetid] ?? [], $removals[$targetid] ?? []);
+            // A park adds nobody to any team, so the target half of the
+            // joint quota verdict is vacuously satisfied.
+            $targetok = true;
+            if ($targetid !== null) {
+                $targetok = $resolver->is_quota_exempt($targetid)->enabled
+                    || $this->quota_after($targetid, $additions[$targetid] ?? [], $removals[$targetid] ?? []);
+            }
             $sourceok = true;
             if ($move->sourcegroupid) {
                 $sourceid = (int) $move->sourcegroupid;
@@ -463,16 +575,45 @@ class moves {
      *        engine's notifications are appended to it instead of being
      *        sent, so the caller flushes them after ITS commit and
      *        release
+     * @param array|null $deferredsyncgroupids when supplied, the plugin
+     *        group ids whose mirrored course group needs converging are
+     *        appended to it instead of being synced, so the caller runs
+     *        the sync after ITS commit and release (T-16; the same
+     *        hand-back pattern $deferrednotifications uses)
+     * @param string $overridereason why the staff member is overriding
+     *        the rules this set bypasses; required whenever any verdict
+     *        commits bypassed (decision 6), ignored otherwise
+     * @param array|null $deferredoverrideevents when supplied, the
+     *        move_rules_overridden payloads are appended to it instead
+     *        of being triggered, so the caller fires them after ITS
+     *        commit and lock release (the join-accept path)
      * @return int number of committed moves
-     * @throws \moodle_exception when the joint validation refuses
+     * @throws \moodle_exception when the joint validation refuses, when
+     *         more than self::MAX_COMMIT ids are selected, or when a
+     *         bypassed set carries no reason
      */
     public function commit_set(
         array $moveids,
         int $actorid,
         bool $callerholdslocks = false,
-        ?array &$deferrednotifications = null
+        ?array &$deferrednotifications = null,
+        ?array &$deferredsyncgroupids = null,
+        string $overridereason = '',
+        ?array &$deferredoverrideevents = null
     ): int {
         global $DB;
+
+        // Bounded before anything is read: the commit holds the
+        // activity lock plus one per touched group, so the size of the
+        // selection is the size of the hold (D6-8).
+        if (count($moveids) > self::MAX_COMMIT) {
+            throw new \moodle_exception(
+                'errmovetoomanyselected',
+                'mod_selfselectadvanced',
+                '',
+                self::MAX_COMMIT
+            );
+        }
 
         // One flag, two uses: whether these notifications are ours to
         // send, and whether reactivating parked overrides is our job. A
@@ -492,6 +633,8 @@ class moves {
             ? []
             : locks::acquire_all(self::lock_resources_for($this->activity->id(), $this->load_pending($moveids)));
         $notifications = [];
+        $syncgroupids = [];
+        $overriddenevents = [];
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -516,32 +659,86 @@ class moves {
                     'rule' => $failrule,
                 ]);
             }
+            // Decision 6: an override commits only with a typed reason,
+            // enforced at the service seam so no caller can slip a
+            // silent bypass through.
+            $bypassedbymove = [];
+            foreach ($verdicts->permove as $vmoveid => $moveverdicts) {
+                $codes = array_keys(array_filter($moveverdicts, static fn($v) => !empty($v['bypassed'])));
+                if ($codes) {
+                    $bypassedbymove[(int) $vmoveid] = $codes;
+                }
+            }
+            if ($bypassedbymove && trim($overridereason) === '') {
+                throw new \moodle_exception('errmoveoverridereasonrequired', 'mod_selfselectadvanced');
+            }
+
             $moves = $this->load_pending($moveids);
 
             $now = time();
             $leaderchanges = [];
             foreach ($moves as $move) {
+                $moveid = (int) $move->id;
                 $leaderchanges = array_merge(
                     $leaderchanges,
-                    $this->apply($move, $actorid, $now, $notifications)
+                    $this->apply($move, $actorid, $now, $notifications, $syncgroupids)
                 );
-                $DB->update_record('selfselectadvanced_move', (object) [
+                $update = (object) [
                     'id' => $move->id,
                     'status' => 'committed',
-                    'statusinfo' => json_encode($verdicts->permove[(int) $move->id]),
+                    'statusinfo' => json_encode($verdicts->permove[$moveid]),
                     'usermodified' => $actorid,
                     'timemodified' => $now,
                     'timecommitted' => $now,
-                ]);
+                ];
+                if (isset($bypassedbymove[$moveid])) {
+                    // Schema-neutral reason persistence: the column
+                    // already carries "what the decider said" on the
+                    // join-request path (db/install.xml).
+                    $update->responsenote = trim($overridereason);
+                }
+                $DB->update_record('selfselectadvanced_move', $update);
                 \mod_selfselectadvanced\event\move_committed::create([
-                    'objectid' => (int) $move->id,
+                    'objectid' => $moveid,
                     'context' => $this->activity->context(),
                     'relateduserid' => (int) $move->userid,
                     'other' => [
                         'sourcegroupid' => $move->sourcegroupid ? (int) $move->sourcegroupid : null,
-                        'targetgroupid' => (int) $move->targetgroupid,
+                        'targetgroupid' => $move->targetgroupid ? (int) $move->targetgroupid : null,
+                        // Always present, so the event is
+                        // self-describing: an empty array is a clean
+                        // commit (D6-6a).
+                        'bypassedrules' => $bypassedbymove[$moveid] ?? [],
                     ],
                 ])->trigger();
+
+                if (isset($bypassedbymove[$moveid])) {
+                    // Collected, never triggered here: a new event must
+                    // not fire inside a lock or an open transaction
+                    // (requirement 2). The override row id is read now,
+                    // while the transaction still sees it.
+                    $overriderow = \mod_selfselectadvanced\local\override\store::get(
+                        $this->activity,
+                        'move',
+                        $moveid
+                    );
+                    $overriddenevents[] = [
+                        'objectid' => $moveid,
+                        'relateduserid' => (int) $move->userid,
+                        'other' => [
+                            'sourcegroupid' => $move->sourcegroupid ? (int) $move->sourcegroupid : null,
+                            'targetgroupid' => $move->targetgroupid ? (int) $move->targetgroupid : null,
+                            'rules' => $bypassedbymove[$moveid],
+                            'figures' => array_map(
+                                static fn($code) => (string) $verdicts->permove[$moveid][$code]['reason'],
+                                $bypassedbymove[$moveid]
+                            ),
+                            'reason' => trim($overridereason),
+                            'overrideid' => $overriderow ? (int) $overriderow->id : null,
+                            'kind' => $move->targetgroupid ? 'move' : 'park',
+                        ],
+                    ];
+                }
             }
 
             // Leadership changed by a move must reach the same audit
@@ -620,6 +817,27 @@ class moves {
             );
         }
         foreach ($moves as $move) {
+            if (!$move->targetgroupid) {
+                // A park has no destination to name, so the "you were
+                // moved to X" pair would format an empty team. The
+                // student is told what happened and where to look.
+                $source = groups::get($this->activity, (int) $move->sourcegroupid);
+                $notifications[] = notifier::intent(
+                    'movecommitted',
+                    (int) $move->userid,
+                    'msgremovedsubject',
+                    'msgremovedbody',
+                    (object) [
+                        'group' => format_string($source->name),
+                        'activity' => $this->activity->name(),
+                    ],
+                    new \moodle_url('/mod/selfselectadvanced/view.php', [
+                        'id' => $this->activity->cm()->id,
+                    ]),
+                    $this->activity->name()
+                );
+                continue;
+            }
             $target = groups::get($this->activity, (int) $move->targetgroupid);
             $notifications[] = notifier::intent(
                 'movecommitted',
@@ -635,13 +853,40 @@ class moves {
             );
         }
 
+        // The override record travels with the notifications, and for
+        // the same reason: after allow_commit() AND after the locks
+        // released (requirement 2, strict rule for every NEW event).
+        if ($deferredoverrideevents !== null) {
+            // Nested inside a caller's locks/transaction (join accept):
+            // the caller fires after ITS commit and lock release.
+            $deferredoverrideevents = array_merge($deferredoverrideevents, $overriddenevents);
+        } else {
+            foreach ($overriddenevents as $overridden) {
+                \mod_selfselectadvanced\event\move_rules_overridden::create(
+                    $overridden + ['context' => $this->activity->context()]
+                )->trigger();
+            }
+        }
+
         if ($defersends) {
             // Nested inside a caller's transaction
             // (joinrequests::do_accept): the caller sends after ITS
-            // commit and lock release.
+            // commit and lock release. The mirror sync travels with
+            // them for the same reason - on that path our allow_commit()
+            // is nested and locks::release_all([]) is a no-op, so the
+            // caller's transaction and its activity:/group: locks are
+            // still open here. Syncing would run core group API writes
+            // inside a lock and a transaction (and in fact just defer,
+            // leaving convergence to the queued adhoc).
             $deferrednotifications = array_merge($deferrednotifications, $notifications);
+            if ($deferredsyncgroupids !== null) {
+                $deferredsyncgroupids = array_merge($deferredsyncgroupids, array_unique($syncgroupids));
+            }
         } else {
             notifier::send_all($this->activity, $notifications);
+            foreach (array_unique($syncgroupids) as $gid) {
+                freeze::sync_core_group($this->activity, (int) $gid, $actorid);
+            }
         }
 
         if (!$defersends) {
@@ -685,8 +930,32 @@ class moves {
                 'usermodified' => $actorid,
                 'timemodified' => time(),
             ]);
+            // Read here, deleted below. The move row is already
+            // 'cancelled' when the lock drops, so no racing writer can
+            // re-arm the bypass in between.
+            $moveoverride = \mod_selfselectadvanced\local\override\store::get(
+                $this->activity,
+                'move',
+                (int) $move->id
+            );
         } finally {
             $lock->release();
+        }
+
+        // Outside the lock, deliberately, and this must not be
+        // "simplified" back inside it (D6-6e): store::delete() acquires
+        // override:{scope}:{targetid} - rank 5 in the one global order -
+        // which ranks BEFORE activity: (rank 6), so calling it under
+        // cancel()'s activity lock trips locks::check_order() and its
+        // debugging() is a PHPUnit failure. store::delete() also opens
+        // its own transaction and triggers override_deleted inside it,
+        // which requirement 2 forbids under a lock.
+        if ($moveoverride) {
+            \mod_selfselectadvanced\local\override\store::delete(
+                $this->activity,
+                (int) $moveoverride->id,
+                $actorid
+            );
         }
 
         \mod_selfselectadvanced\event\move_cancelled::create([
@@ -695,7 +964,9 @@ class moves {
             'relateduserid' => (int) $move->userid,
             'other' => [
                 'sourcegroupid' => $move->sourcegroupid ? (int) $move->sourcegroupid : null,
-                'targetgroupid' => (int) $move->targetgroupid,
+                // Null, never 0: a cancelled park has no target, and
+                // recording a phantom group 0 is a lie in the log.
+                'targetgroupid' => $move->targetgroupid ? (int) $move->targetgroupid : null,
             ],
         ])->trigger();
     }
@@ -708,9 +979,18 @@ class moves {
      * @param int $now the commit time
      * @param array $notifications collected notifier intents, sent by
      *        the caller after the commit and the lock release
+     * @param array $syncgroupids collects the plugin group ids whose
+     *        mirrored course group needs converging, applied by the
+     *        caller after the commit and the lock release
      * @return array leadership changes performed: {groupid, from, to, type}
      */
-    private function apply(stdClass $move, int $actorid, int $now, array &$notifications): array {
+    private function apply(
+        stdClass $move,
+        int $actorid,
+        int $now,
+        array &$notifications,
+        array &$syncgroupids
+    ): array {
         global $DB;
 
         $changes = [];
@@ -751,13 +1031,16 @@ class moves {
                     'type' => 'movesuccession',
                 ];
             }
-            freeze::sync_membership_change(
-                $this->activity,
-                groups::get($this->activity, (int) $source->id),
-                $userid,
-                false,
-                $actorid
-            );
+            $this->mirror_after_write((int) $source->id, $actorid, $syncgroupids);
+        }
+
+        // A park (null target) is the source half and nothing else: no
+        // membership row is written anywhere, and the source-side hook
+        // above has already appended the snapshot and requested the
+        // mirror sync. Anchored on the row's own target, not on the
+        // callee, so a later change of hook does not silently reopen it.
+        if (!$move->targetgroupid) {
+            return $changes;
         }
 
         $target = groups::get($this->activity, (int) $move->targetgroupid);
@@ -828,15 +1111,34 @@ class moves {
                 );
             }
         }
-        freeze::sync_membership_change(
-            $this->activity,
-            groups::get($this->activity, (int) $target->id),
-            $userid,
-            true,
-            $actorid
-        );
+        $this->mirror_after_write((int) $target->id, $actorid, $syncgroupids);
 
         return $changes;
+    }
+
+    /**
+     * The in-transaction half of the mirror contract for one group
+     * whose roster this commit just changed.
+     *
+     * The snapshot stays INSIDE the commit transaction - it is the
+     * unfreeze restore point, and the part of the old single-delta hook
+     * worth keeping. The core-group write does not: it is queued
+     * (request_sync) and applied by the caller after the commit and the
+     * lock release.
+     *
+     * @param int $groupid the plugin group just written
+     * @param int $actorid the acting manager
+     * @param array $syncgroupids collects group ids needing a post-release sync
+     */
+    private function mirror_after_write(int $groupid, int $actorid, array &$syncgroupids): void {
+        $grouprow = groups::get($this->activity, $groupid);
+        if ($grouprow->state === state::FROZEN) {
+            freeze::append_snapshot($grouprow, $actorid);
+        }
+        freeze::request_sync($this->activity, $grouprow);
+        if (!empty($grouprow->coregroupid)) {
+            $syncgroupids[] = (int) $grouprow->id;
+        }
     }
 
     /**

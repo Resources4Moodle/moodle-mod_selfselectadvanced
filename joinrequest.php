@@ -126,8 +126,12 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
 if (in_array($action, ['accept', 'decline'], true) && data_submitted() && confirm_sesskey()) {
     $requestid = required_param('r', PARAM_INT);
     $note = trim(optional_param('note', '', PARAM_TEXT));
+    // Decision 6: the codes are re-checked against the legal five AND
+    // against the ACTOR's capability inside respond(), so a crafted
+    // post from the team's own student leader is refused server-side.
+    $bypass = optional_param_array('bypass', [], PARAM_ALPHANUM);
     try {
-        joinrequests::respond($activity, $requestid, $action === 'accept', $note, (int) $USER->id);
+        joinrequests::respond($activity, $requestid, $action === 'accept', $note, (int) $USER->id, $bypass);
         redirect(
             new moodle_url($baseurl, ['tab' => 'answer']),
             get_string($action === 'accept' ? 'joinaccepted' : 'joindeclined', 'mod_selfselectadvanced'),
@@ -179,17 +183,34 @@ if ($tab === 'ask') {
     }
     echo html_writer::div($bannertext, 'alert alert-info');
 
+    $targetnames = [];
     if ($mine) {
         // One batched lookup for the source names of the rows already
         // loaded: no groups::get() inside the loop, no N+1.
         $sourceids = [];
+        $targetids = [];
         foreach ($mine as $request) {
             if ($request->sourcegroupid) {
                 $sourceids[(int) $request->sourcegroupid] = true;
             }
+            $targetids[(int) $request->targetgroupid] = true;
         }
         $sourcenames = $sourceids
             ? $DB->get_records_list('selfselectadvanced_group', 'id', array_keys($sourceids), '', 'id, name')
+            : [];
+        // The TARGET names are batched for the same reason, and read
+        // WITHOUT groups::get(): this list is history, and a team it
+        // names can have been dissolved or deleted since. MUST_EXIST
+        // here made a student's own request list throw the moment any
+        // team they had ever asked to join went away.
+        $targetnames = $targetids
+            ? $DB->get_records_list(
+                'selfselectadvanced_group',
+                'id',
+                array_keys($targetids),
+                '',
+                'id, name, pluginuid, activityid'
+            )
             : [];
 
         $table = new html_table();
@@ -203,9 +224,15 @@ if ($tab === 'ask') {
             get_string('date'),
         ];
         foreach ($mine as $request) {
-            $target = groups::get($activity, (int) $request->targetgroupid);
+            $target = $targetnames[(int) $request->targetgroupid] ?? null;
+            if ($target && (int) $target->activityid !== $activity->id()) {
+                $target = null;
+            }
             $table->data[] = [
-                format_string($target->name) . ' ' . html_writer::span($target->pluginuid, 'text-muted small'),
+                $target
+                    ? format_string($target->name)
+                        . ' ' . html_writer::span($target->pluginuid, 'text-muted small')
+                    : get_string('groupdeletedlabel', 'mod_selfselectadvanced'),
                 isset($sourcenames[(int) $request->sourcegroupid])
                     ? format_string($sourcenames[(int) $request->sourcegroupid]->name)
                     : get_string('joinleavesextra', 'mod_selfselectadvanced'),
@@ -219,9 +246,14 @@ if ($tab === 'ask') {
     }
 
     if ($live) {
-        $target = groups::get($activity, (int) $live->targetgroupid);
+        // Same reason as the history table above: never MUST_EXIST on a
+        // team id that came off a request row.
+        $livetarget = $targetnames[(int) $live->targetgroupid] ?? null;
+        $livename = $livetarget && (int) $livetarget->activityid === $activity->id()
+            ? format_string($livetarget->name)
+            : get_string('groupdeletedlabel', 'mod_selfselectadvanced');
         echo html_writer::start_div('alert alert-warning d-flex flex-wrap gap-2 align-items-center');
-        echo html_writer::span(get_string('joinpending', 'mod_selfselectadvanced', format_string($target->name)));
+        echo html_writer::span(get_string('joinpending', 'mod_selfselectadvanced', $livename));
         echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false), 'class' => 'd-inline']);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
         echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'withdraw']);
@@ -263,6 +295,48 @@ if ($tab === 'ask') {
         ? $DB->get_records_list('selfselectadvanced_group', 'id', array_keys($sourceids), '', 'id, name')
         : [];
 
+    // Decision 6, D6-5: the staff override reaches the acceptance too.
+    // Collapsed by default, so a leader answering an ordinary request
+    // never sees it; rendered only for holders, and the server checks
+    // the capability again on the actor regardless of what was posted.
+    $canoverriderules = has_capability('mod/selfselectadvanced:overriderules', $context);
+    $overridedisclosure = function (\stdClass $request) use ($canoverriderules): string {
+        if (!$canoverriderules) {
+            return '';
+        }
+        $boxes = '';
+        foreach (\mod_selfselectadvanced\local\moves::BYPASSABLE as $code) {
+            $inputid = 'ssabypass-' . (int) $request->id . '-' . $code;
+            $boxes .= html_writer::div(
+                html_writer::empty_tag('input', [
+                    'type' => 'checkbox',
+                    'name' => 'bypass[]',
+                    'value' => $code,
+                    'id' => $inputid,
+                    'class' => 'form-check-input me-1',
+                ])
+                . html_writer::label(
+                    get_string('movebypass' . strtolower($code), 'mod_selfselectadvanced'),
+                    $inputid,
+                    true,
+                    ['class' => 'form-check-label']
+                ),
+                'form-check'
+            );
+        }
+
+        return html_writer::tag(
+            'details',
+            html_writer::tag('summary', get_string('joinoverridedisclosure', 'mod_selfselectadvanced'))
+            . $boxes
+            . html_writer::div(
+                get_string('joinoverridenote', 'mod_selfselectadvanced'),
+                'text-muted small'
+            ),
+            ['class' => 'selfselectadvanced-joinoverride w-100']
+        );
+    };
+
     if (!$rows) {
         echo html_writer::div(get_string('joinnonewaiting', 'mod_selfselectadvanced'), 'alert alert-info');
     } else {
@@ -291,6 +365,7 @@ if ($tab === 'ask') {
                 . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-outline-warning btn-sm',
                     'formaction' => (new moodle_url($baseurl, ['action' => 'decline']))->out(false),
                     'value' => get_string('joindecline', 'mod_selfselectadvanced')])
+                . $overridedisclosure($request)
                 . html_writer::end_tag('form');
             // What the leader needs to decide with: whether this
             // student fits the team's requirements, and which seat they

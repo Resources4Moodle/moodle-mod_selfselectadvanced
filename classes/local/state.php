@@ -128,6 +128,9 @@ final class state {
             foreach ($DB->get_fieldset_select('user_preferences', 'userid', 'name = ?', [$marker]) as $markeduser) {
                 unset_user_preference($marker, (int) $markeduser);
             }
+            // The mirror carries the guide (decision 7); reachable in
+            // FIRM and FROZEN, where a mirror can exist.
+            freeze::request_sync($this->activity, $fresh);
             $transaction->allow_commit();
         } catch (\Throwable $e) {
             // Every refusal above throws from INSIDE the transaction,
@@ -244,6 +247,9 @@ final class state {
             foreach ($DB->get_fieldset_select('user_preferences', 'userid', 'name = ?', [$marker]) as $markeduser) {
                 unset_user_preference($marker, (int) $markeduser);
             }
+            // The mirror carries the guide (decision 7); reachable in
+            // FIRM and FROZEN, where a mirror can exist.
+            freeze::request_sync($this->activity, $fresh);
             $transaction->allow_commit();
         } catch (\Throwable $e) {
             // The state and capacity refusals above throw from INSIDE
@@ -256,6 +262,10 @@ final class state {
             $lock->release();
             $guidelock->release();
         }
+
+        // Outside every lock and transaction (requirement 2): one sync
+        // swaps the old guide out of the course group and the new one in.
+        freeze::sync_core_group($this->activity, (int) $fresh->id, $actorid);
 
         $a = (object) [
             'group' => format_string($fresh->name),
@@ -353,6 +363,9 @@ final class state {
             foreach ($DB->get_fieldset_select('user_preferences', 'userid', 'name = ?', [$marker]) as $markeduser) {
                 unset_user_preference($marker, (int) $markeduser);
             }
+            // The mirror carries the guide (decision 7); reachable in
+            // FIRM and FROZEN, where a mirror can exist.
+            freeze::request_sync($this->activity, $fresh);
             $transaction->allow_commit();
         } catch (\Throwable $e) {
             // The can_return() refusal throws from INSIDE the

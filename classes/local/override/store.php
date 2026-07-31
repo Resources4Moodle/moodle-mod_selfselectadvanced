@@ -210,7 +210,7 @@ class store {
             $eventclass::create([
                 'objectid' => $record->id,
                 'context' => $activity->context(),
-                'relateduserid' => in_array($scope, ['user', 'guide'], true) ? $targetid : null,
+                'relateduserid' => self::related_userid($scope, $targetid),
                 'other' => [
                     'scope' => $scope,
                     'targetid' => $targetid,
@@ -323,7 +323,7 @@ class store {
             \mod_selfselectadvanced\event\override_deleted::create([
                 'objectid' => $record->id,
                 'context' => $activity->context(),
-                'relateduserid' => in_array($record->scope, ['user', 'guide'], true) ? $targetid : null,
+                'relateduserid' => self::related_userid($record->scope, $targetid),
                 'other' => [
                     'scope' => $record->scope,
                     'targetid' => $targetid,
@@ -341,6 +341,68 @@ class store {
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * Attach a move-scope bypass to a move row that is being minted
+     * inside the CALLER's still-open transaction (the join-accept path).
+     *
+     * Documented resource: `override:move:{moveid}` - rank 5, which
+     * ranks BEFORE `activity:` (6) and `group:` (8). This method does
+     * NOT acquire it, and that is deliberate rather than an omission:
+     * the caller already holds the activity and group locks when the
+     * move id is minted, so taking a rank-5 lock here would break the
+     * one global order, and there is no earlier point at which it could
+     * be taken ascending because the id does not exist yet. It is safe
+     * without the lock because that is exactly what the lock in save()
+     * defends: two writers racing to create the ONE row for a target.
+     * A move id minted inside an uncommitted transaction is
+     * unpublishable - no other session can read it, let alone name it -
+     * so no concurrent writer can reach this target at all.
+     *
+     * Everything else save() does still happens: the field whitelist,
+     * the conflict-of-interest guard and the event.
+     *
+     * @param activity $activity the activity
+     * @param int $moveid the move row minted in the caller's transaction
+     * @param string $rules comma-separated rule codes to bypass
+     * @param int $actorid the acting user
+     * @return stdClass the stored row
+     */
+    public static function save_for_new_move(
+        activity $activity,
+        int $moveid,
+        string $rules,
+        int $actorid
+    ): stdClass {
+        return self::save($activity, 'move', $moveid, ['rulesbypassed' => $rules], $actorid, true);
+    }
+
+    /**
+     * Who an override row's event is ABOUT.
+     *
+     * A move-scope row names no user of its own - its target is a move
+     * id - so the log used to record an exception granted over somebody
+     * with no trace of who that somebody was (D6-6b). The move row
+     * knows, in one indexed read.
+     *
+     * @param string $scope user, group, guide or move
+     * @param int $targetid the user/group/move id
+     * @return int|null the user the row is about, null when it is about a team
+     */
+    private static function related_userid(string $scope, int $targetid): ?int {
+        global $DB;
+
+        if (in_array($scope, ['user', 'guide'], true)) {
+            return $targetid;
+        }
+        if ($scope === 'move') {
+            $userid = $DB->get_field('selfselectadvanced_move', 'userid', ['id' => $targetid]);
+
+            return $userid ? (int) $userid : null;
+        }
+
+        return null;
     }
 
     /**

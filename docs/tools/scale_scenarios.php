@@ -819,6 +819,59 @@ probe('page: moves list assembly (pre-T-15 shape, >=200 pending)', function () u
     return $rows . ' rows';
 });
 
+probe('page: moves list assembly (paged)', function () use ($api, $activity, $DB) {
+    // The T-15 shape of the same page (D6-8): ONE page fetched with
+    // limitfrom/limitnum, validate_set over that page only, and two
+    // batched label queries instead of three lookups per row. The
+    // pre-T-15 probe above is the historical baseline and is never
+    // edited; this is its counterpart. T-14 owns the harness and the
+    // re-baselining protocol - this ticket only adds the probe.
+    $perpage = 50;
+    $total = $DB->count_records('selfselectadvanced_move', [
+        'activityid' => $activity->id(), 'status' => 'pending',
+    ]);
+    $pending = $DB->get_records(
+        'selfselectadvanced_move',
+        ['activityid' => $activity->id(), 'status' => 'pending'],
+        'timecreated ASC, id ASC',
+        '*',
+        0,
+        $perpage
+    );
+    $verdicts = $api->moves()->validate_set(array_map('intval', array_keys($pending)));
+
+    $groupids = [];
+    $userids = [];
+    foreach ($pending as $move) {
+        foreach ([$move->sourcegroupid, $move->targetgroupid] as $gid) {
+            if ($gid) {
+                $groupids[(int) $gid] = true;
+            }
+        }
+        $userids[(int) $move->userid] = true;
+    }
+    [$ginsql, $gparams] = $DB->get_in_or_equal(array_keys($groupids), SQL_PARAMS_NAMED, 'mg');
+    $gparams['activityid'] = $activity->id();
+    $DB->get_records_select(
+        'selfselectadvanced_group',
+        "id $ginsql AND activityid = :activityid",
+        $gparams,
+        '',
+        'id, name'
+    );
+    [$uinsql, $uparams] = $DB->get_in_or_equal(array_keys($userids), SQL_PARAMS_NAMED, 'mu');
+    $namefields = \core_user\fields::for_name()->get_sql('', false, '', '', true)->selects;
+    $DB->get_records_sql("SELECT id{$namefields} FROM {user} WHERE id $uinsql", $uparams);
+
+    if (count($pending) !== $perpage || $total < 200 || empty($verdicts->permove)) {
+        throw new coding_exception(
+            'paged moves probe saw ' . count($pending) . ' of ' . $total . ' rows; expected one full page of a >=200 queue'
+        );
+    }
+
+    return count($pending) . ' of ' . $total . ' rows';
+});
+
 probe('service: validate_set alone (>=200 mixed moves)', function () use ($api, $activity, $DB) {
     $ids = array_map('intval', $DB->get_fieldset_select(
         'selfselectadvanced_move',

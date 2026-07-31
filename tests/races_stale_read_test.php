@@ -322,6 +322,12 @@ final class races_stale_read_test extends \advanced_testcase {
      * passes on the stale row and the team is released.
      */
     public function test_guide_release_of_a_staff_refrozen_team_is_refused_on_a_stale_row(): void {
+        // T-16: the mirror is written by an inline sync that refuses
+        // to touch core while a transaction is open, and
+        // advanced_testcase opens one before every test on
+        // PostgreSQL. Without this the assertions below are about a
+        // deferral rather than about a course group.
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $this->redirectMessages();
         [$activity, $group, $guide, $coordinator] = $this->setup_firm_with_coordinator();

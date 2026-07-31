@@ -166,11 +166,25 @@ class handover {
                 ],
             ])->trigger();
 
+            // The mirror carries the guide (decision 7), and this path
+            // is reachable while FROZEN. $group was read before the
+            // guideid change, so the clone carries the new one; the
+            // request only needs id, state and coregroupid.
+            $requested = clone $group;
+            $requested->guideid = $actorid;
+            freeze::request_sync($this->activity, $requested);
+
             $transaction->allow_commit();
         } finally {
             $lock->release();
             $guidelock->release();
         }
+
+        // One sync swaps the old guide out and the new guide in: the
+        // old guide is in neither the confirmed set nor guideid, so
+        // they land in the owned-removal set. Outside every lock and
+        // transaction (requirement 2).
+        freeze::sync_core_group($this->activity, (int) $group->id, $actorid);
 
         $a = (object) [
             'group' => format_string($group->name),

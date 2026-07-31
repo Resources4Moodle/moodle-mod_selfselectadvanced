@@ -17,19 +17,21 @@
 namespace mod_selfselectadvanced\event;
 
 /**
- * Event fired when a staged move is committed (spec 7).
+ * Event fired when a manager deliberately discarded the mirrored
+ * course group (spec 12, decision 7): the link is severed and the
+ * course group deleted. The only interactive deletion path.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class move_committed extends \core\event\base {
+class coregroup_discarded extends \core\event\base {
     /**
      * Initialise the event data.
      */
     protected function init(): void {
-        $this->data['objecttable'] = 'selfselectadvanced_move';
-        $this->data['crud'] = 'u';
+        $this->data['objecttable'] = 'selfselectadvanced_group';
+        $this->data['crud'] = 'd';
         $this->data['edulevel'] = self::LEVEL_TEACHING;
     }
 
@@ -39,7 +41,7 @@ class move_committed extends \core\event\base {
      * @return string
      */
     public static function get_name(): string {
-        return get_string('eventmovecommitted', 'mod_selfselectadvanced');
+        return get_string('eventcoregroupdiscarded', 'mod_selfselectadvanced');
     }
 
     /**
@@ -48,18 +50,23 @@ class move_committed extends \core\event\base {
      * @return string
      */
     public function get_description(): string {
-        $o = $this->other;
-        $source = $o['sourcegroupid'] ?? 'none';
-        // A null target is a staff park: a removal with no destination
-        // team (decision 6). Saying "to group ''" would read as a bug.
-        $target = $o['targetgroupid'] ?? 'none';
-        $description = "The user with id '$this->userid' committed the move of user "
-            . "'$this->relateduserid' from group '$source' to group '$target'";
-        if (!empty($o['bypassedrules'])) {
-            $description .= ', overriding rules ' . implode(', ', (array) $o['bypassedrules']);
-        }
+        $uid = $this->other['pluginuid'] ?? $this->objectid;
+        $oldid = (int) ($this->other['oldcoregroupid'] ?? 0);
 
-        return $description . '.';
+        return "The user with id '$this->userid' discarded the course group '$oldid' "
+            . "mirroring the group '$uid'.";
+    }
+
+    /**
+     * URL to the group page.
+     *
+     * @return \moodle_url
+     */
+    public function get_url(): \moodle_url {
+        return new \moodle_url('/mod/selfselectadvanced/group.php', [
+            'id' => $this->contextinstanceid,
+            'g' => $this->objectid,
+        ]);
     }
 
     /**
@@ -68,7 +75,7 @@ class move_committed extends \core\event\base {
      * @return array mapping description
      */
     public static function get_objectid_mapping(): array {
-        return ['db' => 'selfselectadvanced_move', 'restore' => \core\event\base::NOT_MAPPED];
+        return ['db' => 'selfselectadvanced_group', 'restore' => 'selfselectadvanced_group'];
     }
 
     /**
@@ -76,8 +83,11 @@ class move_committed extends \core\event\base {
      */
     protected function validate_data(): void {
         parent::validate_data();
-        if (!array_key_exists('targetgroupid', $this->other)) {
-            throw new \coding_exception('The targetgroupid must be set in other.');
+        if (!isset($this->other['pluginuid'])) {
+            throw new \coding_exception('The pluginuid must be set in other.');
+        }
+        if (!isset($this->other['oldcoregroupid'])) {
+            throw new \coding_exception('The oldcoregroupid must be set in other.');
         }
     }
 }

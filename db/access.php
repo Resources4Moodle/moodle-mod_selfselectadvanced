@@ -90,12 +90,16 @@ $capabilities = [
         ],
     ],
 
-    // Unfreeze groups (managers/editing teachers by default, spec D4).
+    // Unfreeze groups. Managers AND editing teachers by default, spec
+    // D4 - which is what this comment said from the start while the
+    // archetype list granted the editing teacher alone (decision 6,
+    // D6-7): the code now matches the documented intent.
     'mod/selfselectadvanced:unfreeze' => [
         'captype' => 'write',
         'contextlevel' => CONTEXT_MODULE,
         'archetypes' => [
             'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW,
         ],
     ],
 
@@ -106,6 +110,7 @@ $capabilities = [
         'contextlevel' => CONTEXT_MODULE,
         'archetypes' => [
             'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW,
         ],
     ],
 
@@ -116,7 +121,23 @@ $capabilities = [
         'contextlevel' => CONTEXT_MODULE,
         'archetypes' => [
             'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW,
         ],
+    ],
+
+    // Override composition/limit rules on a staff roster action (decision 6):
+    // bypass L1-L4/QUOTA on a staged move, park a student with no
+    // destination, dissolve a dead-end team. Always with a typed reason
+    // and a logged event - never silent.
+    'mod/selfselectadvanced:overriderules' => [
+        'riskbitmask' => RISK_CONFIG | RISK_DATALOSS,
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => [
+            'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW,
+        ],
+        'clonepermissionsfrom' => 'mod/selfselectadvanced:override',
     ],
 
     // Ingest and edit participant attributes. System context, no archetype:
@@ -136,6 +157,7 @@ $capabilities = [
         'archetypes' => [
             'editingteacher' => CAP_ALLOW,
             'teacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW,
         ],
     ],
 ];

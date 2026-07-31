@@ -43,6 +43,8 @@ class behat_mod_selfselectadvanced extends behat_base {
             'manage' => '/mod/selfselectadvanced/manage.php',
             'guide' => '/mod/selfselectadvanced/guide.php',
             'moves' => '/mod/selfselectadvanced/moves.php',
+            'stage move' => '/mod/selfselectadvanced/moveedit.php',
+            'new team' => '/mod/selfselectadvanced/groupedit.php',
             'overrides' => '/mod/selfselectadvanced/overrides.php',
             'ledger' => '/mod/selfselectadvanced/ledger.php',
             'flagged' => '/mod/selfselectadvanced/flagged.php',

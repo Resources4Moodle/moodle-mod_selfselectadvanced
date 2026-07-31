@@ -756,6 +756,8 @@ class tickets {
         int $targetid,
         int $userid
     ): void {
+        global $DB;
+
         // The rule restrains the NEW coordinate authority and nothing
         // else. A manager is exempt by role, and anybody who could set
         // an override before this release - an editing teacher, a guide
@@ -774,6 +776,31 @@ class tickets {
         }
         if ($scope === 'group') {
             self::require_uninvolved($activity, groups::get($activity, $targetid), $userid);
+        }
+        if ($scope === 'move') {
+            // The one scope this guard used to fall through (D6-11),
+            // and the one that moves rosters. A move-scope override is
+            // an exception granted about a PERSON and up to TWO teams,
+            // so all three are judged: never for oneself, and never on
+            // a team the actor is part of, guides or is the successor
+            // guide of. Latent while only :manage holders could reach
+            // moveedit.php - armed the moment override authority
+            // reaches anyone coordinate-shaped.
+            $move = $DB->get_record(
+                'selfselectadvanced_move',
+                ['id' => $targetid, 'activityid' => $activity->id()],
+                '*',
+                MUST_EXIST
+            );
+            if ((int) $move->userid === $userid) {
+                throw new \moodle_exception('refusalcoiself', 'mod_selfselectadvanced');
+            }
+            if ($move->sourcegroupid) {
+                self::require_uninvolved($activity, groups::get($activity, (int) $move->sourcegroupid), $userid);
+            }
+            if ($move->targetgroupid) {
+                self::require_uninvolved($activity, groups::get($activity, (int) $move->targetgroupid), $userid);
+            }
         }
     }
 

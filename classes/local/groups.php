@@ -128,6 +128,42 @@ class groups {
     }
 
     /**
+     * The confirmed member userids of a set of groups in one query per
+     * 1000 ids, so a report comparing rosters against mirrored course
+     * groups never issues a query per group (T-16, requirement 1).
+     *
+     * @param int[] $groupids the groups to read
+     * @return array<int, int[]> userids keyed by groupid, every
+     *               requested id present (empty array when none)
+     */
+    public static function members_confirmed_bulk(array $groupids): array {
+        global $DB;
+
+        $result = [];
+        foreach ($groupids as $groupid) {
+            $result[(int) $groupid] = [];
+        }
+        if (!$groupids) {
+            return $result;
+        }
+        foreach (array_chunk(array_map('intval', $groupids), 1000) as $chunk) {
+            [$insql, $params] = $DB->get_in_or_equal($chunk, SQL_PARAMS_NAMED, 'mb');
+            $params['status'] = self::STATUS_CONFIRMED;
+            $rows = $DB->get_records_sql(
+                "SELECT id, groupid, userid
+                   FROM {selfselectadvanced_member}
+                  WHERE groupid $insql AND status = :status",
+                $params
+            );
+            foreach ($rows as $row) {
+                $result[(int) $row->groupid][] = (int) $row->userid;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * Count taken seats of a set of groups in one query (bulk
      * counterpart of count_seats_taken(), L2 basis): confirmed members
      * plus pending invitations, used so a report that lists many

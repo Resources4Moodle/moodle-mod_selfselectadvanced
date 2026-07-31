@@ -1,0 +1,109 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/overrides_moves
+
+    The Moves tab of the overrides page (decision 6): move-scope rule
+    bypasses, which are minted only by the staging and join-accept
+    flows. Read-only plus delete, and delete only while the move is
+    still pending - revoking the bypass of a committed move would
+    falsify history.
+
+    Names only - never an email address or a phone number.
+
+    Context variables required for this template:
+    * tabs - the four mode tabs
+    * hasrows - whether move overrides exist
+    * rows.candelete - whether the joined move is still pending
+
+    Example context (json):
+    {
+        "tabs": [{"label": "Moves", "url": "https://example.com/x", "active": true}],
+        "hasrows": true,
+        "rows": [{"overrideid": 1, "student": "Sam One", "source": "Team A", "target": "Team B",
+                  "rules": "L2", "reason": "Over quota, agreed with the guide",
+                  "status": "Pending", "grantedby": "Tina Teach", "granted": "1/08/26, 09:00",
+                  "candelete": true}],
+        "actionurl": "https://example.com/mod/selfselectadvanced/overrides.php",
+        "cmid": 1,
+        "mode": "move",
+        "sesskey": "abc",
+        "backurl": "https://example.com/back"
+    }
+}}
+<div class="selfselectadvanced-overrides selfselectadvanced-moveoverrides">
+    <ul class="nav nav-tabs mb-3">
+        {{#tabs}}
+            <li class="nav-item">
+                <a class="nav-link {{#active}}active{{/active}}" href="{{url}}">{{label}}</a>
+            </li>
+        {{/tabs}}
+    </ul>
+
+    <p class="text-muted">{{#str}} overridesmoveintro, mod_selfselectadvanced {{/str}}</p>
+
+    {{#hasrows}}
+        <div class="table-responsive">
+            <table class="table generaltable">
+                <thead>
+                    <tr>
+                        <th scope="col">{{#str}} movestudent, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} movefrom, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} moveto, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} movebypasslabel, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} moveoverridereason, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} status {{/str}}</th>
+                        <th scope="col">{{#str}} overridegrantedby, mod_selfselectadvanced {{/str}}</th>
+                        <th scope="col">{{#str}} actions {{/str}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#rows}}
+                        <tr>
+                            <td>{{student}}</td>
+                            <td>{{source}}</td>
+                            <td>{{target}}</td>
+                            <td>{{rules}}</td>
+                            <td>{{reason}}</td>
+                            <td>{{status}}</td>
+                            <td>{{grantedby}} <span class="text-muted small">{{granted}}</span></td>
+                            <td>
+                                {{#candelete}}
+                                    <form method="post" action="{{actionurl}}" class="d-inline">
+                                        <input type="hidden" name="id" value="{{cmid}}">
+                                        <input type="hidden" name="mode" value="{{mode}}">
+                                        <input type="hidden" name="action" value="delete">
+                                        <input type="hidden" name="override" value="{{overrideid}}">
+                                        <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                                            {{#str}} delete {{/str}}
+                                        </button>
+                                    </form>
+                                {{/candelete}}
+                            </td>
+                        </tr>
+                    {{/rows}}
+                </tbody>
+            </table>
+        </div>
+    {{/hasrows}}
+    {{^hasrows}}
+        <p class="text-muted">{{#str}} overridesnone, mod_selfselectadvanced {{/str}}</p>
+    {{/hasrows}}
+
+    <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>
+</div>

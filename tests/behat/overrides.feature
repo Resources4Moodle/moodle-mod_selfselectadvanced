@@ -54,3 +54,37 @@ Feature: Overrides resolved through the single service
     Then I should see "Override deleted."
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     Then I should see "You lead 1 of 1 groups"
+
+  @javascript
+  Scenario: Move overrides are reviewable and revocable
+    Given the following "users" exist:
+      | username | firstname | lastname | email                |
+      | student2 | Ravi      | Two      | student2@example.com |
+    And the following "course enrolments" exist:
+      | user     | course | role    |
+      | student2 | C1     | student |
+    And the following "activities" exist:
+      | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership |
+      | selfselectadvanced | C1     | Tight labs | ssa2     | 1       | 1       | 1       | 2             |
+    And the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name       | leader   |
+      | ssa2               | Tight Team | student1 |
+    And the following "mod_selfselectadvanced > moves" exist:
+      | selfselectadvanced | user     | targetgroup |
+      | ssa2               | student2 | Tight Team  |
+    When I am on the "Tight labs" "mod_selfselectadvanced > moves" page logged in as teacher1
+    Then I should see "L2" in the ".selfselectadvanced-moves" "css_element"
+    When I click on "Override this rule…" "link" in the ".ssa-rulechip-L2" "css_element"
+    And I press "Stage a move"
+    Then I should see "Move staged. It takes effect when committed."
+    When I am on the "Tight labs" "mod_selfselectadvanced > overrides" page
+    And I follow "Moves"
+    Then I should see "Ravi Two"
+    And I should see "L2"
+    And I should see "Pending"
+    When I press "Delete"
+    Then I should see "Override deleted."
+    And I should see "No overrides of this kind yet."
+    When I am on the "Tight labs" "mod_selfselectadvanced > moves" page
+    Then I should see "L2" in the ".ssa-rulechip-L2" "css_element"
+    And "Override this rule…" "link" should exist in the ".ssa-rulechip-L2" "css_element"

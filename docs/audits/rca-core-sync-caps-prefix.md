@@ -161,3 +161,26 @@ observer discipline heals older ghosts on the next unfreeze).
   said "cannot be frozen" on groups that already ARE - a frozen group
   is grandfathered; its next push after unfreezing is what waits. A
   state-aware string now says exactly that.
+
+## Correction appended 2026-07-31 (1.20, T-16)
+
+The row above reading "Guide reassignment / handover | n/a | core groups
+carry no guide concept; no core impact by design" is **superseded, not
+deleted** — it records what was true when this audit was written.
+
+Decision 7 changed the expected membership of a mirrored course group to
+**confirmed plugin members UNION the assigned guide**. Core groups still
+have no guide *concept*, which is why the guide is carried as an ordinary
+membership row and is never written into `selfselectadvanced_member` or a
+snapshot roster; but guide reassignment and handover DO have a core
+impact now, and both call `freeze::request_sync()` inside their
+transaction and `freeze::sync_core_group()` after the lock release. One
+sync swaps the outgoing guide out (they are in neither the confirmed set
+nor `guideid`, so they fall in the owned-removal set) and the incoming
+guide in.
+
+The same ticket also retired `push_to_core()` — the "own locked
+transaction" mentioned above no longer exists. Core group API calls now
+run entirely outside the plugin's locks and transactions; the state flip
+commits alone, and `request_sync()` queues the convergence job in that
+same transaction so a crash in between is repaired by cron.

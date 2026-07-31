@@ -261,8 +261,15 @@ final class races_upsert_test extends \advanced_testcase {
      * the oldest of each set survives, and rows that were never
      * duplicated are untouched.
      *
-     * Negative control: delete the $oldversion < 2026073110 block - all
-     * five rows survive and every count assertion fails.
+     * It also runs the 2026073130 block against a column deliberately
+     * put back to NOT NULL first, because --reinit builds this site
+     * from db/install.xml (already nullable) and a DDL block that never
+     * executed would otherwise still leave a green suite.
+     *
+     * Negative controls: delete the $oldversion < 2026073110 block -
+     * all five rows survive and every count assertion fails; delete the
+     * $oldversion < 2026073130 block - the not_null assertion after the
+     * upgrade fails and the park insert dies with a NOT NULL violation.
      */
     public function test_upgrade_merges_duplicate_override_rows(): void {
         global $CFG, $DB;
@@ -301,9 +308,60 @@ final class races_upsert_test extends \advanced_testcase {
         // downgrade. Wind the recorded version back to the release
         // before this step, which is exactly the state of a site about
         // to receive it.
+        // T-15's block performs a REAL change_field_notnull, and
+        // --reinit rebuilds this site from db/install.xml - where the
+        // column is already nullable - so a block that never ran would
+        // still leave a green suite. Put the column back the way a site
+        // at 2026073120 has it, so the DDL step is exercised for real
+        // on BOTH engines.
+        $dbman = $DB->get_manager();
+        $movetable = new \xmldb_table('selfselectadvanced_move');
+        $targetfk = new \xmldb_key(
+            'fk_targetgroupid',
+            XMLDB_KEY_FOREIGN,
+            ['targetgroupid'],
+            'selfselectadvanced_group',
+            ['id']
+        );
+        $notnulltarget = new \xmldb_field(
+            'targetgroupid',
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            null,
+            'sourcegroupid'
+        );
+        $dbman->drop_key($movetable, $targetfk);
+        $dbman->change_field_notnull($movetable, $notnulltarget);
+        $dbman->add_key($movetable, $targetfk);
+        $this->assertTrue((bool) $DB->get_columns('selfselectadvanced_move', false)['targetgroupid']->not_null);
+
         set_config('version', 2026073100, 'mod_selfselectadvanced');
         xmldb_selfselectadvanced_upgrade(2026073100);
-        $this->assertSame('2026073110', get_config('mod_selfselectadvanced', 'version'));
+        // Every later block runs too, so the recorded version lands on
+        // the current tip - T-15's targetgroupid relaxation.
+        $this->assertSame('2026073130', get_config('mod_selfselectadvanced', 'version'));
+
+        // Engine-native proof that the DDL step did what it claims: the
+        // live column is nullable and a park row stores.
+        $this->assertFalse((bool) $DB->get_columns('selfselectadvanced_move', false)['targetgroupid']->not_null);
+        $parkid = $DB->insert_record('selfselectadvanced_move', (object) [
+            'activityid' => $activity->id(),
+            'userid' => $userid,
+            'sourcegroupid' => (int) $group->id,
+            'targetgroupid' => null,
+            'makeleader' => 0,
+            'replaceleader' => 0,
+            'successorid' => null,
+            'status' => 'committed',
+            'usermodified' => $userid,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        $this->assertNull($DB->get_field('selfselectadvanced_move', 'targetgroupid', ['id' => $parkid]));
+        $DB->delete_records('selfselectadvanced_move', ['id' => $parkid]);
 
         $this->assertSame(3, $DB->count_records('selfselectadvanced_override', [
             'activityid' => $activity->id(),

@@ -32,7 +32,6 @@ require_login($course, true, $cm);
 
 $activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
 $context = $activity->context();
-require_capability('mod/selfselectadvanced:creategroup', $context);
 
 $api = new \mod_selfselectadvanced\local\api($activity);
 
@@ -44,25 +43,37 @@ $viewurl = new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id])
 
 // Edit mode (audit item 21): leader revises title/brief while forming.
 $gid = optional_param('g', 0, PARAM_INT);
+// The capability gate used to sit ABOVE this branch, so :creategroup -
+// a STUDENT capability - was demanded of everybody, including the
+// manager the edit branch's own code goes on to admit; the manager path
+// was unreachable (D6-4). Only the student CREATE path needs it now.
+$isstaff = has_capability('mod/selfselectadvanced:manage', $context);
+if (!$gid && !$isstaff) {
+    require_capability('mod/selfselectadvanced:creategroup', $context);
+}
 $editgroup = null;
 if ($gid) {
     $editgroup = \mod_selfselectadvanced\local\groups::get($activity, $gid);
-    $ismanager = has_capability('mod/selfselectadvanced:manage', $context);
-    if ((int) $editgroup->leaderid !== (int) $USER->id && !$ismanager) {
+    if ((int) $editgroup->leaderid !== (int) $USER->id && !$isstaff) {
         throw new moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
     }
     if ($editgroup->state !== \mod_selfselectadvanced\local\state::FORMING) {
         throw new moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
     }
-} else if ($refusal = $api->gatekeeper()->can_create_group((int) $USER->id)) {
-    // Refusals surface before the form: quota exhausted or window closed.
+} else if (!$isstaff && ($refusal = $api->gatekeeper()->can_create_group((int) $USER->id))) {
+    // Refusals surface before the form: quota exhausted or window
+    // closed. Staff creation is a repair and does not meet the window
+    // gate - which exists to stop STUDENTS forming teams late (D6-4).
     redirect($viewurl, $refusal->get_message(), null, \core\output\notification::NOTIFY_ERROR);
 }
 
+$staffmode = $isstaff && !$gid;
 $form = new \mod_selfselectadvanced\form\group_form(null, [
     'cmid' => $cm->id,
     'activity' => $activity,
     'editgroup' => $editgroup,
+    'staffmode' => $staffmode,
+    'selectedleader' => [],
 ]);
 if ($editgroup) {
     $form->set_data([
@@ -93,19 +104,30 @@ if ($data = $form->get_data()) {
             \core\output\notification::NOTIFY_SUCCESS
         );
     }
-    $group = $api->create_group(
-        (int) $USER->id,
-        $data->name,
-        $data->title,
-        $data->brief['text'],
-        (int) $data->brief['format']
-    );
-    redirect(
-        new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $group->id]),
-        get_string('groupcreated', 'mod_selfselectadvanced', $group->pluginuid),
-        null,
-        \core\output\notification::NOTIFY_SUCCESS
-    );
+    try {
+        $group = $api->create_group(
+            (int) $USER->id,
+            $data->name,
+            $data->title,
+            $data->brief['text'],
+            (int) $data->brief['format'],
+            $staffmode ? (int) $data->leader : null,
+            $staffmode
+        );
+    } catch (moodle_exception $e) {
+        // The nominated leader's own caps refuse here, and the manager
+        // must be able to pick somebody else without losing the form.
+        $form->set_element_error($staffmode ? 'leader' : 'name', $e->getMessage());
+        $group = null;
+    }
+    if ($group) {
+        redirect(
+            new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $group->id]),
+            get_string('groupcreated', 'mod_selfselectadvanced', $group->pluginuid),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    }
 }
 
 echo $OUTPUT->header();

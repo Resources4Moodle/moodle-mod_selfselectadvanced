@@ -19,6 +19,7 @@ namespace mod_selfselectadvanced;
 use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\freeze;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\locks;
 use mod_selfselectadvanced\local\override\store;
 use mod_selfselectadvanced\local\state;
 
@@ -86,9 +87,22 @@ final class freeze_test extends \advanced_testcase {
      */
     public function test_freeze_creates_core_group(): void {
         global $DB;
+        // The inline sync only writes to core when no transaction is
+        // open, and advanced_testcase opens one before every test on
+        // PostgreSQL. Without this the whole assertion set is about a
+        // deferral, not about a mirror.
+        $this->preventResetByRollback();
         $this->resetAfterTest();
 
         [$activity, , $group, $students, $guide] = $this->setup_firm();
+        // An INVITED member holds a seat but is not confirmed, so the
+        // mirror must not carry them - co-asserted here rather than in
+        // setup_firm(), which the move tests below build on.
+        $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_member([
+            'groupid' => $group->id,
+            'userid' => (int) $students[2]->id,
+            'status' => groups::STATUS_INVITED,
+        ]);
 
         $sink = $this->redirectEvents();
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
@@ -100,11 +114,25 @@ final class freeze_test extends \advanced_testcase {
         $this->assertNotEmpty($frozen->coregroupid);
         $this->assertNotEmpty($frozen->timefrozen);
 
-        // Core group named "[idnumber] name" with exactly the confirmed members.
+        // Core group named "[idnumber] name" holding the confirmed
+        // members AND the assigned guide (decision 7), never the
+        // invited seat-holder.
         $core = groups_get_group((int) $frozen->coregroupid);
         $this->assertSame('[SSAFRZ] Icy', $core->name);
-        $members = array_keys(groups_get_members((int) $frozen->coregroupid, 'u.id'));
-        $this->assertEqualsCanonicalizing([(int) $students[0]->id, (int) $students[1]->id], array_map('intval', $members));
+        $this->assertSame($frozen->pluginuid, $core->idnumber);
+        $members = array_map('intval', array_keys(groups_get_members((int) $frozen->coregroupid, 'u.id')));
+        $this->assertEqualsCanonicalizing(
+            [(int) $students[0]->id, (int) $students[1]->id, (int) $guide->id],
+            $members
+        );
+        $this->assertNotContains((int) $students[2]->id, $members);
+
+        // Every membership this plugin wrote is tagged, so core knows
+        // whose row it is and the removal callback can defend it.
+        foreach ($DB->get_records('groups_members', ['groupid' => (int) $frozen->coregroupid]) as $memberrow) {
+            $this->assertSame('mod_selfselectadvanced', $memberrow->component);
+            $this->assertSame((int) $frozen->id, (int) $memberrow->itemid);
+        }
 
         // Grouping created and assigned; reused by a second freeze.
         $groupingname = get_string('groupingname', 'mod_selfselectadvanced', $activity->name());
@@ -177,6 +205,7 @@ final class freeze_test extends \advanced_testcase {
      */
     public function test_moves_refresh_snapshot_and_drift_discarded(): void {
         global $DB;
+        $this->preventResetByRollback();
         $this->resetAfterTest();
 
         [$activity, $api, $group, $students, $guide] = $this->setup_firm();
@@ -202,12 +231,15 @@ final class freeze_test extends \advanced_testcase {
         $drift = freeze::drift(groups::get($activity, (int) $frozen->id));
         $this->assertSame([(int) $stranger->id], $drift['extra']);
 
-        // Unfreeze: moved member kept (A6), stranger discarded, core gone.
+        // Unfreeze: moved member kept (A6); the course group and its id
+        // are RETAINED (D7-D1), and the stranger stays because it is
+        // not this plugin's row to delete.
         $coregroupid = (int) $frozen->coregroupid;
         $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
         $this->assertSame(state::FIRM, $restored->state);
-        $this->assertNull($restored->coregroupid);
-        $this->assertFalse(groups_group_exists($coregroupid));
+        $this->assertSame($coregroupid, (int) $restored->coregroupid);
+        $this->assertTrue(groups_group_exists($coregroupid));
+        $this->assertTrue(groups_is_member($coregroupid, (int) $stranger->id));
         $this->assertSame(3, groups::count_confirmed((int) $restored->id));
         $this->assertFalse($DB->record_exists('selfselectadvanced_member', [
             'groupid' => $restored->id,
@@ -222,16 +254,20 @@ final class freeze_test extends \advanced_testcase {
      * the course's own group data never drifts from the plugin's.
      */
     public function test_move_out_of_a_frozen_group_updates_the_course_group(): void {
+        global $DB;
+        $this->preventResetByRollback();
         $this->resetAfterTest();
 
         [$activity, $api, $group, $students, $guide] = $this->setup_firm();
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
         $leaving = (int) $students[1]->id;
 
-        // Both members are in the course group to begin with.
+        // Both members - and the guide (decision 7) - are in the course
+        // group to begin with.
         $before = array_map('intval', array_keys(groups_get_members((int) $frozen->coregroupid, 'u.id')));
         $this->assertContains($leaving, $before);
-        $this->assertCount(2, $before);
+        $this->assertContains((int) $guide->id, $before);
+        $this->assertCount(3, $before);
 
         // A second team receives them.
         $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
@@ -250,7 +286,14 @@ final class freeze_test extends \advanced_testcase {
         // an unfreeze restores the roster as it now stands.
         $after = array_map('intval', array_keys(groups_get_members((int) $frozen->coregroupid, 'u.id')));
         $this->assertNotContains($leaving, $after);
-        $this->assertCount(1, $after);
+        $this->assertEqualsCanonicalizing([(int) $students[0]->id, (int) $guide->id], $after);
+        // The row the sync wrote carries this plugin's ownership tag.
+        $tagged = $DB->get_record('groups_members', [
+            'groupid' => (int) $frozen->coregroupid,
+            'userid' => (int) $students[0]->id,
+        ]);
+        $this->assertSame('mod_selfselectadvanced', $tagged->component);
+        $this->assertSame((int) $frozen->id, (int) $tagged->itemid);
         $snapshot = json_decode(freeze::latest_snapshot((int) $frozen->id)->roster, true);
         $this->assertCount(1, $snapshot);
         $this->assertNotContains($leaving, array_map(
@@ -267,6 +310,7 @@ final class freeze_test extends \advanced_testcase {
      */
     public function test_repair_restrictions_and_grandfather(): void {
         global $DB;
+        $this->preventResetByRollback();
         $this->resetAfterTest();
 
         [$activity, , $group, $students, $guide] = $this->setup_firm();
@@ -279,8 +323,9 @@ final class freeze_test extends \advanced_testcase {
         $repaired = freeze::freeze_group($activity, groups::get($activity, (int) $frozen->id), (int) $guide->id);
         $this->assertTrue(groups_group_exists((int) $repaired->coregroupid));
         $this->assertNotEquals($oldcoreid, (int) $repaired->coregroupid);
+        // Two confirmed members plus the guide (decision 7).
         $this->assertSame(
-            2,
+            3,
             count(groups_get_members((int) $repaired->coregroupid, 'u.id'))
         );
 
@@ -309,5 +354,591 @@ final class freeze_test extends \advanced_testcase {
         );
         $this->assertSame(2, groups::count_confirmed((int) $restored->id));
         $this->assertSame(state::FIRM, $restored->state);
+    }
+
+    /**
+     * D7-D1: unfreezing KEEPS the course group and its id, so
+     * availability conditions, grouping links, calendar events and the
+     * group conversation all survive the release.
+     */
+    public function test_unfreeze_keeps_core_group(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, , $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $coreid = (int) $frozen->coregroupid;
+        $this->assertTrue(groups_group_exists($coreid));
+
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+
+        $this->assertSame(state::FIRM, $restored->state);
+        $this->assertSame($coreid, (int) $restored->coregroupid);
+        $this->assertTrue(groups_group_exists($coreid));
+    }
+
+    /**
+     * The maintainer's freeze -> change -> refreeze workflow: the same
+     * course group id comes back, holding the NEW composition.
+     */
+    public function test_refreeze_reuses_core_group_and_reflects_changes(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, $api, $group, $students, $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $coreid = (int) $frozen->coregroupid;
+
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+        $this->assertSame($coreid, (int) $restored->coregroupid);
+
+        // Swap students[1] out for the still-groupless students[2]
+        // while the team is firm.
+        $sparelead = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($sparelead->id, $activity->courseid(), 'student');
+        $spare = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $sparelead->id,
+            'name' => 'Spare',
+            'state' => state::FORMING,
+        ]);
+        $out = $api->moves()->stage((int) $students[1]->id, (int) $restored->id, (int) $spare->id, false, null, 99);
+        $api->moves()->commit_set([(int) $out->id], 99);
+        $in = $api->moves()->stage((int) $students[2]->id, null, (int) $restored->id, false, null, 99);
+        $api->moves()->commit_set([(int) $in->id], 99);
+
+        $refrozen = freeze::freeze_group($activity, groups::get($activity, (int) $restored->id), (int) $guide->id);
+
+        $this->assertSame($coreid, (int) $refrozen->coregroupid, 'the mirror id was not reused');
+        $this->assertEqualsCanonicalizing(
+            [(int) $students[0]->id, (int) $students[2]->id, (int) $guide->id],
+            array_map('intval', array_keys(groups_get_members($coreid, 'u.id')))
+        );
+    }
+
+    /**
+     * D7-C2/B1: on a healthy frozen team drift() is empty in every
+     * direction - in particular the guide, who IS expected in the
+     * mirror, can no longer be reported as an out-of-band extra.
+     */
+    public function test_drift_empty_for_healthy_frozen_group(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, , $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+
+        $drift = freeze::drift(groups::get($activity, (int) $frozen->id));
+
+        $this->assertSame([], $drift['extra']);
+        $this->assertSame([], $drift['missing']);
+        $this->assertSame([], $drift['repairable']);
+        $this->assertTrue(groups_is_member((int) $frozen->coregroupid, (int) $guide->id));
+    }
+
+    /**
+     * 14.5: a row this plugin did not write is reported and left
+     * exactly where it is, however many times the mirror is synced.
+     */
+    public function test_stranger_reported_never_removed(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, , $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $coreid = (int) $frozen->coregroupid;
+
+        $stranger = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($stranger->id, $activity->courseid(), 'student');
+        groups_add_member($coreid, (int) $stranger->id);
+
+        $sync = freeze::sync_core_group($activity, (int) $frozen->id, (int) $guide->id);
+
+        $this->assertSame('synced', $sync->status);
+        $this->assertSame([(int) $stranger->id], $sync->extra);
+        $this->assertSame([], $sync->removed);
+        $this->assertTrue(groups_is_member($coreid, (int) $stranger->id));
+        $this->assertSame(
+            [(int) $stranger->id],
+            freeze::drift(groups::get($activity, (int) $frozen->id))['extra']
+        );
+    }
+
+    /**
+     * A member removed from the mirror out of band is put back, and the
+     * repair is recorded as an event.
+     */
+    public function test_owned_member_missing_is_repaired(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, $students, $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $coreid = (int) $frozen->coregroupid;
+        $DB->delete_records('groups_members', ['groupid' => $coreid, 'userid' => (int) $students[1]->id]);
+        $this->assertFalse(groups_is_member($coreid, (int) $students[1]->id));
+
+        $sink = $this->redirectEvents();
+        $sync = freeze::sync_core_group($activity, (int) $frozen->id, (int) $guide->id);
+        $events = array_values(array_filter(
+            $sink->get_events(),
+            fn($e) => $e instanceof \mod_selfselectadvanced\event\coregroup_synced
+        ));
+        $sink->close();
+
+        $this->assertSame([(int) $students[1]->id], $sync->added);
+        $this->assertTrue(groups_is_member($coreid, (int) $students[1]->id));
+        $this->assertCount(1, $events);
+        $this->assertSame(1, (int) $events[0]->other['added']);
+    }
+
+    /**
+     * The guide belongs in the MIRROR, never in the plugin roster: the
+     * snapshot unfreeze replays is restored as CONFIRMED members, so a
+     * guide who leaked into it would silently become a student.
+     */
+    public function test_unfreeze_never_inserts_guide_into_member_table(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, , $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+
+        $snapshot = json_decode(freeze::latest_snapshot((int) $frozen->id)->roster, true);
+        $this->assertNotContains(
+            (int) $guide->id,
+            array_map(static fn(array $entry) => (int) $entry['userid'], $snapshot)
+        );
+
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+
+        $this->assertFalse($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => $restored->id,
+            'userid' => $guide->id,
+        ]));
+    }
+
+    /**
+     * The routine is diff-based: a second call in a row changes
+     * nothing and reports nothing.
+     */
+    public function test_sync_is_idempotent(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, , $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $coreid = (int) $frozen->coregroupid;
+        $before = array_map('intval', array_keys(groups_get_members($coreid, 'u.id')));
+
+        $first = freeze::sync_core_group($activity, (int) $frozen->id, (int) $guide->id);
+        $second = freeze::sync_core_group($activity, (int) $frozen->id, (int) $guide->id);
+
+        foreach ([$first, $second] as $sync) {
+            $this->assertSame([], $sync->added);
+            $this->assertSame([], $sync->removed);
+            $this->assertSame([], $sync->refused);
+        }
+        $this->assertEqualsCanonicalizing(
+            $before,
+            array_map('intval', array_keys(groups_get_members($coreid, 'u.id')))
+        );
+    }
+
+    /**
+     * D7-E2: core refuses to put a non-enrolled user in a course group
+     * and says so by RETURNING FALSE. The refusal is collected, told to
+     * every manager, and never mistaken for drift.
+     */
+    public function test_sync_refuses_unenrolled_member_visibly(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, $students, $guide] = $this->setup_firm();
+        // The enrolment ROWS go, not the enrolment EVENT: the event has
+        // its own observer and its own tests, and what this test is
+        // about is the state core refuses to write - a roster that
+        // still says confirmed for somebody the course no longer
+        // enrols (a stale roster after a manual database fix, a failed
+        // enrolment sync, an unenrolment that predates the observer).
+        $this->strip_enrolment_rows($activity->courseid(), (int) $students[1]->id);
+        // Somebody has to be told; the capaudit notice goes to every
+        // holder of mod/selfselectadvanced:manage.
+        $manager = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($manager->id, $activity->courseid(), 'editingteacher');
+
+        $sink = $this->redirectMessages();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $messages = $sink->get_messages();
+        $sink->close();
+
+        $this->assertSame([(int) $students[1]->id], $frozen->sync->refused);
+        $this->assertFalse(groups_is_member((int) $frozen->coregroupid, (int) $students[1]->id));
+        $subjects = array_map(static fn($m) => $m->subject, $messages);
+        $this->assertNotEmpty(array_filter(
+            $subjects,
+            static fn($subject) => str_contains((string) $subject, 'would not take every member')
+        ), 'no manager was told about the refusal');
+        // The gap is a refusal, not an unowned row.
+        $this->assertSame([], freeze::drift(groups::get($activity, (int) $frozen->id))['extra']);
+    }
+
+    /**
+     * The same refusal for a guide who holds the capability through a
+     * course-category role and has no enrolment of their own.
+     */
+    public function test_guide_without_enrolment_refused(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, , $guide] = $this->setup_firm();
+        $this->unenrol($activity->courseid(), (int) $guide->id);
+        // The capability now comes from a category-level role instead.
+        $roleid = $DB->get_field('role', 'id', ['shortname' => 'teacher'], MUST_EXIST);
+        $course = $DB->get_record('course', ['id' => $activity->courseid()], '*', MUST_EXIST);
+        role_assign($roleid, (int) $guide->id, \context_coursecat::instance((int) $course->category)->id);
+
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+
+        $this->assertSame([(int) $guide->id], $frozen->sync->refused);
+        $this->assertFalse(groups_is_member((int) $frozen->coregroupid, (int) $guide->id));
+    }
+
+    /**
+     * 1h: discard is the only interactive deletion, and it refuses to
+     * run while the team is frozen - the next sync would mint the
+     * mirror straight back.
+     */
+    public function test_discard_core_group(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, , $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $coreid = (int) $frozen->coregroupid;
+
+        // Frozen: refused.
+        try {
+            freeze::discard_core_group($activity, groups::get($activity, (int) $frozen->id), 99);
+            $this->fail('Expected refusaldiscardfrozen');
+        } catch (\moodle_exception $e) {
+            $this->assertStringContainsString('cannot be discarded while the team is frozen', $e->getMessage());
+        }
+        $this->assertTrue(groups_group_exists($coreid));
+
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+
+        $sink = $this->redirectEvents();
+        $result = freeze::discard_core_group($activity, groups::get($activity, (int) $restored->id), 99);
+        $events = array_values(array_filter(
+            $sink->get_events(),
+            fn($e) => $e instanceof \mod_selfselectadvanced\event\coregroup_discarded
+        ));
+        $sink->close();
+
+        $this->assertSame($coreid, (int) $result->oldcoregroupid);
+        $this->assertFalse(groups_group_exists($coreid));
+        $this->assertNull(groups::get($activity, (int) $restored->id)->coregroupid);
+        $this->assertCount(1, $events);
+
+        // Nothing left to discard.
+        $this->expectException(\moodle_exception::class);
+        freeze::discard_core_group($activity, groups::get($activity, (int) $restored->id), 99);
+    }
+
+    /**
+     * Requirement 2: the group_frozen event and every notification this
+     * freeze sends happen with NO plugin lock held.
+     *
+     * The three grandfathered events (move_committed,
+     * leadership_transferred, join_decided) are exempt by maintainer
+     * decision (T-02 invariant item 3); group_frozen is a relocation
+     * this ticket performs, so it is asserted at its NEW site.
+     *
+     * The assertion is on locks::held_count(), never on
+     * $DB->is_transaction_started(): advanced_testcase opens a
+     * transaction before every test on PostgreSQL, so that clause would
+     * be unsatisfiable on one engine and green on the other.
+     */
+    public function test_freeze_notifications_and_events_fire_outside_envelope(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, , $guide] = $this->setup_firm();
+
+        self::$lockdepths = [];
+        \core\event\manager::phpunit_replace_observers([
+            [
+                'eventname' => '\mod_selfselectadvanced\event\group_frozen',
+                'callback' => 'mod_selfselectadvanced\freeze_test::record_lock_depth',
+            ],
+            [
+                'eventname' => '\core\event\notification_sent',
+                'callback' => 'mod_selfselectadvanced\freeze_test::record_lock_depth',
+            ],
+        ]);
+
+        freeze::freeze_group($activity, $group, (int) $guide->id);
+
+        $this->assertNotEmpty(self::$lockdepths, 'neither the event nor a notification was observed');
+        foreach (self::$lockdepths as $where => $depths) {
+            foreach ($depths as $depth) {
+                $this->assertSame(0, $depth, $where . ' fired while a plugin lock was held');
+            }
+        }
+        $this->assertArrayHasKey('\mod_selfselectadvanced\event\group_frozen', self::$lockdepths);
+    }
+
+    /**
+     * The crash window: when the inline sync cannot run, the plugin
+     * state flip has still committed on its own AND the adhoc that
+     * repairs the mirror is queued with it.
+     *
+     * The interleaving is concrete: locks::set_test_hook() throws at
+     * the sync's mint acquire - the second group:{id} acquire of the
+     * request - which is exactly the failure a crash in that window
+     * looks like from the plugin's side.
+     */
+    public function test_push_exception_rolls_back_and_next_iteration_survives(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, , $guide] = $this->setup_firm();
+        $groupid = (int) $group->id;
+        $seen = 0;
+        locks::set_test_hook(function (string $resource) use (&$seen, $groupid): void {
+            if ($resource !== 'group:' . $groupid) {
+                return;
+            }
+            $seen++;
+            if ($seen === 2) {
+                throw new \moodle_exception('errlocktimeout', 'mod_selfselectadvanced');
+            }
+        });
+        try {
+            freeze::freeze_group($activity, $group, (int) $guide->id);
+        } finally {
+            locks::set_test_hook(null);
+        }
+        $this->assertDebuggingCalled();
+
+        $row = $DB->get_record('selfselectadvanced_group', ['id' => $groupid], '*', MUST_EXIST);
+        $this->assertSame(state::FROZEN, $row->state, 'the state flip did not commit on its own');
+        $this->assertEmpty($row->coregroupid);
+        $this->assertNotEmpty(
+            \core\task\manager::get_adhoc_tasks(\mod_selfselectadvanced\task\coresync_adhoc::class),
+            'no repair job was queued with the commit'
+        );
+    }
+
+    /** @var array<string, int[]> Lock depths recorded per event name. */
+    public static array $lockdepths = [];
+
+    /**
+     * Test observer: record how many plugin locks were held when an
+     * event fired.
+     *
+     * @param \core\event\base $event the observed event
+     */
+    public static function record_lock_depth(\core\event\base $event): void {
+        self::$lockdepths[$event->eventname][] = locks::held_count();
+    }
+
+    /**
+     * Remove every enrolment a user has in a course, through the
+     * enrolment API (so core's own unenrolment side effects run).
+     *
+     * @param int $courseid the course
+     * @param int $userid the user
+     */
+    private function unenrol(int $courseid, int $userid): void {
+        global $DB;
+
+        foreach (enrol_get_instances($courseid, true) as $instance) {
+            $plugin = enrol_get_plugin($instance->enrol);
+            $enrolled = $plugin && $DB->record_exists('user_enrolments', [
+                'enrolid' => $instance->id,
+                'userid' => $userid,
+            ]);
+            if ($enrolled) {
+                $plugin->unenrol_user($instance, $userid);
+            }
+        }
+    }
+
+    /**
+     * Delete a user's enrolment rows WITHOUT firing the unenrolment
+     * event, leaving the plugin roster exactly as it was.
+     *
+     * @param int $courseid the course
+     * @param int $userid the user
+     */
+    private function strip_enrolment_rows(int $courseid, int $userid): void {
+        global $DB;
+
+        $enrolids = $DB->get_fieldset_select('enrol', 'id', 'courseid = ?', [$courseid]);
+        if (!$enrolids) {
+            return;
+        }
+        [$insql, $params] = $DB->get_in_or_equal($enrolids, SQL_PARAMS_NAMED, 'en');
+        $params['userid'] = $userid;
+        $DB->delete_records_select('user_enrolments', "enrolid $insql AND userid = :userid", $params);
+    }
+
+    /**
+     * D6-9: unfreeze was the one staff roster rewrite with no
+     * per-member record at all - the event carried two integers and
+     * nothing else. It now names every member row the restore touched,
+     * and why.
+     */
+    public function test_unfreeze_event_lists_added_removed(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, , $group, $students, $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+
+        // Mutate the plugin roster out of band: one member out, one in.
+        $DB->set_field('selfselectadvanced_member', 'status', groups::STATUS_REMOVED, [
+            'groupid' => (int) $frozen->id,
+            'userid' => (int) $students[1]->id,
+        ]);
+        $DB->insert_record('selfselectadvanced_member', (object) [
+            'groupid' => (int) $frozen->id,
+            'userid' => (int) $students[2]->id,
+            'status' => groups::STATUS_CONFIRMED,
+            'isleader' => 0,
+            'invitedby' => (int) $guide->id,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        $sink = $this->redirectEvents();
+        freeze::unfreeze(
+            $activity,
+            groups::get($activity, (int) $frozen->id),
+            99,
+            'Composition change agreed with the guide'
+        );
+        $unfrozen = array_values(array_filter(
+            $sink->get_events(),
+            static fn($e) => $e instanceof \mod_selfselectadvanced\event\group_unfrozen
+        ));
+        $sink->close();
+
+        $this->assertCount(1, $unfrozen);
+        $other = $unfrozen[0]->other;
+        $this->assertSame([(int) $students[2]->id], $other['removed']);
+        $this->assertSame([(int) $students[1]->id], $other['added']);
+        $this->assertSame('Composition change agreed with the guide', $other['reason']);
+    }
+
+    /**
+     * The reason gate is keyed on the RESTORE DELTA, and the page's
+     * preview computes exactly the quantity the service enforces.
+     *
+     * Deliberately not drift(): that is the core-MIRROR health report
+     * and is normally zero on a healthy frozen team, so keying on it
+     * would let the delta case through with no reason and then throw
+     * from inside the lock.
+     */
+    public function test_unfreeze_reason_required_only_on_restore_delta(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, , $group, $students, $guide] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+
+        // No delta at all: the ordinary guide-release flow still needs
+        // no reason.
+        $preview = freeze::unfreeze_preview($activity, groups::get($activity, (int) $frozen->id));
+        $this->assertSame([], $preview['removed']);
+        $this->assertSame([], $preview['added']);
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), (int) $guide->id);
+        $this->assertSame(state::FIRM, $restored->state);
+
+        // Now with a delta, and no reason.
+        $refrozen = freeze::freeze_group($activity, groups::get($activity, (int) $frozen->id), (int) $guide->id);
+        $DB->insert_record('selfselectadvanced_member', (object) [
+            'groupid' => (int) $refrozen->id,
+            'userid' => (int) $students[2]->id,
+            'status' => groups::STATUS_CONFIRMED,
+            'isleader' => 0,
+            'invitedby' => (int) $guide->id,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        $preview = freeze::unfreeze_preview($activity, groups::get($activity, (int) $refrozen->id));
+        $this->assertSame([(int) $students[2]->id], $preview['removed']);
+        $this->assertSame([], $preview['added']);
+
+        try {
+            freeze::unfreeze($activity, groups::get($activity, (int) $refrozen->id), (int) $guide->id);
+            $this->fail('Expected errunfreezereasonrequired');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('errunfreezereasonrequired', $e->errorcode);
+        }
+        // Refused, and nothing was written: still frozen, still there.
+        $this->assertSame(state::FROZEN, groups::get($activity, (int) $refrozen->id)->state);
+        $this->assertTrue($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => (int) $refrozen->id,
+            'userid' => (int) $students[2]->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]));
+
+        // The SAME two lists the service enforced.
+        $done = freeze::unfreeze(
+            $activity,
+            groups::get($activity, (int) $refrozen->id),
+            (int) $guide->id,
+            'Reverting an out-of-band change'
+        );
+        $this->assertSame(state::FIRM, $done->state);
+        $this->assertSame(groups::STATUS_REMOVED, $DB->get_field('selfselectadvanced_member', 'status', [
+            'groupid' => (int) $refrozen->id,
+            'userid' => (int) $students[2]->id,
+        ]));
+    }
+
+    /**
+     * Grandfathering is untouched (decision 4A.8): a snapshot roster
+     * beyond the current effective maxsize restores WITHOUT refusal.
+     * Nothing here refuses on a LIMIT - only on a missing reason.
+     */
+    public function test_unfreeze_grandfathering_regression(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, , $group, $students, $guide] = $this->setup_firm(['maxsize' => 3]);
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $plugingen->create_member([
+            'groupid' => (int) $group->id,
+            'userid' => (int) $students[2]->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        $frozen = freeze::freeze_group($activity, groups::get($activity, (int) $group->id), (int) $guide->id);
+        $this->assertSame(3, groups::count_confirmed((int) $frozen->id));
+
+        // Take one out of band, and cut the limit below the snapshot.
+        $DB->set_field('selfselectadvanced_member', 'status', groups::STATUS_REMOVED, [
+            'groupid' => (int) $frozen->id,
+            'userid' => (int) $students[2]->id,
+        ]);
+        store::save($activity, 'group', (int) $frozen->id, ['maxsize' => 1], (int) $guide->id);
+
+        $restored = freeze::unfreeze(
+            $activity,
+            groups::get($activity, (int) $frozen->id),
+            (int) $guide->id,
+            'Restoring the approved roster'
+        );
+        $this->assertSame(state::FIRM, $restored->state);
+        // Three members back, over a maxsize of one: grandfathered.
+        $this->assertSame(3, groups::count_confirmed((int) $frozen->id));
     }
 }

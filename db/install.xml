@@ -208,7 +208,7 @@
         <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Student being moved"/>
         <FIELD NAME="sourcegroupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Null when placing a groupless student"/>
-        <FIELD NAME="targetgroupid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="targetgroupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Null on a staff park (removal without a destination team)"/>
         <FIELD NAME="makeleader" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Designate the moved student leader of the target group"/>
         <FIELD NAME="replaceleader" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="explicit consent to demote the target group leader"/>
         <FIELD NAME="successorid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="New leader for the source group when moving its leader out"/>

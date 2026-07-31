@@ -76,6 +76,17 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                     'successor' => 'successorid',
                 ],
             ],
+            'pendingmoves' => [
+                'singular' => 'pendingmove',
+                'datagenerator' => 'pendingmove',
+                'required' => ['selfselectadvanced', 'user', 'targetgroup'],
+                'switchids' => [
+                    'selfselectadvanced' => 'activityid',
+                    'user' => 'userid',
+                    'sourcegroup' => 'sourcegroupid',
+                    'targetgroup' => 'targetgroupid',
+                ],
+            ],
             'overrides' => [
                 'singular' => 'override',
                 'datagenerator' => 'override',

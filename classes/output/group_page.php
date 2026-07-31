@@ -298,6 +298,25 @@ class group_page implements renderable, templatable {
             && has_capability('mod/selfselectadvanced:freeze', $context, $this->userid);
         $canunfreeze = $this->group->state === state::FROZEN
             && has_capability('mod/selfselectadvanced:unfreeze', $context, $this->userid);
+        // Mirror maintenance (T-16). Resync is offered whenever there is
+        // something to converge - including a frozen team whose course
+        // group has gone, which is what the resync mints. Discard is the
+        // only interactive delete, and never while frozen: the next sync
+        // would just mint it again.
+        $canmanagemirror = has_capability('mod/selfselectadvanced:manage', $context, $this->userid);
+        $canresynccore = $canmanagemirror
+            && (!empty($this->group->coregroupid) || $this->group->state === state::FROZEN);
+        $candiscardcore = $canmanagemirror
+            && !empty($this->group->coregroupid)
+            && $this->group->state !== state::FROZEN;
+        // Dissolve (decision 6, D6-3): the exit from a team that can be
+        // neither repaired nor deleted. Offered in EVERY state, because
+        // the dead end it resolves is a FIRM or FROZEN solo-leader team
+        // that delete_group() (leader + forming only) cannot touch.
+        // Both capabilities together: it destroys a team and parks its
+        // members.
+        $candissolve = $canmanagemirror
+            && has_capability('mod/selfselectadvanced:overriderules', $context, $this->userid);
 
         // Expressions of interest (spec: EOI). The leader (and staff)
         // see the full panel; other members see only the count line.
@@ -432,6 +451,23 @@ class group_page implements renderable, templatable {
                 'id' => $cmid,
                 'g' => $this->group->id,
                 'action' => 'unfreeze',
+            ]))->out(false),
+            'canresynccore' => $canresynccore,
+            'resynccoreurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $cmid,
+                'g' => $this->group->id,
+            ]))->out(false),
+            'candiscardcore' => $candiscardcore,
+            'discardcoreurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $cmid,
+                'g' => $this->group->id,
+                'action' => 'discardcoregroup',
+            ]))->out(false),
+            'candissolve' => $candissolve,
+            'dissolveurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $cmid,
+                'g' => $this->group->id,
+                'action' => 'dissolve',
             ]))->out(false),
             'quota' => $quota,
             'showsubmit' => $this->submitform !== null,

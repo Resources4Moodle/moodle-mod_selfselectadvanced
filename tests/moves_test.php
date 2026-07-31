@@ -278,7 +278,19 @@ final class moves_test extends \advanced_testcase {
         $this->assertTrue($verdict->valid);
         $this->assertTrue($verdict->permove[(int) $move->id]['L2']['bypassed']);
 
-        $api2->moves()->commit_set([(int) $move->id], 99);
+        // Decision 6: a bypassed commit needs a typed reason. Updated
+        // here rather than relaxed in the service - the reason is the
+        // point of the change.
+        $unusednotifications = null;
+        $unusedsync = null;
+        $api2->moves()->commit_set(
+            [(int) $move->id],
+            99,
+            false,
+            $unusednotifications,
+            $unusedsync,
+            'Agreed with the guide: one over on Team B for this term.'
+        );
         $this->assertSame(3, groups::count_confirmed((int) $b->id));
     }
 

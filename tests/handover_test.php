@@ -233,4 +233,39 @@ final class handover_test extends \advanced_testcase {
         $this->assertContains((int) $guide1->id, $to);
         $this->assertContains((int) $leader->id, $to);
     }
+
+    /**
+     * D7-B1: the mirror carries the guide, so a handover on a FROZEN
+     * team has to swap it - one sync takes the outgoing guide out (they
+     * are in neither the confirmed set nor guideid) and puts the
+     * incoming one in.
+     *
+     * preventResetByRollback() first: the sync refuses to write to core
+     * while a transaction is open, and advanced_testcase opens one
+     * before every test on PostgreSQL.
+     */
+    public function test_accept_on_frozen_group_swaps_core_membership(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, $api, $group, $guide1, $guide2, $leader] = $this->setup_held();
+        // A held team becomes firm, then frozen, with guide1 in charge.
+        $DB->set_field('selfselectadvanced_group', 'state', state::FIRM, ['id' => $group->id]);
+        $DB->set_field('selfselectadvanced_group', 'timeapproved', time(), ['id' => $group->id]);
+        $frozen = \mod_selfselectadvanced\local\freeze::freeze_group(
+            $activity,
+            groups::get($activity, (int) $group->id),
+            (int) $guide1->id
+        );
+        $coreid = (int) $frozen->coregroupid;
+        $this->assertTrue(groups_is_member($coreid, (int) $guide1->id));
+
+        $api->handover()->propose((int) $group->id, (int) $guide2->id, (int) $guide1->id);
+        $api->handover()->accept((int) $group->id, (int) $guide2->id);
+
+        $this->assertFalse(groups_is_member($coreid, (int) $guide1->id), 'the old guide lingered');
+        $this->assertTrue(groups_is_member($coreid, (int) $guide2->id));
+        $this->assertTrue(groups_is_member($coreid, (int) $leader->id));
+    }
 }

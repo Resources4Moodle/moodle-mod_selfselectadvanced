@@ -494,7 +494,12 @@ if ($tab === 'anomalies') {
     if ($anomalies) {
         $anomaliestable = new \mod_selfselectadvanced\table\flagged_anomalies_table(
             'ssaflaggedanomalies',
-            $anomaliesurl
+            $anomaliesurl,
+            // Discoverability for the dissolve verb (D6-3): a team
+            // below minimum is already listed here, and this is where
+            // staff look when it cannot be repaired.
+            has_capability('mod/selfselectadvanced:manage', $context)
+                && has_capability('mod/selfselectadvanced:overriderules', $context)
         );
         $anomaliestable->display_rows($anomalies, $perpage);
     } else {

@@ -319,4 +319,82 @@ final class anomalies_test extends \advanced_testcase {
 
         $this->assertCount(0, $rows);
     }
+
+    /**
+     * D7-D2: a group that arrives FROZEN with no mirrored course group
+     * - the shape a backup restore produces, and the shape a hand
+     * edit produces - is reported, so the restore hole stops being
+     * invisible. The row's link is the page where the resync button is.
+     */
+    public function test_frozen_group_without_a_mirror_is_flagged(): void {
+        $this->resetAfterTest();
+        [$activity, $resolver, $course] = $this->setup_activity();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+
+        $leader = $generator->create_user();
+        $generator->enrol_user($leader->id, $course->id, 'student');
+        $guide = $generator->create_user();
+        $generator->enrol_user($guide->id, $course->id, 'teacher');
+        $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => $leader->id,
+            'guideid' => $guide->id,
+            'state' => state::FROZEN,
+            'timeapproved' => time(),
+            'timefrozen' => time(),
+        ]);
+
+        $rows = flagged_anomalies_table::build_rows($activity, $resolver);
+
+        $this->assertCount(1, $rows);
+        $this->assertStringContainsString(
+            get_string('coregroupmissing', 'mod_selfselectadvanced'),
+            $rows[0]->issues
+        );
+    }
+
+    /**
+     * A frozen team whose mirror holds a row nobody here wrote is
+     * reported as carrying strangers - reported, never removed.
+     */
+    public function test_stranger_in_the_mirror_is_flagged(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+        [$activity, $resolver, $course] = $this->setup_activity();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+
+        $leader = $generator->create_user();
+        $generator->enrol_user($leader->id, $course->id, 'student');
+        $guide = $generator->create_user();
+        $generator->enrol_user($guide->id, $course->id, 'teacher');
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => $leader->id,
+            'guideid' => $guide->id,
+            'state' => state::FIRM,
+            'timeapproved' => time(),
+        ]);
+        $frozen = \mod_selfselectadvanced\local\freeze::freeze_group(
+            $activity,
+            \mod_selfselectadvanced\local\groups::get($activity, (int) $group->id),
+            (int) $guide->id
+        );
+        $stranger = $generator->create_user();
+        $generator->enrol_user($stranger->id, $course->id, 'student');
+        groups_add_member((int) $frozen->coregroupid, (int) $stranger->id);
+
+        $rows = flagged_anomalies_table::build_rows(
+            activity::from_instance($activity->id()),
+            new resolver($activity)
+        );
+
+        $this->assertCount(1, $rows);
+        $this->assertStringContainsString(
+            get_string('coregroupstranger', 'mod_selfselectadvanced', 1),
+            $rows[0]->issues
+        );
+    }
 }

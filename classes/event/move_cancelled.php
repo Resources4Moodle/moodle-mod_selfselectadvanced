@@ -50,9 +50,11 @@ class move_cancelled extends \core\event\base {
     public function get_description(): string {
         $o = $this->other;
         $source = $o['sourcegroupid'] ?? 'none';
+        // A null target is a cancelled staff park (decision 6).
+        $target = $o['targetgroupid'] ?? 'none';
 
         return "The user with id '$this->userid' cancelled the move of user "
-            . "'$this->relateduserid' from group '$source' to group '{$o['targetgroupid']}'.";
+            . "'$this->relateduserid' from group '$source' to group '$target'.";
     }
 
     /**

@@ -404,5 +404,24 @@
         {{#canunfreeze}}
             <a href="{{unfreezeurl}}" class="btn btn-warning ms-2">{{#str}} unfreeze, mod_selfselectadvanced {{/str}}</a>
         {{/canunfreeze}}
+        {{#canresynccore}}
+            <form method="post" action="{{resynccoreurl}}" class="d-inline-block ms-2">
+                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <input type="hidden" name="action" value="resynccore">
+                <button type="submit" class="btn btn-secondary">
+                    {{#str}} coregroupresync, mod_selfselectadvanced {{/str}}
+                </button>
+            </form>
+        {{/canresynccore}}
+        {{#candiscardcore}}
+            <a href="{{discardcoreurl}}" class="btn btn-outline-danger ms-2">
+                {{#str}} discardcoregroup, mod_selfselectadvanced {{/str}}
+            </a>
+        {{/candiscardcore}}
+        {{#candissolve}}
+            <a href="{{dissolveurl}}" class="btn btn-outline-danger ms-2">
+                {{#str}} dissolvegroup, mod_selfselectadvanced {{/str}}
+            </a>
+        {{/candissolve}}
     </div>
 </div>

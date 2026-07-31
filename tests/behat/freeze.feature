@@ -35,7 +35,13 @@ Feature: Freezing firm groups into course groups
     And I follow "Team Blue"
     Then I should see "Frozen"
     When I follow "Unfreeze"
-    Then I should see "returns to firm exactly as frozen"
+    Then I should see "returns to firm"
+    # Since the mirror is retained across a release, the confirm page
+    # must not still promise that it is deleted - the page a manager
+    # reads before a destructive-sounding action is not a place for a
+    # claim the code stopped honouring.
+    And I should see "mirrored course group is KEPT"
+    And I should not see "The mirrored course group is deleted"
     When I press "Unfreeze"
     Then I should see "unfrozen and restored"
     And I should see "Firm"
@@ -50,3 +56,43 @@ Feature: Freezing firm groups into course groups
     Then "Release" "link" should exist in the "Team Amber" "table_row"
     And "Release" "link" should not exist in the "Team Slate" "table_row"
     And I should see "Frozen by staff - ask through the request queue" in the "Team Slate" "table_row"
+
+  Scenario: Unfreezing keeps the course group
+    Given I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
+    And I click on "Freeze" "link" in the "Team Blue" "table_row"
+    And I press "Freeze"
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
+    And I follow "Team Blue"
+    And I follow "Unfreeze"
+    And I press "Unfreeze"
+    Then I should see "unfrozen and restored"
+    When I am on the "Course 1" "groups" page logged in as teacher1
+    Then the "groups" select box should contain "[ssa1] Team Blue (2)"
+
+  Scenario: Manager resynchronises the course group
+    Given I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
+    And I click on "Freeze" "link" in the "Team Blue" "table_row"
+    And I press "Freeze"
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
+    And I follow "Team Blue"
+    And I press "Resynchronise course group"
+    Then I should see "already in step"
+
+  Scenario: Manager discards the course group after unfreezing
+    Given I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
+    And I click on "Freeze" "link" in the "Team Blue" "table_row"
+    And I press "Freeze"
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
+    And I follow "Team Blue"
+    Then "Discard course group" "link" should not exist
+    When I follow "Unfreeze"
+    And I press "Unfreeze"
+    And I follow "Discard course group"
+    Then I should see "Delete the course group mirroring"
+    When I press "Discard course group"
+    Then I should see "The mirrored course group has been deleted."
+    When I am on the "Course 1" "groups" page logged in as teacher1
+    Then the "groups" select box should not contain "[ssa1] Team Blue (2)"

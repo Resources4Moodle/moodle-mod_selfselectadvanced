@@ -129,7 +129,19 @@ class move_form extends \moodleform {
             $this->groupselector(get_string('choosedots'))
         );
         $mform->setType('target', PARAM_INT);
-        $mform->addRule('target', get_string('required'), 'required', null, 'client');
+        if (empty($this->_customdata['canbypass'])) {
+            // Kept for everyone who cannot park: for them a move
+            // without a destination is not a thing that exists.
+            $mform->addRule('target', get_string('required'), 'required', null, 'client');
+        }
+
+        if (!empty($this->_customdata['canbypass'])) {
+            // Decision 6, D6-2: a staff removal with no destination
+            // team. validation() below refuses the incoherent
+            // combinations; the service refuses them again at its seam.
+            $mform->addElement('advcheckbox', 'park', get_string('movepark', 'mod_selfselectadvanced'));
+            $mform->addHelpButton('park', 'movepark', 'mod_selfselectadvanced');
+        }
 
         $mform->addElement('advcheckbox', 'makeleader', get_string('movemakeleader', 'mod_selfselectadvanced'));
 
@@ -201,6 +213,19 @@ class move_form extends \moodleform {
      */
     public function validation($data, $files): array {
         $errors = parent::validation($data, $files);
+
+        $park = !empty($data['park']);
+        if ($park && !empty($data['target'])) {
+            $errors['target'] = get_string('errmoveparkandtarget', 'mod_selfselectadvanced');
+        }
+        if ($park && !empty($data['makeleader'])) {
+            $errors['makeleader'] = get_string('errmoveparknolead', 'mod_selfselectadvanced');
+        }
+        if (!$park && empty($data['target'])) {
+            // The client-side required rule is dropped for bypass
+            // holders (a park has no target), so the server states it.
+            $errors['target'] = get_string('required');
+        }
 
         // The target's own required rule already flags a blank choice;
         // guard against also treating "blank target" as "same as source".

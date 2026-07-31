@@ -370,13 +370,21 @@ if ($action === 'eoirespond') {
 if ($action === 'freeze') {
     require_capability('mod/selfselectadvanced:freeze', $context);
     if (data_submitted() && confirm_sesskey()) {
-        \mod_selfselectadvanced\local\freeze::freeze_group($activity, $group, (int) $USER->id);
-        redirect(
-            $baseurl,
-            get_string('groupfrozennotice', 'mod_selfselectadvanced', $group->pluginuid),
-            null,
-            \core\output\notification::NOTIFY_SUCCESS
-        );
+        $frozen = \mod_selfselectadvanced\local\freeze::freeze_group($activity, $group, (int) $USER->id);
+        $notice = get_string('groupfrozennotice', 'mod_selfselectadvanced', $group->pluginuid);
+        $level = \core\output\notification::NOTIFY_SUCCESS;
+        // Core refuses to put a deleted or non-enrolled person in a
+        // course group; the guide is told here, by name only, and every
+        // manager is told by message.
+        if (!empty($frozen->sync->refused)) {
+            $notice .= ' ' . get_string(
+                'coregroupsyncrefused',
+                'mod_selfselectadvanced',
+                selfselectadvanced_refused_names($frozen->sync->refused)
+            );
+            $level = \core\output\notification::NOTIFY_WARNING;
+        }
+        redirect($baseurl, $notice, null, $level);
     }
     echo $OUTPUT->header();
     echo $OUTPUT->confirm(
@@ -429,12 +437,24 @@ if ($action === 'unfreeze') {
         }
     }
     if (data_submitted() && confirm_sesskey()) {
-        $result = \mod_selfselectadvanced\local\freeze::unfreeze($activity, $group, (int) $USER->id);
+        $unfreezereason = trim(optional_param('reason', '', PARAM_TEXT));
+        try {
+            $result = \mod_selfselectadvanced\local\freeze::unfreeze(
+                $activity,
+                $group,
+                (int) $USER->id,
+                $unfreezereason
+            );
+        } catch (moodle_exception $e) {
+            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        }
         $notice = get_string('groupunfrozennotice', 'mod_selfselectadvanced', $group->pluginuid);
-        if (!empty($result->drift['extra']) || !empty($result->drift['missing'])) {
-            $notice .= ' ' . get_string('driftdiscarded', 'mod_selfselectadvanced', (object) [
-                'extra' => count($result->drift['extra']),
-                'missing' => count($result->drift['missing']),
+        // Nothing is discarded any more: the course group is kept, and
+        // the sync leaves it holding the restored roster plus the guide.
+        if (!empty($result->sync) && $result->sync->status === 'synced') {
+            $notice .= ' ' . get_string('coregroupkept', 'mod_selfselectadvanced', (object) [
+                'added' => count($result->sync->added),
+                'removed' => count($result->sync->removed),
             ]);
         }
         redirect($baseurl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
@@ -442,6 +462,16 @@ if ($action === 'unfreeze') {
     // Confirmation page: restriction references and drift are shown first.
     $warnings = \mod_selfselectadvanced\local\freeze::check_restrictions($activity, $group);
     $drift = \mod_selfselectadvanced\local\freeze::drift($group);
+    // What the RESTORE would actually do to the roster - the same
+    // quantity the service enforces its reason gate on (D6-9).
+    // Deliberately not drift(), which is the core-MIRROR health report
+    // and is normally zero on a healthy frozen team: keying the reason
+    // field on it would make the field optional exactly when the
+    // service is about to demand it, and every ordinary unfreeze would
+    // dead-end on an error page.
+    $preview = \mod_selfselectadvanced\local\freeze::unfreeze_preview($activity, $group);
+    $previewnames = selfselectadvanced_user_names(array_merge($preview['removed'], $preview['added']));
+    $reasonrequired = $preview['removed'] || $preview['added'];
     echo $OUTPUT->header();
     foreach ($warnings as $warning) {
         echo $OUTPUT->notification(
@@ -460,11 +490,204 @@ if ($action === 'unfreeze') {
             false
         );
     }
+    echo html_writer::tag('p', get_string('unfreezeconfirm', 'mod_selfselectadvanced', format_string($group->name)));
+    foreach (['removed', 'added'] as $side) {
+        if (!$preview[$side]) {
+            continue;
+        }
+        // Names only - never an email address or a phone number.
+        echo html_writer::div(
+            html_writer::tag('strong', get_string('unfreezepreview' . $side, 'mod_selfselectadvanced'))
+            . ' ' . s(implode(', ', array_map(
+                static fn($uid) => $previewnames[(int) $uid] ?? (string) $uid,
+                $preview[$side]
+            ))),
+            'selfselectadvanced-unfreezepreview-' . $side
+        );
+    }
+    echo html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => (new moodle_url($baseurl, ['action' => 'unfreeze']))->out(false),
+        'class' => 'selfselectadvanced-unfreezeform mt-2',
+    ]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    echo html_writer::div(
+        html_writer::label(
+            get_string('unfreezereason', 'mod_selfselectadvanced'),
+            'ssa-unfreezereason',
+            true,
+            ['class' => 'form-label']
+        )
+        . html_writer::tag('textarea', '', [
+            'class' => 'form-control',
+            'id' => 'ssa-unfreezereason',
+            'name' => 'reason',
+            'rows' => 3,
+        ] + ($reasonrequired ? ['required' => 'required'] : [])),
+        'mb-2'
+    );
+    echo html_writer::empty_tag('input', [
+        'type' => 'submit',
+        'class' => 'btn btn-primary',
+        'value' => get_string('unfreeze', 'mod_selfselectadvanced'),
+    ]);
+    echo html_writer::link($baseurl, get_string('cancel'), ['class' => 'btn btn-secondary ms-2']);
+    echo html_writer::end_tag('form');
+    echo $OUTPUT->footer();
+    die;
+}
+
+if ($action === 'dissolve') {
+    // Decision 6, D6-3: the exit from a team that can be neither
+    // repaired nor deleted. GET renders the confirmation; the
+    // destructive step is the sesskey-protected POST. Both capabilities
+    // are required here AND again in the service, which is authoritative.
+    require_capability('mod/selfselectadvanced:manage', $context);
+    require_capability('mod/selfselectadvanced:overriderules', $context);
+    if (data_submitted() && confirm_sesskey()) {
+        $dissolvereason = trim(optional_param('reason', '', PARAM_TEXT));
+        if ($dissolvereason === '') {
+            redirect(
+                new moodle_url($baseurl, ['action' => 'dissolve']),
+                get_string('errdissolvereasonrequired', 'mod_selfselectadvanced'),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        }
+        try {
+            $api->dissolve_group($group, $dissolvereason, (int) $USER->id);
+        } catch (moodle_exception $e) {
+            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        }
+        redirect(
+            $viewurl,
+            get_string('groupdissolved', 'mod_selfselectadvanced', $group->pluginuid),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    }
+    // GET: the confirmation page names every member that will be
+    // parked. Names only - never an email address or a phone number.
+    $tobeparked = $DB->get_fieldset_select(
+        'selfselectadvanced_member',
+        'userid',
+        'groupid = ? AND status = ?',
+        [(int) $group->id, \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED]
+    );
+    $parkednames = selfselectadvanced_user_names($tobeparked);
+    echo $OUTPUT->header();
+    echo $OUTPUT->heading(get_string('dissolvegroup', 'mod_selfselectadvanced'));
+    echo html_writer::tag(
+        'p',
+        get_string('dissolvegroupconfirm', 'mod_selfselectadvanced', format_string($group->name))
+    );
+    if ($parkednames) {
+        echo html_writer::div(
+            html_writer::tag('strong', get_string('dissolveparking', 'mod_selfselectadvanced'))
+            . ' ' . s(implode(', ', $parkednames)),
+            'selfselectadvanced-dissolveparking'
+        );
+    }
+    echo html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => (new moodle_url($baseurl, ['action' => 'dissolve']))->out(false),
+        'class' => 'selfselectadvanced-dissolveform mt-2',
+    ]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    echo html_writer::div(
+        html_writer::label(
+            get_string('moveoverridereason', 'mod_selfselectadvanced'),
+            'ssa-dissolvereason',
+            true,
+            ['class' => 'form-label']
+        )
+        . html_writer::tag('textarea', '', [
+            'class' => 'form-control',
+            'id' => 'ssa-dissolvereason',
+            'name' => 'reason',
+            'rows' => 3,
+            'required' => 'required',
+        ]),
+        'mb-2'
+    );
+    echo html_writer::empty_tag('input', [
+        'type' => 'submit',
+        'class' => 'btn btn-danger',
+        'value' => get_string('dissolvegroup', 'mod_selfselectadvanced'),
+    ]);
+    echo html_writer::link($baseurl, get_string('cancel'), ['class' => 'btn btn-secondary ms-2']);
+    echo html_writer::end_tag('form');
+    echo $OUTPUT->footer();
+    die;
+}
+
+if ($action === 'resynccore' && data_submitted() && confirm_sesskey()) {
+    // The manager entry point for "make the course group match the
+    // team": it repairs a missing mirror (state frozen, no core group -
+    // the restore hole), puts back members somebody removed by hand,
+    // takes out members who have left, and reports strangers without
+    // touching them. POST + sesskey; nothing mutating on a GET.
+    require_capability('mod/selfselectadvanced:manage', $context);
+    $sync = \mod_selfselectadvanced\local\freeze::sync_core_group($activity, (int) $group->id, (int) $USER->id);
+    if ($sync->status !== 'synced') {
+        $notice = get_string('coregroupmissing', 'mod_selfselectadvanced');
+        $level = \core\output\notification::NOTIFY_WARNING;
+    } else if (!$sync->added && !$sync->removed && !$sync->refused) {
+        $notice = get_string('coregroupresyncinstep', 'mod_selfselectadvanced');
+        $level = \core\output\notification::NOTIFY_SUCCESS;
+    } else {
+        $notice = get_string('coregroupresyncdone', 'mod_selfselectadvanced', (object) [
+            'added' => count($sync->added),
+            'removed' => count($sync->removed),
+            'refused' => count($sync->refused),
+        ]);
+        $level = $sync->refused
+            ? \core\output\notification::NOTIFY_WARNING
+            : \core\output\notification::NOTIFY_SUCCESS;
+    }
+    // Names only: a refusal notice never carries an email address or a
+    // phone number (cardinal contact-privacy rule).
+    if ($sync->refused) {
+        $notice .= ' ' . get_string(
+            'coregroupsyncrefused',
+            'mod_selfselectadvanced',
+            selfselectadvanced_refused_names($sync->refused)
+        );
+    }
+    redirect($baseurl, $notice, null, $level);
+}
+
+if ($action === 'discardcoregroup') {
+    require_capability('mod/selfselectadvanced:manage', $context);
+    if (data_submitted() && confirm_sesskey()) {
+        try {
+            \mod_selfselectadvanced\local\freeze::discard_core_group($activity, $group, (int) $USER->id);
+            redirect(
+                $baseurl,
+                get_string('coregroupdiscarded', 'mod_selfselectadvanced'),
+                null,
+                \core\output\notification::NOTIFY_SUCCESS
+            );
+        } catch (moodle_exception $e) {
+            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        }
+    }
+    // Confirmation page: what the course group is still being used for
+    // is the one thing a manager cannot see from here.
+    $warnings = \mod_selfselectadvanced\local\freeze::check_restrictions($activity, $group);
+    echo $OUTPUT->header();
+    foreach ($warnings as $warning) {
+        echo $OUTPUT->notification(
+            get_string('restrictionwarning', 'mod_selfselectadvanced', $warning),
+            'warning',
+            false
+        );
+    }
     echo $OUTPUT->confirm(
-        get_string('unfreezeconfirm', 'mod_selfselectadvanced', format_string($group->name)),
+        get_string('coregroupdiscardconfirm', 'mod_selfselectadvanced', format_string($group->name)),
         new single_button(
-            new moodle_url($baseurl, ['action' => 'unfreeze']),
-            get_string('unfreeze', 'mod_selfselectadvanced'),
+            new moodle_url($baseurl, ['action' => 'discardcoregroup']),
+            get_string('discardcoregroup', 'mod_selfselectadvanced'),
             'post'
         ),
         $baseurl
