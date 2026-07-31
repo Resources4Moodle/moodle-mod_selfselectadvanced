@@ -803,6 +803,8 @@ class tickets {
      * @param int $viewerid the person looking, whose own requests are
      *                      left out unless they hold the manage capability;
      *                      0 for the whole queue
+     * @param int $limitfrom first row to return, 0 for the start
+     * @param int $limitnum how many rows to return, 0 for all of them
      * @return stdClass[] ticket rows
      */
     public static function queue(

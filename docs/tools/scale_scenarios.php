@@ -59,6 +59,7 @@ use mod_selfselectadvanced\local\volunteering;
     'groups' => 1900,
     'shortname' => 'SCALE10K',
     'reset' => false,
+    'record' => '',
 ], []);
 
 \core\session\manager::set_user(get_admin());
@@ -84,10 +85,30 @@ function probe(string $label, callable $fn) {
     $t = microtime(true) - $t0;
     $reads = $DB->perf_get_reads() - $r0;
     $writes = $DB->perf_get_writes() - $w0;
-    $probes[] = [$label, $t, $reads, $writes];
+    // The fifth element is the step's own scalar answer, kept for the
+    // run record so a reader can tell a probe that measured the right
+    // thing from one that measured nothing. Non-scalar answers (user
+    // id lists, group records) are deliberately not recorded.
+    $probes[] = [$label, $t, $reads, $writes, is_scalar($result) ? (string) $result : ''];
     cli_writeln(sprintf('PROBE %-46s %8.2fs reads=%-6d writes=%d', $label, $t, $reads, $writes));
 
     return $result;
+}
+
+/**
+ * The plugin's declared release string, read from version.php in the
+ * tree under measurement: get_config only ever holds the numeric
+ * version, and a run record has to name both.
+ *
+ * @return string
+ */
+function scale_plugin_release(): string {
+    global $CFG;
+
+    $plugin = new stdClass();
+    require($CFG->dirroot . '/mod/selfselectadvanced/version.php');
+
+    return (string) ($plugin->release ?? '');
 }
 
 $shortname = (string) $options['shortname'];
@@ -630,6 +651,195 @@ probe('service: stage 20 moves + validate_set', function () use ($api, $activity
     return count($moveids);
 });
 
+// ---------------------------------------------------------------------
+// T-14 probes: the join-request answer inbox and the moves page at
+// scale. Raw seeding first (fixture, not the SUT); each measured
+// probe then walks the same calls the page makes today. When T-12
+// (wave 3) lands its batched entry points, swap the probe BODIES to
+// those entry points and KEEP THE LABELS - the labels are the
+// comparator's keys and the before/after evidence. That swap is
+// T-14's own act at the wave-3 run, NOT T-12's: T-12's ticket forbids
+// it to re-implement any probe. ONE EXCEPTION: 'page: moves list
+// assembly (pre-T-15 shape, ...)' is never swapped - T-15 (wave 2)
+// replaces that page's shape outright, so that probe is frozen as the
+// historical baseline and T-15 adds the paged counterpart under its
+// own new label.
+//
+// Group-index map (do not deviate - these ranges avoid every group
+// other probes mutate): join-request targets 700-899, placement
+// targets 900-1019, transfer sources 1550-1589 / targets 1020-1059,
+// leader-move sources 1600-1639 / targets 1060-1099.
+probe('seed: 200 join requests (raw)', function () use ($DB, $activity, &$groupless, $groupids, $now) {
+    $requesters = array_splice($groupless, 0, 200);
+    if (count($requesters) < 200) {
+        throw new coding_exception('groupless pool too small for the join-request fixture');
+    }
+    $targets = array_slice($groupids, 700, 200);
+    $rows = [];
+    foreach ($requesters as $i => $userid) {
+        $rows[] = (object) [
+            'activityid' => $activity->id(), 'userid' => (int) $userid,
+            'sourcegroupid' => null, 'targetgroupid' => (int) $targets[$i],
+            'makeleader' => 0, 'replaceleader' => 0, 'successorid' => null,
+            'status' => 'requested', 'statusinfo' => null,
+            'reason' => 'Scale probe join request ' . $i, 'responsenote' => null,
+            'usermodified' => (int) $userid,
+            'timecreated' => $now - $i, 'timemodified' => $now - $i,
+        ];
+    }
+    $DB->insert_records('selfselectadvanced_move', $rows);
+
+    return count($rows);
+});
+
+probe('inbox: joinrequest answer tab, staff view (1500+ teams, 200 waiting)', function () use ($DB, $activity) {
+    // Mirrors joinrequest.php:204-282 staff branch, today's shape: all
+    // teams loaded, one waiting_for_group() per team, then one user
+    // fetch and one fit gate per waiting request.
+    $myteams = $DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()], 'name');
+    $rows = [];
+    foreach ($myteams as $team) {
+        foreach (\mod_selfselectadvanced\local\joinrequests::waiting_for_group($activity, (int) $team->id) as $request) {
+            $rows[] = [$team, $request];
+        }
+    }
+    $rendered = 0;
+    foreach ($rows as [$team, $request]) {
+        $student = \core_user::get_user((int) $request->userid);
+        $verdict = \mod_selfselectadvanced\local\fit::for_person($activity, $team, (int) $request->userid);
+        // The page renders the name AND the fit cell on every row, so
+        // both are read here. fit::for_person is typed :stdClass, so a
+        // null test would be a tautology; what a rendered row actually
+        // needs is a verdict that says something.
+        if ($student && ($verdict->fits || $verdict->caution !== '')) {
+            $rendered++;
+        }
+    }
+    if ($rendered < 200) {
+        throw new coding_exception("inbox probe assembled {$rendered} rows; expected >= 200");
+    }
+
+    return $rendered . ' rows';
+});
+
+probe('seed: 200 pending moves, mixed flags (raw)', function () use ($DB, $activity, &$groupless, $groupids, $now) {
+    $rows = [];
+    // Group (a): 120 placements of groupless students, 20 of them
+    // makeleader + replaceleader, which exercises L3 and the consent
+    // verdict.
+    $placed = array_splice($groupless, 0, 120);
+    if (count($placed) < 120) {
+        throw new coding_exception('groupless pool too small for the moves fixture');
+    }
+    foreach ($placed as $i => $userid) {
+        $rows[] = (object) [
+            'activityid' => $activity->id(), 'userid' => (int) $userid,
+            'sourcegroupid' => null, 'targetgroupid' => (int) $groupids[900 + $i],
+            'makeleader' => $i < 20 ? 1 : 0, 'replaceleader' => $i < 20 ? 1 : 0,
+            'successorid' => null, 'status' => 'pending', 'statusinfo' => null,
+            'reason' => null, 'responsenote' => null, 'usermodified' => 2,
+            'timecreated' => $now - 1000 + $i, 'timemodified' => $now,
+        ];
+    }
+    // Group (b): 40 transfers of confirmed non-leader members from
+    // untouched tail teams, so the source side of the quota check is
+    // exercised too.
+    for ($i = 0; $i < 40; $i++) {
+        $sourceid = (int) $groupids[1550 + $i];
+        $member = $DB->get_record_sql(
+            "SELECT userid FROM {selfselectadvanced_member}
+              WHERE groupid = :g AND isleader = 0 AND status = 'confirmed'",
+            ['g' => $sourceid],
+            IGNORE_MULTIPLE
+        );
+        if (!$member) {
+            throw new coding_exception('tail group ' . $sourceid . ' has no transferable member');
+        }
+        $rows[] = (object) [
+            'activityid' => $activity->id(), 'userid' => (int) $member->userid,
+            'sourcegroupid' => $sourceid, 'targetgroupid' => (int) $groupids[1020 + $i],
+            'makeleader' => 0, 'replaceleader' => 0, 'successorid' => null,
+            'status' => 'pending', 'statusinfo' => null, 'reason' => null,
+            'responsenote' => null, 'usermodified' => 2,
+            'timecreated' => $now - 800 + $i, 'timemodified' => $now,
+        ];
+    }
+    // Group (c): 40 leader moves with successors, which exercises SUCC
+    // and the leadverdict whole-set scan - the quadratic shape under
+    // measurement.
+    for ($i = 0; $i < 40; $i++) {
+        $sourceid = (int) $groupids[1600 + $i];
+        $source = $DB->get_record('selfselectadvanced_group', ['id' => $sourceid], 'id, leaderid', MUST_EXIST);
+        $succ = $DB->get_record_sql(
+            "SELECT userid FROM {selfselectadvanced_member}
+              WHERE groupid = :g AND isleader = 0 AND status = 'confirmed'",
+            ['g' => $sourceid],
+            IGNORE_MULTIPLE
+        );
+        if (!$succ || !(int) $source->leaderid) {
+            throw new coding_exception('tail group ' . $sourceid . ' unusable for a leader move');
+        }
+        $rows[] = (object) [
+            'activityid' => $activity->id(), 'userid' => (int) $source->leaderid,
+            'sourcegroupid' => $sourceid, 'targetgroupid' => (int) $groupids[1060 + $i],
+            'makeleader' => 0, 'replaceleader' => 0, 'successorid' => (int) $succ->userid,
+            'status' => 'pending', 'statusinfo' => null, 'reason' => null,
+            'responsenote' => null, 'usermodified' => 2,
+            'timecreated' => $now - 600 + $i, 'timemodified' => $now,
+        ];
+    }
+    $DB->insert_records('selfselectadvanced_move', $rows);
+
+    return count($rows);
+});
+
+probe('page: moves list assembly (pre-T-15 shape, >=200 pending)', function () use ($api, $activity, $DB) {
+    // Mirrors moves.php:82-130, today's shape (validate_set over the
+    // whole set + per-row user and group loads). The 20 moves from the
+    // stage-20 probe ride along: assert >=200, never ==200.
+    // T-15 (D6-8) later pages this page and batches its labels; this
+    // probe stays exactly as written, as the historical baseline.
+    $pending = $DB->get_records('selfselectadvanced_move', [
+        'activityid' => $activity->id(), 'status' => 'pending',
+    ], 'timecreated ASC');
+    $verdicts = $api->moves()->validate_set(array_map('intval', array_keys($pending)));
+    $rows = 0;
+    foreach ($pending as $move) {
+        \core_user::get_user((int) $move->userid);
+        if ($move->sourcegroupid) {
+            groups::get($activity, (int) $move->sourcegroupid);
+        }
+        groups::get($activity, (int) $move->targetgroupid);
+        $rows++;
+    }
+    if ($rows < 200 || empty($verdicts->permove)) {
+        throw new coding_exception("moves page probe saw {$rows} rows; expected >= 200 with verdicts");
+    }
+
+    return $rows . ' rows';
+});
+
+probe('service: validate_set alone (>=200 mixed moves)', function () use ($api, $activity, $DB) {
+    $ids = array_map('intval', $DB->get_fieldset_select(
+        'selfselectadvanced_move',
+        'id',
+        "activityid = ? AND status = 'pending'",
+        [$activity->id()]
+    ));
+    $verdicts = $api->moves()->validate_set($ids);
+    $sawl3 = false;
+    $sawsucc = false;
+    foreach ($verdicts->permove as $set) {
+        $sawl3 = $sawl3 || isset($set['L3']);
+        $sawsucc = $sawsucc || isset($set['SUCC']);
+    }
+    if (count($verdicts->permove) < 200 || !$sawl3 || !$sawsucc) {
+        throw new coding_exception('validate_set probe did not exercise the mixed-flag verdicts');
+    }
+
+    return count($verdicts->permove) . ' verdict sets';
+});
+
 probe('service: handover propose + accept', function () use ($api, $activity, $DB, $groupids, $guideids) {
     $gid = (int) $groupids[(int) (count($groupids) / 3)];
     $DB->set_field('selfselectadvanced_group', 'state', 'pending_guide', ['id' => $gid]);
@@ -995,6 +1205,105 @@ probe('service: contacts - 50 approaches + remaining', function () use ($DB, $ac
 
     return $sent . ' approaches, remaining correct';
 });
+
+// ---------------------------------------------------------------------
+// T-14 probe: the EOI cron sweep against the full history the table
+// comment promises to keep. Reads stay constant with or without an
+// index - the recorded wall time and the PostgreSQL plan line are
+// the evidence T-12's (activityid, status, timecreated) index is
+// judged against. This block runs LAST on purpose: 100k history rows
+// must not inflate the earlier EOI-coupled probes.
+probe('seed: 100k EOI history + 40 stale pending (raw)', function () use ($DB, $activity, $listedids, $guideids, $now) {
+    $statuses = ['accepted', 'rejected', 'expired', 'withdrawn'];
+    $rows = [];
+    for ($i = 0; $i < 100000; $i++) {
+        $rows[] = (object) [
+            'activityid' => $activity->id(),
+            'groupid' => (int) $listedids[$i % count($listedids)],
+            'guideid' => (int) $guideids[$i % count($guideids)],
+            'status' => $statuses[$i % 4],
+            'remarks' => null, 'remarksformat' => FORMAT_HTML,
+            'timecreated' => $now - (3 * DAYSECS) - $i,
+            'timeresponded' => $now - (2 * DAYSECS) - $i,
+        ];
+        if (count($rows) === 1000) {
+            $DB->insert_records('selfselectadvanced_eoi', $rows);
+            $rows = [];
+        }
+    }
+    for ($i = 0; $i < 40; $i++) {
+        $rows[] = (object) [
+            'activityid' => $activity->id(),
+            'groupid' => (int) $listedids[($i * 11) % count($listedids)],
+            'guideid' => (int) $guideids[($i * 3) % count($guideids)],
+            'status' => 'pending', 'remarks' => null, 'remarksformat' => FORMAT_HTML,
+            'timecreated' => $now - (2 * DAYSECS) - $i, 'timeresponded' => null,
+        ];
+    }
+    $DB->insert_records('selfselectadvanced_eoi', $rows);
+
+    return '100040 rows';
+});
+
+probe('cron: eoi::expire_due over deep history', function () use ($DB, $activity) {
+    $fresh = activity::from_instance($activity->id());
+    $expired = eoi::expire_due($fresh);
+    // Only the 40 stale pendings may expire: the 2,500 seeded and the
+    // express-probe interests are all younger than the DAYSECS window.
+    if ($expired < 40) {
+        throw new coding_exception("expire_due expired {$expired}; expected >= 40");
+    }
+    $plan = '';
+    if ($DB->get_dbfamily() === 'postgres') {
+        // Rows come back keyed by the first column, and EXPLAIN has
+        // only one, so array_key_first() IS the top plan line. It has to
+        // be get_records_sql and not a recordset: the PostgreSQL driver
+        // wraps a recordset in DECLARE ... CURSOR FOR <sql>, and
+        // PostgreSQL refuses a cursor over EXPLAIN (verified: "syntax
+        // error at or near EXPLAIN"). Nor may a limit be applied - that
+        // would explain a different query. Today this reports a scan
+        // through the FK index on (activityid) alone; after T-12 adds
+        // (activityid, status, timecreated) it must name that tuple.
+        $planrows = $DB->get_records_sql(
+            'EXPLAIN SELECT * FROM {selfselectadvanced_eoi}
+              WHERE activityid = ? AND status = ? AND timecreated < ?',
+            [$activity->id(), 'pending', time() - DAYSECS]
+        );
+        $plan = ' plan: ' . trim((string) array_key_first($planrows));
+    }
+
+    return $expired . ' expired;' . $plan;
+});
+
+if (!empty($options['record'])) {
+    // Written BEFORE the summary block: that block usorts $probes into
+    // slowest-first order, and the record must keep run order so the
+    // comparator's diff reads like the run.
+    $record = new stdClass();
+    $record->meta = (object) [
+        'shortname' => $shortname,
+        'timeutc' => gmdate('Y-m-d\TH:i:s\Z'),
+        'pluginversion' => (string) get_config('mod_selfselectadvanced', 'version'),
+        'release' => scale_plugin_release(),
+        'moodle' => $CFG->release,
+        'php' => PHP_VERSION,
+        'dbfamily' => $DB->get_dbfamily(),
+        'options' => (object) $options,
+    ];
+    $record->probes = array_map(static fn($p) => (object) [
+        'label' => $p[0], 'seconds' => round($p[1], 4),
+        'reads' => $p[2], 'writes' => $p[3], 'result' => $p[4] ?? '',
+    ], $probes);
+    // Announcing a write that silently failed would be the worst kind
+    // of green check: the run would look recorded and the file would
+    // not exist. file_put_contents returns false on an unwritable
+    // target, so the run fails here instead.
+    $written = file_put_contents((string) $options['record'], json_encode($record, JSON_PRETTY_PRINT));
+    if ($written === false) {
+        cli_error('could not write the run record to ' . $options['record']);
+    }
+    cli_writeln('RECORDED ' . $options['record'] . ' (' . $written . ' bytes)');
+}
 
 cli_writeln('');
 cli_writeln('=== SUMMARY (worst first) ===');
