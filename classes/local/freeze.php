@@ -263,44 +263,7 @@ class freeze {
         global $CFG, $DB;
         require_once($CFG->dirroot . '/group/lib.php');
 
-        // Strategy 1.16 D: the conflict-of-interest rule restrains the
-        // NEW coordinate authority only. An actor who could already
-        // unfreeze before 1.16.0 - a manager, or a team's own guide
-        // holding the unfreeze capability - keeps exactly the
-        // authority they had; adding the coordinator role to a site
-        // must never quietly take authority away. A coordinator whose
-        // own team it is asks through the ticket queue instead.
-        if (has_capability('mod/selfselectadvanced:coordinate', $activity->context(), $actorid)) {
-            tickets::require_uninvolved($activity, $group, $actorid);
-        }
-
-        // A guide releasing their own team (strategy 1.19 C). They do
-        // not hold the unfreeze capability, so without this they can
-        // only ask and wait - and a team cannot be re-composed while it
-        // is frozen, which made every ordinary change staff work.
-        //
-        // The limit is the one the maintainer set: a guide releases
-        // until an editing teacher or a coordinator has enforced a
-        // freeze. After that the freeze is meant to hold, and the
-        // existing unfreeze request is the only way through.
-        // The guard restrains the NEW authority and nothing else. This
-        // service has always trusted its callers on the capability -
-        // the pages enforce it, and every existing caller relies on
-        // that. Adding a blanket requirement here took authority away
-        // from actors who had it, which is the exact mistake 1.16 and
-        // 1.17 each made once and this file records for next time.
-        //
-        // So only the new case is refused: a guide releasing a team an
-        // editing teacher or coordinator froze. That freeze is meant to
-        // hold, and the unfreeze request is the way through it.
-        if (
-            (int) $group->guideid === $actorid
-            && !empty($group->frozenbystaff)
-            && !has_capability('mod/selfselectadvanced:unfreeze', $activity->context(), $actorid)
-        ) {
-            throw new \moodle_exception('refusalreleasestafffroze', 'mod_selfselectadvanced');
-        }
-
+        $outermost = !$DB->is_transaction_started();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -308,6 +271,55 @@ class freeze {
             $fresh = groups::get($activity, (int) $group->id);
             if ($fresh->state !== state::FROZEN) {
                 throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+            }
+
+            // Both guards judge the team as it is NOW. Read before the
+            // lock, a coordinator's unfreeze/re-freeze in the window
+            // between the guide's page load and their click was
+            // invisible: frozenbystaff is written from the CURRENT
+            // actor at freeze time, so the flag legitimately flips
+            // under an open page (T-02 R3).
+            //
+            // Strategy 1.16 D: the conflict-of-interest rule restrains
+            // the NEW coordinate authority only. An actor who could
+            // already unfreeze before 1.16.0 - a manager, or a team's
+            // own guide holding the unfreeze capability - keeps exactly
+            // the authority they had; adding the coordinator role to a
+            // site must never quietly take authority away. A
+            // coordinator whose own team it is asks through the ticket
+            // queue instead.
+            if (has_capability('mod/selfselectadvanced:coordinate', $activity->context(), $actorid)) {
+                tickets::require_uninvolved($activity, $fresh, $actorid);
+            }
+
+            // A guide releasing their own team (strategy 1.19 C). They
+            // do not hold the unfreeze capability, so without this they
+            // can only ask and wait - and a team cannot be re-composed
+            // while it is frozen, which made every ordinary change
+            // staff work.
+            //
+            // The limit is the one the maintainer set: a guide releases
+            // until an editing teacher or a coordinator has enforced a
+            // freeze. After that the freeze is meant to hold, and the
+            // existing unfreeze request is the only way through.
+            // The guard restrains the NEW authority and nothing else.
+            // This service has always trusted its callers on the
+            // capability - the pages enforce it, and every existing
+            // caller relies on that. Adding a blanket requirement here
+            // took authority away from actors who had it, which is the
+            // exact mistake 1.16 and 1.17 each made once and this file
+            // records for next time.
+            //
+            // So only the new case is refused: a guide releasing a team
+            // an editing teacher or coordinator froze. That freeze is
+            // meant to hold, and the unfreeze request is the way
+            // through it.
+            if (
+                (int) $fresh->guideid === $actorid
+                && !empty($fresh->frozenbystaff)
+                && !has_capability('mod/selfselectadvanced:unfreeze', $activity->context(), $actorid)
+            ) {
+                throw new \moodle_exception('refusalreleasestafffroze', 'mod_selfselectadvanced');
             }
 
             $snapshot = self::latest_snapshot((int) $fresh->id);
@@ -384,6 +396,15 @@ class freeze {
             ])->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Every refusal above - including the two guards just moved
+            // in - throws from INSIDE the transaction, so without this
+            // a refused release left a dangling delegated transaction
+            // (T-02 R3; the refusalwrongstate path had it already).
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }

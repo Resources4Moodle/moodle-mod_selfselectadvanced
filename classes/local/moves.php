@@ -66,6 +66,9 @@ class moves {
      * @param int|null $successorid new leader for the source when moving its leader out
      * @param int $actorid the acting manager
      * @param bool $replaceleader explicit consent to demote the target group's current leader
+     * @param bool $explicitnosource the caller means the null source literally - add a membership,
+     *                               leave nothing - so no inference and no ambiguity refusal; the
+     *                               L4 cap in validate_set() is what stops it
      * @return stdClass the pending move row with validation results
      */
     public function stage(
@@ -75,17 +78,20 @@ class moves {
         bool $makeleader,
         ?int $successorid,
         int $actorid,
-        bool $replaceleader = false
+        bool $replaceleader = false,
+        bool $explicitnosource = false
     ): stdClass {
         global $DB;
 
         // Server-side ownership of every id (IDOR).
         groups::get($this->activity, $targetgroupid);
-        if ($sourcegroupid === null) {
+        if ($sourcegroupid === null && !$explicitnosource) {
             // A blank source for a student who IS confirmed somewhere
             // would silently create a second membership on commit:
             // infer the source when it is unambiguous, refuse when the
-            // manager must choose.
+            // manager must choose. A caller that MEANS the second
+            // membership says so with $explicitnosource and is judged
+            // by L4 instead.
             $memberships = $DB->get_records_sql(
                 "SELECT g.id, g.name
                    FROM {selfselectadvanced_member} m
@@ -409,17 +415,83 @@ class moves {
     }
 
     /**
+     * The ordered lock resources a commit of these moves needs: the
+     * activity lock (activity-wide L3/L4 counts and the move table)
+     * followed by every touched group, ascending id (T-02 lock order).
+     * Source and target group ids of a staged move are immutable once
+     * staged - nothing in the plugin ever updates them - so computing
+     * this from a pre-lock read is sound.
+     *
+     * Both ends are null-guarded. A placement of a groupless student
+     * has no source, and a future park has no target; without the
+     * target guard every such row would cast NULL to 0 and take a
+     * site-wide group:0 lock shared by every activity on the site.
+     *
+     * @param int $activityid the activity
+     * @param stdClass[] $moves pending move rows
+     * @return string[] lock resources in acquisition order
+     */
+    public static function lock_resources_for(int $activityid, array $moves): array {
+        $groupids = [];
+        foreach ($moves as $move) {
+            if ($move->sourcegroupid) {
+                $groupids[] = (int) $move->sourcegroupid;
+            }
+            if ($move->targetgroupid) {
+                $groupids[] = (int) $move->targetgroupid;
+            }
+        }
+        $groupids = array_unique($groupids);
+        sort($groupids, SORT_NUMERIC);
+
+        $resources = ['activity:' . $activityid];
+        foreach ($groupids as $gid) {
+            $resources[] = 'group:' . $gid;
+        }
+
+        return $resources;
+    }
+
+    /**
      * Commit a selected set atomically: all moves apply, or none.
      *
      * @param int[] $moveids the selected pending moves
      * @param int $actorid the acting manager
+     * @param bool $callerholdslocks true when the caller already holds
+     *        this set's activity and group locks (the join-accept path)
+     * @param array|null $deferrednotifications when supplied, the
+     *        engine's notifications are appended to it instead of being
+     *        sent, so the caller flushes them after ITS commit and
+     *        release
      * @return int number of committed moves
      * @throws \moodle_exception when the joint validation refuses
      */
-    public function commit_set(array $moveids, int $actorid): int {
+    public function commit_set(
+        array $moveids,
+        int $actorid,
+        bool $callerholdslocks = false,
+        ?array &$deferrednotifications = null
+    ): int {
         global $DB;
 
-        $lock = locks::acquire('activity:' . $this->activity->id());
+        // One flag, two uses: whether these notifications are ours to
+        // send, and whether reactivating parked overrides is our job. A
+        // caller that passes an array owns both, because its own
+        // transaction and locks are still open when we return.
+        $defersends = $deferrednotifications !== null;
+
+        // The activity lock alone never excluded the leader/guide
+        // paths, which serialise on group:{id} - so a manager commit
+        // could overbook L2 against invitations::send, and a freeze
+        // landing mid-commit left the plugin roster, the core group and
+        // the snapshot disagreeing (T-02 R1). Every touched group is
+        // locked too, activity first and then groups in ascending id:
+        // the one global order.
+        $outermost = !$DB->is_transaction_started();
+        $locks = $callerholdslocks
+            ? []
+            : locks::acquire_all(self::lock_resources_for($this->activity->id(), $this->load_pending($moveids)));
+        $notifications = [];
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -449,7 +521,10 @@ class moves {
             $now = time();
             $leaderchanges = [];
             foreach ($moves as $move) {
-                $leaderchanges = array_merge($leaderchanges, $this->apply($move, $actorid, $now));
+                $leaderchanges = array_merge(
+                    $leaderchanges,
+                    $this->apply($move, $actorid, $now, $notifications)
+                );
                 $DB->update_record('selfselectadvanced_move', (object) [
                     'id' => $move->id,
                     'status' => 'committed',
@@ -498,19 +573,31 @@ class moves {
             }
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Not tidying: validate_set's errmovesetinvalid throws from
+            // INSIDE this transaction with no catch anywhere in the
+            // call chain, so an invalid set used to leave a dangling
+            // delegated transaction. $outermost is what keeps this
+            // correct on the nested join-accept path, where the caller
+            // owns the transaction and must roll back itself.
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
-            $lock->release();
+            locks::release_all($locks);
         }
 
         // Post-commit: the promoted source successors (they gained a
-        // group silently before this), then the cascade signals.
+        // group silently before this), then the cascade signals, then
+        // the per-move notices - collected, in that order, so the whole
+        // set travels outside the transaction AND outside the locks.
         foreach ($leaderchanges as $change) {
             if ($change->type !== 'movesuccession') {
                 continue;
             }
             $sourcegroup = groups::get($this->activity, $change->groupid);
-            notifier::send(
-                $this->activity,
+            $notifications[] = notifier::intent(
                 'movecommitted',
                 $change->to,
                 'msgleaderpromotedsubject',
@@ -527,14 +614,14 @@ class moves {
             );
         }
         foreach ($cascaded as $moveduser => $rows) {
-            $invitations->notify_cascaded($rows, (int) $moveduser);
+            $notifications = array_merge(
+                $notifications,
+                $invitations->cascade_intents($rows, (int) $moveduser)
+            );
         }
-
-        // Post-commit notifications.
         foreach ($moves as $move) {
             $target = groups::get($this->activity, (int) $move->targetgroupid);
-            notifier::send(
-                $this->activity,
+            $notifications[] = notifier::intent(
                 'movecommitted',
                 (int) $move->userid,
                 'msgmovedsubject',
@@ -548,8 +635,24 @@ class moves {
             );
         }
 
-        // Cleared blockers activate parked overrides at once (item 19).
-        \mod_selfselectadvanced\local\override\store::recheck_pending($this->activity, $actorid);
+        if ($defersends) {
+            // Nested inside a caller's transaction
+            // (joinrequests::do_accept): the caller sends after ITS
+            // commit and lock release.
+            $deferrednotifications = array_merge($deferrednotifications, $notifications);
+        } else {
+            notifier::send_all($this->activity, $notifications);
+        }
+
+        if (!$defersends) {
+            // Outermost owner only: recheck_pending fires one
+            // override_updated event per activated row. On the nested
+            // join-accept path the caller's transaction and its
+            // activity:/group: locks are still open, so it is handed
+            // back and run there instead (cleared blockers activate
+            // parked overrides at once, item 19).
+            \mod_selfselectadvanced\local\override\store::recheck_pending($this->activity, $actorid);
+        }
 
         return count($moves);
     }
@@ -603,9 +706,11 @@ class moves {
      * @param stdClass $move the move row
      * @param int $actorid the acting manager
      * @param int $now the commit time
+     * @param array $notifications collected notifier intents, sent by
+     *        the caller after the commit and the lock release
      * @return array leadership changes performed: {groupid, from, to, type}
      */
-    private function apply(stdClass $move, int $actorid, int $now): array {
+    private function apply(stdClass $move, int $actorid, int $now, array &$notifications): array {
         global $DB;
 
         $changes = [];
@@ -701,8 +806,11 @@ class moves {
                 ];
             }
             if ($demoted && $demoted !== $userid) {
-                notifier::send(
-                    $this->activity,
+                // Collected, not sent: apply() runs inside the commit
+                // transaction under the activity and group locks, and
+                // core buffers a message to the outermost commit -
+                // which is still inside the lock (T-02 R6).
+                $notifications[] = notifier::intent(
                     'movecommitted',
                     $demoted,
                     'msgleaderreplacedsubject',

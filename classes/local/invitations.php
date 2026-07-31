@@ -454,9 +454,22 @@ class invitations {
      * @param int $userid the user whose cap triggered the cascade
      */
     public function notify_cascaded(array $cascaded, int $userid): void {
+        notifier::send_all($this->activity, $this->cascade_intents($cascaded, $userid));
+    }
+
+    /**
+     * The same cascade notifications as intents, so a caller still
+     * holding a lock (the move engine, an auto-grouping run) can defer
+     * them to after its release instead of sending under it.
+     *
+     * @param stdClass[] $cascaded rows returned by cascade_at_cap()
+     * @param int $userid the user whose cap triggered the cascade
+     * @return stdClass[] notifier::intent() records, in send order
+     */
+    public function cascade_intents(array $cascaded, int $userid): array {
+        $intents = [];
         foreach ($cascaded as $row) {
-            notifier::send(
-                $this->activity,
+            $intents[] = notifier::intent(
                 'invitationresult',
                 (int) $row->leaderid,
                 'msgcascadesubject',
@@ -466,6 +479,132 @@ class invitations {
                 format_string($row->name)
             );
         }
+
+        return $intents;
+    }
+
+    /**
+     * A member asks to leave a forming team (spec 6.3).
+     *
+     * @param stdClass $group group row (may be stale; re-read under the lock)
+     * @param int $userid the member asking
+     * @return stdClass the member row with leaverequested set
+     * @throws \moodle_exception when the gatekeeper refuses
+     */
+    public function request_leave(stdClass $group, int $userid): stdClass {
+        global $DB;
+
+        $lock = locks::acquire('group:' . $group->id);
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            // The caller's copy can be minutes old; a submit can land
+            // between the page load and the click (T-02 R2). Until this
+            // moved out of group.php it was judged on the page-loaded
+            // row and written with no lock, no transaction and no
+            // re-read at all.
+            $fresh = groups::get($this->activity, (int) $group->id);
+            $member = $DB->get_record('selfselectadvanced_member', [
+                'groupid' => $fresh->id,
+                'userid' => $userid,
+            ], '*', MUST_EXIST);
+            if ($refusal = $this->gatekeeper->can_request_leave($fresh, $member, $userid)) {
+                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            }
+
+            $now = time();
+            $member->leaverequested = $now;
+            $member->timemodified = $now;
+            $DB->update_record('selfselectadvanced_member', $member);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+        }
+
+        // Mail never travels under a lock.
+        notifier::send(
+            $this->activity,
+            'leaverequest',
+            (int) $fresh->leaderid,
+            'msgleaverequestsubject',
+            'msgleaverequestbody',
+            (object) [
+                'user' => fullname(\core_user::get_user($userid)),
+                'group' => format_string($fresh->name),
+            ],
+            $this->group_url((int) $fresh->id),
+            format_string($fresh->name)
+        );
+
+        return $member;
+    }
+
+    /**
+     * The leader confirms a member's leave request (spec 6.3, L1-gated).
+     *
+     * @param stdClass $group group row (may be stale; re-read under the lock)
+     * @param int $memberid the member row id
+     * @param int $actorid the acting leader
+     * @return stdClass the removed member row
+     * @throws \moodle_exception when the gatekeeper refuses
+     */
+    public function confirm_leave(stdClass $group, int $memberid, int $actorid): stdClass {
+        global $DB;
+
+        $lock = locks::acquire('group:' . $group->id);
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            // Judged on the team as it is NOW: a leave confirmed from a
+            // page loaded while the team was forming used to shrink a
+            // team that had already been submitted (T-02 R2).
+            $fresh = groups::get($this->activity, (int) $group->id);
+            $member = $DB->get_record('selfselectadvanced_member', [
+                'id' => $memberid,
+                'groupid' => $fresh->id,
+            ], '*', MUST_EXIST);
+            if ($refusal = $this->gatekeeper->can_confirm_leave($fresh, $member, $actorid)) {
+                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            }
+
+            $now = time();
+            $member->status = groups::STATUS_REMOVED;
+            $member->leaverequested = null;
+            $member->isleader = 0;
+            $member->timemodified = $now;
+            $DB->update_record('selfselectadvanced_member', $member);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+        }
+
+        // Mail never travels under a lock.
+        notifier::send(
+            $this->activity,
+            'leaveresult',
+            (int) $member->userid,
+            'msgleaveconfirmedsubject',
+            'msgleaveconfirmedbody',
+            (object) ['group' => format_string($fresh->name)],
+            $this->activity_url(),
+            $this->activity->name()
+        );
+
+        return $member;
     }
 
     /**

@@ -101,6 +101,7 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                     'selfselectadvanced' => 'activityid',
                     'user' => 'userid',
                     'ssagroup' => 'targetgroupid',
+                    'sourcegroup' => 'sourcegroupid',
                 ],
             ],
             'contacts' => [

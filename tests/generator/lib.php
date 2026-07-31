@@ -108,14 +108,29 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
             'successorid' => $record->successorid ?? null,
             'successortype' => $record->successortype ?? null,
             'timenominated' => isset($record->successorid) ? $now : null,
-            'timesubmitted' => $record->timesubmitted ?? null,
+            // Relative dates accepted, as for timeapproved below: a
+            // feature file needs to be able to write "-3 days" so the
+            // decision-window sweep has something overdue to find.
+            'timesubmitted' => isset($record->timesubmitted) && !is_numeric($record->timesubmitted)
+                ? strtotime((string) $record->timesubmitted)
+                : ($record->timesubmitted ?? null),
             'timeapproved' => isset($record->timeapproved) && !is_numeric($record->timeapproved)
                 ? strtotime((string) $record->timeapproved)
                 : ($record->timeapproved ?? null),
             'timefrozen' => $record->timefrozen ?? null,
+            // Whether staff enforced the freeze (strategy 1.19 C): a
+            // fixture has to be able to arrange both, because a guide
+            // may release their own freeze and not a staff one.
+            'frozenbystaff' => (int) ($record->frozenbystaff ?? 0),
             'coregroupid' => $record->coregroupid ?? null,
             'usermodified' => (int) $record->leaderid,
-            'timecreated' => $now,
+            // Settable, because "the teams you are in" is ordered by it
+            // and several teams made in the same second is a tie, which
+            // is no order at all on either supported engine. A fixture
+            // that asserts an order has to be able to arrange one.
+            'timecreated' => isset($record->timecreated) && !is_numeric($record->timecreated)
+                ? strtotime((string) $record->timecreated)
+                : ($record->timecreated ?? $now),
             'timemodified' => $now,
         ];
         $group->id = $DB->insert_record('selfselectadvanced_group', $group);
@@ -399,9 +414,9 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
     /**
      * Create a student's request to join a team (strategy 1.19 B).
      *
-     * Required: activityid, userid, targetgroupid. The source team is
-     * worked out from where the student actually is, as the service
-     * does.
+     * Required: activityid, userid, targetgroupid. Optional:
+     * sourcegroupid (the team the student offered to leave), additional
+     * (truthy for a deliberate extra membership).
      *
      * @param array|stdClass $record request fields
      * @return stdClass the move row in 'requested' status
@@ -416,19 +431,28 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
             }
         }
 
-        $source = $DB->get_field_sql(
-            "SELECT g.id
-               FROM {selfselectadvanced_group} g
-               JOIN {selfselectadvanced_member} m ON m.groupid = g.id
-              WHERE g.activityid = ? AND m.userid = ? AND m.status = ?",
-            [$record->activityid, $record->userid, \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED]
-        );
+        // A source may be given explicitly (switchid 'sourcegroup');
+        // otherwise it is inferred only when it is unambiguous, the
+        // same rule the service follows - never guessed from an
+        // unordered single-row fetch.
+        $source = isset($record->sourcegroupid) ? (int) $record->sourcegroupid : null;
+        if ($source === null && !isset($record->additional)) {
+            $held = $DB->get_records_sql(
+                "SELECT g.id
+                   FROM {selfselectadvanced_group} g
+                   JOIN {selfselectadvanced_member} m ON m.groupid = g.id
+                  WHERE g.activityid = ? AND m.userid = ? AND m.status = ?
+               ORDER BY g.timecreated ASC",
+                [$record->activityid, $record->userid, \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED]
+            );
+            $source = count($held) === 1 ? (int) reset($held)->id : null;
+        }
 
         $now = time();
         $request = (object) [
             'activityid' => (int) $record->activityid,
             'userid' => (int) $record->userid,
-            'sourcegroupid' => $source ?: null,
+            'sourcegroupid' => $source,
             'targetgroupid' => (int) $record->targetgroupid,
             'makeleader' => 0,
             'replaceleader' => 0,

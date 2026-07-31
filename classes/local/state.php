@@ -78,6 +78,7 @@ final class state {
         // jointly exceed the cap. Same resource and same ordering as
         // the EOI paths: guide lock BEFORE group lock.
         $pretarget = $preassigned ?: (int) $guideid;
+        $outermost = !$DB->is_transaction_started();
         $guidelock = $pretarget ? locks::acquire('eoiguide:' . $pretarget) : null;
         $lock = locks::acquire('group:' . $group->id);
         try {
@@ -128,6 +129,14 @@ final class state {
                 unset_user_preference($marker, (int) $markeduser);
             }
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Every refusal above throws from INSIDE the transaction,
+            // so without this a refused submit left a dangling
+            // delegated transaction (T-02 step 4.5).
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
             if ($guidelock) {
@@ -186,6 +195,7 @@ final class state {
         // Per-guide serialisation before the group lock (same resource
         // and ordering as the EOI paths), or two concurrent assigns
         // could jointly exceed the guide's cap.
+        $outermost = !$DB->is_transaction_started();
         $guidelock = locks::acquire('eoiguide:' . $guideid);
         $lock = locks::acquire('group:' . $group->id);
         try {
@@ -235,6 +245,13 @@ final class state {
                 unset_user_preference($marker, (int) $markeduser);
             }
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The state and capacity refusals above throw from INSIDE
+            // the transaction (T-02 step 4.5).
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
             $guidelock->release();
@@ -299,6 +316,7 @@ final class state {
             throw new \moodle_exception('errcommentrequired', 'mod_selfselectadvanced');
         }
 
+        $outermost = !$DB->is_transaction_started();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -336,6 +354,13 @@ final class state {
                 unset_user_preference($marker, (int) $markeduser);
             }
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The can_return() refusal throws from INSIDE the
+            // transaction (T-02 step 4.5).
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }
@@ -360,23 +385,102 @@ final class state {
      *
      * @param stdClass $group group row
      * @param int $actorid the acting guide
-     * @param bool $auto true for the window auto-approval sweep: the
-     *        guide-identity gate is skipped, the state precondition is
-     *        still enforced
      * @return stdClass the updated group row
      * @throws \moodle_exception when a gate refuses
      */
-    public function approve(stdClass $group, int $actorid, bool $auto = false): stdClass {
+    public function approve(stdClass $group, int $actorid): stdClass {
+        return $this->do_approve($group, $actorid, false);
+    }
+
+    /**
+     * T4 forced by the guide decision window (the guide_autoapprove sweep).
+     *
+     * Every gate can_approve enforces is enforced here except the
+     * assigned-guide identity check - that is what the lapsed window
+     * stands in for (gatekeeper::autoapprove_plan). Any minimum-size or
+     * quota shortfall is recorded as a group-scope override in THIS
+     * transaction, so relief and approval commit or roll back together:
+     * a relief row can never outlive an approval that failed (T-04 3d).
+     *
+     * The member grade push is deliberately NOT done here; the sweep
+     * pushes once per activity after its batch, because push_grades()
+     * republishes the whole activity on every call (T-04 3c).
+     *
+     * @param stdClass $group group row
+     * @param int $actorid the acting user, the site admin in cron
+     * @return stdClass the updated group row
+     * @throws \moodle_exception when a gate refuses
+     */
+    public function approve_auto(stdClass $group, int $actorid): stdClass {
+        return $this->do_approve($group, $actorid, true);
+    }
+
+    /**
+     * The one approval body behind approve() and approve_auto().
+     *
+     * @param stdClass $group group row
+     * @param int $actorid the acting user
+     * @param bool $auto true for the guide-window sweep
+     * @return stdClass the updated group row
+     * @throws \moodle_exception when a gate refuses
+     */
+    private function do_approve(stdClass $group, int $actorid, bool $auto): stdClass {
         global $DB;
 
-        $lock = locks::acquire('group:' . $group->id);
+        $outermost = !$DB->is_transaction_started();
+        // Ascending lock order (T-02 rank table): the override row
+        // (rank 5) BEFORE the group (rank 8), because a forced approval
+        // may have to write the group's relief row inside the group
+        // lock and locks are not re-entrant. Manual approval writes no
+        // override, so it takes the group lock alone.
+        //
+        // acquire_all() is what takes them, not two bare acquires: it
+        // releases what it already holds when a LATER acquire times
+        // out. Two bare acquires leak the override lock on that path,
+        // and a leaked handle is worse than a held resource - it leaves
+        // locks::held_count() permanently non-zero for the rest of the
+        // process, which is the question notifier::send() asks to
+        // decide whether it is inside a lock (T-02).
+        $handles = locks::acquire_all(
+            $auto
+                ? ['override:group:' . (int) $group->id, 'group:' . (int) $group->id]
+                : ['group:' . (int) $group->id]
+        );
         try {
             $transaction = $DB->start_delegated_transaction();
 
             $fresh = groups::get($this->activity, (int) $group->id);
             if ($auto) {
-                if ($fresh->state !== self::PENDING_GUIDE) {
-                    throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                // Judged HERE, on the roster as it is at commit time -
+                // not on the sweep's batch snapshot (T-04 3b).
+                $plan = $this->gatekeeper->autoapprove_plan($fresh);
+                if ($plan->refusal !== null) {
+                    throw new \moodle_exception(
+                        $plan->refusal->stringkey,
+                        'mod_selfselectadvanced',
+                        '',
+                        $plan->refusal->a
+                    );
+                }
+                if ($plan->relief !== []) {
+                    $relief = override\store::save(
+                        $this->activity,
+                        'group',
+                        (int) $fresh->id,
+                        $plan->relief,
+                        $actorid,
+                        true
+                    );
+                    if ($relief->status !== 'active') {
+                        // A pre-existing guarded reduction keeps the
+                        // merged row pending; approving on relief the
+                        // resolver cannot see would be unexplained.
+                        throw new \moodle_exception('refusalreliefpending', 'mod_selfselectadvanced');
+                    }
+                    // The resolver cached every override row of the
+                    // activity before this write; nothing downstream may
+                    // read through that stale cache.
+                    $this->gatekeeper->resolver()->invalidate();
                 }
             } else if ($refusal = $this->gatekeeper->can_approve($fresh, $actorid)) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
@@ -397,14 +501,37 @@ final class state {
             ])->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Refusals are thrown from INSIDE the transaction by design.
+            // Without this the transaction stayed open for the rest of
+            // the request: in a cron sweep every LATER approval popped
+            // its own frame without ever reaching an empty stack, so
+            // nothing after the first refusal committed and dispose()
+            // force-rolled the run back. Only the outermost owner may
+            // roll back - a nested rollback poisons the caller's
+            // transaction (tickets.php, joinrequests.php).
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
-            $lock->release();
+            // Reverse acquisition order: group (rank 8) first, then the
+            // override row (rank 5).
+            locks::release_all($handles);
         }
 
         // Spec 11: the approval writes the group's ledger row (explicit
-        // zero for on-time groups) and pushes member grades.
+        // zero for on-time groups). upsert_for_group() takes the group
+        // lock itself (T-02 R8), so it must stay outside the finally
+        // above - locks are not re-entrant. The activity-wide grade push
+        // is the caller's business on the sweep path: push_grades()
+        // republishes every confirmed member of every firm or frozen
+        // group, so the sweep does it once per activity per run instead
+        // of once per approval (T-04 3c).
         penalty\ledger::upsert_for_group($this->activity, $fresh, $this->gatekeeper->resolver());
-        penalty\ledger::push_grades($this->activity);
+        if (!$auto) {
+            penalty\ledger::push_grades($this->activity);
+        }
 
         foreach (groups::get_roster((int) $fresh->id) as $member) {
             notifier::send(

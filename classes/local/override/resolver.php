@@ -316,6 +316,21 @@ class resolver {
     }
 
     /**
+     * Drop the cached override rows.
+     *
+     * The cache is loaded once per resolver instance, which is right
+     * for a page render and wrong the moment the holder writes an
+     * override through the same request: state::approve_auto() records
+     * a team's relief inside its transaction and every later read - its
+     * own gates, the penalty ledger it hands this resolver to, the next
+     * team of the same sweep - must see it. Callers that write override
+     * rows and keep resolving MUST call this (T-04).
+     */
+    public function invalidate(): void {
+        $this->overrides = null;
+    }
+
+    /**
      * Load and index all override rows for the activity in one query.
      */
     private function load_overrides(): void {
@@ -339,7 +354,13 @@ class resolver {
             }
             $key = $row->scope . ':' . $targetid;
             if (isset($this->overrides[$key])) {
-                debugging('Duplicate override rows for ' . $key . '; latest wins', DEBUG_DEVELOPER);
+                // Pre-1.19.2 duplicates. The OLDEST row wins here
+                // because it is the row store::get() returns and the
+                // row the 1.19.2 upgrade keeps; letting the newest win
+                // here made the read path and the write path disagree
+                // on which twin was real (T-02 R5).
+                debugging('Duplicate override rows for ' . $key . '; oldest wins', DEBUG_DEVELOPER);
+                continue;
             }
             $this->overrides[$key] = $row;
         }

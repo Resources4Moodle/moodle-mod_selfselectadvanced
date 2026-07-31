@@ -829,5 +829,49 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073100, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073110) {
+        // Override rows were kept unique per (activity, scope, target)
+        // by convention in store::save() alone - a read-then-insert
+        // with neither a lock nor an index behind it - so concurrent
+        // saves created twins, after which the resolver read an
+        // arbitrary one. save()/delete() now serialise on
+        // override:{scope}:{targetid}; this merges the twins that
+        // already exist. No schema change: a unique index cannot
+        // express the invariant, because the four scopes target four
+        // NULLABLE columns and NULLs are distinct in a unique index on
+        // both PostgreSQL and MariaDB.
+        //
+        // Raw SQL only, by design: nothing here may call a plugin class
+        // that queries a plugin table (upgrade-safety rule).
+        $duplicates = $DB->get_records_sql(
+            "SELECT MIN(id) AS keepid, COUNT(id) AS dupcount, activityid, scope,
+                    COALESCE(userid, 0) AS uid, COALESCE(groupid, 0) AS gid, COALESCE(moveid, 0) AS mid
+               FROM {selfselectadvanced_override}
+           GROUP BY activityid, scope, COALESCE(userid, 0), COALESCE(groupid, 0), COALESCE(moveid, 0)
+             HAVING COUNT(id) > 1"
+        );
+        foreach ($duplicates as $dup) {
+            // The oldest row survives - the same row store::get() now
+            // returns - so the effective limits do not move under a
+            // site at upgrade time.
+            $DB->delete_records_select(
+                'selfselectadvanced_override',
+                'activityid = :activityid AND scope = :scope AND id <> :keepid
+                   AND COALESCE(userid, 0) = :uid AND COALESCE(groupid, 0) = :gid
+                   AND COALESCE(moveid, 0) = :mid',
+                [
+                    'activityid' => $dup->activityid,
+                    'scope' => $dup->scope,
+                    'keepid' => $dup->keepid,
+                    'uid' => $dup->uid,
+                    'gid' => $dup->gid,
+                    'mid' => $dup->mid,
+                ]
+            );
+        }
+
+        upgrade_mod_savepoint(true, 2026073110, 'selfselectadvanced');
+    }
+
     return true;
 }

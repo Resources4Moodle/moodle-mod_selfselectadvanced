@@ -252,71 +252,37 @@ if ($action === 'decline' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'requestleave' && data_submitted() && confirm_sesskey()) {
-    // Member files a leave request (forming only, not the leader).
-    if (
-        $group->state !== \mod_selfselectadvanced\local\state::FORMING
-        || (int) $group->leaderid === (int) $USER->id
-        || !$membership
-        || $membership->status !== \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED
-    ) {
+    // Member files a leave request (forming only, not the leader). The
+    // gate and the write both live in the service, under the group
+    // lock and on a row read inside it - a submit landing between this
+    // page load and the click used to be invisible here (T-02 R2).
+    try {
+        $api->invitations()->request_leave($group, (int) $USER->id);
         redirect(
             $baseurl,
-            get_string('refusalwrongstate', 'mod_selfselectadvanced'),
+            get_string('leaverequested', 'mod_selfselectadvanced'),
             null,
-            \core\output\notification::NOTIFY_ERROR
+            \core\output\notification::NOTIFY_SUCCESS
         );
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
-    $DB->set_field('selfselectadvanced_member', 'leaverequested', time(), ['id' => $membership->id]);
-    \mod_selfselectadvanced\local\notifier::send(
-        $activity,
-        'leaverequest',
-        (int) $group->leaderid,
-        'msgleaverequestsubject',
-        'msgleaverequestbody',
-        (object) ['user' => fullname($USER), 'group' => format_string($group->name)],
-        $baseurl,
-        format_string($group->name)
-    );
-    redirect(
-        $baseurl,
-        get_string('leaverequested', 'mod_selfselectadvanced'),
-        null,
-        \core\output\notification::NOTIFY_SUCCESS
-    );
 }
 
 if ($action === 'confirmleave' && data_submitted() && confirm_sesskey()) {
     // Leader confirms a member's leave (L1-gated, spec 6.3/4A.1).
     $memberid = required_param('m', PARAM_INT);
-    $leaving = $DB->get_record('selfselectadvanced_member', [
-        'id' => $memberid,
-        'groupid' => $group->id,
-    ], '*', MUST_EXIST);
-    if ($refusal = $api->gatekeeper()->can_confirm_leave($group, $leaving, (int) $USER->id)) {
-        redirect($baseurl, $refusal->get_message(), null, \core\output\notification::NOTIFY_ERROR);
+    try {
+        $api->invitations()->confirm_leave($group, $memberid, (int) $USER->id);
+        redirect(
+            $baseurl,
+            get_string('leaveconfirmed', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
-    $DB->update_record('selfselectadvanced_member', (object) [
-        'id' => $leaving->id,
-        'status' => \mod_selfselectadvanced\local\groups::STATUS_REMOVED,
-        'leaverequested' => null,
-        'timemodified' => time(),
-    ]);
-    \mod_selfselectadvanced\local\notifier::send(
-        $activity,
-        'leaveresult',
-        (int) $leaving->userid,
-        'msgleaveconfirmedsubject',
-        'msgleaveconfirmedbody',
-        (object) ['group' => format_string($group->name)],
-        $viewurl,
-        $activity->name()
-    );
-    redirect(
-        $baseurl,
-        get_string('leaveconfirmed', 'mod_selfselectadvanced'),
-        null,
-        \core\output\notification::NOTIFY_SUCCESS
-    );
 }
 
 if (($action === 'eoilist' || $action === 'eoiunlist') && data_submitted() && confirm_sesskey()) {

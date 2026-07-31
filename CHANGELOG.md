@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.19.2 (2026-07-31)
+
+- **Two people acting at the same moment now get one answer, not two.**
+  A manager's move can no longer overbook a team against an invitation
+  accepted in the same instant: the move engine and the team pages had
+  been taking different locks, so neither waited for the other, and both
+  could believe the last seat was theirs.
+- **A leave confirmed on a page that has gone stale is refused.** A
+  leader whose group page was open while the team was submitted could
+  still confirm a member's departure, shrinking a team already sitting
+  in the guide's queue. The team is now read at the moment of the click,
+  and the leader is told the team is no longer forming.
+- **A guide can no longer release a team a coordinator has just
+  re-frozen.** The check used to be made against the page the guide had
+  open, so a re-freeze that landed while they read it was invisible.
+- **Answering the same approach twice now refuses the second answer.** A
+  double click, or two tabs, could leave a guide assigned by the accept
+  while the approach - and the team leader's notification - said
+  declined.
+- **Two coordinators granting the same exception at once produce one
+  exception, not two.** Duplicates created before this release are
+  merged on upgrade, keeping the older of each pair, so nobody's
+  effective limits move.
+- **A large auto-grouping run no longer freezes the rest of the
+  activity.** Its notifications used to go out while the run still held
+  the activity, so every invitation, team creation and move made during
+  a big sweep waited behind the mail.
+- **A student in more than one team now says which team they would
+  leave.** Where the membership limit allows two teams or more, asking
+  to join another used to pick one of the student's current teams for
+  them - and the two databases could pick differently. The request form
+  now asks, the answer is shown to the leader deciding, and if the
+  limit has room the student can instead keep every team they are in
+  and join the new one as well. A team the student has left in the
+  meantime is refused by name at answering time rather than failing
+  with an error nobody could act on.
+- **A team whose guide is already over their team limit is no longer
+  force-approved when the decision window lapses.** It waits in the
+  queue, exactly as it would if the guide had clicked Approve
+  themselves. Reassign the team, or raise that guide's limit, and the
+  next sweep picks it up.
+- **A forced approval and the exception that explains it now stand or
+  fall together.** If the approval cannot go through, no exception is
+  left behind on the team - previously a team could be left holding a
+  relaxed minimum size or a quota waiver nobody had granted it.
+- **The nightly forced-approval sweep now works in batches and picks up
+  where it left off**, and grades are republished once per activity
+  instead of once per team. A single broken activity no longer stops
+  every other activity's sweep.
+
 ## 1.19.0 (2026-07-30)
 
 - **The guide decides where the guide is looking.** A team awaiting a

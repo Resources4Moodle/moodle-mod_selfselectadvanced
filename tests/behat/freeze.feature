@@ -39,3 +39,14 @@ Feature: Freezing firm groups into course groups
     When I press "Unfreeze"
     Then I should see "unfrozen and restored"
     And I should see "Firm"
+
+  Scenario: A guide may release a team they froze, but not one staff froze
+    Given the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name       | leader   | guide  | state  | timeapproved  | frozenbystaff |
+      | ssa1               | Team Amber | student1 | guide1 | frozen | ##yesterday## | 0             |
+      | ssa1               | Team Slate | student1 | guide1 | frozen | ##yesterday## | 1             |
+    When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
+    Then "Release" "link" should exist in the "Team Amber" "table_row"
+    And "Release" "link" should not exist in the "Team Slate" "table_row"
+    And I should see "Frozen by staff - ask through the request queue" in the "Team Slate" "table_row"

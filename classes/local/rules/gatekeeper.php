@@ -527,6 +527,74 @@ class gatekeeper {
     }
 
     /**
+     * The approval gate minus the assigned-guide identity check (T4),
+     * shared by the manual path and the guide-window sweep.
+     *
+     * The sweep may relax ONE gate: guide identity - that is what the
+     * deadline stands in for. Everything else is enforced identically,
+     * two of them relievable by a recorded group-scope override:
+     *
+     * - state precondition (S2): hard.
+     * - a guide at all: hard. A team with no guide sits in the manager
+     *   assignment queue (A5); there is no decider to stand in for.
+     * - guide load vs effective max_guided: HARD and not relievable.
+     *   Approval does not raise count_guiding() (the team already holds
+     *   its slot in pending_guide), so this can only fail for a guide
+     *   who is ALREADY over cap - and firming their queue would entrench
+     *   the violation the grandfathering rule (class docblock) forbids.
+     *   max_guided is guide-scope, so relieving it would widen the cap
+     *   for every other team that guide holds: not the sweep's to give.
+     * - minimum size and quota compliance: relievable. The deadline
+     *   forces the approval but never silently - the shortfall is
+     *   recorded as a group-scope override, in the same transaction as
+     *   the transition (state::approve_auto).
+     *
+     * @param stdClass $group group row, ALREADY re-read inside the group lock
+     * @return autoapprove_plan hard refusal, or the exact relief required
+     */
+    public function autoapprove_plan(stdClass $group): autoapprove_plan {
+        if ($group->state !== state::PENDING_GUIDE) {
+            return new autoapprove_plan(new refusal('refusalwrongstate'));
+        }
+        if (empty($group->guideid)) {
+            // Existing key, reused deliberately: on this path it is
+            // only ever rendered into the cron log, and can_approve
+            // reaches its own identity refusal before ever getting here.
+            return new autoapprove_plan(new refusal('refusalguiderequired'));
+        }
+
+        $guideid = (int) $group->guideid;
+        $max = $this->resolver->effective_maxguided($guideid);
+        $used = groups::count_guiding($this->activity, $guideid);
+        if ($used > $max->value) {
+            return new autoapprove_plan(
+                new refusal('refusalguidecap', (object) ['current' => $used, 'max' => $max->value])
+            );
+        }
+
+        $relief = [];
+        $reasons = [];
+        $minsize = $this->resolver->effective_minsize((int) $group->id);
+        $confirmed = groups::count_confirmed((int) $group->id);
+        if ($confirmed < $minsize->value) {
+            $relief['minsize'] = max(1, $confirmed);
+            $reasons['minsize'] = new refusal('refusalbelowminsize', (object) [
+                'current' => $confirmed,
+                'min' => $minsize->value,
+            ]);
+        }
+        if (
+            !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($this->activity, (int) $group->id)
+            && !$this->resolver->is_quota_exempt((int) $group->id)->enabled
+        ) {
+            $relief['quotaexempt'] = 1;
+            $reasons['quotaexempt'] = new refusal('refusalquota');
+        }
+
+        return new autoapprove_plan(null, $relief, $reasons);
+    }
+
+    /**
      * May this guide approve the group? (T4, spec 6.5.)
      *
      * State precondition: pending_guide (S2); the assigned guide only.
@@ -534,6 +602,10 @@ class gatekeeper {
      * max_guided (the group already occupies its slot, so the test is
      * load exceeding the cap), minimum size L1 and quota compliance -
      * each bypassable only through an override resolved upstream.
+     *
+     * Everything except the identity check lives in autoapprove_plan(),
+     * the one body both this method and the guide-window sweep evaluate
+     * (T-04), so the two approval authorities cannot drift apart.
      *
      * @param \stdClass $group group row
      * @param int $actorid the acting user
@@ -547,26 +619,20 @@ class gatekeeper {
             return new refusal('refusalnotassignedguide');
         }
 
-        $max = $this->resolver->effective_maxguided($actorid);
-        $used = groups::count_guiding($this->activity, $actorid);
-        if ($used > $max->value) {
-            return new refusal('refusalguidecap', (object) ['current' => $used, 'max' => $max->value]);
+        // The remaining gates ARE the auto-approval plan: one body, so
+        // the sweep and the guide's own click can never drift (T-04).
+        // The manual path grants no relief - anything the sweep would
+        // have had to record is a refusal here, in the order the plan
+        // reports it (minsize before quota, insertion-ordered).
+        $plan = $this->autoapprove_plan($group);
+        if ($plan->refusal !== null) {
+            return $plan->refusal;
         }
-
-        $minsize = $this->resolver->effective_minsize((int) $group->id);
-        $confirmed = groups::count_confirmed((int) $group->id);
-        if ($confirmed < $minsize->value) {
-            return new refusal('refusalbelowminsize', (object) [
-                'current' => $confirmed,
-                'min' => $minsize->value,
-            ]);
-        }
-
-        if (
-            !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($this->activity, (int) $group->id)
-            && !$this->resolver->is_quota_exempt((int) $group->id)->enabled
-        ) {
-            return new refusal('refusalquota');
+        // Copied out first: reset() takes its argument by reference and
+        // the plan's properties are readonly.
+        $reasons = $plan->reliefreasons;
+        if ($reasons !== []) {
+            return reset($reasons);
         }
 
         return null;
@@ -625,6 +691,32 @@ class gatekeeper {
         }
         if (empty($group->guideid) || (int) $group->guideid !== $actorid) {
             return new refusal('refusalnotassignedguide');
+        }
+
+        return null;
+    }
+
+    /**
+     * May this member ask to leave? (Spec 6.3.)
+     *
+     * State precondition: forming (S2). The leader may not ask - they
+     * nominate a successor instead - and only a confirmed member of
+     * this very team has anything to leave.
+     *
+     * @param \stdClass $group group row
+     * @param \stdClass $member the asking member's row
+     * @param int $actorid the acting user
+     * @return refusal|null null when allowed
+     */
+    public function can_request_leave(stdClass $group, stdClass $member, int $actorid): ?refusal {
+        if ($group->state !== state::FORMING) {
+            return new refusal('refusalwrongstate');
+        }
+        if ((int) $group->leaderid === $actorid) {
+            return new refusal('refusalleaveleader');
+        }
+        if ((int) $member->userid !== $actorid || $member->status !== groups::STATUS_CONFIRMED) {
+            return new refusal('refusalleavenotmember');
         }
 
         return null;

@@ -32,14 +32,25 @@ Feature: Asking to join another team, and the guide releasing a settled one
     And the following "activities" exist:
       | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership |
       | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 4       | 1       | 1             |
+      | selfselectadvanced | C1     | Dual labs  | ssa2     | 1       | 4       | 1       | 2             |
     And the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   | state   |
       | ssa1               | Team Blue | student1 | forming |
       | ssa1               | Team Gold | student2 | forming |
+    # Distinct creation times, because "the teams you are in" is listed
+    # in that order and three teams made in the same second is a tie -
+    # which is no order at all on either supported engine.
+    And the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name      | leader   | state   | timecreated          |
+      | ssa2               | Duo Red   | student1 | forming | ##2026-01-01 09:00## |
+      | ssa2               | Duo Green | student2 | forming | ##2026-01-02 09:00## |
+      | ssa2               | Duo Amber | student4 | forming | ##2026-01-03 09:00## |
     # The groups generator already gives each leader their member row.
     And the following "mod_selfselectadvanced > members" exist:
       | ssagroup  | user     | status    |
       | Team Blue | student3 | confirmed |
+      | Duo Red   | student3 | confirmed |
+      | Duo Amber | student3 | confirmed |
 
   @javascript
   Scenario: A student asks to join another team and its leader accepts
@@ -60,6 +71,66 @@ Feature: Asking to join another team, and the guide releasing a settled one
 
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
     Then I should see "You are in Team Gold at the moment."
+
+  @javascript
+  Scenario: A student in two teams must say which one they leave
+    When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student3
+    Then I should see "You are in these teams at the moment: Duo Red, Duo Amber."
+    And I should see "Team you would leave"
+    And I should not see "Keep my teams — join this one as well"
+    And I set the field "Team you want to join" to "Duo Green"
+    And I set the field "Why you are asking" to "Nearer my lab"
+    And I press "Send the request"
+    Then I should see "Choose the team you would leave, or choose to keep them all."
+    When I set the field "Team you would leave" to "Duo Amber"
+    And I press "Send the request"
+    Then I should see "Your request has gone to the team leader."
+    And I should see "Duo Amber" in the "Duo Green" "table_row"
+
+    When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student2
+    And I follow "Asked of my team"
+    Then I should see "Would leave Duo Amber."
+    When I press "Accept"
+    Then I should see "Accepted. The student has been moved and the team re-composed."
+
+    When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student3
+    Then I should see "You are in these teams at the moment: Duo Red, Duo Green."
+
+  @javascript
+  Scenario: A student below the cap keeps their team and joins another
+    When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student4
+    And I set the field "Team you want to join" to "Duo Green"
+    And I set the field "Why you are asking" to "Two projects"
+    And I set the field "Team you would leave" to "Keep my teams — join this one as well"
+    And I press "Send the request"
+    Then I should see "Your request has gone to the team leader."
+
+    When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student2
+    And I follow "Asked of my team"
+    Then I should see "Would leave no team — this would be an extra membership."
+    When I press "Accept"
+    Then I should see "Accepted. The student has been moved and the team re-composed."
+
+    When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student4
+    Then I should see "You are in these teams at the moment: Duo Green, Duo Amber."
+
+  @javascript
+  Scenario: A student in one team sees no extra question
+    # One team and no headroom: the student is TOLD which team makes
+    # way, not asked. The label is present with a fixed value; the
+    # choice - the select, its placeholder and the keep-my-teams option
+    # - is what must be absent.
+    When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
+    Then I should see "You are in Team Blue at the moment."
+    And I should see "Team you would leave"
+    And I should see "Team Blue"
+    And I should not see "Keep my teams — join this one as well"
+    And I should not see "Choose the team you would leave, or choose to keep them all."
+    When I set the field "Team you want to join" to "Team Gold"
+    And I set the field "Why you are asking" to "Closer to my programme"
+    And I press "Send the request"
+    Then I should see "Your request has gone to the team leader."
+    And I should see "Team Blue" in the "Team Gold" "table_row"
 
   @javascript
   Scenario: The source team's leader cannot answer a request made to another team

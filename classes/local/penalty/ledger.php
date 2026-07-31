@@ -18,6 +18,7 @@ namespace mod_selfselectadvanced\local\penalty;
 
 use mod_selfselectadvanced\activity;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\locks;
 use mod_selfselectadvanced\local\override\resolver;
 use mod_selfselectadvanced\local\state;
 use stdClass;
@@ -42,32 +43,57 @@ class ledger {
      * @param activity $activity the activity
      * @param stdClass $group the approved group row
      * @param resolver|null $resolver reuse a resolver, or build one
+     * @param bool $callerserialises true when the caller already holds
+     *        a lock covering this group (recompute_all's activity lock)
      * @return stdClass the ledger row
      */
-    public static function upsert_for_group(activity $activity, stdClass $group, ?resolver $resolver = null): stdClass {
+    public static function upsert_for_group(
+        activity $activity,
+        stdClass $group,
+        ?resolver $resolver = null,
+        bool $callerserialises = false
+    ): stdClass {
         global $DB;
 
         $resolver = $resolver ?? new resolver($activity);
         $penalty = calculator::compute($activity, $group, $resolver);
 
-        $row = $DB->get_record('selfselectadvanced_penalty', ['groupid' => $group->id]);
-        $oldvalue = $row ? (float) $row->penaltyvalue : null;
-        $isnew = !$row;
-        if ($isnew) {
-            $row = (object) ['activityid' => $activity->id(), 'groupid' => (int) $group->id];
-        }
-        $row->dayslate = $penalty->dayslate;
-        $row->penaltyvalue = $penalty->penaltyvalue;
-        $row->waived = $penalty->waived ? 1 : 0;
-        $row->waivereason = $penalty->waivereason;
-        $row->basis = $penalty->basis;
-        $row->timecomputed = time();
-        if ($isnew) {
-            $row->id = $DB->insert_record('selfselectadvanced_penalty', $row);
-        } else {
-            $DB->update_record('selfselectadvanced_penalty', $row);
+        // The ledger's one-row-per-group invariant is backed by a
+        // foreign-unique key (db/install.xml, fk_groupid), so a first
+        // approval racing the nightly recompute_all did not corrupt -
+        // it threw, on the approving guide's request, after the
+        // approval had already committed (T-02 R8). Serialise instead
+        // of catching: on PostgreSQL a constraint violation aborts the
+        // whole transaction, so a catch-and-retry-as-update is not
+        // available to callers who hold one. state::approve() has
+        // already released its own group lock by the time it calls us,
+        // so this is a fresh acquire, not a nesting.
+        $lock = $callerserialises ? null : locks::acquire('group:' . (int) $group->id);
+        try {
+            $row = $DB->get_record('selfselectadvanced_penalty', ['groupid' => $group->id]);
+            $oldvalue = $row ? (float) $row->penaltyvalue : null;
+            $isnew = !$row;
+            if ($isnew) {
+                $row = (object) ['activityid' => $activity->id(), 'groupid' => (int) $group->id];
+            }
+            $row->dayslate = $penalty->dayslate;
+            $row->penaltyvalue = $penalty->penaltyvalue;
+            $row->waived = $penalty->waived ? 1 : 0;
+            $row->waivereason = $penalty->waivereason;
+            $row->basis = $penalty->basis;
+            $row->timecomputed = time();
+            if ($isnew) {
+                $row->id = $DB->insert_record('selfselectadvanced_penalty', $row);
+            } else {
+                $DB->update_record('selfselectadvanced_penalty', $row);
+            }
+        } finally {
+            if ($lock) {
+                $lock->release();
+            }
         }
 
+        // The event stays OUTSIDE the lock.
         if ($oldvalue === null || abs($oldvalue - (float) $row->penaltyvalue) > 0.000001) {
             \mod_selfselectadvanced\event\penalty_recomputed::create([
                 'objectid' => $row->id,
@@ -99,9 +125,26 @@ class ledger {
             'activityid = ? AND timeapproved IS NOT NULL',
             [$activity->id()]
         );
-        foreach ($groups as $group) {
-            self::upsert_for_group($activity, $group, $resolver);
+
+        // ONE lock for the whole sweep, not one per group. This runs
+        // synchronously from selfselectadvanced_update_instance() over
+        // every approved group - ~1500 of them on the target site - so
+        // a per-group acquire would put 1500 lock round trips inside a
+        // teacher's Save and display, and locks::acquire() throws
+        // errlocktimeout after 10s with no per-group catch: one
+        // contended group would abort the sweep part-way, leaving some
+        // groups recomputed, the rest not, and push_grades() never run
+        // at all. Rank 6 with nothing else held, so the order is legal.
+        $lock = locks::acquire('activity:' . $activity->id());
+        try {
+            foreach ($groups as $group) {
+                self::upsert_for_group($activity, $group, $resolver, true);
+            }
+        } finally {
+            $lock->release();
         }
+
+        // A grade-API write, and never under the lock.
         self::push_grades($activity);
 
         return count($groups);

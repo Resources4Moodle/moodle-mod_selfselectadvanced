@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\local;
 
 use mod_selfselectadvanced\activity;
+use mod_selfselectadvanced\local\override\resolver;
 use stdClass;
 
 /**
@@ -46,20 +47,37 @@ class joinrequests {
     public const STATUS_DECLINED = 'declined';
 
     /**
+     * Sentinel source: the student deliberately keeps every team they
+     * are in and asks for the target as an ADDITIONAL membership.
+     *
+     * Not a group id and never stored: it resolves to a NULL
+     * sourcegroupid, which on a 'requested' row means exactly "add a
+     * membership, leave nothing". Zero is not used, because an unset
+     * or placeholder select posts zero through PARAM_INT and that must
+     * stay distinguishable from a deliberate choice.
+     */
+    public const SOURCE_ADDITIONAL = -1;
+
+    /**
      * Ask to join a team.
      *
      * @param activity $activity the activity
      * @param int $targetgroupid the team the student wants to join
      * @param string $reason why, from the student
      * @param int $userid the student asking
+     * @param int|null $sourcegroupid the team to leave; null to infer when unambiguous,
+     *        self::SOURCE_ADDITIONAL to keep every current team
      * @return stdClass the request row
-     * @throws \moodle_exception when a gate refuses
+     * @throws \moodle_exception when a gate refuses, when the student is in more than one
+     *         team and named none, when the named team is not theirs or is frozen, or when
+     *         an additional membership has no room under the effective cap
      */
     public static function request(
         activity $activity,
         int $targetgroupid,
         string $reason,
-        int $userid
+        int $userid,
+        ?int $sourcegroupid = null
     ): stdClass {
         global $DB;
 
@@ -69,7 +87,6 @@ class joinrequests {
         }
 
         $target = groups::get($activity, $targetgroupid);
-        $source = self::current_group($activity, $userid);
 
         // Leadership first: a leader is also a confirmed member of their
         // own team, so the general "already in it" answer would fire
@@ -77,18 +94,25 @@ class joinrequests {
         if ((int) $target->leaderid === $userid) {
             throw new \moodle_exception('refusaljoinownteam', 'mod_selfselectadvanced');
         }
-        if ($source !== null && (int) $source->id === $targetgroupid) {
-            throw new \moodle_exception('refusaljoinalready', 'mod_selfselectadvanced');
-        }
         // A frozen team cannot take anybody until it is released, and a
         // student cannot leave one either. Saying so here is kinder
         // than accepting a request that acceptance would refuse.
         if ($target->state === state::FROZEN) {
             throw new \moodle_exception('refusaljointargetfrozen', 'mod_selfselectadvanced');
         }
-        if ($source !== null && $source->state === state::FROZEN) {
-            throw new \moodle_exception('refusaljoinsourcefrozen', 'mod_selfselectadvanced');
-        }
+
+        // Read once outside the lock so an obviously impossible ask is
+        // answered without opening a transaction, and once more INSIDE
+        // it below - the authoritative read (house rule A7). Both reads
+        // are one indexed query bounded by the membership cap.
+        $source = self::resolve_source(
+            $activity,
+            groups::get_groups_of_user($activity, $userid),
+            $targetgroupid,
+            $userid,
+            $sourcegroupid
+        );
+
         // Serialised on the asker, so two clicks - or two tabs - cannot
         // both pass the duplicate check and insert (audit HIGH-TX-002).
         // The lock is on the person, because that is what the rule is
@@ -111,6 +135,18 @@ class joinrequests {
             if ($live) {
                 throw new \moodle_exception('refusaljoinduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
             }
+
+            // The choice is re-judged on the roster as it is NOW: the
+            // form was rendered minutes ago and the student may have
+            // left, or joined, a team since. This read is the one that
+            // decides what gets stored.
+            $source = self::resolve_source(
+                $activity,
+                groups::get_groups_of_user($activity, $userid),
+                $targetgroupid,
+                $userid,
+                $sourcegroupid
+            );
 
             $now = time();
             $request = (object) [
@@ -159,6 +195,103 @@ class joinrequests {
     }
 
     /**
+     * Which team the student leaves, decided rather than guessed.
+     *
+     * Multi-membership is a supported configuration (L4,
+     * mod_form.php maxmembership), so "the team a student is in" is a
+     * SET. This turns the student's stated intent into exactly one of:
+     * a group row they are confirmed in, or null for a deliberate
+     * additional membership. It never picks for them.
+     *
+     * @param activity $activity the activity
+     * @param stdClass[] $currents confirmed group rows, keyed by group id (timecreated ASC)
+     * @param int $targetgroupid the team being asked for
+     * @param int $userid the asker
+     * @param int|null $sourcegroupid the stated choice: a group id, self::SOURCE_ADDITIONAL, or null
+     * @return stdClass|null the group row to leave, or null for an additional membership
+     * @throws \moodle_exception when the choice is missing, not theirs, frozen or over cap
+     */
+    private static function resolve_source(
+        activity $activity,
+        array $currents,
+        int $targetgroupid,
+        int $userid,
+        ?int $sourcegroupid
+    ): ?stdClass {
+        // Judged across EVERY confirmed membership, not one arbitrary
+        // row: a student confirmed in the target has nothing to ask
+        // for, whichever of their teams the database happens to list
+        // first.
+        if (isset($currents[$targetgroupid])) {
+            throw new \moodle_exception('refusaljoinalready', 'mod_selfselectadvanced');
+        }
+
+        if ($sourcegroupid === self::SOURCE_ADDITIONAL) {
+            self::require_headroom($activity, $currents, $userid);
+
+            return null;
+        }
+
+        if ($sourcegroupid === null) {
+            if (count($currents) > 1) {
+                // The same rigour the manager flow already gets from
+                // moves::stage() (refusalmovesourcerequired): name the
+                // teams and refuse to choose for them.
+                throw new \moodle_exception(
+                    'refusaljoinsourcerequired',
+                    'mod_selfselectadvanced',
+                    '',
+                    implode(', ', array_map(
+                        static fn(stdClass $group): string => format_string($group->name),
+                        $currents
+                    ))
+                );
+            }
+            if (!$currents) {
+                self::require_headroom($activity, $currents, $userid);
+
+                return null;
+            }
+            $source = reset($currents);
+        } else {
+            // Server-side ownership of the posted id (IDOR): a source
+            // is only ever a team this student is confirmed in.
+            if (!isset($currents[$sourcegroupid])) {
+                throw new \moodle_exception('refusaljoinsourcenotyours', 'mod_selfselectadvanced');
+            }
+            $source = $currents[$sourcegroupid];
+        }
+
+        // A frozen team cannot let anybody go until it is released -
+        // judged on the SELECTED team, not on whichever one came back
+        // first. Saying so here is kinder than accepting a request
+        // that acceptance would refuse.
+        if ($source->state === state::FROZEN) {
+            throw new \moodle_exception('refusaljoinsourcefrozen', 'mod_selfselectadvanced');
+        }
+
+        return $source;
+    }
+
+    /**
+     * Refuse an additional membership the student's cap has no room for.
+     *
+     * @param activity $activity the activity
+     * @param stdClass[] $currents confirmed group rows
+     * @param int $userid the asker
+     * @throws \moodle_exception when the cap is already reached
+     */
+    private static function require_headroom(activity $activity, array $currents, int $userid): void {
+        $cap = (new resolver($activity))->effective_maxmembership($userid)->value;
+        if (count($currents) >= $cap) {
+            throw new \moodle_exception('refusaljoinnoheadroom', 'mod_selfselectadvanced', '', (object) [
+                'current' => count($currents),
+                'max' => $cap,
+            ]);
+        }
+    }
+
+    /**
      * Accept or decline a request.
      *
      * Accepting runs the move engine: the same validation, the same
@@ -192,6 +325,7 @@ class joinrequests {
         // The lock is taken on the request, never on a group. The move
         // engine takes the activity lock itself, so the order is always
         // joinrequest -> activity and cannot deadlock against it.
+        $deferred = [];
         $lock = locks::acquire('joinrequest:' . $requestid);
         try {
             $request = self::get($activity, $requestid);
@@ -202,11 +336,17 @@ class joinrequests {
             self::require_decider($activity, $target, $actorid);
 
             $fresh = $accept
-                ? self::do_accept($activity, $request, $target, $note, $actorid)
+                ? self::do_accept($activity, $request, $target, $note, $actorid, $deferred)
                 : self::do_decline($activity, $request, $note, $actorid);
         } finally {
             $lock->release();
         }
+
+        // Mail never travels under a lock - not even the per-request
+        // one. The move engine's own messages, deferred by commit_set()
+        // through do_accept() because it ran under activity:/group: AND
+        // inside this joinrequest:{id} lock (T-02 R6).
+        notifier::send_all($activity, $deferred);
 
         // Mail never travels under a lock (the 1.15 lesson).
         self::notify(
@@ -276,6 +416,8 @@ class joinrequests {
      * @param stdClass $target the target team
      * @param string $note what the decider said
      * @param int $actorid who decided
+     * @param array $deferred collects the move engine's notifications,
+     *        flushed by respond() after ITS lock release
      * @return stdClass the decided request
      * @throws \moodle_exception when the composition rules refuse it
      */
@@ -284,24 +426,61 @@ class joinrequests {
         stdClass $request,
         stdClass $target,
         string $note,
-        int $actorid
+        int $actorid,
+        array &$deferred
     ): stdClass {
         global $DB;
 
-        // A settled team has to be released by its guide first
-        // (strategy 1.19 B step 3).
-        if ($target->state === state::FROZEN) {
-            throw new \moodle_exception('refusaljointargetfrozen', 'mod_selfselectadvanced');
-        }
-        $source = $request->sourcegroupid ? groups::get($activity, (int) $request->sourcegroupid) : null;
-        if ($source !== null && $source->state === state::FROZEN) {
-            throw new \moodle_exception('refusaljoinsourcefrozen', 'mod_selfselectadvanced');
-        }
-
         $moves = (new api($activity))->moves();
+
+        // The move engine's own locks, taken HERE so they cover the
+        // outer transaction too: commit_set releases at its finally,
+        // which on this path is still inside our transaction, and a
+        // writer slipping into that window sees uncommitted state
+        // (T-02 R1c/R6).
+        $sourceid = $request->sourcegroupid ? (int) $request->sourcegroupid : null;
+        $resources = ['activity:' . $activity->id()];
+        foreach (array_unique(array_filter([$sourceid, (int) $target->id])) as $gid) {
+            $resources[] = 'group:' . $gid;
+        }
+        $locks = locks::acquire_all($resources);
         $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
+
+            // A settled team has to be released by its guide first
+            // (strategy 1.19 B step 3) - judged on rows read INSIDE the
+            // locks, or a freeze landing between the page load and here
+            // is invisible.
+            $target = groups::get($activity, (int) $target->id);
+            if ($target->state === state::FROZEN) {
+                throw new \moodle_exception('refusaljointargetfrozen', 'mod_selfselectadvanced');
+            }
+            $source = $sourceid ? groups::get($activity, $sourceid) : null;
+            if ($source !== null && $source->state === state::FROZEN) {
+                throw new \moodle_exception('refusaljoinsourcefrozen', 'mod_selfselectadvanced');
+            }
+            // The student chose this team at ask time; the roster may have
+            // moved since. Removing somebody from a team they already left
+            // is not a move the engine can make - stage() would raise
+            // errmovenotmember, an engine error the leader cannot read or
+            // act on. Refuse in the workflow's own vocabulary instead, and
+            // leave the request OPEN so the leader can decline it with a
+            // note and the student can withdraw and re-file (the same
+            // contract refusaljoinrules already has).
+            $stillthere = $source === null || $DB->record_exists('selfselectadvanced_member', [
+                'groupid' => (int) $source->id,
+                'userid' => (int) $request->userid,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+            if (!$stillthere) {
+                throw new \moodle_exception(
+                    'refusaljoinsourcegone',
+                    'mod_selfselectadvanced',
+                    '',
+                    format_string($source->name)
+                );
+            }
 
             $staged = $moves->stage(
                 (int) $request->userid,
@@ -309,7 +488,9 @@ class joinrequests {
                 (int) $target->id,
                 false,
                 null,
-                $actorid
+                $actorid,
+                false,
+                $source === null
             );
             $verdicts = $moves->validate_set([(int) $staged->id]);
             if (empty($verdicts->valid)) {
@@ -322,7 +503,7 @@ class joinrequests {
                     self::first_reason($verdicts, (int) $staged->id)
                 );
             }
-            $moves->commit_set([(int) $staged->id], $actorid);
+            $moves->commit_set([(int) $staged->id], $actorid, true, $deferred);
 
             $DB->update_record('selfselectadvanced_move', (object) [
                 'id' => $request->id,
@@ -341,7 +522,17 @@ class joinrequests {
             $transaction->allow_commit();
         } catch (\Throwable $e) {
             self::rollback($transaction ?? null, $outermost, $e);
+        } finally {
+            locks::release_all($locks);
         }
+
+        // Outside our transaction and outside the activity/group locks,
+        // but still inside respond()'s joinrequest:{id} lock - so DB
+        // work and events only. No message: $deferred is handed back to
+        // respond(), which flushes it after ITS release. Cleared
+        // blockers activate parked overrides at once (item 19); on the
+        // outermost path commit_set() does this itself.
+        \mod_selfselectadvanced\local\override\store::recheck_pending($activity, $actorid);
 
         return self::get($activity, (int) $request->id);
     }
@@ -495,28 +686,21 @@ class joinrequests {
     }
 
     /**
-     * The team a student is confirmed in, if any.
+     * The teams a student is confirmed in, oldest first.
+     *
+     * Plural, deliberately: multi-membership is a supported
+     * configuration (L4), so a single-row fetch over this relation
+     * returns an arbitrary row from an unordered result and the two
+     * supported databases may disagree about which. The ordered,
+     * plural query already existed - this is the join workflow finally
+     * using it.
      *
      * @param activity $activity the activity
      * @param int $userid the student
-     * @return stdClass|null the group row, or null when unassigned
+     * @return stdClass[] group rows keyed by group id, timecreated ASC
      */
-    public static function current_group(activity $activity, int $userid): ?stdClass {
-        global $DB;
-
-        $row = $DB->get_record_sql(
-            "SELECT g.*
-               FROM {selfselectadvanced_group} g
-               JOIN {selfselectadvanced_member} m ON m.groupid = g.id
-              WHERE g.activityid = :activityid AND m.userid = :userid AND m.status = :confirmed",
-            [
-                'activityid' => $activity->id(),
-                'userid' => $userid,
-                'confirmed' => groups::STATUS_CONFIRMED,
-            ]
-        );
-
-        return $row ?: null;
+    public static function current_groups(activity $activity, int $userid): array {
+        return groups::get_groups_of_user($activity, $userid);
     }
 
     /**

@@ -534,6 +534,52 @@ final class moves_test extends \advanced_testcase {
     }
 
     /**
+     * A caller that MEANS the null source - "add a membership, leave
+     * nothing" - says so, and then L4 is what judges it. Inference and
+     * the ambiguity refusal are unchanged for every caller that does
+     * not, which is the guarantee moveedit.php relies on.
+     */
+    public function test_an_explicit_null_source_stages_an_extra_membership(): void {
+        $this->resetAfterTest();
+
+        [$activity, $api, $students, $a, $b] = $this->setup_two_groups([
+            'maxsize' => 3, 'maxmembership' => 2,
+        ]);
+        $member = (int) $students[1]->id;
+
+        // Explicit: no inference, and the cap has room for the second
+        // membership, so the set validates.
+        $extra = $api->moves()->stage($member, null, (int) $b->id, false, null, 99, false, true);
+        $this->assertNull($extra->sourcegroupid);
+        $this->assertTrue((bool) $api->moves()->validate_set([(int) $extra->id])->valid);
+
+        // Defaults unchanged: one membership is still inferred.
+        $inferred = $api->moves()->stage($member, null, (int) $b->id, false, null, 99);
+        $this->assertEquals((int) $a->id, (int) $inferred->sourcegroupid);
+
+        // Defaults unchanged: two memberships still refuse to be guessed.
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $c = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[4]->id,
+            'name' => 'C',
+            'state' => state::FORMING,
+        ]);
+        $plugingen->create_member([
+            'groupid' => $c->id,
+            'userid' => $member,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        try {
+            $api->moves()->stage($member, null, (int) $b->id, false, null, 99);
+            $this->fail('Expected source-required refusal');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalmovesourcerequired', $e->errorcode);
+        }
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
      * Two groups of two under a seat plan wanting one Computer member,
      * plus a groupless fifth student.
      *

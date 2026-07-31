@@ -20,6 +20,7 @@ use mod_selfselectadvanced\local\coordinatorrole;
 use mod_selfselectadvanced\local\freeze;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\joinrequests;
+use mod_selfselectadvanced\local\locks;
 use mod_selfselectadvanced\local\state;
 
 /**
@@ -101,6 +102,41 @@ final class joinrequests_test extends \advanced_testcase {
     }
 
     /**
+     * A world where two teams each are legal: the wanderer is
+     * confirmed in Alpha AND in Gamma, and Beta is what they ask for.
+     *
+     * @param int $cap the activity's maxmembership
+     * @return array [activity, alpha, beta, gamma, wanderer, guide, coordinator, manager]
+     */
+    private function setup_multi_world(int $cap = 2): array {
+        global $DB;
+
+        [$activity, $alpha, $beta, $wanderer, $guide, $coordinator, $manager, $course]
+            = $this->setup_world(['maxmembership' => $cap]);
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $gammalead = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($gammalead->id, $course->id, 'student');
+        $gamma = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $gammalead->id,
+            'name' => 'Gamma',
+        ]);
+        $plugingen->create_member([
+            'groupid' => $gamma->id,
+            'userid' => (int) $wanderer->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        // The three teams are made in the same second, and
+        // "timecreated ASC" over a tie is no order at all. Back-dating
+        // Alpha pins the sequence the ordering assertions rely on
+        // without weakening them.
+        $DB->set_field('selfselectadvanced_group', 'timecreated', time() - 5, ['id' => $alpha->id]);
+
+        return [$activity, $alpha, $beta, groups::get($activity, (int) $gamma->id),
+            $wanderer, $guide, $coordinator, $manager];
+    }
+
+    /**
      * Expect one refusal string key from a callable.
      *
      * @param string $stringkey the expected errorcode
@@ -130,9 +166,8 @@ final class joinrequests_test extends \advanced_testcase {
 
         joinrequests::respond($activity, (int) $request->id, true, 'Glad to have you', (int) $beta->leaderid);
 
-        $now = joinrequests::current_group($activity, (int) $wanderer->id);
-        $this->assertNotNull($now);
-        $this->assertSame((int) $beta->id, (int) $now->id);
+        $now = joinrequests::current_groups($activity, (int) $wanderer->id);
+        $this->assertSame([(int) $beta->id], array_map('intval', array_keys($now)));
         $sink->close();
     }
 
@@ -176,7 +211,10 @@ final class joinrequests_test extends \advanced_testcase {
         $request = joinrequests::request($activity, (int) $beta->id, 'Please', (int) $wanderer->id);
         joinrequests::respond($activity, (int) $request->id, true, 'Approved centrally', (int) $coordinator->id);
 
-        $this->assertSame((int) $beta->id, (int) joinrequests::current_group($activity, (int) $wanderer->id)->id);
+        $this->assertSame(
+            [(int) $beta->id],
+            array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $wanderer->id)))
+        );
         $sink->close();
     }
 
@@ -270,7 +308,10 @@ final class joinrequests_test extends \advanced_testcase {
         freeze::unfreeze($activity, groups::get($activity, (int) $beta->id), (int) $guide->id);
         $request = joinrequests::request($activity, (int) $beta->id, 'Please', (int) $wanderer->id);
         joinrequests::respond($activity, (int) $request->id, true, '', (int) $beta->leaderid);
-        $this->assertSame((int) $beta->id, (int) joinrequests::current_group($activity, (int) $wanderer->id)->id);
+        $this->assertSame(
+            [(int) $beta->id],
+            array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $wanderer->id)))
+        );
         $sink->close();
     }
 
@@ -401,9 +442,436 @@ final class joinrequests_test extends \advanced_testcase {
 
         $this->assertSame('committed', $decided->status);
         $this->assertSame(
-            (int) $beta->id,
-            (int) joinrequests::current_group($activity, (int) $wanderer->id)->id
+            [(int) $beta->id],
+            array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $wanderer->id)))
         );
         $sink->close();
+    }
+
+    /**
+     * Multi-membership is supported, so "the team a student is in" is a
+     * set: a student in two teams is asked which one they would leave,
+     * and refused - by name - rather than chosen for.
+     */
+    public function test_a_two_team_student_must_say_which_team_they_leave(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, , $beta, , $wanderer] = $this->setup_multi_world();
+
+        $this->assert_refused('refusaljoinsourcerequired', fn() => joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'Please',
+            (int) $wanderer->id
+        ));
+
+        // The refusal names both teams, so the student can act on it.
+        try {
+            joinrequests::request($activity, (int) $beta->id, 'Please', (int) $wanderer->id);
+            $this->fail('Expected refusal refusaljoinsourcerequired');
+        } catch (\moodle_exception $e) {
+            $this->assertStringContainsString('Alpha', (string) $e->a);
+            $this->assertStringContainsString('Gamma', (string) $e->a);
+        }
+
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_move', ['activityid' => $activity->id()]));
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * The team the student named is the team that is recorded, and the
+     * team that is left - the other membership is untouched.
+     */
+    public function test_the_chosen_source_is_the_one_recorded_and_the_one_left(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $alpha, $beta, $gamma, $wanderer] = $this->setup_multi_world();
+
+        $request = joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'Nearer my lab',
+            (int) $wanderer->id,
+            (int) $gamma->id
+        );
+        $this->assertSame((int) $gamma->id, (int) $request->sourcegroupid);
+
+        joinrequests::respond($activity, (int) $request->id, true, 'Welcome', (int) $beta->leaderid);
+
+        $status = fn(int $groupid): string => (string) $DB->get_field(
+            'selfselectadvanced_member',
+            'status',
+            ['groupid' => $groupid, 'userid' => (int) $wanderer->id]
+        );
+        $this->assertSame(groups::STATUS_CONFIRMED, $status((int) $alpha->id));
+        $this->assertSame(groups::STATUS_REMOVED, $status((int) $gamma->id));
+        $this->assertSame(groups::STATUS_CONFIRMED, $status((int) $beta->id));
+
+        $this->assertSame(
+            [(int) $alpha->id, (int) $beta->id],
+            array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $wanderer->id)))
+        );
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * "Already in that team" is judged across every membership, not
+     * against whichever row an unordered fetch returned first - and it
+     * is judged BEFORE the source question, so a student in the target
+     * is told the useful thing.
+     */
+    public function test_a_member_of_the_target_is_refused_whichever_row_comes_back_first(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $alpha, $beta, $wanderer] = $this->setup_world(['maxmembership' => 2]);
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $plugingen->create_member([
+            'groupid' => $beta->id,
+            'userid' => (int) $wanderer->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+
+        // No source stated: already-in-target must beat source-required.
+        $this->assert_refused('refusaljoinalready', fn() => joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'x',
+            (int) $wanderer->id
+        ));
+        // And with a source stated, the same answer.
+        $this->assert_refused('refusaljoinalready', fn() => joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'x',
+            (int) $wanderer->id,
+            (int) $alpha->id
+        ));
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * The frozen-source refusal follows the team the student SELECTED,
+     * not whichever of their teams came back first.
+     */
+    public function test_the_frozen_refusal_follows_the_selected_source(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $alpha, $beta, $gamma, $wanderer, $guide] = $this->setup_multi_world();
+
+        $DB->set_field('selfselectadvanced_group', 'state', state::FIRM, ['id' => $gamma->id]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', $guide->id, ['id' => $gamma->id]);
+        $DB->set_field('selfselectadvanced_group', 'timeapproved', time(), ['id' => $gamma->id]);
+        freeze::freeze_group($activity, groups::get($activity, (int) $gamma->id), (int) $guide->id);
+
+        $this->assert_refused('refusaljoinsourcefrozen', fn() => joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'x',
+            (int) $wanderer->id,
+            (int) $gamma->id
+        ));
+
+        $request = joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'x',
+            (int) $wanderer->id,
+            (int) $alpha->id
+        );
+        $this->assertSame((int) $alpha->id, (int) $request->sourcegroupid);
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * "Keep every team and add this one" is a choice the student can
+     * state, and it survives acceptance: nothing is removed.
+     */
+    public function test_an_extra_membership_is_a_choice_the_student_can_make(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $alpha, $beta, $wanderer] = $this->setup_world(['maxmembership' => 2]);
+
+        $request = joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'Both, please',
+            (int) $wanderer->id,
+            joinrequests::SOURCE_ADDITIONAL
+        );
+        $this->assertNull($request->sourcegroupid);
+
+        joinrequests::respond($activity, (int) $request->id, true, 'ok', (int) $beta->leaderid);
+
+        $status = fn(int $groupid): string => (string) $DB->get_field(
+            'selfselectadvanced_member',
+            'status',
+            ['groupid' => $groupid, 'userid' => (int) $wanderer->id]
+        );
+        $this->assertSame(groups::STATUS_CONFIRMED, $status((int) $alpha->id));
+        $this->assertSame(groups::STATUS_CONFIRMED, $status((int) $beta->id));
+        $this->assertSame(2, groups::count_memberships($activity, (int) $wanderer->id));
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * An extra membership the cap has no room for is refused when it is
+     * asked for, naming the numbers.
+     */
+    public function test_an_extra_membership_at_the_cap_is_refused_when_asked(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, , $beta, $wanderer] = $this->setup_world();
+
+        try {
+            joinrequests::request(
+                $activity,
+                (int) $beta->id,
+                'x',
+                (int) $wanderer->id,
+                joinrequests::SOURCE_ADDITIONAL
+            );
+            $this->fail('Expected refusal refusaljoinnoheadroom');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusaljoinnoheadroom', $e->errorcode);
+            $this->assertSame(1, (int) $e->a->current);
+            $this->assertSame(1, (int) $e->a->max);
+        }
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * The dead end of finding 2d, dissolved: a request carrying a
+     * deliberate NULL source whose author has since filled their cap is
+     * judged by the composition rules - a refusal the leader can act on
+     * - and never silently swapped for a membership the student did not
+     * offer.
+     */
+    public function test_an_extra_membership_over_cap_is_refused_at_acceptance_not_silently_swapped(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $alpha, $beta, $wanderer, , , , $course] = $this->setup_world(['maxmembership' => 2]);
+
+        $request = joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'Both, please',
+            (int) $wanderer->id,
+            joinrequests::SOURCE_ADDITIONAL
+        );
+        $this->assertNull($request->sourcegroupid);
+
+        // MEANWHILE: the student fills their cap elsewhere.
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $gammalead = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($gammalead->id, $course->id, 'student');
+        $gamma = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $gammalead->id,
+            'name' => 'Gamma',
+        ]);
+        $plugingen->create_member([
+            'groupid' => $gamma->id,
+            'userid' => (int) $wanderer->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+
+        $this->assert_refused('refusaljoinrules', fn() => joinrequests::respond(
+            $activity,
+            (int) $request->id,
+            true,
+            '',
+            (int) $beta->leaderid
+        ));
+
+        $this->assertSame(
+            joinrequests::STATUS_REQUESTED,
+            joinrequests::get($activity, (int) $request->id)->status
+        );
+        $this->assertFalse($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => (int) $beta->id,
+            'userid' => (int) $wanderer->id,
+        ]));
+        $status = fn(int $groupid): string => (string) $DB->get_field(
+            'selfselectadvanced_member',
+            'status',
+            ['groupid' => $groupid, 'userid' => (int) $wanderer->id]
+        );
+        $this->assertSame(groups::STATUS_CONFIRMED, $status((int) $alpha->id));
+        $this->assertSame(groups::STATUS_CONFIRMED, $status((int) $gamma->id));
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * The concrete interleaving: ask naming Gamma, leave Gamma, then
+     * answer. The engine error the leader could not read becomes a
+     * refusal in the workflow's own words, and the request stays open.
+     */
+    public function test_a_source_left_between_asking_and_answering_is_refused_readably(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $alpha, $beta, $gamma, $wanderer] = $this->setup_multi_world();
+
+        // 1. ASK.
+        $request = joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'x',
+            (int) $wanderer->id,
+            (int) $gamma->id
+        );
+
+        // 2. MEANWHILE: the student leaves the team they offered.
+        $DB->set_field(
+            'selfselectadvanced_member',
+            'status',
+            groups::STATUS_REMOVED,
+            ['groupid' => (int) $gamma->id, 'userid' => (int) $wanderer->id]
+        );
+
+        // 3. ANSWER.
+        $this->assert_refused('refusaljoinsourcegone', fn() => joinrequests::respond(
+            $activity,
+            (int) $request->id,
+            true,
+            '',
+            (int) $beta->leaderid
+        ));
+
+        $this->assertSame(
+            joinrequests::STATUS_REQUESTED,
+            joinrequests::get($activity, (int) $request->id)->status
+        );
+        $this->assertFalse($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => (int) $beta->id,
+            'userid' => (int) $wanderer->id,
+        ]));
+
+        // The student can act on it: withdraw, then re-file correctly.
+        joinrequests::withdraw($activity, (int) $request->id, (int) $wanderer->id);
+        $corrected = joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'Alpha this time',
+            (int) $wanderer->id,
+            (int) $alpha->id
+        );
+        $this->assertSame((int) $alpha->id, (int) $corrected->sourcegroupid);
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * The plural lookup lists every team in a defined order and warns
+     * about nothing - the single-row fetch it replaced did neither.
+     */
+    public function test_current_groups_lists_every_team_in_order_without_a_warning(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $alpha, , $gamma, $wanderer] = $this->setup_multi_world();
+
+        $all = joinrequests::current_groups($activity, (int) $wanderer->id);
+        $this->assertCount(2, $all);
+        $this->assertSame([(int) $alpha->id, (int) $gamma->id], array_map('intval', array_keys($all)));
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * A stated source is only ever a team this student is confirmed in.
+     *
+     * The picker offers their own teams and nothing else, so an id
+     * naming somebody else's is a forged post rather than a mistake -
+     * and the SERVER is what refuses it, not the form. Nothing is
+     * recorded.
+     */
+    public function test_a_source_that_is_not_theirs_is_refused_by_the_server(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, , $beta, $wanderer, , , , $course] = $this->setup_world(['maxmembership' => 2]);
+
+        // A team the wanderer has nothing to do with.
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $strangerlead = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($strangerlead->id, $course->id, 'student');
+        $stranger = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $strangerlead->id,
+            'name' => 'Delta',
+        ]);
+
+        $this->assert_refused('refusaljoinsourcenotyours', fn() => joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'x',
+            (int) $wanderer->id,
+            (int) $stranger->id
+        ));
+
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_move', ['activityid' => $activity->id()]));
+        $sink->close();
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * The roster read INSIDE the lock is the one that decides.
+     *
+     * The concrete interleaving, driven through locks::set_test_hook():
+     * the form was rendered while the student was still in Gamma, and
+     * they leave Gamma in the exact window between this request's
+     * pre-lock read and its lock. Storing the pre-lock answer would
+     * record a source they are no longer in - the stale datum finding
+     * 2b is about - so the second read has to be the authoritative one.
+     */
+    public function test_the_source_is_decided_by_the_read_inside_the_lock(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, , $beta, $gamma, $wanderer] = $this->setup_multi_world();
+
+        $fired = false;
+        locks::set_test_hook(function (string $resource) use (&$fired, $DB, $gamma, $wanderer): void {
+            if ($resource !== 'joinrequest:user:' . (int) $wanderer->id || $fired) {
+                return;
+            }
+            $fired = true;
+            locks::set_test_hook(null);
+            // The racing writer: the student leaves the team they named
+            // while this request is on its way to the lock.
+            $DB->set_field('selfselectadvanced_member', 'status', groups::STATUS_REMOVED, [
+                'groupid' => (int) $gamma->id,
+                'userid' => (int) $wanderer->id,
+            ]);
+        });
+
+        try {
+            $this->assert_refused('refusaljoinsourcenotyours', fn() => joinrequests::request(
+                $activity,
+                (int) $beta->id,
+                'Nearer my lab',
+                (int) $wanderer->id,
+                (int) $gamma->id
+            ));
+        } finally {
+            locks::set_test_hook(null);
+        }
+
+        $this->assertTrue($fired);
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_move', ['activityid' => $activity->id()]));
+        $sink->close();
+        $this->assertDebuggingNotCalled();
     }
 }

@@ -176,6 +176,8 @@ class contacts {
     ): stdClass {
         global $DB;
 
+        // Fast path only; the authoritative check is inside the locks
+        // below.
         $contact = self::get($activity, $contactid);
         if ((int) $contact->guideid !== $userid) {
             throw new \moodle_exception('refusalcontactnotyours', 'mod_selfselectadvanced');
@@ -199,6 +201,20 @@ class contacts {
             $transaction = $DB->start_delegated_transaction();
 
             $group = groups::get($activity, (int) $contact->groupid);
+
+            // The contact row itself, re-read under the locks. Modelled
+            // on eoi::respond, which contacts skipped: without it an
+            // accept-then-decline (a double click, two tabs) left the
+            // guide assigned by the accept while the row - and the
+            // leader's notification - said declined (T-02 R4).
+            $contact = self::get($activity, $contactid);
+            if ((int) $contact->guideid !== $userid) {
+                throw new \moodle_exception('refusalcontactnotyours', 'mod_selfselectadvanced');
+            }
+            if ($contact->status !== self::STATUS_SENT) {
+                throw new \moodle_exception('refusalcontactanswered', 'mod_selfselectadvanced');
+            }
+
             if ($accept) {
                 if ($group->state !== state::FORMING || !empty($group->guideid)) {
                     throw new \moodle_exception('refusalcontacthasguide', 'mod_selfselectadvanced');

@@ -10,17 +10,19 @@ Feature: Guide review of submitted groups
       | student1 | Sam       | One      | student1@example.com |
       | student2 | Tara      | Two      | student2@example.com |
       | guide1   | Gina      | Guide    | guide1@example.com   |
+      | teacher1 | Tess      | Teacher  | teacher1@example.com |
     And the following "courses" exist:
       | fullname | shortname |
       | Course 1 | C1        |
     And the following "course enrolments" exist:
-      | user     | course | role    |
-      | student1 | C1     | student |
-      | student2 | C1     | student |
-      | guide1   | C1     | teacher |
+      | user     | course | role           |
+      | student1 | C1     | student        |
+      | student2 | C1     | student        |
+      | guide1   | C1     | teacher        |
+      | teacher1 | C1     | editingteacher |
     And the following "activities" exist:
-      | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership | maxguided |
-      | selfselectadvanced | C1     | Lab groups | ssa1     | 2       | 4       | 1       | 2             | 5         |
+      | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership | maxguided | guideautoapprove | guidewindow |
+      | selfselectadvanced | C1     | Lab groups | ssa1     | 2       | 4       | 1       | 2             | 5         | 1                | 86400       |
     And the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   |
       | ssa1               | Team Blue | student1 |
@@ -77,3 +79,25 @@ Feature: Guide review of submitted groups
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Firm"
     Then I should see "Firm"
+
+  Scenario: A lapsed decision window firms the team and records the exception
+    Given the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name      | leader   | guide  | state         | timesubmitted |
+      | ssa1               | Team Late | student1 | guide1 | pending_guide | -3 days       |
+    And I run the scheduled task "\mod_selfselectadvanced\task\guide_autoapprove"
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
+    And I follow "Team Late"
+    Then I should see "Firm"
+
+  Scenario: A guide already over their team limit keeps the team in the queue
+    Given the following "mod_selfselectadvanced > overrides" exist:
+      | selfselectadvanced | scope | target | maxguided |
+      | ssa1               | guide | guide1 | 1         |
+    And the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name       | leader   | guide  | state         | timesubmitted |
+      | ssa1               | Team Late  | student1 | guide1 | pending_guide | -3 days       |
+      | ssa1               | Team Later | student2 | guide1 | pending_guide | -3 days       |
+    And I run the scheduled task "\mod_selfselectadvanced\task\guide_autoapprove"
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
+    And I follow "Team Late"
+    Then I should see "Awaiting guide"

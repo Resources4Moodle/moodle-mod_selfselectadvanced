@@ -358,54 +358,58 @@ class engine {
             ])->trigger();
 
             $transaction->allow_commit();
+        } finally {
+            $lock->release();
+        }
 
-            // Audit round 4 item 1: every placed student is told where
-            // they landed; managers get the run summary. Sends happen
-            // only after the commit above - messages are not
-            // transactional, and a rollback must never follow a
-            // "you have been placed" notification (audit round 6).
-            foreach ($log['groups'] as $planned) {
-                foreach ($planned['members'] as $placeduser) {
-                    \mod_selfselectadvanced\local\notifier::send(
-                        $activity,
-                        'autogroupresult',
-                        (int) $placeduser,
-                        'msgautogroupedsubject',
-                        'msgautogroupedbody',
-                        (object) [
-                        'group' => $planned['pluginuid'],
-                        'activity' => $activity->name(),
-                        ],
-                        new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]),
-                        $activity->name()
-                    );
-                }
-            }
-            // Cascade notifications alongside the placement notifications
-            // above: each affected leader learns their invitation was
-            // auto-declined by the student's placement.
-            foreach ($cascadedbyuser as $placeduser => $cascaded) {
-                $invitationservice->notify_cascaded($cascaded, $placeduser);
-            }
-            foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $mgr) {
+        // Every placed student is told where they landed; managers get
+        // the run summary. Sends happen after the COMMIT (messages are
+        // not transactional, and a rollback must never follow a "you
+        // have been placed" notification) and after the LOCK RELEASE: a
+        // cutoff sweep can place thousands, and thousands of
+        // synchronous message_send() calls under activity:{id} block
+        // every invitations::accept, api::create_group,
+        // moves::commit_set and succession::confirm on the activity
+        // until each of them times out at 10s (T-02 R7).
+        foreach ($log['groups'] as $planned) {
+            foreach ($planned['members'] as $placeduser) {
                 \mod_selfselectadvanced\local\notifier::send(
                     $activity,
                     'autogroupresult',
-                    (int) $mgr->id,
-                    'msgautogroupransubject',
-                    'msgautogroupranbody',
+                    (int) $placeduser,
+                    'msgautogroupedsubject',
+                    'msgautogroupedbody',
                     (object) [
+                    'group' => $planned['pluginuid'],
                     'activity' => $activity->name(),
-                    'placed' => (int) $agrun->placed,
-                    'unplaced' => (int) $agrun->unplaced,
-                    'groups' => (int) $agrun->groupsformed,
                     ],
-                    new \moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $activity->cm()->id]),
+                    new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]),
                     $activity->name()
                 );
             }
-        } finally {
-            $lock->release();
+        }
+        // Cascade notifications alongside the placement notifications
+        // above: each affected leader learns their invitation was
+        // auto-declined by the student's placement.
+        foreach ($cascadedbyuser as $placeduser => $cascaded) {
+            $invitationservice->notify_cascaded($cascaded, $placeduser);
+        }
+        foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $mgr) {
+            \mod_selfselectadvanced\local\notifier::send(
+                $activity,
+                'autogroupresult',
+                (int) $mgr->id,
+                'msgautogroupransubject',
+                'msgautogroupranbody',
+                (object) [
+                'activity' => $activity->name(),
+                'placed' => (int) $agrun->placed,
+                'unplaced' => (int) $agrun->unplaced,
+                'groups' => (int) $agrun->groupsformed,
+                ],
+                new \moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $activity->cm()->id]),
+                $activity->name()
+            );
         }
 
         return $agrun;

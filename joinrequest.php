@@ -66,11 +66,27 @@ $PAGE->set_url(new moodle_url($baseurl, ['tab' => $tab]));
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
-$askform = new \mod_selfselectadvanced\form\joinrequest_form($baseurl->out(false), ['cmid' => $cm->id]);
+$mycurrent = groups::get_groups_of_user($activity, (int) $USER->id);
+$mycap = (new \mod_selfselectadvanced\local\override\resolver($activity))
+    ->effective_maxmembership((int) $USER->id)->value;
+$askform = new \mod_selfselectadvanced\form\joinrequest_form($baseurl->out(false), [
+    'cmid' => $cm->id,
+    'sources' => $mycurrent,
+    'headroom' => count($mycurrent) < $mycap,
+]);
 
 if ($action === 'ask' && ($data = $askform->get_data())) {
+    // Zero is the placeholder and "no element rendered"; both mean the
+    // student stated nothing, which the service resolves or refuses.
+    $chosen = (int) ($data->source ?? 0);
     try {
-        joinrequests::request($activity, (int) $data->target, (string) $data->reason, (int) $USER->id);
+        joinrequests::request(
+            $activity,
+            (int) $data->target,
+            (string) $data->reason,
+            (int) $USER->id,
+            $chosen === 0 ? null : $chosen
+        );
         redirect(
             new moodle_url($baseurl, ['tab' => 'ask']),
             get_string('joinsent', 'mod_selfselectadvanced'),
@@ -151,19 +167,36 @@ if ($tab === 'ask') {
         }
     }
 
-    $current = joinrequests::current_group($activity, (int) $USER->id);
-    echo html_writer::div(
-        $current
-            ? get_string('joincurrent', 'mod_selfselectadvanced', format_string($current->name))
-            : get_string('joinnoteam', 'mod_selfselectadvanced'),
-        'alert alert-info'
-    );
+    if (!$mycurrent) {
+        $bannertext = get_string('joinnoteam', 'mod_selfselectadvanced');
+    } else if (count($mycurrent) === 1) {
+        $bannertext = get_string('joincurrent', 'mod_selfselectadvanced', format_string(reset($mycurrent)->name));
+    } else {
+        $bannertext = get_string('joincurrentmany', 'mod_selfselectadvanced', implode(', ', array_map(
+            static fn($group) => format_string($group->name),
+            $mycurrent
+        )));
+    }
+    echo html_writer::div($bannertext, 'alert alert-info');
 
     if ($mine) {
+        // One batched lookup for the source names of the rows already
+        // loaded: no groups::get() inside the loop, no N+1.
+        $sourceids = [];
+        foreach ($mine as $request) {
+            if ($request->sourcegroupid) {
+                $sourceids[(int) $request->sourcegroupid] = true;
+            }
+        }
+        $sourcenames = $sourceids
+            ? $DB->get_records_list('selfselectadvanced_group', 'id', array_keys($sourceids), '', 'id, name')
+            : [];
+
         $table = new html_table();
         $table->attributes['class'] = 'generaltable selfselectadvanced-joinrequests';
         $table->head = [
             get_string('jointarget', 'mod_selfselectadvanced'),
+            get_string('joinleavescolumn', 'mod_selfselectadvanced'),
             get_string('jointreason', 'mod_selfselectadvanced'),
             get_string('status'),
             get_string('joinanswer', 'mod_selfselectadvanced'),
@@ -173,6 +206,9 @@ if ($tab === 'ask') {
             $target = groups::get($activity, (int) $request->targetgroupid);
             $table->data[] = [
                 format_string($target->name) . ' ' . html_writer::span($target->pluginuid, 'text-muted small'),
+                isset($sourcenames[(int) $request->sourcegroupid])
+                    ? format_string($sourcenames[(int) $request->sourcegroupid]->name)
+                    : get_string('joinleavesextra', 'mod_selfselectadvanced'),
                 s(shorten_text((string) $request->reason, 90)),
                 get_string('joinstatus' . $request->status, 'mod_selfselectadvanced'),
                 s(shorten_text((string) ($request->responsenote ?? ''), 90)),
@@ -215,6 +251,17 @@ if ($tab === 'ask') {
             $rows[] = [$team, $request];
         }
     }
+
+    // One batched lookup over the rows already loaded, before the loop.
+    $sourceids = [];
+    foreach ($rows as [, $request]) {
+        if ($request->sourcegroupid) {
+            $sourceids[(int) $request->sourcegroupid] = true;
+        }
+    }
+    $sourcenames = $sourceids
+        ? $DB->get_records_list('selfselectadvanced_group', 'id', array_keys($sourceids), '', 'id, name')
+        : [];
 
     if (!$rows) {
         echo html_writer::div(get_string('joinnonewaiting', 'mod_selfselectadvanced'), 'alert alert-info');
@@ -270,6 +317,18 @@ if ($tab === 'ask') {
                     'small'
                 );
             }
+            // The decider is entitled to know what the acceptance costs
+            // elsewhere: which team, if any, the student would leave.
+            $fitcell[] = html_writer::div(
+                isset($sourcenames[(int) $request->sourcegroupid])
+                    ? get_string(
+                        'joinleaves',
+                        'mod_selfselectadvanced',
+                        format_string($sourcenames[(int) $request->sourcegroupid]->name)
+                    )
+                    : get_string('joinleavesnone', 'mod_selfselectadvanced'),
+                'small text-muted'
+            );
 
             $table->data[] = [
                 format_string($team->name) . ' ' . html_writer::span($team->pluginuid, 'text-muted small'),

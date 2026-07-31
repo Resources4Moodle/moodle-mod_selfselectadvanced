@@ -192,6 +192,8 @@ function selfselectadvanced_delete_instance($id): bool {
         );
         $DB->delete_records_select('user_preferences', "name $gsql", $gparams);
     }
+    // The auto-approval resume cursor dies with the instance.
+    unset_config('autoapprovecursor_' . (int) $id, 'mod_selfselectadvanced');
 
     selfselectadvanced_grade_item_delete($instance);
 

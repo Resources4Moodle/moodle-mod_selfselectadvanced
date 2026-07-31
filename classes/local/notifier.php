@@ -35,6 +35,82 @@ class notifier {
      */
     private const DIGESTIBLE = ['guidequeue', 'deadlinereminder', 'autogroupresult'];
 
+    /** @var bool Test-only: also warn when send() runs inside a transaction. */
+    private static bool $stricttransactioncheck = false;
+
+    /**
+     * Test-only: also warn when send() is called inside an open
+     * transaction.
+     *
+     * Off by default because advanced_testcase holds a delegated
+     * transaction for the whole of every test on PostgreSQL, so a
+     * runtime guard on the transaction state would fail the suite on
+     * one engine and pass it on the other (T-02).
+     *
+     * @param bool $on whether to warn on an open transaction
+     * @throws \coding_exception outside PHPUnit
+     */
+    public static function set_strict_transaction_check(bool $on): void {
+        if (!defined('PHPUNIT_TEST') || !PHPUNIT_TEST) {
+            throw new \coding_exception('test-only');
+        }
+        self::$stricttransactioncheck = $on;
+    }
+
+    /**
+     * A deferred notification: everything send() needs, captured so a
+     * caller holding a lock can hand it back and send it after release.
+     *
+     * @param string $provider message provider name from db/messages.php
+     * @param int $touserid recipient
+     * @param string $subjectkey lang key for the subject
+     * @param string $bodykey lang key for the body
+     * @param \stdClass|array|null $a string parameters
+     * @param \moodle_url $contexturl deep link target
+     * @param string $contextname link label
+     * @return \stdClass the intent, for send_all()
+     */
+    public static function intent(
+        string $provider,
+        int $touserid,
+        string $subjectkey,
+        string $bodykey,
+        $a,
+        \moodle_url $contexturl,
+        string $contextname
+    ): \stdClass {
+        return (object) [
+            'provider' => $provider,
+            'touserid' => $touserid,
+            'subjectkey' => $subjectkey,
+            'bodykey' => $bodykey,
+            'a' => $a,
+            'url' => $contexturl,
+            'contextname' => $contextname,
+        ];
+    }
+
+    /**
+     * Send a list of intent() records, in order.
+     *
+     * @param activity $activity the activity
+     * @param \stdClass[] $intents what intent() returned, in send order
+     */
+    public static function send_all(activity $activity, array $intents): void {
+        foreach ($intents as $intent) {
+            self::send(
+                $activity,
+                $intent->provider,
+                (int) $intent->touserid,
+                $intent->subjectkey,
+                $intent->bodykey,
+                $intent->a,
+                $intent->url,
+                $intent->contextname
+            );
+        }
+    }
+
     /**
      * Send one plugin notification.
      *
@@ -65,6 +141,23 @@ class notifier {
         string $contextname
     ): void {
         global $DB;
+
+        // House rule (the 1.15.0 lesson, restated by T-02): a message
+        // never travels under a plugin lock - core buffers it to the
+        // outermost commit, which is still inside the lock, so a slow
+        // relay extends an activity-wide hold against a 10s budget.
+        if (locks::held_count() > 0) {
+            debugging(
+                'notifier::send() called while holding a plugin lock (provider ' . $provider . ')',
+                DEBUG_DEVELOPER
+            );
+        }
+        if (self::$stricttransactioncheck && $DB->is_transaction_started()) {
+            debugging(
+                'notifier::send() called inside an open transaction (provider ' . $provider . ')',
+                DEBUG_DEVELOPER
+            );
+        }
 
         // Standard placeholders available to EVERY template (site
         // admins can rewrite any message via Language customisation):

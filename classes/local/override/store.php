@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\local\override;
 
 use mod_selfselectadvanced\activity;
+use mod_selfselectadvanced\local\locks;
 use stdClass;
 
 /**
@@ -52,10 +53,22 @@ class store {
     public static function get(activity $activity, string $scope, int $targetid): ?stdClass {
         global $DB;
 
-        return $DB->get_record('selfselectadvanced_override', [
-            'activityid' => $activity->id(),
-            'scope' => $scope,
-        ] + self::target_field($scope, $targetid)) ?: null;
+        $rows = $DB->get_records(
+            'selfselectadvanced_override',
+            [
+                'activityid' => $activity->id(),
+                'scope' => $scope,
+            ] + self::target_field($scope, $targetid),
+            'id ASC'
+        );
+        if (count($rows) > 1) {
+            // Pre-1.19.2 duplicates (T-02 R5). The oldest row wins for
+            // BOTH the resolver and save(), so the two never disagree;
+            // the upgrade step merges the survivors away.
+            debugging('Duplicate override rows for ' . $scope . ':' . $targetid, DEBUG_DEVELOPER);
+        }
+
+        return $rows ? reset($rows) : null;
     }
 
     /**
@@ -86,9 +99,21 @@ class store {
      * @param int $targetid target user/group/move id
      * @param array $values field => value|null
      * @param int $actorid the acting user
+     * @param bool $callerholdslock the caller already serialises this
+     *        override row (state::approve_auto takes
+     *        override:group:{id} before the group lock, because the
+     *        relief write must happen inside the transition's
+     *        transaction and locks are not re-entrant)
      * @return stdClass the stored row
      */
-    public static function save(activity $activity, string $scope, int $targetid, array $values, int $actorid): stdClass {
+    public static function save(
+        activity $activity,
+        string $scope,
+        int $targetid,
+        array $values,
+        int $actorid,
+        bool $callerholdslock = false
+    ): stdClass {
         global $DB;
 
         if (!isset(self::FIELDS[$scope])) {
@@ -104,80 +129,107 @@ class store {
         // granting an exception can forget it (strategy 1.17 B1).
         \mod_selfselectadvanced\local\tickets::require_uninvolved_override($activity, $scope, $targetid, $actorid);
 
-        $transaction = $DB->start_delegated_transaction();
+        // One row per (activity, scope, target) is a class contract
+        // with nothing behind it: read-then-insert, and a transaction
+        // does not serialise two concurrent NULL reads. Two
+        // coordinators, a double-submitted form, or grant_guidecap
+        // racing this page each inserted a twin, after which get()
+        // returned an arbitrary one and delete left the other alive
+        // (T-02 R5). A unique index cannot express the invariant - the
+        // four scopes use four nullable target columns, and NULLs are
+        // distinct in a unique index on both supported engines - so the
+        // lock is the enforcement. A caller that already holds this
+        // exact resource says so: locks are not re-entrant, and a
+        // second acquire of the same resource in the same process is
+        // granted (the factory's static token map counts it up) and
+        // then released once, leaving a phantom hold (T-04).
+        $lock = $callerholdslock ? null : locks::acquire('override:' . $scope . ':' . $targetid);
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
 
-        $now = time();
-        $existing = self::get($activity, $scope, $targetid);
-        $record = $existing ?? (object) array_merge([
-            'activityid' => $activity->id(),
-            'scope' => $scope,
-            'userid' => null,
-            'groupid' => null,
-            'moveid' => null,
-            'timeopen' => null,
-            'timedue' => null,
-            'timecutoff' => null,
-            'maxlead' => null,
-            'maxmembership' => null,
-            'maxguided' => null,
-            'minsize' => null,
-            'maxsize' => null,
-            'quotaexempt' => null,
-            'penaltywaived' => null,
-            'guidehidden' => null,
-            'rulesbypassed' => null,
-            'timecreated' => $now,
-        ], self::target_field($scope, $targetid));
-
-        $old = [];
-        $new = [];
-        foreach ($allowed as $field) {
-            if (!array_key_exists($field, $values)) {
-                continue;
-            }
-            $value = $values[$field];
-            if ($value === '' || $value === false) {
-                $value = null;
-            }
-            if (($existing->$field ?? null) != $value) {
-                $old[$field] = $existing->$field ?? null;
-                $new[$field] = $value;
-            }
-            $record->$field = $value;
-        }
-        $record->usermodified = $actorid;
-        $record->timemodified = $now;
-        // Guarded reductions: a cap set below the target's current
-        // position parks the whole row as 'pending' until the excess
-        // is resolved (blockers listed on the overrides page); the
-        // resolver only ever sees 'active' rows.
-        $record->blockers = guard::blockers($activity, $record);
-        $record->status = $record->blockers ? 'pending' : 'active';
-
-        $blockers = $record->blockers;
-        unset($record->blockers);
-        if ($existing) {
-            $DB->update_record('selfselectadvanced_override', $record);
-            $eventclass = \mod_selfselectadvanced\event\override_updated::class;
-        } else {
-            $record->id = $DB->insert_record('selfselectadvanced_override', $record);
-            $eventclass = \mod_selfselectadvanced\event\override_created::class;
-        }
-        $record->blockers = $blockers;
-
-        $eventclass::create([
-            'objectid' => $record->id,
-            'context' => $activity->context(),
-            'relateduserid' => in_array($scope, ['user', 'guide'], true) ? $targetid : null,
-            'other' => [
+            $now = time();
+            $existing = self::get($activity, $scope, $targetid);
+            $record = $existing ?? (object) array_merge([
+                'activityid' => $activity->id(),
                 'scope' => $scope,
-                'targetid' => $targetid,
-                'oldvalues' => $old,
-                'newvalues' => $new,
-            ],
-        ])->trigger();
+                'userid' => null,
+                'groupid' => null,
+                'moveid' => null,
+                'timeopen' => null,
+                'timedue' => null,
+                'timecutoff' => null,
+                'maxlead' => null,
+                'maxmembership' => null,
+                'maxguided' => null,
+                'minsize' => null,
+                'maxsize' => null,
+                'quotaexempt' => null,
+                'penaltywaived' => null,
+                'guidehidden' => null,
+                'rulesbypassed' => null,
+                'timecreated' => $now,
+            ], self::target_field($scope, $targetid));
 
-        $transaction->allow_commit();
+            $old = [];
+            $new = [];
+            foreach ($allowed as $field) {
+                if (!array_key_exists($field, $values)) {
+                    continue;
+                }
+                $value = $values[$field];
+                if ($value === '' || $value === false) {
+                    $value = null;
+                }
+                if (($existing->$field ?? null) != $value) {
+                    $old[$field] = $existing->$field ?? null;
+                    $new[$field] = $value;
+                }
+                $record->$field = $value;
+            }
+            $record->usermodified = $actorid;
+            $record->timemodified = $now;
+            // Guarded reductions: a cap set below the target's current
+            // position parks the whole row as 'pending' until the excess
+            // is resolved (blockers listed on the overrides page); the
+            // resolver only ever sees 'active' rows.
+            $record->blockers = guard::blockers($activity, $record);
+            $record->status = $record->blockers ? 'pending' : 'active';
+
+            $blockers = $record->blockers;
+            unset($record->blockers);
+            if ($existing) {
+                $DB->update_record('selfselectadvanced_override', $record);
+                $eventclass = \mod_selfselectadvanced\event\override_updated::class;
+            } else {
+                $record->id = $DB->insert_record('selfselectadvanced_override', $record);
+                $eventclass = \mod_selfselectadvanced\event\override_created::class;
+            }
+            $record->blockers = $blockers;
+
+            $eventclass::create([
+                'objectid' => $record->id,
+                'context' => $activity->context(),
+                'relateduserid' => in_array($scope, ['user', 'guide'], true) ? $targetid : null,
+                'other' => [
+                    'scope' => $scope,
+                    'targetid' => $targetid,
+                    'oldvalues' => $old,
+                    'newvalues' => $new,
+                ],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            if ($lock) {
+                $lock->release();
+            }
+        }
 
         return $record;
     }
@@ -238,34 +290,57 @@ class store {
     public static function delete(activity $activity, int $overrideid, int $actorid): void {
         global $DB;
 
-        $transaction = $DB->start_delegated_transaction();
-
-        $record = $DB->get_record('selfselectadvanced_override', [
+        // The scope and target are learned before the lock - they are
+        // what names it - and the row itself is then re-read inside it,
+        // so a save() racing this delete resolves one way or the other
+        // rather than leaving a twin alive (T-02 R5).
+        $existing = $DB->get_record('selfselectadvanced_override', [
             'id' => $overrideid,
             'activityid' => $activity->id(),
         ], '*', MUST_EXIST);
-        $DB->delete_records('selfselectadvanced_override', ['id' => $record->id]);
+        $targetid = (int) ($existing->userid ?? 0)
+            ?: ((int) ($existing->groupid ?? 0) ?: (int) ($existing->moveid ?? 0));
 
-        $old = [];
-        foreach (self::FIELDS[$record->scope] ?? [] as $field) {
-            if ($record->$field !== null) {
-                $old[$field] = $record->$field;
+        $lock = locks::acquire('override:' . $existing->scope . ':' . $targetid);
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $record = $DB->get_record('selfselectadvanced_override', [
+                'id' => $overrideid,
+                'activityid' => $activity->id(),
+            ], '*', MUST_EXIST);
+            $DB->delete_records('selfselectadvanced_override', ['id' => $record->id]);
+
+            $old = [];
+            foreach (self::FIELDS[$record->scope] ?? [] as $field) {
+                if ($record->$field !== null) {
+                    $old[$field] = $record->$field;
+                }
             }
-        }
-        $targetid = (int) ($record->userid ?? 0) ?: ((int) ($record->groupid ?? 0) ?: (int) ($record->moveid ?? 0));
-        \mod_selfselectadvanced\event\override_deleted::create([
-            'objectid' => $record->id,
-            'context' => $activity->context(),
-            'relateduserid' => in_array($record->scope, ['user', 'guide'], true) ? $targetid : null,
-            'other' => [
-                'scope' => $record->scope,
-                'targetid' => $targetid,
-                'oldvalues' => $old,
-                'newvalues' => [],
-            ],
-        ])->trigger();
+            $targetid = (int) ($record->userid ?? 0)
+                ?: ((int) ($record->groupid ?? 0) ?: (int) ($record->moveid ?? 0));
+            \mod_selfselectadvanced\event\override_deleted::create([
+                'objectid' => $record->id,
+                'context' => $activity->context(),
+                'relateduserid' => in_array($record->scope, ['user', 'guide'], true) ? $targetid : null,
+                'other' => [
+                    'scope' => $record->scope,
+                    'targetid' => $targetid,
+                    'oldvalues' => $old,
+                    'newvalues' => [],
+                ],
+            ])->trigger();
 
-        $transaction->allow_commit();
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+        }
     }
 
     /**
