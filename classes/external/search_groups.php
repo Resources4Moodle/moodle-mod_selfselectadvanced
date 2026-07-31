@@ -54,6 +54,12 @@ class search_groups extends external_api {
         return new external_function_parameters([
             'cmid' => new external_value(PARAM_INT, 'Course module id'),
             'query' => new external_value(PARAM_RAW_TRIMMED, 'Search text'),
+            'fit' => new external_value(
+                PARAM_BOOL,
+                'Judge each team against the calling user and return the caution and the seat',
+                VALUE_DEFAULT,
+                false
+            ),
         ]);
     }
 
@@ -62,15 +68,20 @@ class search_groups extends external_api {
      *
      * @param int $cmid course module id
      * @param string $query search text
+     * @param bool $fit judge each team against the calling user
      * @return array[] matching teams
      */
-    public static function execute(int $cmid, string $query): array {
+    public static function execute(int $cmid, string $query, bool $fit = false): array {
+        global $USER;
+
         [
             'cmid' => $cmid,
             'query' => $query,
+            'fit' => $fit,
         ] = self::validate_parameters(self::execute_parameters(), [
             'cmid' => $cmid,
             'query' => $query,
+            'fit' => $fit,
         ]);
 
         $activity = activity::from_cmid($cmid);
@@ -103,20 +114,45 @@ class search_groups extends external_api {
 
         $rows = \mod_selfselectadvanced\local\groups::search($activity, $query, self::LIMIT);
 
+        // Judged against the CALLING user only - the picker never
+        // reports how a third party would fare, so this exposes nothing
+        // about anybody else. Staff pickers leave $fit off and pay
+        // nothing for it.
+        $verdicts = [];
+        if ($fit) {
+            $verdicts = \mod_selfselectadvanced\local\fit::for_groups($activity, $rows, (int) $USER->id);
+        }
+
         $results = [];
         foreach ($rows as $row) {
+            $verdict = $verdicts[(int) $row->id] ?? null;
+            $label = get_string('grouppickerlabel', 'mod_selfselectadvanced', (object) [
+                'name' => format_string($row->name),
+                'pluginuid' => $row->pluginuid,
+                'state' => get_string(
+                    'state' . str_replace('_', '', $row->state),
+                    'mod_selfselectadvanced'
+                ),
+            ]);
+            // The caution rides in the LABEL as well as its own field,
+            // because core/form-autocomplete renders the label and
+            // nothing else - a student who never opens the suggestion
+            // still reads the warning.
+            if ($verdict !== null && $verdict->seat !== null) {
+                $label .= ' - ' . get_string('joinfitseat', 'mod_selfselectadvanced', $verdict->seat);
+            }
+            if ($verdict !== null && !$verdict->fits) {
+                $label .= ' - ' . get_string('joinfitcaution', 'mod_selfselectadvanced') . ' ' . $verdict->caution;
+            }
+
             $results[] = [
                 'id' => (int) $row->id,
                 'name' => format_string($row->name),
                 'pluginuid' => (string) $row->pluginuid,
-                'label' => get_string('grouppickerlabel', 'mod_selfselectadvanced', (object) [
-                    'name' => format_string($row->name),
-                    'pluginuid' => $row->pluginuid,
-                    'state' => get_string(
-                        'state' . str_replace('_', '', $row->state),
-                        'mod_selfselectadvanced'
-                    ),
-                ]),
+                'label' => $label,
+                'fits' => $verdict === null ? true : (bool) $verdict->fits,
+                'caution' => $verdict === null ? '' : (string) $verdict->caution,
+                'seat' => $verdict === null || $verdict->seat === null ? '' : (string) $verdict->seat,
             ];
         }
 
@@ -135,6 +171,9 @@ class search_groups extends external_api {
                 'name' => new external_value(PARAM_TEXT, 'Team name'),
                 'pluginuid' => new external_value(PARAM_TEXT, 'Project id'),
                 'label' => new external_value(PARAM_TEXT, 'Display label with the project id and state'),
+                'fits' => new external_value(PARAM_BOOL, 'Whether the calling user meets this team\'s requirements'),
+                'caution' => new external_value(PARAM_TEXT, 'Why the calling user does not fit, empty when they do'),
+                'seat' => new external_value(PARAM_TEXT, 'Seat the calling user would fill, empty when none'),
             ])
         );
     }

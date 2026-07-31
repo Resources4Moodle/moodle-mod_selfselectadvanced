@@ -56,10 +56,16 @@ class joinrequest_form extends \moodleform {
                 'placeholder' => get_string('grouppickerplaceholder', 'mod_selfselectadvanced'),
                 'casesensitive' => false,
                 'data-cmid' => $this->_customdata['cmid'],
+                // Ask the server to judge each team against this
+                // student: a team they do not fit stays listed, with
+                // the reason, and a team holding a seat for them says
+                // which seat it is.
+                'data-fit' => '1',
             ]
         );
         $mform->setType('target', PARAM_INT);
         $mform->addRule('target', get_string('required'), 'required', null, 'client');
+        $mform->addHelpButton('target', 'jointarget', 'mod_selfselectadvanced');
 
         $mform->addElement('text', 'reason', get_string('jointreason', 'mod_selfselectadvanced'), ['size' => 60]);
         $mform->setType('reason', PARAM_TEXT);

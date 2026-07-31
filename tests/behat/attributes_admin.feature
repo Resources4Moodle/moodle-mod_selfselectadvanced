@@ -74,9 +74,13 @@ Feature: Site administrators manage participant attributes
     And I set the field "Name" to "Humanities"
     And I press "Save changes"
     Then I should see "Humanities"
-    When I click on "Delete" "link" in the "Humanities" "table_row"
+    # Delete, up and down are POST buttons rather than links since the
+    # 1.19.1 security repair: a GET link deleted a department, so a
+    # crawler or a prefetching browser could do it without anybody
+    # clicking. The step follows the markup.
+    When I click on "Delete" "button" in the "Humanities" "table_row"
     Then I should not see "Humanities"
-    When I click on "Delete" "link" in the "Civil" "table_row"
+    When I click on "Delete" "button" in the "Civil" "table_row"
     Then I should see "Cannot delete"
 
   @javascript @_file_upload

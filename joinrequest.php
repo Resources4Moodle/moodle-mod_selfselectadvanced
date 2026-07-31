@@ -225,6 +225,7 @@ if ($tab === 'ask') {
             get_string('groupname', 'mod_selfselectadvanced'),
             get_string('fullname'),
             get_string('jointreason', 'mod_selfselectadvanced'),
+            get_string('joinfitcolumn', 'mod_selfselectadvanced'),
             get_string('actions'),
         ];
         foreach ($rows as [$team, $request]) {
@@ -244,10 +245,37 @@ if ($tab === 'ask') {
                     'formaction' => (new moodle_url($baseurl, ['action' => 'decline']))->out(false),
                     'value' => get_string('joindecline', 'mod_selfselectadvanced')])
                 . html_writer::end_tag('form');
+            // What the leader needs to decide with: whether this
+            // student fits the team's requirements, and which seat they
+            // would take. Shown, never used to hide the request - the
+            // leader is entitled to accept somebody the rules would
+            // refuse today and sort the composition out afterwards.
+            $verdict = \mod_selfselectadvanced\local\fit::for_person($activity, $team, (int) $request->userid);
+            $fitcell = [];
+            if (!$verdict->fits) {
+                $fitcell[] = html_writer::div(
+                    html_writer::tag('strong', get_string('joinfitcaution', 'mod_selfselectadvanced'))
+                        . ' ' . s($verdict->caution),
+                    'text-warning small'
+                );
+            } else {
+                $fitcell[] = html_writer::div(
+                    get_string('joinfitok', 'mod_selfselectadvanced'),
+                    'text-success small'
+                );
+            }
+            if ($verdict->seat !== null) {
+                $fitcell[] = html_writer::div(
+                    get_string('joinfitseat', 'mod_selfselectadvanced', s($verdict->seat)),
+                    'small'
+                );
+            }
+
             $table->data[] = [
                 format_string($team->name) . ' ' . html_writer::span($team->pluginuid, 'text-muted small'),
                 $student ? fullname($student) : '',
                 s(shorten_text((string) $request->reason, 110)),
+                implode('', $fitcell),
                 $form,
             ];
         }

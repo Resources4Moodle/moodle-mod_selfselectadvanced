@@ -258,6 +258,17 @@ class api {
             $lock->release();
         }
 
+        // The proposal attachments go with the group, and only once the
+        // deletion has actually committed: file storage is not part of
+        // the transaction, so removing them any earlier would destroy
+        // the attachments of a group that a rollback then kept alive.
+        get_file_storage()->delete_area_files(
+            $this->activity->context()->id,
+            'mod_selfselectadvanced',
+            'proposal',
+            (int) $fresh->id
+        );
+
         $url = new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $this->activity->cm()->id]);
         foreach ($confirmed as $memberid) {
             if ((int) $memberid === $userid) {

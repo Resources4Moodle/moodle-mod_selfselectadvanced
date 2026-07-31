@@ -54,11 +54,10 @@ $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
 // What is waiting, and what is not this person's to touch.
-$queue = tickets::queue($activity, (int) $USER->id);
-$open = 0;
-foreach ($queue as $ticket) {
-    $open += $ticket->status === tickets::STATUS_OPEN ? 1 : 0;
-}
+// Only the number is wanted here, so only the number is fetched. This
+// used to pull the whole queue back - every ticket the activity had
+// ever seen - and count the open ones in PHP.
+$open = tickets::count_open($activity, (int) $USER->id);
 
 $involved = $DB->get_fieldset_sql(
     "SELECT g.id

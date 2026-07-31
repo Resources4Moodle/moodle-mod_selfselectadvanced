@@ -52,7 +52,30 @@ class restore_selfselectadvanced_activity_task extends restore_activity_task {
      * @return restore_decode_content[]
      */
     public static function define_decode_contents() {
-        return [new restore_decode_content('selfselectadvanced', ['intro'], 'selfselectadvanced')];
+        // Core's transformer encodes wwwroot links in EVERY string
+        // written to the archive, so every rich-text field has to be
+        // decoded on the way back. Registering only 'intro' left users
+        // reading literal $@SELFSELECTADVANCEDVIEWBYID*123@$ tokens in
+        // group briefs, message templates, tickets and the rest.
+        //
+        // Each entry needs its rows mapped under the same item name at
+        // restore time - a rule whose item name was never mapped
+        // decodes nothing and fails silently - so set_mapping() calls
+        // for all of these live in the stepslib.
+        return [
+            new restore_decode_content('selfselectadvanced', ['intro'], 'selfselectadvanced'),
+            new restore_decode_content(
+                'selfselectadvanced_group',
+                ['brief', 'returncomment', 'guidenotes'],
+                'ssagroup'
+            ),
+            new restore_decode_content('selfselectadvanced_template', ['body'], 'ssatemplate'),
+            new restore_decode_content('selfselectadvanced_eoi', ['remarks'], 'ssaeoi'),
+            new restore_decode_content('selfselectadvanced_contact', ['message', 'reason'], 'ssacontact'),
+            new restore_decode_content('selfselectadvanced_ticket', ['request', 'resolution'], 'ssaticket'),
+            new restore_decode_content('selfselectadvanced_move', ['reason', 'responsenote'], 'ssajoinrequest'),
+            new restore_decode_content('selfselectadvanced_penalty', ['waivereason'], 'ssapenalty'),
+        ];
     }
 
     /**

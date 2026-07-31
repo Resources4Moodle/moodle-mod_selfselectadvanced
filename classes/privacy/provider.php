@@ -62,6 +62,7 @@ class provider implements
             'invitedby' => 'privacy:metadata:member:invitedby',
             'timeinvited' => 'privacy:metadata:member:timeinvited',
             'timeresponded' => 'privacy:metadata:member:timeresponded',
+            'leaverequested' => 'privacy:metadata:member:leaverequested',
         ], 'privacy:metadata:member');
         $collection->add_database_table('selfselectadvanced_group', [
             'leaderid' => 'privacy:metadata:group:leaderid',
@@ -69,6 +70,9 @@ class provider implements
             'successorid' => 'privacy:metadata:group:successorid',
             'guidesuccessorid' => 'privacy:metadata:group:guidesuccessorid',
             'brief' => 'privacy:metadata:group:brief',
+            'returncomment' => 'privacy:metadata:group:returncomment',
+            'guidenotes' => 'privacy:metadata:group:guidenotes',
+            'usermodified' => 'privacy:metadata:group:usermodified',
         ], 'privacy:metadata:group');
         $collection->add_database_table('selfselectadvanced_userattr', [
             'userid' => 'privacy:metadata:userattr:userid',
@@ -77,9 +81,12 @@ class provider implements
             'subdepartment' => 'privacy:metadata:userattr:subdepartment',
             'mobile' => 'privacy:metadata:userattr:mobile',
             'shareconsent' => 'privacy:metadata:userattr:shareconsent',
+            'seatlocation' => 'privacy:metadata:userattr:seatlocation',
+            'program' => 'privacy:metadata:userattr:program',
         ], 'privacy:metadata:userattr');
         $collection->add_database_table('selfselectadvanced_override', [
             'userid' => 'privacy:metadata:override:userid',
+            'usermodified' => 'privacy:metadata:override:usermodified',
         ], 'privacy:metadata:override');
         $collection->add_database_table('selfselectadvanced_volunteer', [
             'userid' => 'privacy:metadata:volunteer:userid',
@@ -88,6 +95,8 @@ class provider implements
         $collection->add_database_table('selfselectadvanced_move', [
             'userid' => 'privacy:metadata:move:userid',
             'successorid' => 'privacy:metadata:move:successorid',
+            'reason' => 'privacy:metadata:move:reason',
+            'responsenote' => 'privacy:metadata:move:responsenote',
         ], 'privacy:metadata:move');
         $collection->add_database_table('selfselectadvanced_snapshot', [
             'roster' => 'privacy:metadata:snapshot:roster',
@@ -95,6 +104,7 @@ class provider implements
         ], 'privacy:metadata:snapshot');
         $collection->add_database_table('selfselectadvanced_agrun', [
             'log' => 'privacy:metadata:agrun:log',
+            'triggeredby' => 'privacy:metadata:agrun:triggeredby',
         ], 'privacy:metadata:agrun');
         $collection->add_database_table('selfselectadvanced_digestq', [
             'userid' => 'privacy:metadata:digestq:userid',
@@ -113,7 +123,16 @@ class provider implements
             'resolution' => 'privacy:metadata:ticket:resolution',
             'type' => 'privacy:metadata:ticket:type',
             'status' => 'privacy:metadata:ticket:status',
+            'requested' => 'privacy:metadata:ticket:requested',
         ], 'privacy:metadata:ticket');
+        $collection->add_database_table('selfselectadvanced_penalty', [
+            'groupid' => 'privacy:metadata:penalty:groupid',
+            'dayslate' => 'privacy:metadata:penalty:dayslate',
+            'penaltyvalue' => 'privacy:metadata:penalty:penaltyvalue',
+            'award' => 'privacy:metadata:penalty:award',
+            'waived' => 'privacy:metadata:penalty:waived',
+            'waivereason' => 'privacy:metadata:penalty:waivereason',
+        ], 'privacy:metadata:penalty');
         $collection->add_database_table('selfselectadvanced_contact', [
             'guideid' => 'privacy:metadata:contact:guideid',
             'sentby' => 'privacy:metadata:contact:sentby',
@@ -292,6 +311,75 @@ class provider implements
                JOIN {course_modules} cm ON cm.instance = ct.activityid AND cm.id = :cmid",
             $params
         );
+
+        // The roles below were listed by get_contexts_for_userid() but
+        // NOT here, and the two APIs have to agree. A user this method
+        // omits is never passed to delete_data_for_users(), so an
+        // administrator deleting everybody in a context silently skipped
+        // guides, successors, the subjects of staged moves, the targets
+        // of overrides, whoever sent an invitation and whoever took a
+        // roster snapshot - while the same user's own request would have
+        // found the context perfectly well. A broken erasure is worse
+        // than a broken disclosure, which is why these are here.
+        //
+        // NULLs are excluded because add_from_sql feeds an IN () list.
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT g.guideid AS userid
+               FROM {selfselectadvanced_group} g
+               JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid
+              WHERE g.guideid IS NOT NULL",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT g.successorid AS userid
+               FROM {selfselectadvanced_group} g
+               JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid
+              WHERE g.successorid IS NOT NULL",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT mv.userid AS userid
+               FROM {selfselectadvanced_move} mv
+               JOIN {course_modules} cm ON cm.instance = mv.activityid AND cm.id = :cmid",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT mv.successorid AS userid
+               FROM {selfselectadvanced_move} mv
+               JOIN {course_modules} cm ON cm.instance = mv.activityid AND cm.id = :cmid
+              WHERE mv.successorid IS NOT NULL",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT o.userid AS userid
+               FROM {selfselectadvanced_override} o
+               JOIN {course_modules} cm ON cm.instance = o.activityid AND cm.id = :cmid
+              WHERE o.userid IS NOT NULL",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT m.invitedby AS userid
+               FROM {selfselectadvanced_member} m
+               JOIN {selfselectadvanced_group} g ON g.id = m.groupid
+               JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid
+              WHERE m.invitedby IS NOT NULL",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT s.takenby AS userid
+               FROM {selfselectadvanced_snapshot} s
+               JOIN {selfselectadvanced_group} g ON g.id = s.groupid
+               JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid
+              WHERE s.takenby IS NOT NULL",
+            $params
+        );
     }
 
     /**
@@ -316,6 +404,13 @@ class provider implements
                             'subdepartment' => $attr->subdepartment,
                             'mobile' => $attr->mobile,
                             'shareconsent' => (int) ($attr->shareconsent ?? 0),
+                            // Both are written by the attribute importer
+                            // and one of them is a physical location, yet
+                            // neither was declared or exported. They are
+                            // correctly erased, so this was a disclosure
+                            // gap rather than a retention one.
+                            'seatlocation' => $attr->seatlocation,
+                            'program' => $attr->program,
                         ]
                     );
                 }
@@ -348,8 +443,9 @@ class provider implements
                 continue;
             }
             $rows = $DB->get_records_sql(
-                "SELECT m.id, g.name, g.pluginuid, g.title, g.brief, g.state, m.status, m.isleader,
-                        m.timeinvited, m.timeresponded, p.penaltyvalue
+                "SELECT m.id, g.name, g.pluginuid, g.title, g.brief, g.briefformat, g.state,
+                        g.returncomment, g.guidenotes, m.status, m.isleader,
+                        m.timeinvited, m.timeresponded, m.leaverequested, p.penaltyvalue
                    FROM {selfselectadvanced_member} m
                    JOIN {selfselectadvanced_group} g ON g.id = m.groupid
               LEFT JOIN {selfselectadvanced_penalty} p ON p.groupid = g.id
@@ -367,6 +463,19 @@ class provider implements
                     'isleader' => transform::yesno($row->isleader),
                     'timeinvited' => $row->timeinvited ? transform::datetime($row->timeinvited) : null,
                     'timeresponded' => $row->timeresponded ? transform::datetime($row->timeresponded) : null,
+                    'leaverequested' => $row->leaverequested
+                        ? transform::datetime($row->leaverequested)
+                        : null,
+                    // The brief was SELECTed and then dropped on the
+                    // floor, so a declared field was never exported.
+                    'brief' => $row->brief,
+                    // Prose a guide wrote about this team. The notes are
+                    // described in the interface as private to staff,
+                    // which is a reason to handle them carefully - not a
+                    // reason to withhold them from the person they are
+                    // about, who is entitled to see what is held on them.
+                    'returncomment' => $row->returncomment,
+                    'guidenotes' => $row->guidenotes,
                     'grouppenalty' => $row->penaltyvalue,
                 ];
             }
@@ -395,20 +504,67 @@ class provider implements
                   WHERE eo.activityid = :activityid AND eo.guideid = :userid",
                 ['activityid' => $cm->instance, 'userid' => $userid]
             );
+            // LEFT JOIN deliberately: a team-limit ticket is about the
+            // guide and not about a team, so it carries groupid 0. An
+            // inner join dropped every one of them out of the person's
+            // own export.
             $tickets = $DB->get_records_sql(
                 "SELECT t.id, g.name, g.pluginuid, t.type, t.status, t.requestedby, t.claimedby,
                         t.resolvedby, t.request, t.requestformat, t.resolution, t.resolutionformat,
-                        t.timecreated, t.timeresolved
+                        t.requested, t.timecreated, t.timeresolved
                    FROM {selfselectadvanced_ticket} t
-                   JOIN {selfselectadvanced_group} g ON g.id = t.groupid
+              LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
                   WHERE t.activityid = :activityid
                     AND (t.requestedby = :u1 OR t.claimedby = :u2 OR t.resolvedby = :u3)",
                 ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid, 'u3' => $userid]
             );
+            // Approaches this person sent or received (declared in the
+            // metadata since 1.17, but never actually exported).
+            $contacts = $DB->get_records_sql(
+                "SELECT c.id, g.name, g.pluginuid, c.status, c.message, c.messageformat,
+                        c.reason, c.reasonformat, c.guideid, c.sentby, c.timecreated, c.timeresponded
+                   FROM {selfselectadvanced_contact} c
+                   JOIN {selfselectadvanced_group} g ON g.id = c.groupid
+                  WHERE c.activityid = :activityid AND (c.guideid = :u1 OR c.sentby = :u2)",
+                ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid]
+            );
+            // Roster snapshots are declared in the metadata and were
+            // never exported by any path. They are the authoritative
+            // record of who was in a team when it was frozen, so a
+            // person asking what is held about them was being told
+            // nothing about the one record that settles it.
+            $snapshots = [];
+            $snapshotrows = $DB->get_records_sql(
+                "SELECT s.id, s.roster, s.takenby, s.timecreated, g.name, g.pluginuid
+                   FROM {selfselectadvanced_snapshot} s
+                   JOIN {selfselectadvanced_group} g ON g.id = s.groupid
+                  WHERE g.activityid = :activityid
+               ORDER BY s.timecreated",
+                ['activityid' => $cm->instance]
+            );
+            foreach ($snapshotrows as $snapshot) {
+                $roster = json_decode((string) $snapshot->roster, true) ?: [];
+                $mine = array_values(array_filter(
+                    $roster,
+                    static fn($entry) => (int) ($entry['userid'] ?? 0) === $userid
+                ));
+                if (!$mine && (int) $snapshot->takenby !== $userid) {
+                    continue;
+                }
+                $snapshots[] = (object) [
+                    'group' => format_string($snapshot->name),
+                    'pluginuid' => $snapshot->pluginuid,
+                    'takenbyyou' => transform::yesno((int) $snapshot->takenby === $userid),
+                    'yourentry' => $mine ? reset($mine) : null,
+                    'timecreated' => transform::datetime($snapshot->timecreated),
+                ];
+            }
+
             writer::with_context($context)->export_data(
                 [get_string('pluginname', 'mod_selfselectadvanced')],
                 (object) [
                     'memberships' => $memberships,
+                    'snapshots' => $snapshots,
                     'interests' => array_values(array_map(static fn($eo) => (object) [
                         'group' => format_string($eo->name),
                         'pluginuid' => $eo->pluginuid,
@@ -430,17 +586,38 @@ class provider implements
                         'status' => $m->status,
                         'timecreated' => transform::datetime($m->timecreated),
                     ], $moves)),
+                    'approaches' => array_values(array_map(static fn($c) => (object) [
+                        'group' => format_string($c->name),
+                        'pluginuid' => $c->pluginuid,
+                        'status' => $c->status,
+                        'wasguide' => transform::yesno((int) $c->guideid === $userid),
+                        'wassender' => transform::yesno((int) $c->sentby === $userid),
+                        'message' => format_text($c->message, $c->messageformat, ['context' => $context]),
+                        // Both parties are entitled to the answer: one
+                        // wrote it, the other was told it.
+                        'reason' => $c->reason !== null
+                            ? format_text($c->reason, $c->reasonformat, ['context' => $context])
+                            : null,
+                        'timecreated' => transform::datetime($c->timecreated),
+                        'timeresponded' => $c->timeresponded ? transform::datetime($c->timeresponded) : null,
+                    ], $contacts)),
                     'volunteer' => $volunteer ? (object) [
                         'capacity' => $volunteer->capacity,
                         'timemodified' => transform::datetime($volunteer->timemodified),
                     ] : null,
                     'digestqueue' => array_values(array_map(static fn($dq) => (object) [
                         'provider' => $dq->provider,
+                        // The payload is declared in the metadata and was
+                        // never exported: it is the notification text
+                        // queued about this person, which is exactly the
+                        // sort of thing a subject-access request is for.
+                        'payload' => $dq->payload,
                         'timecreated' => transform::datetime($dq->timecreated),
                     ], $digestqueue)),
                     'tickets' => array_values(array_map(static fn($t) => (object) [
-                        'group' => format_string($t->name),
+                        'group' => $t->name !== null ? format_string($t->name) : null,
                         'pluginuid' => $t->pluginuid,
+                        'requested' => $t->requested !== null ? (int) $t->requested : null,
                         'type' => $t->type,
                         'status' => $t->status,
                         'wasrequester' => transform::yesno((int) $t->requestedby === $userid),
@@ -536,6 +713,12 @@ class provider implements
         );
         $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $cm->instance]);
+        // Auto-grouping logs hold raw user ids in their JSON body and
+        // the triggering manager's id beside it. This method is the one
+        // deletion path that is meant to be unconditional, and it did
+        // not mention this table at all - so a purged context kept a
+        // full record of who was placed where, and by whom.
+        $DB->delete_records('selfselectadvanced_agrun', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_contact', ['activityid' => $cm->instance]);
@@ -631,6 +814,18 @@ class provider implements
                 $params
             );
 
+            // Their own member rows are gone, but their id survived on
+            // every teammate they invited. De-link it: the invitation is
+            // course history worth keeping, the erased person's id is
+            // not.
+            $DB->set_field_select(
+                'selfselectadvanced_member',
+                'invitedby',
+                null,
+                "groupid $insql AND invitedby = :userid",
+                $params
+            );
+
             // Scrub snapshots of the user.
             foreach ($DB->get_records_select('selfselectadvanced_snapshot', "groupid $insql", $params) as $snapshot) {
                 $roster = json_decode($snapshot->roster, true) ?: [];
@@ -648,6 +843,33 @@ class provider implements
                 }
             }
         }
+        // The staff member who GRANTED an exception is a different
+        // person from its target. Target rows are deleted further down;
+        // this de-links the grantor, whose id otherwise outlived their
+        // own erasure on every override they ever wrote - including the
+        // group- and move-scope ones that are never deleted at all.
+        $DB->set_field(
+            'selfselectadvanced_override',
+            'usermodified',
+            0,
+            ['activityid' => $activityid, 'usermodified' => $userid]
+        );
+        $DB->set_field(
+            'selfselectadvanced_group',
+            'usermodified',
+            0,
+            ['activityid' => $activityid, 'usermodified' => $userid]
+        );
+        // An automatic-grouping run started by hand records who started
+        // it. The log body is pseudonymised below; this is the column
+        // beside it, which nothing touched.
+        $DB->set_field(
+            'selfselectadvanced_agrun',
+            'triggeredby',
+            0,
+            ['activityid' => $activityid, 'triggeredby' => $userid]
+        );
+
         // M1: a blanked leader leaves the group leaderless -> flagged report.
         $DB->set_field(
             'selfselectadvanced_group',

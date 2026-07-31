@@ -56,7 +56,9 @@ downstream activity can use.
   effective cutoff, with priority-ordered rule relaxation, seeded
   replay, and manager placement of residue via override-backed moves.
 - Full events, messaging with deep links, scheduled tasks, privacy
-  API, backup/restore, WCAG-conscious UI (never colour alone).
+  API and backup/restore. The interface is built to avoid conveying
+  meaning by colour alone; it has not been through a formal WCAG
+  audit, and that claim is not made for it.
 
 ## Installation
 
@@ -212,16 +214,22 @@ Candidate search matches on email for all inviters — a deliberate,
 documented decision (display of addresses remains identity-gated);
 search-by-email confirms at most that an address belongs to a course
 peer. Backups exclude auto-grouping logs and pending staged moves
-(operational/transient state). Uninstalling removes all plugin data
-but leaves previously frozen core course groups in place — by then
-they are course data.
+(operational/transient state). Uninstalling drops the plugin's own
+tables, configuration and capabilities. Two things are deliberately
+left behind: previously frozen core course groups, which are course
+data by then, and the Group Coordinators role when anybody is still
+assigned to it — an uninstall must not revoke people's access as a
+side effect. An unassigned role that this plugin created is removed,
+and whatever is kept is named on screen at the time.
 
 ## Third-party libraries
 
 **None.** The UI is built entirely from Moodle core components: core
 forms and the core autocomplete, core table machinery, Mustache
 templates with Bootstrap utility classes, core AMD (`core/ajax`) with
-one thin transport module.
+four thin transport modules - one per searchable picker (teams,
+guides, candidates, participants), each of which does nothing but hand
+a query to a web service and pass the results back.
 
 ## Documentation
 

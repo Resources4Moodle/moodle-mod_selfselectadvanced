@@ -55,7 +55,22 @@ $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
 $coursecontext = context_course::instance($course->id);
-$roleid = coordinatorrole::ensure();
+$roleid = coordinatorrole::roleid();
+
+// Zero means the site already had a role of its own using the shortname
+// this plugin wants. It refuses to touch somebody else's role rather
+// than granting it six site-wide capabilities, so the page stops here
+// and says what an administrator has to decide.
+if ($roleid === 0) {
+    echo $OUTPUT->header();
+    echo $OUTPUT->heading(get_string('coordinators', 'mod_selfselectadvanced'));
+    echo html_writer::div(
+        get_string('coordinatorrolecollision', 'mod_selfselectadvanced', coordinatorrole::SHORTNAME),
+        'alert alert-danger'
+    );
+    echo $OUTPUT->footer();
+    die;
+}
 
 // A sample file, so nobody has to guess the column names.
 if ($action === 'sample') {

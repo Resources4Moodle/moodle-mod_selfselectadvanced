@@ -811,5 +811,23 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073090, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073100) {
+        // No schema change. This step exists so that the LAST savepoint
+        // in this file equals the version in version.php.
+        //
+        // 1.19.0 raised the version to 2026073091 purely to make Moodle
+        // re-read db/messages.php, and added no savepoint with it. Every
+        // site that upgraded then finished holding db = 2026073091 with
+        // the chain here terminating at 2026073090, so the plugin's own
+        // record of how far it had got was behind the code. The same
+        // applies to 1.19.1, which changes an external function's
+        // signature and so needs db/services.php re-read.
+        //
+        // The invariant is now enforced by the build (savepoint-tip),
+        // because a static checker that only reads this file cannot see
+        // version.php and did not catch it.
+        upgrade_mod_savepoint(true, 2026073100, 'selfselectadvanced');
+    }
+
     return true;
 }

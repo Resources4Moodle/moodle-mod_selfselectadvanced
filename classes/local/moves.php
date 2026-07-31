@@ -550,17 +550,29 @@ class moves {
     public function cancel(int $moveid, int $actorid): void {
         global $DB;
 
-        $move = $DB->get_record('selfselectadvanced_move', [
-            'id' => $moveid,
-            'activityid' => $this->activity->id(),
-            'status' => 'pending',
-        ], '*', MUST_EXIST);
-        $DB->update_record('selfselectadvanced_move', (object) [
-            'id' => $move->id,
-            'status' => 'cancelled',
-            'usermodified' => $actorid,
-            'timemodified' => time(),
-        ]);
+        // Under the SAME lock commit_set() takes, and re-read inside it.
+        // update_record() matches on id alone, so a commit landing
+        // between the read and the write was relabelled 'cancelled'
+        // while its membership changes stood and its move_committed
+        // event had already fired - leaving a committed move recorded
+        // as cancelled and two contradictory events in the log.
+        $lock = locks::acquire('activity:' . $this->activity->id());
+        try {
+            $move = $DB->get_record('selfselectadvanced_move', [
+                'id' => $moveid,
+                'activityid' => $this->activity->id(),
+                'status' => 'pending',
+            ], '*', MUST_EXIST);
+            $DB->update_record('selfselectadvanced_move', (object) [
+                'id' => $move->id,
+                'status' => 'cancelled',
+                'usermodified' => $actorid,
+                'timemodified' => time(),
+            ]);
+        } finally {
+            $lock->release();
+        }
+
         \mod_selfselectadvanced\event\move_cancelled::create([
             'objectid' => (int) $move->id,
             'context' => $this->activity->context(),

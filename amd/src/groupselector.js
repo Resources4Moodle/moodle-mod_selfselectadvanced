@@ -14,7 +14,7 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Transport for the team pickers on the move and override forms.
+ * Transport for the team pickers on the move, override and join forms.
  *
  * The move form carried two selects holding every team in the activity,
  * and the override form an autocomplete that filtered in the browser -
@@ -45,6 +45,11 @@ export const transport = (selector, query, callback, failure) => {
         args: {
             cmid: parseInt(element.dataset.cmid, 10),
             query: query,
+            // Only the join picker asks for this. The server judges the
+            // teams against the calling user and folds the caution and
+            // the seat into the label, so nothing here has to know the
+            // composition rules.
+            fit: element.dataset.fit === '1',
         },
     };
 

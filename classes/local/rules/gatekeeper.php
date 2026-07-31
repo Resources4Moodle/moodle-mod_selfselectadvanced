@@ -480,6 +480,39 @@ class gatekeeper {
     }
 
     /**
+     * May this person write the guide's notes and the team's award?
+     *
+     * Both belong to the guide ASSIGNED to the team. review.php gates
+     * its page on require_capability(':guide') over the ACTIVITY, and
+     * takes the team from a URL parameter, so before 1.19.1 any holder
+     * of :guide could post to it naming any team and rewrite another
+     * guide's notes or set that team's gradebook award. Every
+     * non-editing teacher holds :guide, as does the Group Coordinator
+     * role this plugin creates, so it was a live grade-tampering path.
+     *
+     * A manager keeps access, because correcting an award is their job
+     * and review.php is the only place an award can be set at all.
+     *
+     * Unlike can_approve() this asks nothing about lifecycle state:
+     * notes are kept while the review is in progress, and an award is
+     * routinely corrected after approval.
+     *
+     * @param stdClass $group the team
+     * @param int $actorid the person acting
+     * @return refusal|null null when allowed
+     */
+    public function can_grade_team(stdClass $group, int $actorid): ?refusal {
+        if (!empty($group->guideid) && (int) $group->guideid === $actorid) {
+            return null;
+        }
+        if (has_capability('mod/selfselectadvanced:manage', $this->activity->context(), $actorid)) {
+            return null;
+        }
+
+        return new refusal('refusalnotassignedguide');
+    }
+
+    /**
      * May this guide approve the group? (T4, spec 6.5.)
      *
      * State precondition: pending_guide (S2); the assigned guide only.

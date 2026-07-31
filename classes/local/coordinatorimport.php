@@ -83,7 +83,7 @@ class coordinatorimport {
 
         $courseid = $activity->courseid();
         $coursecontext = \context_course::instance($courseid);
-        $roleid = coordinatorrole::ensure();
+        $roleid = coordinatorrole::roleid();
 
         $report = (object) [
             'added' => 0,
@@ -267,7 +267,7 @@ class coordinatorimport {
         if (!is_enrolled($coursecontext, $userid)) {
             throw new \moodle_exception('coordinatorimportnotenrolled', 'mod_selfselectadvanced');
         }
-        $roleid = coordinatorrole::ensure();
+        $roleid = coordinatorrole::roleid();
         if (user_has_role_assignment($userid, $roleid, $coursecontext->id)) {
             return;
         }
@@ -293,7 +293,7 @@ class coordinatorimport {
      */
     public static function remove(activity $activity, int $userid): void {
         $coursecontext = \context_course::instance($activity->cm()->course);
-        $roleid = coordinatorrole::ensure();
+        $roleid = coordinatorrole::roleid();
         if (!user_has_role_assignment($userid, $roleid, $coursecontext->id)) {
             return;
         }

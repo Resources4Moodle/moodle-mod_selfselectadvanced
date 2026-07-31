@@ -117,7 +117,27 @@ class notifier {
         $message->contexturl = $contexturl->out(false);
         $message->contexturlname = $contextname;
 
-        message_send($message);
+        // The return value is CHECKED, because ignoring it is how this
+        // plugin once dropped every notification it sent through a
+        // completely green test run: db/messages.php had gained a
+        // provider, no upgrade had registered it, message_send()
+        // returned false for each one, and nothing anywhere said so.
+        //
+        // false here means a delivery the messaging subsystem refused
+        // outright - an unregistered provider, a malformed message -
+        // not a user who has merely turned this notification off, which
+        // message_send() handles internally and still reports as sent.
+        // So there is no such thing as a routine false, and it is worth
+        // being loud about.
+        if (message_send($message) === false) {
+            debugging(
+                'mod_selfselectadvanced: message_send refused the "' . $provider
+                . '" notification to user ' . $touserid
+                . '. Check that the provider is registered in db/messages.php and that the'
+                . ' plugin version was raised so the upgrade re-read it.',
+                DEBUG_DEVELOPER
+            );
+        }
     }
 
     /**

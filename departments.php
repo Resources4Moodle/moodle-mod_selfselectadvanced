@@ -92,7 +92,7 @@ if ($action === 'progadd' && data_submitted() && confirm_sesskey()) {
     redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
-if ($action === 'progdelete' && confirm_sesskey()) {
+if ($action === 'progdelete' && data_submitted() && confirm_sesskey()) {
     $pid = required_param('d', PARAM_INT);
     $prog = $DB->get_record('selfselectadvanced_dept', ['id' => $pid, 'kind' => 'program'], '*', MUST_EXIST);
     $inuse = $DB->record_exists_select(
@@ -112,7 +112,14 @@ if ($action === 'progdelete' && confirm_sesskey()) {
     redirect($baseurl);
 }
 
-if (($action === 'delete' || $action === 'up' || $action === 'down') && confirm_sesskey()) {
+// A sesskey in a link is not protection: a GET still mutates, and any
+// page that can make the browser follow it mutates on the reader's
+// behalf. Every change below is a POST from a form on this page
+// (audit HIGH-SEC-001).
+if (
+    in_array($action, ['delete', 'up', 'down'], true)
+    && data_submitted() && confirm_sesskey()
+) {
     $id = required_param('d', PARAM_INT);
     if ($action === 'delete') {
         try {
@@ -146,6 +153,42 @@ foreach (['departments' => 'departments', 'programs' => 'programs'] as $deptkey 
 }
 echo $OUTPUT->tabtree($depttabs, $depttab);
 
+/**
+ * A single-button POST form for one mutating department action.
+ *
+ * Reordering and deletion used to be links carrying a sesskey, which
+ * still mutate on a GET - and anything that can make a browser follow a
+ * link can therefore make the change on the reader's behalf. Each is
+ * now its own small form (audit HIGH-SEC-001).
+ *
+ * @param moodle_url $baseurl the page url
+ * @param string $action delete, up, down or progdelete
+ * @param int $id the department or programme
+ * @param string $label the button text
+ * @param bool $danger render it as a destructive action
+ * @return string the form markup
+ */
+function selfselectadvanced_dept_button(
+    moodle_url $baseurl,
+    string $action,
+    int $id,
+    string $label,
+    bool $danger = false
+): string {
+    $class = 'btn btn-link btn-sm p-0 align-baseline' . ($danger ? ' text-danger' : '');
+
+    return html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => $baseurl->out(false),
+        'class' => 'd-inline',
+    ])
+        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => $action])
+        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'd', 'value' => $id])
+        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
+        . html_writer::empty_tag('input', ['type' => 'submit', 'class' => $class, 'value' => $label])
+        . html_writer::end_tag('form');
+}
+
 if ($depttab === 'departments') {
     $rows = [];
     foreach (depts::get_all() as $record) {
@@ -158,17 +201,24 @@ if ($depttab === 'departments') {
             new moodle_url($baseurl, ['action' => 'rename', 'd' => $record->id]),
             get_string('rename')
         );
-        $actions[] = html_writer::link(
-            new moodle_url($baseurl, ['action' => 'up', 'd' => $record->id, 'sesskey' => sesskey()]),
+        $actions[] = selfselectadvanced_dept_button(
+            $baseurl,
+            'up',
+            (int) $record->id,
             get_string('up')
         );
-        $actions[] = html_writer::link(
-            new moodle_url($baseurl, ['action' => 'down', 'd' => $record->id, 'sesskey' => sesskey()]),
+        $actions[] = selfselectadvanced_dept_button(
+            $baseurl,
+            'down',
+            (int) $record->id,
             get_string('down')
         );
-        $actions[] = html_writer::link(
-            new moodle_url($baseurl, ['action' => 'delete', 'd' => $record->id, 'sesskey' => sesskey()]),
-            get_string('delete')
+        $actions[] = selfselectadvanced_dept_button(
+            $baseurl,
+            'delete',
+            (int) $record->id,
+            get_string('delete'),
+            true
         );
         $indent = str_repeat('&nbsp;&nbsp;&nbsp;&nbsp;', (int) $record->depth - 1);
         $rows[] = [
@@ -210,9 +260,12 @@ if ($depttab === 'departments') {
         $pid = $DB->get_field('selfselectadvanced_dept', 'id', ['kind' => 'program', 'name' => $progname]);
         $progrows[] = [
         format_string($progname),
-        html_writer::link(
-            new moodle_url($baseurl, ['action' => 'progdelete', 'd' => $pid, 'sesskey' => sesskey()]),
-            get_string('delete')
+        selfselectadvanced_dept_button(
+            $baseurl,
+            'progdelete',
+            (int) $pid,
+            get_string('delete'),
+            true
         ),
         ];
     }

@@ -76,7 +76,27 @@ if ($action === 'approve') {
     die;
 }
 
+// Guide notes and the award belong to the guide ASSIGNED to this team.
+//
+// The page gate above is require_capability(':guide') on the ACTIVITY,
+// and the team comes straight from the 'g' URL parameter - so until
+// 1.19.1 any holder of :guide could post to this page naming any team
+// in the activity and rewrite another guide's notes or set that team's
+// gradebook award. Every non-editing teacher holds :guide, and so does
+// the Group Coordinator role this plugin creates, which made it a
+// grade-tampering path rather than a theoretical one.
+//
+// The 'approve' handler immediately above already gated on
+// can_approve(), which checks the assignment. These two did not. The
+// manager keeps administrative access, because correcting an award is
+// their job and this page is the only place it can be done.
+$gradingrefusal = $api->gatekeeper()->can_grade_team($group, (int) $USER->id);
+$maygradeteam = $gradingrefusal === null;
+
 if ($action === 'savenotes' && data_submitted() && confirm_sesskey()) {
+    if (!$maygradeteam) {
+        redirect($baseurl, $gradingrefusal->get_message(), null, \core\output\notification::NOTIFY_ERROR);
+    }
     // Guide notes: rich text the guide keeps before accepting (1.3.0).
     $notes = optional_param('guidenotes', '', PARAM_RAW);
     $notesformat = optional_param('guidenotesformat', FORMAT_HTML, PARAM_INT);
@@ -95,6 +115,9 @@ if ($action === 'savenotes' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'saveaward' && data_submitted() && confirm_sesskey()) {
+    if (!$maygradeteam) {
+        redirect($baseurl, $gradingrefusal->get_message(), null, \core\output\notification::NOTIFY_ERROR);
+    }
     $award = optional_param('award', '', PARAM_RAW_TRIMMED);
     \mod_selfselectadvanced\local\penalty\ledger::set_award(
         $activity,
@@ -205,7 +228,8 @@ echo html_writer::div(
 // Group mark (award): linked to this group in every member's
 // sequence-of-joining grade breakdown.
 if (
-    in_array($group->state, [\mod_selfselectadvanced\local\state::FIRM,
+    $maygradeteam
+    && in_array($group->state, [\mod_selfselectadvanced\local\state::FIRM,
         \mod_selfselectadvanced\local\state::FROZEN], true)
 ) {
     $currentaward = $DB->get_field('selfselectadvanced_penalty', 'award', [
@@ -233,6 +257,16 @@ if (trim((string) $group->guidenotes) !== '') {
         format_text($group->guidenotes, $group->guidenotesformat, ['context' => $context]),
         'selfselectadvanced-guidenotes border rounded p-3 mb-3'
     );
+}
+if (!$maygradeteam) {
+    // The notes are readable above; only writing them is restricted. A
+    // form that always refuses on submit is worse than no form.
+    echo html_writer::div(
+        get_string('refusalnotassignedguide', 'mod_selfselectadvanced'),
+        'alert alert-info'
+    );
+    echo $OUTPUT->footer();
+    die;
 }
 $editorid = 'ssa-guidenotes-' . $group->id;
 echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)]);

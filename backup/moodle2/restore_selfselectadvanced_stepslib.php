@@ -83,6 +83,10 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
                 'ssacontact',
                 '/activity/selfselectadvanced/contacts/contact'
             );
+            $paths[] = new restore_path_element(
+                'ssajoinrequest',
+                '/activity/selfselectadvanced/joinrequests/joinrequest'
+            );
         }
 
         return $this->prepare_activity_structure($paths);
@@ -124,8 +128,10 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         global $DB;
 
         $data = (object) $data;
+        $oldid = $data->id;
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
-        $DB->insert_record('selfselectadvanced_template', $data);
+        $newid = $DB->insert_record('selfselectadvanced_template', $data);
+        $this->set_mapping('ssatemplate', $oldid, $newid);
     }
 
     /**
@@ -182,7 +188,15 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
                 ['id' => $newid]
             );
         }
-        $this->set_mapping('ssagroup', $oldid, $newid);
+        // The third argument is restorefiles=true, and it is not
+        // optional here: proposal attachments are stored with the
+        // plugin group id as their itemid, and core only links a
+        // backed-up file back to its new item when the mapping that
+        // created that item was recorded as owning files. Without it
+        // add_related_files('proposal', 'ssagroup') below matches
+        // nothing and every attachment is dropped - silently, because
+        // a restore that finds no files to move reports success.
+        $this->set_mapping('ssagroup', $oldid, $newid, true);
     }
 
     /**
@@ -235,9 +249,11 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         global $DB;
 
         $data = (object) $data;
+        $oldid = $data->id;
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
         $data->groupid = $this->get_new_parentid('ssagroup');
-        $DB->insert_record('selfselectadvanced_penalty', $data);
+        $newid = $DB->insert_record('selfselectadvanced_penalty', $data);
+        $this->set_mapping('ssapenalty', $oldid, $newid);
     }
 
     /**
@@ -252,13 +268,15 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         global $DB;
 
         $data = (object) $data;
+        $oldid = $data->id;
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
         $data->groupid = $this->get_new_parentid('ssagroup');
         $data->guideid = $this->get_mappingid('user', $data->guideid);
         if (!$data->guideid) {
             return;
         }
-        $DB->insert_record('selfselectadvanced_eoi', $data);
+        $newid = $DB->insert_record('selfselectadvanced_eoi', $data);
+        $this->set_mapping('ssaeoi', $oldid, $newid);
     }
 
     /**
@@ -325,6 +343,44 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
     }
 
     /**
+     * Restore a join request that was still waiting for an answer.
+     *
+     * The asker and the target team must both survive the restore: a
+     * request pointing at a team that is not here cannot be answered,
+     * and one from a user who is not here has nobody to answer for. The
+     * SOURCE team may legitimately be absent - the student may have had
+     * no team - so it maps to null rather than refusing.
+     *
+     * @param array $data the row
+     */
+    protected function process_ssajoinrequest($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $oldid = $data->id;
+        $data->activityid = $this->get_new_parentid('selfselectadvanced');
+        $data->userid = $this->get_mappingid('user', $data->userid);
+        $data->targetgroupid = $this->get_mappingid('ssagroup', $data->targetgroupid);
+        if (!$data->userid || !$data->targetgroupid) {
+            return;
+        }
+        $data->sourcegroupid = $data->sourcegroupid
+            ? ($this->get_mappingid('ssagroup', $data->sourcegroupid) ?: null)
+            : null;
+        $data->usermodified = $data->usermodified
+            ? ($this->get_mappingid('user', $data->usermodified) ?: $data->userid)
+            : $data->userid;
+        // Fields the move engine expects on every row of this table.
+        $data->makeleader = 0;
+        $data->replaceleader = 0;
+        $data->successorid = null;
+        $data->statusinfo = null;
+        $data->timecommitted = null;
+        $newid = $DB->insert_record('selfselectadvanced_move', $data);
+        $this->set_mapping('ssajoinrequest', $oldid, $newid);
+    }
+
+    /**
      * Restore a queue ticket. The group and the requester are both
      * NOT NULL: a ticket whose group or requester cannot be mapped is
      * dropped, like a member row with no mappable user. The claimant
@@ -336,10 +392,16 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         global $DB;
 
         $data = (object) $data;
+        $oldid = $data->id;
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
-        $data->groupid = $this->get_mappingid('ssagroup', $data->groupid);
+        // A team-limit ticket is about the guide, not a team, and
+        // carries groupid 0 - so only a ticket that CLAIMS a team needs
+        // one mapped. Requiring it dropped every team-limit request on
+        // restore (audit HIGH-BACKUP-003).
+        $isaboutteam = (int) $data->groupid > 0;
+        $data->groupid = $isaboutteam ? (int) $this->get_mappingid('ssagroup', $data->groupid) : 0;
         $data->requestedby = $this->get_mappingid('user', $data->requestedby);
-        if (!$data->groupid || !$data->requestedby) {
+        if (!$data->requestedby || ($isaboutteam && !$data->groupid)) {
             return;
         }
         $data->claimedby = $data->claimedby ? ($this->get_mappingid('user', $data->claimedby) ?: null) : null;
@@ -351,7 +413,8 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
             $data->status = \mod_selfselectadvanced\local\tickets::STATUS_OPEN;
             $data->timeclaimed = null;
         }
-        $DB->insert_record('selfselectadvanced_ticket', $data);
+        $newid = $DB->insert_record('selfselectadvanced_ticket', $data);
+        $this->set_mapping('ssaticket', $oldid, $newid);
     }
 
     /**
@@ -365,6 +428,7 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         global $DB;
 
         $data = (object) $data;
+        $oldid = $data->id;
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
         $data->groupid = $this->get_mappingid('ssagroup', $data->groupid);
         $data->guideid = $this->get_mappingid('user', $data->guideid);
@@ -372,7 +436,8 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         if (!$data->groupid || !$data->guideid || !$data->sentby) {
             return;
         }
-        $DB->insert_record('selfselectadvanced_contact', $data);
+        $newid = $DB->insert_record('selfselectadvanced_contact', $data);
+        $this->set_mapping('ssacontact', $oldid, $newid);
     }
 
     /**

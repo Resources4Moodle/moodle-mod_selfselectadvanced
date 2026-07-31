@@ -169,11 +169,20 @@ echo html_writer::end_tag('form');
 // The guides a team may approach, with what helps them choose and
 // nothing that identifies anybody beyond their name.
 $alreadysent = array_map(static fn($c) => (int) $c->guideid, $sent);
-$guides = \mod_selfselectadvanced\local\guides::with_load(
-    $activity,
-    $api->gatekeeper()->resolver(),
-    true,
-    $guidefilter
+// Only guides who can actually take the team on (maintainer's rule,
+// 1.19.1). Approaching somebody who is full spends one of the team's
+// limited approaches on a refusal, and wastes the guide's time reading
+// it. The rule is stated in the intro rather than left to be inferred
+// from an absence - this page shows each guide's load anyway, so
+// nothing is being concealed by leaving the full ones out.
+$guides = array_filter(
+    \mod_selfselectadvanced\local\guides::with_load(
+        $activity,
+        $api->gatekeeper()->resolver(),
+        true,
+        $guidefilter
+    ),
+    static fn($guide) => $guide->remaining > 0
 );
 $attrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users(array_keys($guides));
 

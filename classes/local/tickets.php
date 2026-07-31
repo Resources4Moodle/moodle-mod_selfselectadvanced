@@ -317,6 +317,39 @@ class tickets {
         // separate them.
         require_capability('mod/selfselectadvanced:override', $activity->context(), $userid);
 
+        // Everything close() would refuse for is checked HERE, before
+        // the override is written.
+        //
+        // store::save() commits its own outermost transaction, so until
+        // 1.19.1 a coordinator who pressed Grant with an empty note
+        // raised the guide's cap permanently and only then hit close()'s
+        // refusal: the override was durable, the ticket stayed CLAIMED,
+        // and the guide was never told. The docblock above promises
+        // these two halves belong to one another; this is what makes
+        // that true for the case that actually happened.
+        //
+        // They are not wrapped in one transaction, deliberately:
+        // close() sends its notification after committing and outside
+        // its lock, and an outer transaction here would drag that
+        // notification back inside one - the mistake of 1.15.0. What
+        // remains is a genuine concurrency window: if another manager
+        // releases the claim between this check and close(), the
+        // override stands while the ticket reopens. That is a
+        // reversible over-grant rather than the silent, deterministic
+        // one this replaces, and it is stated here rather than papered
+        // over.
+        if (trim(html_to_text($resolution)) === '') {
+            throw new \moodle_exception('refusalticketreason', 'mod_selfselectadvanced');
+        }
+        if ((int) $ticket->claimedby !== $userid) {
+            throw new \moodle_exception(
+                'refusalticketnotclaimant',
+                'mod_selfselectadvanced',
+                '',
+                fullname(\core_user::get_user((int) $ticket->claimedby))
+            );
+        }
+
         // The override first: if writing it is refused - the actor may
         // not set overrides, or may not set this one - the ticket stays
         // claimed and open to be declined or released instead of
@@ -772,7 +805,12 @@ class tickets {
      *                      0 for the whole queue
      * @return stdClass[] ticket rows
      */
-    public static function queue(activity $activity, int $viewerid = 0): array {
+    public static function queue(
+        activity $activity,
+        int $viewerid = 0,
+        int $limitfrom = 0,
+        int $limitnum = 0
+    ): array {
         global $DB;
 
         // A worker is not shown the requests they filed themselves
@@ -787,9 +825,16 @@ class tickets {
             $params['viewerid'] = $viewerid;
         }
 
+        // The team's name comes back with the row rather than being
+        // looked up afterwards. The page used to resolve names by
+        // loading EVERY group in the activity - fifteen hundred rows to
+        // label a screenful of tickets - and this plugin is built for
+        // that many teams. A LEFT JOIN because a team-limit request
+        // carries groupid = 0 and is about no team at all.
         return $DB->get_records_sql(
-            "SELECT t.*
+            "SELECT t.*, g.name AS groupname, g.pluginuid AS grouppluginuid
                FROM {selfselectadvanced_ticket} t
+          LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
               WHERE t.activityid = :activityid" . $mine . "
            ORDER BY CASE t.status
                         WHEN 'open' THEN 0
@@ -798,6 +843,81 @@ class tickets {
                     END,
                     CASE WHEN t.status IN ('open','claimed') THEN t.timecreated ELSE -t.timemodified END,
                     t.id",
+            $params,
+            $limitfrom,
+            $limitnum
+        );
+    }
+
+    /**
+     * How many tickets the queue holds for this viewer.
+     *
+     * Needed because the queue is now paged: resolved and declined
+     * tickets are never removed, so over a semester the queue grows
+     * without bound and returning all of it was a page that got slower
+     * every week.
+     *
+     * @param activity $activity the activity
+     * @param int $viewerid the viewer, 0 for no filtering
+     * @return int
+     */
+    public static function queue_count(activity $activity, int $viewerid = 0): int {
+        global $DB;
+
+        $params = ['activityid' => $activity->id()];
+        $mine = '';
+        if ($viewerid > 0 && !has_capability('mod/selfselectadvanced:manage', $activity->context(), $viewerid)) {
+            $mine = ' AND t.requestedby <> :viewerid';
+            $params['viewerid'] = $viewerid;
+        }
+
+        return $DB->count_records_sql(
+            "SELECT COUNT(1) FROM {selfselectadvanced_ticket} t
+              WHERE t.activityid = :activityid" . $mine,
+            $params
+        );
+    }
+
+    /**
+     * How many OPEN tickets precede a given offset in the queue.
+     *
+     * The queue numbers open tickets 1, 2, 3 for the people waiting in
+     * it, and that numbering has to stay true on page two. Open tickets
+     * sort first, so the count of open ones before an offset is simply
+     * the smaller of the offset and the total number open.
+     *
+     * @param activity $activity the activity
+     * @param int $viewerid the viewer, 0 for no filtering
+     * @param int $limitfrom the page offset
+     * @return int
+     */
+    public static function open_before(activity $activity, int $viewerid, int $limitfrom): int {
+        return min($limitfrom, self::count_open($activity, $viewerid));
+    }
+
+    /**
+     * How many tickets are still waiting for somebody to take them up.
+     *
+     * A count, because the pages that want this number wanted only this
+     * number and were fetching the entire queue to arrive at it.
+     *
+     * @param activity $activity the activity
+     * @param int $viewerid the viewer, 0 for no filtering
+     * @return int
+     */
+    public static function count_open(activity $activity, int $viewerid = 0): int {
+        global $DB;
+
+        $params = ['activityid' => $activity->id(), 'open' => self::STATUS_OPEN];
+        $mine = '';
+        if ($viewerid > 0 && !has_capability('mod/selfselectadvanced:manage', $activity->context(), $viewerid)) {
+            $mine = ' AND t.requestedby <> :viewerid';
+            $params['viewerid'] = $viewerid;
+        }
+
+        return $DB->count_records_sql(
+            "SELECT COUNT(1) FROM {selfselectadvanced_ticket} t
+              WHERE t.activityid = :activityid AND t.status = :open" . $mine,
             $params
         );
     }

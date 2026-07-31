@@ -103,6 +103,32 @@ class evaluator {
         }
         $attrs = manager::get_for_users($memberids);
 
+        return self::feasibility_from_data($rules, $template, $memberids, $attrs);
+    }
+
+    /**
+     * The feasibility verdict over data already in hand — no queries.
+     *
+     * Split out of feasibility() in 1.19.1 so that a caller judging MANY
+     * groups at once (the join picker, which annotates up to fifty teams
+     * on one keystroke) pays for the activity's rules, its seat plan and
+     * everyone's attributes ONCE rather than once per team. The
+     * per-group gate keeps calling this through feasibility() above, so
+     * there is exactly one implementation of the verdict and the picker
+     * can never disagree with the gate that follows it.
+     *
+     * @param stdClass[] $rules the activity's quota rules, priority order
+     * @param stdClass[] $template the activity's seat plan
+     * @param int[] $memberids the roster to judge, candidate included
+     * @param stdClass[] $attrs attributes keyed by user id
+     * @return stdClass {missing, seated, maxexceeded: ?rule entry}
+     */
+    public static function feasibility_from_data(
+        array $rules,
+        array $template,
+        array $memberids,
+        array $attrs
+    ): stdClass {
         // Counting rules: an exceeded MAXIMUM can never self-heal by
         // adding members; an unmet MINIMUM demands at least its deficit
         // in further members, since each admitted member raises one

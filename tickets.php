@@ -107,7 +107,14 @@ echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('tickets', 'mod_selfselectadvanced'));
 echo html_writer::div(get_string('ticketsintro', 'mod_selfselectadvanced'), 'alert alert-info');
 
-$queue = tickets::queue($activity, (int) $USER->id);
+// Paged: resolved and declined tickets are never removed, so an
+// activity's queue grows all semester and returning the whole of it was
+// a page that got slower every week. The page size control is the same
+// one every other table on this plugin uses.
+$perpage = \mod_selfselectadvanced\local\perpage::current(50);
+$page = optional_param('page', 0, PARAM_INT);
+$totaltickets = tickets::queue_count($activity, (int) $USER->id);
+$queue = tickets::queue($activity, (int) $USER->id, $page * $perpage, $perpage);
 if (!$queue) {
     echo html_writer::div(get_string('ticketsempty', 'mod_selfselectadvanced'));
     echo $OUTPUT->footer();
@@ -132,8 +139,13 @@ foreach (array_chunk(array_unique($userids), 1000) as $chunk) {
         $usernames[(int) $u->id] = fullname($u);
     }
 }
-foreach ($DB->get_records('selfselectadvanced_group', ['activityid' => $activity->id()], '', 'id, name, pluginuid') as $g) {
-    $groupnames[(int) $g->id] = format_string($g->name) . ' (' . $g->pluginuid . ')';
+// The team name arrives with the ticket now. This used to load EVERY
+// group in the activity - fifteen hundred rows to label one screen.
+foreach ($queue as $ticket) {
+    if ((int) $ticket->groupid > 0 && $ticket->groupname !== null) {
+        $groupnames[(int) $ticket->groupid] =
+            format_string($ticket->groupname) . ' (' . $ticket->grouppluginuid . ')';
+    }
 }
 
 $table = new html_table();
@@ -149,7 +161,7 @@ $table->head = [
     get_string('actions'),
 ];
 
-$position = 0;
+$position = tickets::open_before($activity, (int) $USER->id, $page * $perpage);
 foreach ($queue as $ticket) {
     $isopen = $ticket->status === tickets::STATUS_OPEN;
     $isclaimed = $ticket->status === tickets::STATUS_CLAIMED;
@@ -261,5 +273,7 @@ foreach ($queue as $ticket) {
     }
     $table->data[] = $row;
 }
+echo html_writer::div(\mod_selfselectadvanced\local\perpage::controls($baseurl), 'mb-3');
 echo html_writer::table($table);
+echo $OUTPUT->paging_bar($totaltickets, $page, $perpage, $baseurl);
 echo $OUTPUT->footer();

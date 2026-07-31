@@ -1,5 +1,27 @@
 # Final self-audit — mod_selfselectadvanced 1.0.0 (2026-07-24)
 
+> **Superseded in part — read this first (added 1.19.1, 2026-07-30).**
+>
+> This is the record of the 1.0.0 gate and is kept as written, because
+> a gate record that gets edited afterwards is worth nothing. Three of
+> its claims were later shown to be wrong, and are corrected in place
+> below where they appear:
+>
+> - **"GETs render-only"** (§14.12) was **false when written**.
+>   `departments.php` mutated data through GET links; an external audit
+>   found it on 2026-07-30 and it was fixed in 1.19.1 (HIGH-SEC-001).
+>   The checklist tick was based on a survey that missed that file.
+> - **"every checklist item green; the build is complete"** overstated
+>   what a green gate proves. The gate ran what tests existed; it could
+>   not report on privacy exports, backup coverage or file lifecycle
+>   that no test exercised. Defects in all three were later confirmed.
+> - **The matrix figures** below are the 1.0.0 run and are correct for
+>   it, but they are not evidence about any later release.
+>
+> What was actually found, accepted, rejected and repaired is recorded
+> in `docs/audits/audit-response-1.19.md`, against the source, with the
+> false criticals called out as false.
+
 Consolidates the per-slice audits (slice-00 … slice-13, this folder).
 Every §16 gate was recorded as passed before its successor began (C14);
 the definitive pass criterion since the CI migration is the CI box's
@@ -25,7 +47,13 @@ testbeds in slice 0).
   moveedit, quotas, overrides, ledger, flagged; attributes.php via
   `admin_externalpage_setup`) ✔
 - `sesskey` on every state change; GETs render-only (destructive
-  actions use confirm pages whose mutation is the POST) ✔
+  actions use confirm pages whose mutation is the POST) ✘ — **this tick
+  was wrong.** `departments.php` deleted and reordered departments
+  through GET links guarded by `sesskey` alone, so a prefetching
+  browser or a crawler could fire them. Closed in 1.19.1: those
+  controls are single-button POST forms and all three handlers require
+  `data_submitted() && confirm_sesskey()`. A sweep of every root page
+  at that time found no other GET mutation in the plugin.
 - All input via `required_param`/`optional_param`/formslib with
   `PARAM_*`; CSV via core `csv_import_reader` with header/row
   validation ✔
@@ -80,7 +108,17 @@ joint move sets + bypasses (8), penalty math incl. P16/B2 (9),
 snapshot/drift/A6 (10), bulk + dashboards (11), B1/B4/cascade
 determinism (12), privacy/backup/leave/reminder (13).
 
-**Verdict: every checklist item green; the build is complete per §16
-and packaged for the Moodle Plugins Directory (version 1.0.0,
-MATURITY_STABLE, GPL v3+, screenshots to be captured from the
-browsable CI instance at release upload).**
+**Verdict (1.0.0, as recorded at the time): every checklist item green;
+the build is complete per §16 and packaged for the Moodle Plugins
+Directory (version 1.0.0, MATURITY_STABLE, GPL v3+, screenshots to be
+captured from the browsable CI instance at release upload).**
+
+**Correction (1.19.1).** "Every checklist item green" claimed more than
+the evidence supported. A green gate means the tests that exist passed;
+it says nothing about behaviour no test covers, and the security tick
+above was simply incorrect. Later work confirmed defects in the privacy
+export, in backup coverage and in the proposal-file lifecycle, none of
+which any test then exercised. The maturity level is unchanged because
+the defects found were repaired and are now covered by tests — but the
+reasoning that produced this verdict was unsound, and stating that
+plainly matters more than the level itself.

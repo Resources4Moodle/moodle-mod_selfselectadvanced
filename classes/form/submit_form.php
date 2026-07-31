@@ -66,12 +66,22 @@ class submit_form extends \moodleform {
                         return $user ? fullname($user) : '';
                     },
                     'data-cmid' => $this->_customdata['cmid'],
-                    // Student-approach mode keeps a full guide on the
-                    // list: omitting them would itself advertise their
-                    // load, which is the thing that mode hides
-                    // (strategy 1.16 A). Capacity is still enforced,
-                    // silently, at submission.
-                    'data-withroom' => empty($this->_customdata['studentapproach']) ? '1' : '0',
+                    // A guide with no room left is not offered, in any
+                    // mode (maintainer's rule, 1.19.1). This REVERSES
+                    // the 1.16 A decision to keep a full guide listed
+                    // in students-approach mode so that an absence
+                    // could not be read as a load figure.
+                    //
+                    // The reversal is deliberate: submitting to a full
+                    // guide was always refused at the moment of
+                    // submission, so the old behaviour did not protect
+                    // anybody - it just moved the refusal later, after
+                    // the team had committed to a choice. The privacy
+                    // point is answered by publishing the rule instead
+                    // of hiding it: the help text says plainly that
+                    // full guides are not listed, so an absence carries
+                    // no more information than the stated policy.
+                    'data-withroom' => '1',
                 ]
             );
             $mform->setType('guide', PARAM_INT);

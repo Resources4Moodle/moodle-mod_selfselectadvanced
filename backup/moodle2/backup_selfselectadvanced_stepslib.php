@@ -72,7 +72,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'state', 'autoformed', 'successorid', 'successortype', 'timenominated',
             'guidesuccessorid', 'timeguidenominated',
             'returncomment', 'returncommentformat', 'listed', 'timelisted',
-            'guidenotes', 'guidenotesformat', 'timesubmitted', 'timeapproved', 'timefrozen', 'coregroupid',
+            'guidenotes', 'guidenotesformat', 'timesubmitted', 'timeapproved', 'timefrozen',
+            'frozenbystaff', 'coregroupid',
             'timecreated', 'timemodified',
         ]);
         $members = new backup_nested_element('members');
@@ -99,7 +100,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $override = new backup_nested_element('override', ['id'], [
             'scope', 'userid', 'groupid', 'timeopen', 'timedue', 'timecutoff', 'maxlead',
             'maxmembership', 'maxguided', 'minsize', 'maxsize', 'quotaexempt',
-            'penaltywaived', 'status', 'timecreated', 'timemodified',
+            'penaltywaived', 'guidehidden', 'status', 'timecreated', 'timemodified',
         ]);
         $volunteers = new backup_nested_element('volunteers');
         $volunteer = new backup_nested_element('volunteer', ['id'], [
@@ -118,11 +119,23 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'groupid', 'guideid', 'status', 'sentby', 'message', 'messageformat',
             'reason', 'reasonformat', 'timecreated', 'timeresponded',
         ]);
+        // Join requests that are still WAITING. Staged moves stay out of
+        // the backup as transient manager working state (M2), and that
+        // was true of the whole table until 1.19 put join requests in
+        // it: an open request is a student waiting on an answer, and it
+        // carries the reason they wrote. Answered ones are history and
+        // stay out with the rest.
+        $joinrequests = new backup_nested_element('joinrequests');
+        $joinrequest = new backup_nested_element('joinrequest', ['id'], [
+            'userid', 'sourcegroupid', 'targetgroupid', 'status',
+            'reason', 'responsenote', 'usermodified', 'timecreated', 'timemodified',
+        ]);
         $tickets = new backup_nested_element('tickets');
         $ticket = new backup_nested_element('ticket', ['id'], [
             'groupid', 'type', 'status', 'requestedby', 'request', 'requestformat',
             'claimedby', 'timeclaimed', 'resolvedby', 'timeresolved',
             'resolution', 'resolutionformat', 'timecreated', 'timemodified',
+            'requested',
         ]);
 
         $activity->add_child($quotas);
@@ -149,6 +162,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         // Tickets sit under the activity, after the groups subtree, so
         // a restore already holds the ssagroup mapping their groupid
         // needs.
+        $activity->add_child($joinrequests);
+        $joinrequests->add_child($joinrequest);
         $activity->add_child($tickets);
         $tickets->add_child($ticket);
         // After the groups subtree, like tickets, so a restore already
@@ -174,6 +189,11 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             );
             $volunteer->set_source_table('selfselectadvanced_volunteer', ['activityid' => backup::VAR_PARENTID]);
             $digestitem->set_source_table('selfselectadvanced_digestq', ['activityid' => backup::VAR_PARENTID]);
+            $joinrequest->set_source_sql(
+                "SELECT * FROM {selfselectadvanced_move}
+                  WHERE activityid = ? AND status = 'requested'",
+                [backup::VAR_PARENTID]
+            );
             $ticket->set_source_table('selfselectadvanced_ticket', ['activityid' => backup::VAR_PARENTID]);
             $contact->set_source_table('selfselectadvanced_contact', ['activityid' => backup::VAR_PARENTID]);
         }
@@ -183,6 +203,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $group->annotate_ids('user', 'leaderid');
         $group->annotate_ids('user', 'guideid');
         $group->annotate_ids('user', 'successorid');
+        $group->annotate_ids('user', 'guidesuccessorid');
         $group->annotate_ids('group', 'coregroupid');
         $snapshot->annotate_ids('group', 'coregroupid');
         $snapshot->annotate_ids('user', 'takenby');
@@ -190,6 +211,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $volunteer->annotate_ids('user', 'userid');
         $digestitem->annotate_ids('user', 'userid');
         $eoi->annotate_ids('user', 'guideid');
+        $joinrequest->annotate_ids('user', 'userid');
+        $joinrequest->annotate_ids('user', 'usermodified');
         $ticket->annotate_ids('user', 'requestedby');
         $ticket->annotate_ids('user', 'claimedby');
         $ticket->annotate_ids('user', 'resolvedby');
@@ -198,6 +221,12 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
 
         // Proposal documents travel with their group (itemid = group id).
         $group->annotate_files('mod_selfselectadvanced', 'proposal', 'id');
+        // Files embedded in the activity description. Restore already
+        // asks for these; without this annotation they never enter the
+        // backup file pool, so a duplicated or imported activity keeps
+        // the description text and loses every image in it, leaving
+        // dead @@PLUGINFILE@@ tokens behind.
+        $activity->annotate_files('mod_selfselectadvanced', 'intro', null);
 
         return $this->prepare_activity_structure($activity);
     }

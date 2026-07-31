@@ -89,38 +89,53 @@ class joinrequests {
         if ($source !== null && $source->state === state::FROZEN) {
             throw new \moodle_exception('refusaljoinsourcefrozen', 'mod_selfselectadvanced');
         }
-        // One live request at a time, as with every other queue here.
-        $live = $DB->get_record_select(
-            'selfselectadvanced_move',
-            'activityid = :activityid AND userid = :userid AND status = :requested',
-            [
+        // Serialised on the asker, so two clicks - or two tabs - cannot
+        // both pass the duplicate check and insert (audit HIGH-TX-002).
+        // The lock is on the person, because that is what the rule is
+        // about: one live request each.
+        $lock = locks::acquire('joinrequest:user:' . $userid);
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            // One live request at a time, as with every other queue here.
+            $live = $DB->get_record_select(
+                'selfselectadvanced_move',
+                'activityid = :activityid AND userid = :userid AND status = :requested',
+                [
+                    'activityid' => $activity->id(),
+                    'userid' => $userid,
+                    'requested' => self::STATUS_REQUESTED,
+                ]
+            );
+            if ($live) {
+                throw new \moodle_exception('refusaljoinduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
+            }
+
+            $now = time();
+            $request = (object) [
                 'activityid' => $activity->id(),
                 'userid' => $userid,
-                'requested' => self::STATUS_REQUESTED,
-            ]
-        );
-        if ($live) {
-            throw new \moodle_exception('refusaljoinduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
+                'sourcegroupid' => $source !== null ? (int) $source->id : null,
+                'targetgroupid' => $targetgroupid,
+                'makeleader' => 0,
+                'replaceleader' => 0,
+                'successorid' => null,
+                'status' => self::STATUS_REQUESTED,
+                'statusinfo' => null,
+                'reason' => $reason,
+                'responsenote' => null,
+                'usermodified' => $userid,
+                'timecreated' => $now,
+                'timemodified' => $now,
+            ];
+            $request->id = $DB->insert_record('selfselectadvanced_move', $request);
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $outermost, $e);
+        } finally {
+            $lock->release();
         }
-
-        $now = time();
-        $request = (object) [
-            'activityid' => $activity->id(),
-            'userid' => $userid,
-            'sourcegroupid' => $source !== null ? (int) $source->id : null,
-            'targetgroupid' => $targetgroupid,
-            'makeleader' => 0,
-            'replaceleader' => 0,
-            'successorid' => null,
-            'status' => self::STATUS_REQUESTED,
-            'statusinfo' => null,
-            'reason' => $reason,
-            'responsenote' => null,
-            'usermodified' => $userid,
-            'timecreated' => $now,
-            'timemodified' => $now,
-        ];
-        $request->id = $DB->insert_record('selfselectadvanced_move', $request);
 
         \mod_selfselectadvanced\event\join_requested::create([
             'objectid' => $request->id,
@@ -168,14 +183,65 @@ class joinrequests {
     ): stdClass {
         global $DB;
 
-        $request = self::get($activity, $requestid);
-        if ($request->status !== self::STATUS_REQUESTED) {
-            throw new \moodle_exception('refusaljoinnotopen', 'mod_selfselectadvanced');
-        }
-        $target = groups::get($activity, (int) $request->targetgroupid);
-        self::require_decider($activity, $target, $actorid);
+        // Serialised on the request, and the row is re-read INSIDE the
+        // lock (house rule A7): the copy the page loaded can be minutes
+        // old, and two leaders answering at once must not both act on a
+        // request that was open when each of them looked (audit
+        // HIGH-TX-001).
+        //
+        // The lock is taken on the request, never on a group. The move
+        // engine takes the activity lock itself, so the order is always
+        // joinrequest -> activity and cannot deadlock against it.
+        $lock = locks::acquire('joinrequest:' . $requestid);
+        try {
+            $request = self::get($activity, $requestid);
+            if ($request->status !== self::STATUS_REQUESTED) {
+                throw new \moodle_exception('refusaljoinnotopen', 'mod_selfselectadvanced');
+            }
+            $target = groups::get($activity, (int) $request->targetgroupid);
+            self::require_decider($activity, $target, $actorid);
 
-        if (!$accept) {
+            $fresh = $accept
+                ? self::do_accept($activity, $request, $target, $note, $actorid)
+                : self::do_decline($activity, $request, $note, $actorid);
+        } finally {
+            $lock->release();
+        }
+
+        // Mail never travels under a lock (the 1.15 lesson).
+        self::notify(
+            $activity,
+            (int) $request->userid,
+            $accept ? 'msgjoinacceptedsubject' : 'msgjoindeclinedsubject',
+            $accept ? 'msgjoinacceptedbody' : 'msgjoindeclinedbody',
+            $target,
+            (int) $request->userid,
+            $note
+        );
+
+        return $fresh;
+    }
+
+    /**
+     * Turn a request down, inside the caller's lock.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $request the request row, read under the lock
+     * @param string $note what the decider said
+     * @param int $actorid who decided
+     * @return stdClass the decided request
+     */
+    private static function do_decline(
+        activity $activity,
+        stdClass $request,
+        string $note,
+        int $actorid
+    ): stdClass {
+        global $DB;
+
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
             $DB->update_record('selfselectadvanced_move', (object) [
                 'id' => $request->id,
                 'status' => self::STATUS_DECLINED,
@@ -183,29 +249,47 @@ class joinrequests {
                 'usermodified' => $actorid,
                 'timemodified' => time(),
             ]);
-            $fresh = self::get($activity, $requestid);
             \mod_selfselectadvanced\event\join_decided::create([
-                'objectid' => $requestid,
+                'objectid' => (int) $request->id,
                 'context' => $activity->context(),
                 'relateduserid' => (int) $request->userid,
                 'other' => ['accepted' => false],
             ])->trigger();
-            self::notify(
-                $activity,
-                (int) $request->userid,
-                'msgjoindeclinedsubject',
-                'msgjoindeclinedbody',
-                $target,
-                (int) $request->userid,
-                $note
-            );
-
-            return $fresh;
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $outermost, $e);
         }
 
-        // A settled team has to be released by its guide before it can
-        // take anybody (strategy 1.19 B step 3). Saying which team, and
-        // who releases it, is the whole of the message.
+        return self::get($activity, (int) $request->id);
+    }
+
+    /**
+     * Admit the student, inside the caller's lock.
+     *
+     * The move and the closing of the request are ONE transaction. Before
+     * this they were two writes with the engine's own commit between
+     * them, so a failure after the move left the student transferred and
+     * the request still open for somebody to accept a second time.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $request the request row, read under the lock
+     * @param stdClass $target the target team
+     * @param string $note what the decider said
+     * @param int $actorid who decided
+     * @return stdClass the decided request
+     * @throws \moodle_exception when the composition rules refuse it
+     */
+    private static function do_accept(
+        activity $activity,
+        stdClass $request,
+        stdClass $target,
+        string $note,
+        int $actorid
+    ): stdClass {
+        global $DB;
+
+        // A settled team has to be released by its guide first
+        // (strategy 1.19 B step 3).
         if ($target->state === state::FROZEN) {
             throw new \moodle_exception('refusaljointargetfrozen', 'mod_selfselectadvanced');
         }
@@ -214,55 +298,52 @@ class joinrequests {
             throw new \moodle_exception('refusaljoinsourcefrozen', 'mod_selfselectadvanced');
         }
 
-        // Through the engine, exactly as a coordinator's move goes.
         $moves = (new api($activity))->moves();
-        $staged = $moves->stage(
-            (int) $request->userid,
-            $source !== null ? (int) $source->id : null,
-            (int) $target->id,
-            false,
-            null,
-            $actorid
-        );
-        $verdicts = $moves->validate_set([(int) $staged->id]);
-        if (empty($verdicts->valid)) {
-            // Undo the staging; the request stays open so the leader can
-            // see why and the student can try elsewhere.
-            $moves->cancel((int) $staged->id, $actorid);
-            throw new \moodle_exception(
-                'refusaljoinrules',
-                'mod_selfselectadvanced',
-                '',
-                self::first_reason($verdicts, (int) $staged->id)
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $staged = $moves->stage(
+                (int) $request->userid,
+                $source !== null ? (int) $source->id : null,
+                (int) $target->id,
+                false,
+                null,
+                $actorid
             );
+            $verdicts = $moves->validate_set([(int) $staged->id]);
+            if (empty($verdicts->valid)) {
+                // Refusing here rolls the staging back with everything
+                // else, so nothing survives a refusal.
+                throw new \moodle_exception(
+                    'refusaljoinrules',
+                    'mod_selfselectadvanced',
+                    '',
+                    self::first_reason($verdicts, (int) $staged->id)
+                );
+            }
+            $moves->commit_set([(int) $staged->id], $actorid);
+
+            $DB->update_record('selfselectadvanced_move', (object) [
+                'id' => $request->id,
+                'status' => 'committed',
+                'responsenote' => $note,
+                'usermodified' => $actorid,
+                'timemodified' => time(),
+            ]);
+            \mod_selfselectadvanced\event\join_decided::create([
+                'objectid' => (int) $request->id,
+                'context' => $activity->context(),
+                'relateduserid' => (int) $request->userid,
+                'other' => ['accepted' => true],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $outermost, $e);
         }
-        $moves->commit_set([(int) $staged->id], $actorid);
 
-        $DB->update_record('selfselectadvanced_move', (object) [
-            'id' => $request->id,
-            'status' => 'committed',
-            'responsenote' => $note,
-            'usermodified' => $actorid,
-            'timemodified' => time(),
-        ]);
-
-        \mod_selfselectadvanced\event\join_decided::create([
-            'objectid' => $requestid,
-            'context' => $activity->context(),
-            'relateduserid' => (int) $request->userid,
-            'other' => ['accepted' => true],
-        ])->trigger();
-        self::notify(
-            $activity,
-            (int) $request->userid,
-            'msgjoinacceptedsubject',
-            'msgjoinacceptedbody',
-            $target,
-            (int) $request->userid,
-            $note
-        );
-
-        return self::get($activity, $requestid);
+        return self::get($activity, (int) $request->id);
     }
 
     /**
@@ -277,19 +358,34 @@ class joinrequests {
     public static function withdraw(activity $activity, int $requestid, int $userid): stdClass {
         global $DB;
 
-        $request = self::get($activity, $requestid);
-        if ((int) $request->userid !== $userid) {
-            throw new \moodle_exception('refusaljoinnotyours', 'mod_selfselectadvanced');
+        // Under the same lock the answer takes, so a withdrawal and an
+        // acceptance racing each other resolve one way or the other and
+        // never both (audit HIGH-TX-002).
+        $lock = locks::acquire('joinrequest:' . $requestid);
+        $outermost = !$DB->is_transaction_started();
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $request = self::get($activity, $requestid);
+            if ((int) $request->userid !== $userid) {
+                throw new \moodle_exception('refusaljoinnotyours', 'mod_selfselectadvanced');
+            }
+            if ($request->status !== self::STATUS_REQUESTED) {
+                throw new \moodle_exception('refusaljoinnotopen', 'mod_selfselectadvanced');
+            }
+            $DB->update_record('selfselectadvanced_move', (object) [
+                'id' => $requestid,
+                'status' => 'cancelled',
+                'usermodified' => $userid,
+                'timemodified' => time(),
+            ]);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $outermost, $e);
+        } finally {
+            $lock->release();
         }
-        if ($request->status !== self::STATUS_REQUESTED) {
-            throw new \moodle_exception('refusaljoinnotopen', 'mod_selfselectadvanced');
-        }
-        $DB->update_record('selfselectadvanced_move', (object) [
-            'id' => $requestid,
-            'status' => 'cancelled',
-            'usermodified' => $userid,
-            'timemodified' => time(),
-        ]);
 
         return self::get($activity, $requestid);
     }
@@ -376,6 +472,26 @@ class joinrequests {
         }
 
         throw new \moodle_exception('refusaljoinnotleader', 'mod_selfselectadvanced');
+    }
+
+    /**
+     * Roll back and rethrow, but only when we opened the transaction.
+     *
+     * Moodle wraps every PHPUnit test in a transaction of its own, and
+     * a nested rollback sets force_rollback and poisons the caller's.
+     * The same rule the ticket queue follows.
+     *
+     * @param \moodle_transaction|null $transaction the transaction, if one was started
+     * @param bool $outermost whether this call opened it
+     * @param \Throwable $e what went wrong
+     * @throws \Throwable always
+     */
+    private static function rollback(?\moodle_transaction $transaction, bool $outermost, \Throwable $e): void {
+        if ($transaction !== null && $outermost) {
+            $transaction->rollback($e);
+        }
+
+        throw $e;
     }
 
     /**

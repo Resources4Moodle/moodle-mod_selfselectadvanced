@@ -342,6 +342,27 @@ function selfselectadvanced_reset_userdata($data): array {
         $DB->delete_records('selfselectadvanced_contact', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $instance->id]);
+        // Proposal attachments are keyed by plugin group id in the
+        // module's own context, and a reset does NOT remove that
+        // context - so without this the files outlive every group that
+        // owned them, unreachable and uncounted against nobody's quota.
+        // (Deleting the activity itself is different: core drops the
+        // whole context, files included.)
+        if ($groupids) {
+            $resetcm = get_coursemodule_from_instance('selfselectadvanced', $instance->id, $data->courseid, false, IGNORE_MISSING);
+            if ($resetcm) {
+                $fs = get_file_storage();
+                $resetcontext = context_module::instance($resetcm->id);
+                foreach ($groupids as $groupid) {
+                    $fs->delete_area_files(
+                        $resetcontext->id,
+                        'mod_selfselectadvanced',
+                        'proposal',
+                        (int) $groupid
+                    );
+                }
+            }
+        }
         $DB->delete_records('selfselectadvanced_group', ['activityid' => $instance->id]);
         $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_reminded_' . $instance->id]);
         if (empty($data->reset_gradebook_grades)) {
@@ -359,8 +380,8 @@ function selfselectadvanced_reset_userdata($data): array {
 
 /**
  * Serve files from the proposal filearea (itemid = plugin group id).
- * Visible to confirmed members of that group and to staff with
- * viewall.
+ * Visible to confirmed members of that group, to the guide assigned to
+ * it, and to staff with viewall.
  *
  * @param stdClass $course the course
  * @param stdClass $cm the course module
@@ -397,7 +418,13 @@ function selfselectadvanced_pluginfile(
             'userid' => $USER->id,
             'status' => 'confirmed',
         ]);
-        if (!$ismember) {
+        // The group's own guide reads the proposal too - judging it is
+        // the whole of the job. Until 1.19.1 a guide without :viewall
+        // was refused their own group's file, so the attachment the
+        // team was asked to submit was unreadable by its reader.
+        $isguide = (int) ($group->guideid ?? 0) === (int) $USER->id
+            && has_capability('mod/selfselectadvanced:guide', $context);
+        if (!$ismember && !$isguide) {
             return false;
         }
     }

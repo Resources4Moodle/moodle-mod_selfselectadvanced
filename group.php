@@ -595,8 +595,30 @@ echo $OUTPUT->render_from_template('mod_selfselectadvanced/group_page', $page->e
 // Proposal section (1.3.0): current file + upload control.
 $fs = get_file_storage();
 $proposalfiles = $fs->get_area_files($context->id, 'mod_selfselectadvanced', 'proposal', (int) $group->id, 'id', false);
+// Who may actually DOWNLOAD it, matching selfselectadvanced_pluginfile()
+// exactly. This page admits invited-but-unconfirmed people, and it used
+// to hand them a live link to a file the file server then refused - so
+// an invitee clicked the team's proposal and got "file not found". The
+// filename is still shown, because it was already on their screen and
+// hiding it now would say less than the page said before; what changes
+// is that it is no longer a link that cannot work.
+$maydownloadproposal = has_capability('mod/selfselectadvanced:viewall', $context)
+    || ($membership && $membership->status === \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED)
+    || ((int) ($group->guideid ?? 0) === (int) $USER->id
+        && has_capability('mod/selfselectadvanced:guide', $context));
+
 $proposalhtml = '';
 foreach ($proposalfiles as $file) {
+    if (!$maydownloadproposal) {
+        $proposalhtml .= html_writer::div(
+            html_writer::span(s($file->get_filename()), 'text-muted')
+            . ' ' . html_writer::span(
+                get_string('proposalmemberonly', 'mod_selfselectadvanced'),
+                'badge bg-secondary'
+            )
+        );
+        continue;
+    }
     $url = moodle_url::make_pluginfile_url(
         $context->id,
         'mod_selfselectadvanced',
