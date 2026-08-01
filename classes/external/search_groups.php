@@ -37,6 +37,13 @@ use mod_selfselectadvanced\activity;
  * from whichever they have in front of them - and since 1.19 a student
  * choosing a team to ask to join uses the same control.
  *
+ * FIELD-VISIBILITY MATRIX (contact-privacy audit, 2026-08-01): this
+ * endpoint discloses to any student every TEAM's name, project id and
+ * state. It returns no person, no name and no contact detail, so it is
+ * not a cardinal-rule surface and needs no gate from the contact-privacy
+ * work. Recorded here so the matrix has a row for it rather than a
+ * silence.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later

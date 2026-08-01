@@ -70,7 +70,7 @@ final class joinrequests_test extends \advanced_testcase {
         $guide = $mk('teacher');
         $manager = $mk('editingteacher');
         $coordinator = $mk('teacher');
-        role_assign(coordinatorrole::ensure(), $coordinator->id, \context_course::instance($course->id));
+        role_assign(coordinatorrole::ensure(), $coordinator->id, $activity->context());
 
         $alpha = $plugingen->create_group([
             'activityid' => $activity->id(),

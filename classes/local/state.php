@@ -165,8 +165,20 @@ final class state {
                 format_string($fresh->name)
             );
         } else {
-            // A5: notify the managers that the queue has a new entry.
-            foreach (get_users_by_capability($this->activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $manager) {
+            // A5: notify everybody who can work the guide-assignment
+            // queue that it has a new entry. Holders of the narrow
+            // :assignguide capability are exactly the people this queue
+            // is work for, so a manage-only enumeration left them
+            // watching a page nobody told them to look at. Deduplicated
+            // by the helper: somebody holding both is one recipient.
+            // Outside the lock and the transaction, where it already
+            // was (house rule 1).
+            foreach (
+                notifier::recipients($this->activity, [
+                    'mod/selfselectadvanced:manage',
+                    'mod/selfselectadvanced:assignguide',
+                ]) as $manager
+            ) {
                 notifier::send(
                     $this->activity,
                     'guidequeue',
@@ -208,6 +220,19 @@ final class state {
             if (!in_array($fresh->state, [self::PENDING_GUIDE, self::FIRM, self::FROZEN], true)) {
                 throw new \moodle_exception('refusalreassignstate', 'mod_selfselectadvanced');
             }
+            // Conflict of interest (1.16 D) on the RE-READ row, inside
+            // the lock: a narrow-authority actor may not pick the guide
+            // for a team they are involved in - including making
+            // themselves its guide, which is the case this exists for.
+            // require_uninvolved() returns at once for a :manage
+            // holder, so every actor who could reach assign_guide()
+            // before :assignguide existed is unaffected; this method's
+            // only caller until now was manage.php behind :manage.
+            //
+            // This method accepts FROZEN groups, so a reassignment here
+            // is a core-group guide-membership change: the sync is
+            // requested below and runs outside every lock (decision 7).
+            tickets::require_uninvolved($this->activity, $fresh, $actorid);
             $oldguide = (int) $fresh->guideid;
             // Re-assigning the guide the group already has is a no-op
             // cap-wise: their slot is held by this very group, so the

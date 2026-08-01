@@ -16,6 +16,8 @@
 
 require_once(__DIR__ . '/../../../../lib/behat/behat_base.php');
 
+use Behat\Mink\Exception\ExpectationException;
+
 /**
  * Behat page resolvers for mod_selfselectadvanced.
  *
@@ -33,11 +35,57 @@ class behat_mod_selfselectadvanced extends behat_base {
      * Recognised types (identifier = the activity name): quotas,
      * manage, guide, tickets and friends below.
      *
+     * Four types address ONE team or ONE guide rather than the whole
+     * activity, so their identifier is "Activity name > thing":
+     *   group        - "Lab groups > Alpha", the team page
+     *   review       - "Lab groups > Alpha", the guide's review page
+     *   eoi members  - "Lab groups > Alpha", the interest drill-down
+     *   guide load   - "Lab groups > guide1", one guide's workload
+     * and one addresses a COURSE rather than an activity:
+     *   course role assign - "C1", the course's Assign roles screen
+     * Behat's page-resolver contract passes a single identifier, and
+     * every one of these pages needs a second key in its URL; a
+     * scenario that has to guess a database id instead is a scenario
+     * that stops working the moment a fixture is reordered.
+     *
      * @param string $type page type
-     * @param string $identifier activity name
+     * @param string $identifier activity name, or "activity > team|guide"
      * @return moodle_url
      */
     protected function resolve_page_instance_url(string $type, string $identifier): moodle_url {
+        $type = strtolower($type);
+        if ($type === 'course role assign') {
+            // Core resolves /admin/roles/assign.php for an ACTIVITY
+            // context ("... selfselectadvanced activity roles" page) but
+            // has no course-level equivalent, and the assignability of
+            // the Group Coordinator role is exactly a course-versus-
+            // activity question. The identifier is the course shortname.
+            return new moodle_url('/admin/roles/assign.php', [
+                'contextid' => \context_course::instance($this->course_id_by_shortname($identifier))->id,
+            ]);
+        }
+        $subpages = [
+            'group' => '/mod/selfselectadvanced/group.php',
+            'review' => '/mod/selfselectadvanced/review.php',
+            'eoi members' => '/mod/selfselectadvanced/eoilist.php',
+        ];
+        if (isset($subpages[$type]) || $type === 'guide load') {
+            [$activityname, $reference] = $this->split_reference($type, $identifier);
+            $cm = $this->get_cm_by_activity_name('selfselectadvanced', $activityname);
+            if ($type === 'guide load') {
+                return new moodle_url('/mod/selfselectadvanced/guideload.php', [
+                    'id' => $cm->id,
+                    'guide' => $this->user_id_by_username($reference),
+                ]);
+            }
+            $groupid = $this->group_id_by_name((int) $cm->instance, $reference);
+            // The drill-down on eoilist.php is addressed with viewgroup;
+            // group.php and review.php both use g.
+            $key = $type === 'eoi members' ? 'viewgroup' : 'g';
+
+            return new moodle_url($subpages[$type], ['id' => $cm->id, $key => $groupid]);
+        }
+
         $pages = [
             'quotas' => '/mod/selfselectadvanced/quotas.php',
             'manage' => '/mod/selfselectadvanced/manage.php',
@@ -54,13 +102,158 @@ class behat_mod_selfselectadvanced extends behat_base {
             'coordinators' => '/mod/selfselectadvanced/coordinators.php',
             'guide queue' => '/mod/selfselectadvanced/guidequeue.php',
             'join' => '/mod/selfselectadvanced/joinrequest.php',
+            'eoi list' => '/mod/selfselectadvanced/eoilist.php',
         ];
-        $type = strtolower($type);
         if (!isset($pages[$type])) {
             throw new Exception('Unrecognised mod_selfselectadvanced page type "' . $type . '"');
         }
         $cm = $this->get_cm_by_activity_name('selfselectadvanced', $identifier);
 
         return new moodle_url($pages[$type], ['id' => $cm->id]);
+    }
+
+    /**
+     * Split "Activity name > thing" into its two halves.
+     *
+     * @param string $type the page type, for the error message
+     * @param string $identifier the raw identifier
+     * @return string[] activity name, then the reference
+     */
+    protected function split_reference(string $type, string $identifier): array {
+        $parts = array_map('trim', explode('>', $identifier, 2));
+        if (count($parts) !== 2 || $parts[0] === '' || $parts[1] === '') {
+            throw new Exception(
+                'The "' . $type . '" page needs an identifier of the form "Activity name > reference", got "'
+                    . $identifier . '"'
+            );
+        }
+
+        return $parts;
+    }
+
+    /**
+     * A plugin group id from its name inside one activity.
+     *
+     * @param int $instanceid the selfselectadvanced instance id
+     * @param string $name the team name
+     * @return int the group id
+     */
+    protected function group_id_by_name(int $instanceid, string $name): int {
+        global $DB;
+
+        $id = $DB->get_field('selfselectadvanced_group', 'id', [
+            'activityid' => $instanceid,
+            'name' => $name,
+        ]);
+        if (!$id) {
+            throw new Exception('No mod_selfselectadvanced team named "' . $name . '" in that activity');
+        }
+
+        return (int) $id;
+    }
+
+    /**
+     * A user id from a username.
+     *
+     * @param string $username the username
+     * @return int the user id
+     */
+    protected function user_id_by_username(string $username): int {
+        global $DB;
+
+        return (int) $DB->get_field('user', 'id', ['username' => $username], MUST_EXIST);
+    }
+
+    /**
+     * A course id from its shortname.
+     *
+     * @param string $shortname the course shortname
+     * @return int the course id
+     */
+    protected function course_id_by_shortname(string $shortname): int {
+        global $DB;
+
+        return (int) $DB->get_field('course', 'id', ['shortname' => $shortname], MUST_EXIST);
+    }
+
+    /**
+     * A plugin page must refuse the user who is already logged in.
+     *
+     * A refusal is the ASSERTION in half of viewassignedteams.feature,
+     * and a plain "I am on the ... page" step can never express one:
+     * Behat appends its own exception sniffer after every step, that
+     * sniffer treats Moodle's error page as a crashed step, and it does
+     * so whatever the debug settings are (the page carries
+     * data-rel="fatalerror"). So this step visits the page, asserts the
+     * refusal ITSELF - by its exact text, so a DIFFERENT error still
+     * fails - and then leaves the browser on the dashboard, which is
+     * what the sniffer sees.
+     *
+     * @Then the :identifier :pagetype page refuses me
+     *
+     * @param string $identifier the page identifier, as for the resolver
+     * @param string $pagetype the plugin page type, without the component prefix
+     */
+    public function the_page_refuses_me(string $identifier, string $pagetype): void {
+        $this->assert_page_refuses($identifier, $pagetype, null);
+    }
+
+    /**
+     * A plugin page must refuse the logged-in user AND show none of the
+     * data the page would have carried.
+     *
+     * A refusal that still printed the roster would pass the step above.
+     *
+     * @Then the :identifier :pagetype page refuses me and discloses nothing of :needle
+     *
+     * @param string $identifier the page identifier, as for the resolver
+     * @param string $pagetype the plugin page type, without the component prefix
+     * @param string $needle text that must NOT appear on the refusal page
+     */
+    public function the_page_refuses_me_and_discloses_nothing(
+        string $identifier,
+        string $pagetype,
+        string $needle
+    ): void {
+        $this->assert_page_refuses($identifier, $pagetype, $needle);
+    }
+
+    /**
+     * Visit a page, assert it refuses, then move somewhere harmless.
+     *
+     * @param string $identifier the page identifier
+     * @param string $pagetype the plugin page type
+     * @param string|null $needle text that must not appear, or null
+     */
+    protected function assert_page_refuses(string $identifier, string $pagetype, ?string $needle): void {
+        // Driven straight through the session rather than through
+        // $this->execute(), which calls look_for_exceptions() itself
+        // and would report the refusal this step exists to assert.
+        $url = $this->resolve_page_instance_url($pagetype, $identifier);
+        $this->getSession()->visit($this->locate_path($url->out_as_local_url(false)));
+
+        $text = $this->getSession()->getPage()->getText();
+        // The refusal core renders for require_capability() and for
+        // moodle_exception('nopermissions'), without the capability
+        // name that follows it in brackets.
+        $refusal = 'Sorry, but you do not currently have permissions to do that';
+        if (!str_contains($text, $refusal)) {
+            throw new ExpectationException(
+                'The "' . $pagetype . '" page for "' . $identifier . '" did not refuse: it said "'
+                    . substr(trim(preg_replace('/\s+/', ' ', $text)), 0, 400) . '"',
+                $this->getSession()
+            );
+        }
+        if ($needle !== null && str_contains($text, $needle)) {
+            throw new ExpectationException(
+                'The refusal page still disclosed "' . $needle . '"',
+                $this->getSession()
+            );
+        }
+
+        // Leave the browser on a page the framework's own after-step
+        // exception sniffer is happy with. Without this the scenario
+        // fails on the very page it exists to assert.
+        $this->execute('behat_general::i_visit', [new moodle_url('/my/')]);
     }
 }

@@ -91,6 +91,32 @@ class notifier {
     }
 
     /**
+     * Users holding ANY of the given capabilities in the activity
+     * context, deduplicated - a person holding two of them is returned
+     * once.
+     *
+     * One bounded get_users_by_capability() per capability, never a
+     * per-user check in a loop: at ten thousand students an operational
+     * notice must not cost a query per enrolment (house rule 3). Keying
+     * by id is what makes the union a union - an editing teacher who
+     * also holds a narrow capability is one recipient, not two.
+     *
+     * @param activity $activity the activity
+     * @param string[] $capabilities capability names
+     * @return \stdClass[] users keyed by id
+     */
+    public static function recipients(activity $activity, array $capabilities): array {
+        $users = [];
+        foreach ($capabilities as $capability) {
+            foreach (get_users_by_capability($activity->context(), $capability, 'u.id') as $user) {
+                $users[(int) $user->id] = $user;
+            }
+        }
+
+        return $users;
+    }
+
+    /**
      * Send a list of intent() records, in order.
      *
      * @param activity $activity the activity

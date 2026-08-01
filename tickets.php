@@ -124,10 +124,18 @@ if (!$queue) {
 $groupnames = [];
 $usernames = [];
 $userids = [];
+// Requesters of tickets THIS viewer currently holds claimed: the one
+// connection that opens a requester's contact details to a coordinator
+// (contact-privacy rule (c)). An open ticket sitting in the queue is
+// not a connection, and neither is being eligible to decide one.
+$claimedmine = [];
 foreach ($queue as $ticket) {
     $userids[] = (int) $ticket->requestedby;
     if ($ticket->claimedby) {
         $userids[] = (int) $ticket->claimedby;
+    }
+    if ($ticket->status === tickets::STATUS_CLAIMED && (int) $ticket->claimedby === (int) $USER->id) {
+        $claimedmine[] = (int) $ticket->requestedby;
     }
 }
 // Ask get_sql() for a leading comma of its own: without it the last
@@ -139,6 +147,14 @@ foreach (array_chunk(array_unique($userids), 1000) as $chunk) {
         $usernames[(int) $u->id] = fullname($u);
     }
 }
+// Mobile only, never an address (decision 17), and only for the
+// requesters this viewer is actually holding a claim on. Page-bounded.
+$requestercontact = tickets::requester_contact_map($activity, (int) $USER->id, $claimedmine);
+$messagemap = \mod_selfselectadvanced\local\staffmessage::may_message_map(
+    $activity,
+    (int) $USER->id,
+    $claimedmine
+);
 // The team name arrives with the ticket now. This used to load EVERY
 // group in the activity - fifteen hundred rows to label one screen.
 foreach ($queue as $ticket) {
@@ -160,6 +176,25 @@ $table->head = [
     get_string('ticketstatus', 'mod_selfselectadvanced'),
     get_string('actions'),
 ];
+
+// What a claimant may see of the person who filed the ticket they are
+// holding: a consented mobile, and a way to write to them. Never an
+// address, never a mailto:, never a wa.me link - the claimant reaches
+// the requester through Moodle messaging like everybody else.
+$requesterline = static function (int $requesterid, bool $mine) use ($requestercontact, $messagemap, $activity, $baseurl): string {
+    if (!$mine) {
+        return '';
+    }
+    $line = '';
+    if (!empty($requestercontact[$requesterid]->mobile)) {
+        $line .= ' · ' . s($requestercontact[$requesterid]->mobile);
+    }
+    if (!empty($messagemap[$requesterid])) {
+        $line .= ' · ' . \mod_selfselectadvanced\local\staffmessage::link($activity, $requesterid, $baseurl, '');
+    }
+
+    return $line;
+};
 
 $position = tickets::open_before($activity, (int) $USER->id, $page * $perpage);
 foreach ($queue as $ticket) {
@@ -261,7 +296,8 @@ foreach ($queue as $ticket) {
         get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced')
             . html_writer::div(
                 ($usernames[(int) $ticket->requestedby] ?? '') . ' · '
-                . userdate($ticket->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
+                . userdate($ticket->timecreated, get_string('strftimedatetimeshort', 'langconfig'))
+                . $requesterline((int) $ticket->requestedby, $mine),
                 'small text-muted'
             ),
         format_text($ticket->request, $ticket->requestformat, ['context' => $context]),

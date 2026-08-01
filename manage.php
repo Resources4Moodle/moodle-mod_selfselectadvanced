@@ -37,7 +37,17 @@ require_login($course, true, $cm);
 
 $activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
 $context = $activity->context();
-require_capability('mod/selfselectadvanced:manage', $context);
+// This dashboard is the ONLY guide-(re)assignment path, so the narrow
+// :assignguide capability has to reach it. The exception names the
+// narrow one (least privilege). Everything else on the page keeps its
+// own gate: runautogroup re-asserts :manage below, and each tool link
+// enforces its own. Nothing here renders a student's email or phone -
+// the teams, assign-queue and guide-load tables carry names, ids,
+// states, sizes and counts only, including on the CSV/Excel download
+// path (contact privacy: no bulk export of contact data, ever).
+if (!has_any_capability(['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:assignguide'], $context)) {
+    throw new required_capability_exception($context, 'mod/selfselectadvanced:assignguide', 'nopermissions', '');
+}
 
 $api = new \mod_selfselectadvanced\local\api($activity);
 $baseurl = new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]);
@@ -60,6 +70,10 @@ if ($action === 'assignguide' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'runautogroup' && data_submitted() && confirm_sesskey()) {
+    // Auto-grouping rewrites the whole roster in one act, which is the
+    // full manage power and not the narrow guide-assignment one the
+    // page gate above also admits.
+    require_capability('mod/selfselectadvanced:manage', $context);
     if ((int) $activity->settings()->autogroup < 1) {
         redirect(
             $baseurl,

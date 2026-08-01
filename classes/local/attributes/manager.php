@@ -187,8 +187,16 @@ class manager {
 
     /**
      * A compact display line of a user's attributes for staff rosters
-     * (gender, department, sub-department; mobile only for viewall
-     * holders per decision U4).
+     * (gender, department, sub-department, and the mobile number only
+     * when the caller has already decided the viewer may have it).
+     *
+     * $includemobile is the CALLER'S verdict, not a capability: since
+     * 1.20 every call site composes it from
+     * {@see \mod_selfselectadvanced\local\contactprivacy::can_see_map()}
+     * AND {@see self::mobile_visible()}. Do NOT pass a literal true and
+     * do NOT pass has_capability(':viewall', ...) - the pre-1.20
+     * decision-U4 wording said viewall, and that is exactly the defect
+     * flagged.php shipped.
      *
      * @param stdClass|null $record the attribute record
      * @param bool $includemobile whether the viewer may see the mobile number
@@ -281,19 +289,33 @@ class manager {
     }
 
     /**
-     * Whether a viewer may see this record's mobile number: full-view
-     * staff always may; everyone else (guides, leaders, teammates)
-     * only when the owner consented to share it.
+     * Whether a viewer may see this record's mobile number: the owner's
+     * own sharing consent, or a viewer entitled to bypass it.
+     *
+     * The second argument is "may this viewer overrule the owner's
+     * consent", decided by
+     * {@see \mod_selfselectadvanced\local\contactprivacy::mobile_consent_bypass()}
+     * and by nothing else. Do NOT pass
+     * has_capability('mod/selfselectadvanced:viewall', ...) and do NOT
+     * pass a literal true: seeing every team is not permission to
+     * overrule a person's consent, and "the page gate already required
+     * something" is not either. Both were live defects in 1.19 - a
+     * non-editing teacher who guided nothing read unconsented numbers,
+     * and flagged.php printed them to everyone with no gate at all.
+     *
+     * The body is deliberately unchanged from the version that carried
+     * those defects: behaviour moves through the ARGUMENTS, so the diff
+     * stays reviewable and every call site had to be re-read.
      *
      * @param stdClass|null $record the attribute record
-     * @param bool $viewerhasviewall the viewer holds the viewall capability
-     * @return bool
+     * @param bool $consentbypass whether the viewer may bypass the owner's consent
+     * @return bool whether the number may be shown
      */
-    public static function mobile_visible(?stdClass $record, bool $viewerhasviewall): bool {
+    public static function mobile_visible(?stdClass $record, bool $consentbypass): bool {
         if (!$record || empty($record->mobile)) {
             return false;
         }
 
-        return $viewerhasviewall || !empty($record->shareconsent);
+        return $consentbypass || !empty($record->shareconsent);
     }
 }

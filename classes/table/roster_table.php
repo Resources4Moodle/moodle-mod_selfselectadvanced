@@ -32,6 +32,21 @@ class roster_table extends \table_sql {
     /** @var int Course-module id, for the per-row Move action link. */
     private int $cmid;
 
+    /** @var activity The activity, for the Send-a-message link. */
+    private activity $activity;
+
+    /** @var \moodle_url Where a sent message returns to. */
+    private \moodle_url $returnurl;
+
+    /** @var bool Whether the viewer may stage a move (manager only). */
+    private bool $canmanage;
+
+    /** @var bool Whether the viewer may message a participant. */
+    private bool $canmessage;
+
+    /** @var int The viewing user: nobody messages themself. */
+    private int $viewerid;
+
     /**
      * Constructor.
      *
@@ -42,8 +57,13 @@ class roster_table extends \table_sql {
      * @param string $frole 'leader'|'member'|'' filter
      * @param bool $canmanage whether the viewer holds mod/selfselectadvanced:manage
      *        (the page itself is visible to viewall holders, who may not be able to act,
-     *        so the per-row Move action column only renders for managers)
+     *        so the per-row Move action only renders for managers)
      * @param bool $download whether a download is in progress (the action column is UI-only)
+     * @param bool $canmessage whether the viewer may send a Moodle message to a
+     *        participant of this activity - the REACH verdict
+     *        (:manage or :viewall), computed ONCE for the page rather than
+     *        per row, and re-checked by the service before anything is sent
+     * @param int $viewerid the viewing user, so the action is not offered on their own row
      */
     public function __construct(
         string $uniqueid,
@@ -52,13 +72,21 @@ class roster_table extends \table_sql {
         string $fstate,
         string $frole,
         bool $canmanage = false,
-        bool $download = false
+        bool $download = false,
+        bool $canmessage = false,
+        int $viewerid = 0
     ) {
         global $DB;
         parent::__construct($uniqueid);
 
         $this->cmid = $activity->cm()->id;
+        $this->activity = $activity;
+        $this->returnurl = $baseurl;
+        $this->canmanage = $canmanage;
+        $this->canmessage = $canmessage;
+        $this->viewerid = $viewerid;
 
+        $showaction = ($canmanage || $canmessage) && !$download;
         $columns = ['groupname', 'state', 'fullname', 'role', 'department', 'subdepartment'];
         $headers = [
             get_string('groupname', 'mod_selfselectadvanced'),
@@ -68,7 +96,7 @@ class roster_table extends \table_sql {
             get_string('attrdepartment', 'mod_selfselectadvanced'),
             get_string('attrsubdepartment', 'mod_selfselectadvanced'),
         ];
-        if ($canmanage && !$download) {
+        if ($showaction) {
             $columns[] = 'action';
             $headers[] = get_string('actions');
         }
@@ -76,7 +104,7 @@ class roster_table extends \table_sql {
         $this->define_headers($headers);
         $this->define_baseurl($baseurl);
         $this->sortable(true, 'groupname');
-        if ($canmanage && !$download) {
+        if ($showaction) {
             $this->no_sorting('action');
         }
         $this->is_downloadable(true);
@@ -194,19 +222,38 @@ class roster_table extends \table_sql {
     }
 
     /**
-     * Per-row Move action, manager-only (UX audit item 5): a link to
-     * the staged-move form pre-filled with this member, the same
-     * staged-move page the flagged report's action columns link to.
+     * Per-row actions: the manager-only Move link (UX audit item 5),
+     * and Send a message - a MOODLE MESSAGE to this participant, which
+     * is how staff reach a student now that no surface of this plugin
+     * shows an address (maintainer decision 18).
+     *
+     * Both verdicts were computed once for the whole page in the
+     * constructor; nothing here asks a capability or runs a query per
+     * row.
      *
      * @param \stdClass $row table row
      * @return string
      */
     public function col_action($row) {
-        $url = new \moodle_url('/mod/selfselectadvanced/moveedit.php', [
-            'id' => $this->cmid,
-            'student' => (int) $row->userid,
-        ]);
+        $actions = [];
+        if ($this->canmanage) {
+            $actions[] = \html_writer::link(
+                new \moodle_url('/mod/selfselectadvanced/moveedit.php', [
+                    'id' => $this->cmid,
+                    'student' => (int) $row->userid,
+                ]),
+                get_string('move'),
+                ['class' => 'btn btn-outline-primary btn-sm']
+            );
+        }
+        if ($this->canmessage && (int) $row->userid !== $this->viewerid) {
+            $actions[] = \mod_selfselectadvanced\local\staffmessage::link(
+                $this->activity,
+                (int) $row->userid,
+                $this->returnurl
+            );
+        }
 
-        return \html_writer::link($url, get_string('move'), ['class' => 'btn btn-outline-primary btn-sm']);
+        return implode(' ', $actions);
     }
 }

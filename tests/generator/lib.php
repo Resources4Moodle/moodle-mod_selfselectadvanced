@@ -103,6 +103,11 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
             'briefformat' => $record->briefformat ?? FORMAT_HTML,
             'leaderid' => (int) $record->leaderid,
             'guideid' => $record->guideid ?? null,
+            // A handover the nominee has not answered yet (decision
+            // 20): the proposer REMAINS the guide until acceptance, so
+            // a fixture that wants that state sets both columns.
+            'guidesuccessorid' => $record->guidesuccessorid ?? null,
+            'timeguidenominated' => isset($record->guidesuccessorid) ? $now : null,
             'state' => $record->state ?? \mod_selfselectadvanced\local\state::FORMING,
             'autoformed' => $record->autoformed ?? 0,
             'successorid' => $record->successorid ?? null,
@@ -155,7 +160,13 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
     /**
      * Create a site-wide participant attribute record.
      *
-     * Required: userid. Optional: gender, department, subdepartment, mobile.
+     * Required: userid. Optional: gender, department, subdepartment,
+     * mobile, shareconsent.
+     *
+     * shareconsent is settable because it has to be: it defaults to 0 in
+     * the schema, so before it was accepted here a CONSENTED number
+     * could only be produced by driving the landing-page button, which
+     * put every consent-side assertion out of reach of a fixture.
      *
      * @param array|stdClass $record attribute fields
      * @return stdClass the stored record
@@ -174,6 +185,7 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
             'department' => $record->department ?? null,
             'subdepartment' => $record->subdepartment ?? null,
             'mobile' => $record->mobile ?? null,
+            'shareconsent' => (int) ($record->shareconsent ?? 0),
             'usermodified' => 0,
             'timecreated' => $now,
             'timemodified' => $now,
@@ -182,6 +194,45 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
         \mod_selfselectadvanced\local\attributes\manager::purge_value_cache();
 
         return $attr;
+    }
+
+    /**
+     * Create a guide's expression of interest in a team.
+     *
+     * Written directly, like the group and member creators: a fixture
+     * has to be able to arrange a rejected or withdrawn interest, which
+     * the service would never produce from nothing.
+     *
+     * Required: activityid, groupid, guideid. Optional: status (default
+     * pending), remarks, timecreated, timeresponded.
+     *
+     * @param array|stdClass $record eoi fields
+     * @return stdClass the stored row
+     */
+    public function create_eoi($record): stdClass {
+        global $DB;
+
+        $record = (object) (array) $record;
+        foreach (['activityid', 'groupid', 'guideid'] as $required) {
+            if (!isset($record->$required)) {
+                throw new coding_exception('create_eoi requires ' . $required);
+            }
+        }
+        $eoi = (object) [
+            'activityid' => (int) $record->activityid,
+            'groupid' => (int) $record->groupid,
+            'guideid' => (int) $record->guideid,
+            'status' => $record->status ?? \mod_selfselectadvanced\local\eoi::STATUS_PENDING,
+            'remarks' => $record->remarks ?? null,
+            'remarksformat' => (int) ($record->remarksformat ?? FORMAT_HTML),
+            'timecreated' => isset($record->timecreated) && !is_numeric($record->timecreated)
+                ? strtotime((string) $record->timecreated)
+                : ($record->timecreated ?? time()),
+            'timeresponded' => $record->timeresponded ?? null,
+        ];
+        $eoi->id = $DB->insert_record('selfselectadvanced_eoi', $eoi);
+
+        return $eoi;
     }
 
     /**

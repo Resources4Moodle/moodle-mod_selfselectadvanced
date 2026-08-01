@@ -44,6 +44,7 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                     'leader' => 'leaderid',
                     'successor' => 'successorid',
                     'guide' => 'guideid',
+                    'guidesuccessor' => 'guidesuccessorid',
                 ],
             ],
             'members' => [
@@ -115,6 +116,16 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                     'sourcegroup' => 'sourcegroupid',
                 ],
             ],
+            'eois' => [
+                'singular' => 'eoi',
+                'datagenerator' => 'eoi',
+                'required' => ['selfselectadvanced', 'ssagroup', 'guide'],
+                'switchids' => [
+                    'selfselectadvanced' => 'activityid',
+                    'ssagroup' => 'groupid',
+                    'guide' => 'guideid',
+                ],
+            ],
             'contacts' => [
                 'singular' => 'contact',
                 'datagenerator' => 'contact',
@@ -181,6 +192,16 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
     }
 
     /**
+     * Map a nominated (successor) guide's username to a user id.
+     *
+     * @param string $username the username
+     * @return int the user id
+     */
+    protected function get_guidesuccessor_id(string $username): int {
+        return $this->get_user_id($username);
+    }
+
+    /**
      * Map the sender of an approach to a user id.
      *
      * @param string $username the username
@@ -191,14 +212,26 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
     }
 
     /**
-     * Map an override target username to a user id (user and guide
-     * scopes; group-scope overrides are arranged via the PHP generator).
+     * Map an override target to its id: a username at user and guide
+     * scope, a plugin group name at group scope.
      *
-     * @param string $username the username
-     * @return int the user id
+     * One column has to carry both because the entity's target column
+     * is scope-dependent and switchids is not; a username and a team
+     * name never collide, so the user table is asked first and the
+     * team table answers for group-scope rows.
+     *
+     * @param string $identifier the username or the plugin group name
+     * @return int the user or group id
      */
-    protected function get_target_id(string $username): int {
-        return $this->get_user_id($username);
+    protected function get_target_id(string $identifier): int {
+        global $DB;
+
+        $userid = $DB->get_field('user', 'id', ['username' => $identifier]);
+        if ($userid) {
+            return (int) $userid;
+        }
+
+        return $this->get_ssagroup_id($identifier);
     }
 
     /**

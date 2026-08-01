@@ -81,7 +81,14 @@ final class races_upsert_test extends \advanced_testcase {
             'minsize' => 1,
             'maxsize' => 6,
             'maxlead' => 1,
-            'maxmembership' => 1,
+            // Headroom, not decoration: these tests write maxlead 2-7
+            // as an arbitrary marker to tell twin rows apart, and the
+            // T-08 tuple checker parks any row whose merged maxlead
+            // exceeds its merged maxmembership. A fixture ceiling of 1
+            // would park every one of those markers and turn tests
+            // about WHICH ROW an edit lands on into tests about the
+            // checker. The fixture moves; the checker does not.
+            'maxmembership' => 9,
         ]);
         $user = $generator->create_user();
         $generator->enrol_user($user->id, $course->id, 'student');
@@ -404,7 +411,7 @@ final class races_upsert_test extends \advanced_testcase {
         xmldb_selfselectadvanced_upgrade(2026073100);
         // Every later block runs too, so the recorded version lands on
         // the current tip - the re-run of the corrected twin merge.
-        $this->assertSame('2026073150', get_config('mod_selfselectadvanced', 'version'));
+        $this->assertSame('2026073190', get_config('mod_selfselectadvanced', 'version'));
 
         // Engine-native proof that the DDL step did what it claims: the
         // live column is nullable and a park row stores.

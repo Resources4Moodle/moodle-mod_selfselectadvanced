@@ -67,7 +67,25 @@ class review_page implements renderable, templatable {
         $attrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users(
             array_map(static fn($m) => (int) $m->userid, $rostermembers)
         );
-        $canseemobile = has_capability('mod/selfselectadvanced:viewall', $context, $this->userid);
+        // Mobile visibility is PER MEMBER here, exactly as it is on the
+        // group page, and no longer one page-wide :viewall bool. A
+        // page-wide bypass would blank the column for this page's whole
+        // intended audience - review.php gates on :guide, whose only
+        // archetype is teacher - including the guide actually assigned
+        // to the team and including members who explicitly consented.
+        // The per-member form cannot widen anything: the map is false
+        // for every non-connection, so a :guide holder browsing a team
+        // they are not assigned to still sees nothing.
+        $mobilebypass = \mod_selfselectadvanced\local\contactprivacy::mobile_consent_bypass(
+            $activity,
+            $this->userid,
+            has_capability('mod/selfselectadvanced:viewparticipantidentity', $context, $this->userid)
+        );
+        $privacymap = \mod_selfselectadvanced\local\contactprivacy::can_see_map(
+            $activity,
+            $this->userid,
+            array_map(static fn($m) => (int) $m->userid, $rostermembers)
+        );
         $roster = [];
         foreach ($rostermembers as $member) {
             $roster[] = (object) [
@@ -75,7 +93,11 @@ class review_page implements renderable, templatable {
                 'isleader' => (bool) $member->isleader,
                 'attrline' => \mod_selfselectadvanced\local\attributes\manager::display_line(
                     $attrs[(int) $member->userid] ?? null,
-                    $canseemobile
+                    !empty($privacymap[(int) $member->userid])
+                        && \mod_selfselectadvanced\local\attributes\manager::mobile_visible(
+                            $attrs[(int) $member->userid] ?? null,
+                            $mobilebypass
+                        )
                 ),
             ];
         }

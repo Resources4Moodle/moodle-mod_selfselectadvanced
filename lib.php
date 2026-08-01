@@ -105,7 +105,7 @@ function selfselectadvanced_add_instance(stdClass $data, $mform = null): int {
  * @return bool success
  */
 function selfselectadvanced_update_instance(stdClass $data, $mform = null): bool {
-    global $DB;
+    global $DB, $USER;
 
     selfselectadvanced_settle_studentapproach($data);
     $data->id = $data->instance;
@@ -135,11 +135,37 @@ function selfselectadvanced_update_instance(stdClass $data, $mform = null): bool
         ])->trigger();
     }
 
+    $activity = \mod_selfselectadvanced\activity::from_instance((int) $instance->id);
+
+    // The settings-edit hole (finding-9): a per-field override falls
+    // through to the activity for every field it does not set, so
+    // editing a setting can invalidate the MERGED tuple of rows nobody
+    // touched - an extension granted against the old cutoff, a group
+    // whose merged minsize now exceeds its overridden maxsize. Those
+    // rows are parked back to 'pending' BEFORE the ledger recompute
+    // below, so the recompute never consumes a merge this very edit
+    // invalidated. Newly CONSISTENT pending rows are deliberately not
+    // activated here: store::recheck_pending() already runs on every
+    // visit to the overrides page and heals them there.
+    $tuplefields = ['timeopen', 'timedue', 'timecutoff', 'minsize', 'maxsize', 'maxlead', 'maxmembership'];
+    foreach ($tuplefields as $tuplefield) {
+        if ((int) $before->$tuplefield !== (int) $instance->$tuplefield) {
+            // The id is ALWAYS set in Moodle - $USER->id is 0 for a
+            // session with nobody in it - so `?? get_admin()` never
+            // fired and an actorless edit stamped every parked row with
+            // usermodified = 0. `?:` is the test that was meant.
+            $admin = get_admin();
+            \mod_selfselectadvanced\local\override\store::park_inconsistent(
+                $activity,
+                (int) ($USER->id ?? 0) ?: (int) ($admin->id ?? 0)
+            );
+            break;
+        }
+    }
+
     // Spec 11: date or penalty edits recompute the full ledger
     // immediately (the nightly task reconciles as defence in depth).
-    \mod_selfselectadvanced\local\penalty\ledger::recompute_all(
-        \mod_selfselectadvanced\activity::from_instance((int) $instance->id)
-    );
+    \mod_selfselectadvanced\local\penalty\ledger::recompute_all($activity);
 
     return $result;
 }

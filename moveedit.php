@@ -38,7 +38,13 @@ require_login($course, true, $cm);
 
 $activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
 $context = $activity->context();
-require_capability('mod/selfselectadvanced:manage', $context);
+// Staging a move is composition work, so the narrow capability reaches
+// it as well as the full manage power. The exception names the NARROW
+// one: a refusal should tell an administrator the least privilege that
+// would have opened the page, not the largest.
+if (!has_any_capability(['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:managecomposition'], $context)) {
+    throw new required_capability_exception($context, 'mod/selfselectadvanced:managecomposition', 'nopermissions', '');
+}
 
 $api = new \mod_selfselectadvanced\local\api($activity);
 $listurl = new moodle_url('/mod/selfselectadvanced/moves.php', ['id' => $cm->id]);

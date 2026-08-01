@@ -1076,5 +1076,219 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073150, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073160) {
+        // 1.20.0: a coordinator appointment belongs to ONE activity.
+        //
+        // Until now it was a role assignment at the COURSE, made from
+        // an activity's screen and consumed per activity: every
+        // capability the role carries is declared at CONTEXT_MODULE and
+        // every consumer asks for it at $activity->context(). So one
+        // appointment quietly reached every selfselectadvanced instance
+        // in the course.
+        //
+        // ensure() first, because it is what makes the role assignable
+        // at CONTEXT_MODULE - on the recorded and adopted branches too,
+        // not just on the branch that creates the role. Rows must not
+        // appear at a level the role is not declared for.
+        //
+        // Then each course-context appointment is fanned out to every
+        // selfselectadvanced instance in its course and the course row
+        // retired; a course with no instance keeps its row, because
+        // there is nowhere to move it to and dropping it would revoke
+        // somebody's job. Both calls touch core tables only, so this
+        // step queries no plugin table from any starting savepoint
+        // (upgrade-safety).
+        //
+        // update_capabilities() FIRST, for the same reason the
+        // 2026072460, 2026073072, 2026073150 and 2026073170 blocks give
+        // it: ensure() calls assign_capability() for every name in
+        // coordinatorrole::capabilities(), and assign_capability()
+        // raises a coding_exception for a capability core has not
+        // registered yet. Core registers db/access.php only in
+        // upgrade_component_updated(), AFTER this function returns. The
+        // list gained :managecomposition and :assignguide at 2026073170,
+        // which made THIS block - written when the list held nothing
+        // new - fail for a site starting at exactly 2026073150: the
+        // 2026073150 block that would have registered them is skipped,
+        // and the whole site upgrade dies with "Capability
+        // 'mod/selfselectadvanced:managecomposition' was not found".
+        // Measured before this line was added; pinned by
+        // narrowcaps_test::test_upgrade_from_the_previous_serial_survives().
+        update_capabilities('mod_selfselectadvanced');
+        \mod_selfselectadvanced\local\coordinatorrole::ensure();
+        \mod_selfselectadvanced\local\coordinatorrole::migrate_to_module_context();
+
+        upgrade_mod_savepoint(true, 2026073160, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026073170) {
+        // 1.20.0: the Group Coordinator role gains the two narrow
+        // powers this release introduces - :managecomposition (stage,
+        // commit and cancel student moves) and :assignguide (assign or
+        // reassign a team's guide, decide expressions of interest) -
+        // plus :overriderules, the staff hatch T-15 introduced.
+        //
+        // A version bump alone only makes Moodle re-read
+        // db/access.php's DEFINITIONS; it does not grant anything to a
+        // role the plugin created. ensure() is what tops the role up,
+        // and it must run here or an upgraded site's coordinators keep
+        // the 1.19 power set while a freshly installed site's do not
+        // (db/install.php calls ensure() too, which is why the two
+        // paths have to agree).
+        //
+        // assign_capability() runs with overwrite OFF inside ensure(),
+        // so a CAP_PREVENT or CAP_PROHIBIT an administrator recorded
+        // against this role survives untouched. Restoring a permission
+        // somebody deliberately took away is not an upgrade's job.
+        //
+        // :overriderules is granted only now, and deliberately only
+        // now: it is defensible on this role because 2026073160 moved
+        // every appointment to CONTEXT_MODULE first (maintainer
+        // decision 14). Read capabilities()'s docblock for the
+        // guarantee that carries. Core tables only - no plugin table is
+        // touched, so this step behaves identically from any starting
+        // savepoint (upgrade-safety).
+        //
+        // update_capabilities() FIRST, and it is not optional here.
+        // Core refreshes db/access.php only in
+        // upgrade_component_updated(), which runs AFTER this function
+        // returns, and assign_capability() raises a coding_exception
+        // for a capability that has no {capabilities} row. Without this
+        // line ensure() kills the whole site upgrade with "Capability
+        // 'mod/selfselectadvanced:managecomposition' was not found"
+        // - measured on both engines, from a site at 2026073160. No
+        // test on a rebuilt site can see it: --reinit installs through
+        // db/install.php, which calls update_capabilities() for exactly
+        // this reason, so PHPUnit, Behat and savepoint-tip all stay
+        // green. The 2026072460 and 2026073150 blocks take the same
+        // precaution; this is the first step since to introduce a
+        // capability the role must carry, so it is the first that could
+        // fail on it.
+        update_capabilities('mod_selfselectadvanced');
+        \mod_selfselectadvanced\local\coordinatorrole::ensure();
+
+        upgrade_mod_savepoint(true, 2026073170, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026073180) {
+        // Contact privacy (cardinal rule; maintainer decisions 17 and 18,
+        // 2026-08-01): per-activity switch hiding participant email and
+        // mobile from everyone without the manage capability, except real
+        // connections - and, for email, from everyone below manage full
+        // stop, because staff now reach a student through a Moodle message
+        // instead of an address. Existing instances come up protected: the
+        // maintainer chose default ON for them too, which the NOTNULL
+        // DEFAULT '1' applies to every existing row.
+        $table = new xmldb_table('selfselectadvanced');
+        $field = new xmldb_field('contactprivacy', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1', 'leadershare');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Registers :viewparticipantidentity. It has no archetypes and no
+        // clonepermissionsfrom, so this GRANTS IT TO NOBODY - it only puts
+        // the row in {capabilities} so an administrator can find it. Core
+        // runs update_capabilities() itself later in the plugin upgrade;
+        // calling it here follows the precedent already set inside this
+        // file and makes the point of the block legible in the upgrade
+        // log. Core tables and xmldb only - no plugin class is loaded and
+        // no plugin table is queried (upgrade-safety).
+        update_capabilities('mod_selfselectadvanced');
+
+        upgrade_mod_savepoint(true, 2026073180, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026073190) {
+        // 1.20.1: :viewassignedteams splits "the team I am assigned to
+        // guide" out of :viewall, so a site can withdraw the broad
+        // capability without locking every guide out of the page that
+        // carries Freeze, Release, the roster and the proposal.
+        //
+        // update_capabilities() is what registers the new capability and
+        // fires its clonepermissionsfrom pass, which copies each role's
+        // recorded :guide permission - ALLOW, PREVENT or PROHIBIT -
+        // onto the new name. Core runs this itself later in the plugin
+        // upgrade; it is called here explicitly so the ensure() below
+        // tops up a role whose capability already exists, and because
+        // the 2026073150 block set that precedent.
+        update_capabilities('mod_selfselectadvanced');
+
+        // The Group Coordinator role is created by this plugin, so the
+        // archetype/clone machinery above does not reach it: ensure()
+        // is what writes its capability list. assign_capability's
+        // $overwrite stays false (coordinatorrole.php), so a recorded
+        // CAP_PREVENT or CAP_PROHIBIT survives untouched.
+        //
+        // ensure() is ALSO what applies the activity-context-only rule
+        // on an upgraded site: the role becomes assignable at
+        // CONTEXT_MODULE only. Read the levels BEFORE the call so the
+        // log below can name what changed - that edit narrows
+        // assignability, which is the one narrowing in this release an
+        // administrator could notice, and it must be visible in the log
+        // rather than inferred.
+        //
+        // The role id can legitimately be absent: a site where a
+        // foreign role blocked us records a collision and ensure()
+        // returns 0, and a site whose role row was deleted has nothing
+        // to read. Guard it - a log line must never be the thing that
+        // breaks an upgrade.
+        $coordinatorroleid = (int) get_config(
+            'mod_selfselectadvanced',
+            \mod_selfselectadvanced\local\coordinatorrole::CONFIG_ROLEID
+        );
+        $levelsbefore = [];
+        if ($coordinatorroleid > 0 && $DB->record_exists('role', ['id' => $coordinatorroleid])) {
+            $levelsbefore = array_map('intval', array_values(get_role_contextlevels($coordinatorroleid)));
+        }
+        \mod_selfselectadvanced\local\coordinatorrole::ensure();
+
+        // NEVER OVERRULE AN ADMINISTRATOR. db/access.php no longer
+        // grants :viewall to the non-editing teacher archetype, and
+        // that edit is deliberately INERT here: core applies archetypes
+        // only to capabilities new to the capabilities table, so every
+        // existing role_capabilities row stands. This block does NOT
+        // call unassign_capability() and does NOT pass $overwrite=true
+        // anywhere - role_capabilities carries no provenance, so the
+        // plugin cannot distinguish its own install-time grant from a
+        // permission an administrator chose to record, and guessing
+        // would be exactly the overrule the rule forbids. Withdrawing
+        // it is the administrator's act; all this step does is say so,
+        // once, in the upgrade log, so the decision point is visible.
+        $stillbroad = get_roles_with_capability(
+            'mod/selfselectadvanced:viewall',
+            CAP_ALLOW,
+            context_system::instance()
+        );
+        $names = [];
+        foreach ($stillbroad as $role) {
+            $names[] = $role->shortname;
+        }
+        // The {upgrade_log} info column is char(255) and upgrade_log()
+        // swallows the insert exception, so a long message logs
+        // NOTHING AT ALL -
+        // measured on PostgreSQL 18 with the whole text in $info, which
+        // produced no row while the block reported success. The headline
+        // goes in $info and the roll-call in $details, which is TEXT.
+        $details = 'Roles still holding the broad mod/selfselectadvanced:viewall '
+            . '(unchanged by this upgrade - withdraw it yourself if your site restricts '
+            . 'participant visibility): '
+            . ($names ? implode(', ', $names) : 'none')
+            . '. The Group Coordinator role is now assignable at activity context only';
+        if ($levelsbefore) {
+            $details .= ' (was: ' . implode(', ', $levelsbefore) . ')';
+        }
+        $details .= '; existing role assignments, including any made at course level, '
+            . 'are untouched and still work.';
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'mod/selfselectadvanced:viewassignedteams added; Group Coordinator role narrowed '
+                . 'to activity context. No recorded permission was withdrawn.',
+            $details
+        );
+
+        upgrade_mod_savepoint(true, 2026073190, 'selfselectadvanced');
+    }
+
     return true;
 }

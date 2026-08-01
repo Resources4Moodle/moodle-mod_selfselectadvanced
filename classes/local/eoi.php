@@ -224,7 +224,8 @@ class eoi {
     }
 
     /**
-     * The leader (or a manager) accepts or rejects a pending interest.
+     * The leader (or an assignguide/manage holder) accepts or rejects a
+     * pending interest.
      *
      * Accepting pre-assigns the guide on the group row and auto-rejects
      * every other pending interest for the group, notifying each guide.
@@ -232,7 +233,10 @@ class eoi {
      * @param activity $activity the activity
      * @param int $eoiid the interest
      * @param bool $accept true to accept, false to reject
-     * @param int $actorid the leader, or a manage-capability holder
+     * @param int $actorid the leader, or a holder of :assignguide or
+     *        :manage - the narrow holder additionally refused on a team
+     *        they are involved in, or one they have an interest of
+     *        their own pending on
      * @throws \moodle_exception on any refusal
      */
     public static function respond(activity $activity, int $eoiid, bool $accept, int $actorid): void {
@@ -252,9 +256,38 @@ class eoi {
                 throw new \moodle_exception('refusaleoinotpending', 'mod_selfselectadvanced');
             }
             $group = groups::get($activity, (int) $row->groupid);
+            // Accepting an interest IS a guide assignment, so the
+            // narrow :assignguide capability reaches it alongside the
+            // leader and the manager.
+            $isleader = (int) $group->leaderid === $actorid;
             $ismanager = has_capability('mod/selfselectadvanced:manage', $activity->context(), $actorid);
-            if ((int) $group->leaderid !== $actorid && !$ismanager) {
+            $canassign = $ismanager
+                || has_capability('mod/selfselectadvanced:assignguide', $activity->context(), $actorid);
+            if (!$isleader && !$canassign) {
                 throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+            }
+            if (!$isleader && !$ismanager) {
+                // Narrow authority may not decide interests on a team
+                // it is involved in, nor while it has an interest of
+                // its own pending on the SAME team: accepting your own
+                // expression of interest, or declining the rival that
+                // stands in its way, is self-dealing either way, and
+                // both are one button press from the same screen.
+                //
+                // Read inside the guide + group locks and the
+                // transaction, against the re-read rows above. It only
+                // reads and throws - nothing is written, sent or fired
+                // here (house rule 1).
+                if (
+                    $DB->record_exists('selfselectadvanced_eoi', [
+                        'groupid' => $group->id,
+                        'guideid' => $actorid,
+                        'status' => self::STATUS_PENDING,
+                    ])
+                ) {
+                    throw new \moodle_exception('refusaleoiselfaccept', 'mod_selfselectadvanced');
+                }
+                tickets::require_uninvolved($activity, $group, $actorid);
             }
 
             if ($accept) {

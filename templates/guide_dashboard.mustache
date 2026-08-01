@@ -31,6 +31,8 @@
     * haseoicards - whether eoicards has entries (mirrors eoienabled)
     * eoicards - label, number, url for each of the four stat cards
     * pickteamurl - link to the pick-a-team browse page
+    * guided[].canopenteam - whether this viewer's capabilities open group.php at all
+    * guided[].teamurl - link to the team's own page (1.20.1: the route the dashboard never had)
     * guided[].isformingassigned - true for a still-forming team pre-assigned via EOI
     * guided[].stepouturl - link for the step-out confirm step (isformingassigned rows only)
 
@@ -84,6 +86,8 @@
                 "canrelease": false,
                 "stafffroze": false,
                 "freezeurl": "https://example.com/mod/selfselectadvanced/group.php?id=1&g=2&action=freeze",
+                "canopenteam": true,
+                "teamurl": "https://example.com/mod/selfselectadvanced/group.php?id=1&g=2",
                 "isformingassigned": true,
                 "stepouturl": "https://example.com/mod/selfselectadvanced/guide.php?id=1&action=stepout&g=2"
             }
@@ -296,6 +300,9 @@
                                 <td>{{statelabel}}</td>
                                 <td>{{size}}</td>
                                 <td>
+                                    {{#canopenteam}}
+                                        <a class="btn btn-outline-secondary btn-sm" href="{{teamurl}}">{{#str}} viewteam, mod_selfselectadvanced {{/str}}</a>
+                                    {{/canopenteam}}
                                     {{^isformingassigned}}
                                         <a class="btn btn-secondary btn-sm" href="{{reviewurl}}">{{#str}} review, mod_selfselectadvanced {{/str}}</a>
                                         {{#canfreeze}}

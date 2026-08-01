@@ -95,8 +95,22 @@ class landing implements renderable, templatable {
         if ($attr !== null && !empty($attr->mobile)) {
             $data->showconsent = true;
             $data->consentgranted = !empty($attr->shareconsent);
+            // The line the number's OWNER reads about their own data,
+            // so it states what this activity actually does rather than
+            // what the plugin used to do. Until 1.20.1 it promised that
+            // "staff with full view can still see it" while T-07 was
+            // making that false: nobody below a site administrator
+            // bypasses consent any more. The shared audience differs
+            // between the two modes of the contact-privacy switch, so
+            // the granted line follows the switch; the withheld line
+            // does not, because a withheld number reaches only a
+            // holder of :viewparticipantidentity in either mode.
+            $protects = \mod_selfselectadvanced\local\contactprivacy::enabled($activity);
             $data->consentstatus = $data->consentgranted
-                ? get_string('shareconsentgranted', 'mod_selfselectadvanced')
+                ? get_string(
+                    $protects ? 'shareconsentgranted' : 'shareconsentgrantedopen',
+                    'mod_selfselectadvanced'
+                )
                 : get_string('shareconsentwithheld', 'mod_selfselectadvanced');
             $data->consentbuttonlabel = $data->consentgranted
                 ? get_string('consentrevoke', 'mod_selfselectadvanced')

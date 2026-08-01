@@ -35,7 +35,13 @@ require_login($course, true, $cm);
 
 $activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
 $context = $activity->context();
-require_capability('mod/selfselectadvanced:viewall', $context);
+// Somebody else's workload is a broad read; your own is your own
+// dashboard's drill-down (guide.php's "Teams you guide" card links
+// straight here). No participant data renders on this page: team name,
+// plugin id, state, submitted, deadline and overdue, nothing more.
+if ($guideid !== (int) $USER->id) {
+    require_capability('mod/selfselectadvanced:viewall', $context);
+}
 
 // IDOR guard (spec 14.12): a garbage id fails loudly instead of
 // silently rendering an empty page under a blank name.
@@ -56,7 +62,20 @@ $PAGE->set_url($baseurl);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
-$backurl = new moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $cm->id, 'tab' => 'guides']);
+// Back has to lead somewhere this viewer may actually go. flagged.php
+// requires :viewall, and since 1.20.1 a guide reaching their OWN load
+// from the dashboard's "Teams you guide" card need not hold it - on a
+// stock install the non-editing teacher no longer does - so an
+// unconditional Back button was a dead end in the default
+// configuration. The guide dashboard is where they came from; a viewer
+// who holds neither capability is sent to the activity page.
+if (has_capability('mod/selfselectadvanced:viewall', $context)) {
+    $backurl = new moodle_url('/mod/selfselectadvanced/flagged.php', ['id' => $cm->id, 'tab' => 'guides']);
+} else if (has_capability('mod/selfselectadvanced:guide', $context)) {
+    $backurl = new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]);
+} else {
+    $backurl = new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]);
+}
 
 if ($download !== '') {
     \mod_selfselectadvanced\local\exporter::download(
@@ -95,6 +114,8 @@ echo html_writer::div(
     \mod_selfselectadvanced\local\exporter::controls($baseurl)
     . \mod_selfselectadvanced\local\perpage::controls($baseurl)
     . html_writer::link($backurl, get_string('back'), ['class' => 'btn btn-secondary ms-2']),
-    'd-flex flex-wrap align-items-center gap-2 mt-2'
+    // Named so a test can reach THIS Back and not the secondary
+    // navigation's "Backup", which contains it as a substring.
+    'selfselectadvanced-guideloadfooter d-flex flex-wrap align-items-center gap-2 mt-2'
 );
 echo $OUTPUT->footer();

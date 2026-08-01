@@ -20,19 +20,27 @@ Feature: The sequential ticket queue for composition changes and unfreezes
       | guide1   | C1     | teacher        |
       | teacher1 | C1     | editingteacher |
       | coord1   | C1     | teacher        |
-    And the following "role assigns" exist:
-      | user   | role             | contextlevel | reference |
-      | coord1 | groupcoordinator | Course       | C1        |
     And the following "activities" exist:
       | activity           | course | name       | idnumber | minsize | maxlead | maxmembership |
       | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 1       | 1             |
+    # ACTIVITY context (1.20.1): the Group Coordinator role does work
+    # inside one activity and is assignable nowhere else, so the table
+    # has to sit BELOW the activities table that creates its reference.
+    And the following "role assigns" exist:
+      | user   | role             | contextlevel    | reference |
+      | coord1 | groupcoordinator | Activity module | ssa1      |
     And the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   | guide  | state | timeapproved  |
       | ssa1               | Team Blue | student1 | guide1 | firm  | ##yesterday## |
 
   Scenario: The guide asks for a composition change and the manager works it exclusively
-    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as guide1
-    And I follow "Team Blue"
+    # Through the guide dashboard's own Team page link, because since
+    # 1.20.1 a stock non-editing teacher holds :viewassignedteams and NOT
+    # :viewall, so the landing page's staff "all teams" list is not their
+    # route in - the dashboard is.
+    When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
+    And I click on "Team page" "link" in the "Team Blue" "table_row"
     And I set the field "Why is this change needed?" to "Swap in a data specialist"
     And I press "File request"
     Then I should see "Your request has been queued for the managers and coordinators."
@@ -55,8 +63,9 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     And I should see "Move staged and committed"
 
   Scenario: A duplicate live request is refused
-    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as guide1
-    And I follow "Team Blue"
+    When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
+    And I click on "Team page" "link" in the "Team Blue" "table_row"
     And I set the field "Why is this change needed?" to "Swap in a data specialist"
     And I press "File request"
     And I set the field "Why is this change needed?" to "Asking twice"

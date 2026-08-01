@@ -13,9 +13,13 @@ Feature: Site administrators manage participant attributes
       | Civil      |        |
       | Structures | Civil  |
       | Mechanical |        |
+    # shareconsent 1: since 1.20 nothing overrules a participant's own
+    # sharing consent - not :viewall, and not :manage either, because
+    # the consent bypass now asks for :viewparticipantidentity, which no
+    # archetype holds. A number only renders when its owner shared it.
     And the following "mod_selfselectadvanced > attributes" exist:
-      | user     | gender | department | subdepartment | mobile        |
-      | student1 | Female | Civil      | Structures    | +91 111 22222 |
+      | user     | gender | department | subdepartment | mobile        | shareconsent |
+      | student1 | Female | Civil      | Structures    | +91 111 22222 | 1            |
 
   Scenario: The admin sees the attribute listing and edits a record inline
     Given I log in as "admin"
@@ -50,14 +54,29 @@ Feature: Site administrators manage participant attributes
     And the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   |
       | ssa1               | Team Blue | student1 |
+    And the following "users" exist:
+      | username | firstname | lastname | email          |
+      | student8 | Ravi      | Quiet    | s8@example.com |
+    And the following "course enrolments" exist:
+      | user     | course | role    |
+      | student8 | C1     | student |
+    # Same stored number, no consent: the assertion that pins "consent
+    # is never overruled", including for the editing teacher who owns
+    # the contact-privacy switch.
+    And the following "mod_selfselectadvanced > attributes" exist:
+      | user     | department | mobile        | shareconsent |
+      | student8 | Mechanical | +91 333 44444 | 0            |
     And the following "mod_selfselectadvanced > members" exist:
-      | ssagroup  | user     | status  |
-      | Team Blue | student9 | invited |
+      | ssagroup  | user     | status    |
+      | Team Blue | student9 | invited   |
+      | Team Blue | student8 | confirmed |
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
     And I follow "Team Blue"
     Then I should see "Civil" in the ".selfselectadvanced-roster" "css_element"
     And I should see "Structures" in the ".selfselectadvanced-roster" "css_element"
     And I should see "+91 111 22222" in the ".selfselectadvanced-roster" "css_element"
+    And I should not see "+91 333 44444" in the ".selfselectadvanced-roster" "css_element"
+    And I should see "Not shared" in the ".selfselectadvanced-roster" "css_element"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
     Then I should see "Structures" in the ".selfselectadvanced-roster" "css_element"

@@ -25,8 +25,41 @@ use mod_selfselectadvanced\local\rules\gatekeeper;
  * Pool: every user enrolled in the course holding the respond
  * capability, whether or not they ever opened the activity. Search
  * matches the full core name-field set (first/last/middle/alternate,
- * review item S6) OR the email address (decision A14/S7: matching for
- * all inviters; email display identity-gated).
+ * review item S6) and, for viewers the identity gate admits, the email
+ * address.
+ *
+ * CONTACT PRIVACY overrides the old A14/S7 rule here. Matching by
+ * address and printing it are ONE gate now, because an oracle is a leak
+ * even when nothing is rendered: typing a full address and getting back
+ * exactly one person confirms that address belongs to that person and
+ * names them - the inverse mapping, handed to a viewer who is not
+ * allowed the forward one. So while {@see contactprivacy} protects the
+ * activity, a restricted viewer - every student leader, every
+ * non-editing teacher, every coordinator - searches names only, and
+ * sees no address on any label.
+ *
+ * AND-ORDER RULE (good-neighbour principle). The plugin's own gate is
+ * AND-ed onto the two core identity capabilities, never OR-ed: this
+ * class can only ever REMOVE an address from a label, never restore one
+ * the SITE withheld. Two facts make the composition non-obvious and are
+ * recorded here rather than rediscovered:
+ *
+ * - the two core capabilities are ALTERNATIVES, so preventing only
+ *   moodle/site:viewuseridentity leaves addresses printing, because
+ *   moodle/course:viewhiddenuserfields is still granted to
+ *   teacher/editingteacher/manager in core. A lockdown runbook naming
+ *   one capability ships half-done;
+ * - with the switch ON the address is appended for NOBODY below
+ *   mod/selfselectadvanced:manage, unless a site deliberately granted
+ *   mod/selfselectadvanced:viewparticipantidentity.
+ *
+ * Accepted residual: a partial email that collides with a display-name
+ * substring still matches. That reveals nothing an enrolled user's name
+ * search does not already show.
+ *
+ * classes/external/search_candidates.php is the student-leader path
+ * into search() and INHERITS all of this - it needs no gate of its own,
+ * and adding a second one would put the plugin back where it started.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -47,7 +80,8 @@ class candidates {
      * @param \stdClass $group the group being invited into
      * @param gatekeeper $gatekeeper the rule gatekeeper
      * @param string $query search text
-     * @param int $viewerid the searching user (email display gating)
+     * @param int $viewerid the searching user (identity gating: both the
+     *        email match condition and the email label)
      * @return array[] list of ['id', 'label', 'eligible', 'reason']
      */
     public static function search(
@@ -67,6 +101,15 @@ class candidates {
         $context = $activity->context();
         [$enrolsql, $enrolparams] = get_enrolled_sql($context, 'mod/selfselectadvanced:respond', 0, true);
 
+        $protect = contactprivacy::enabled($activity);
+        // The plugin's own permission to see contact fields. It is
+        // AND-ed onto the core check below, never OR-ed: a plugin
+        // capability must not restore a field the SITE removed
+        // (good-neighbour principle).
+        $mayseeidentity = !$protect
+            || contactprivacy::is_unrestricted($activity, $viewerid)
+            || has_capability('mod/selfselectadvanced:viewparticipantidentity', $context, $viewerid);
+
         // U3/S6: match across all core name fields, the full-name concat and email.
         $namefields = \core_user\fields::for_name()->get_required_fields();
         $conditions = [];
@@ -85,9 +128,14 @@ class candidates {
             false
         );
         $params[$param] = '%' . $DB->sql_like_escape($query) . '%';
-        $param = 'q' . $i++;
-        $conditions[] = $DB->sql_like('email', ':' . $param, false, false);
-        $params[$param] = '%' . $DB->sql_like_escape($query) . '%';
+        // The MATCH moves onto the same gate as the DISPLAY. Splitting
+        // them is what left the oracle open: the label was gated and the
+        // query was not.
+        if ($mayseeidentity) {
+            $param = 'q' . $i++;
+            $conditions[] = $DB->sql_like('email', ':' . $param, false, false);
+            $params[$param] = '%' . $DB->sql_like_escape($query) . '%';
+        }
 
         $fieldlist = implode(', ', array_map(static fn($f) => 'u.' . $f, array_unique(array_merge(
             ['id', 'email'],
@@ -101,13 +149,22 @@ class candidates {
               ORDER BY u.lastname, u.firstname";
         $users = $DB->get_records_sql($sql, array_merge($enrolparams, $params), 0, self::MAX_RESULTS);
 
-        $showemail = has_capability('moodle/site:viewuseridentity', $context, $viewerid)
-            || has_capability('moodle/course:viewhiddenuserfields', $context, $viewerid);
+        // AND-order, and the order is the good-neighbour principle in
+        // code: the two core capabilities remain an unconditional
+        // factor, so the plugin's gate can only ever remove the
+        // address. NEVER invert this to an OR.
+        $showemail = $mayseeidentity
+            && (has_capability('moodle/site:viewuseridentity', $context, $viewerid)
+                || has_capability('moodle/course:viewhiddenuserfields', $context, $viewerid));
+        // One bulk connection lookup for the page, not one per row.
+        $privacymap = ($showemail && $protect)
+            ? contactprivacy::can_see_map($activity, $viewerid, array_keys($users))
+            : null;
 
         $results = [];
         foreach ($users as $user) {
             $label = fullname($user);
-            if ($showemail) {
+            if ($showemail && ($privacymap === null || !empty($privacymap[(int) $user->id]))) {
                 $label .= ' (' . $user->email . ')';
             }
             $refusal = $gatekeeper->can_invite($group, (int) $user->id);

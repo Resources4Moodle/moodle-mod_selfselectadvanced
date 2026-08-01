@@ -26,13 +26,18 @@ Feature: Asking to join another team, and the guide releasing a settled one
       | guide1   | C1     | teacher        |
       | teacher1 | C1     | editingteacher |
       | coord1   | C1     | teacher        |
-    And the following "role assigns" exist:
-      | user   | role             | contextlevel | reference |
-      | coord1 | groupcoordinator | Course       | C1        |
     And the following "activities" exist:
       | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership |
       | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 4       | 1       | 1             |
       | selfselectadvanced | C1     | Dual labs  | ssa2     | 1       | 4       | 1       | 2             |
+    # ACTIVITY context (1.20.1): the Group Coordinator role does work
+    # inside one activity and is assignable nowhere else, so the table
+    # has to sit BELOW the activities table that creates its reference.
+    # coord1 works "Lab groups" only, which is what the course-level row
+    # this replaces silently spread across both instances.
+    And the following "role assigns" exist:
+      | user   | role             | contextlevel    | reference |
+      | coord1 | groupcoordinator | Activity module | ssa1      |
     And the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   | state   |
       | ssa1               | Team Blue | student1 | forming |

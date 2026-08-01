@@ -1185,7 +1185,17 @@ class freeze {
             $violators
         ));
         $guide = \core_user::get_user($actorid);
-        foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $manager) {
+        // The repair for an over-cap roster is to move somebody, raise
+        // the cap or grant an override - so the people who hold the
+        // narrow composition capability are told as well as the
+        // managers, deduplicated (a manager holding both is one
+        // recipient). Names only, never an email or a phone number.
+        foreach (
+            notifier::recipients($activity, [
+                'mod/selfselectadvanced:manage',
+                'mod/selfselectadvanced:managecomposition',
+            ]) as $manager
+        ) {
             notifier::send(
                 $activity,
                 'capaudit',

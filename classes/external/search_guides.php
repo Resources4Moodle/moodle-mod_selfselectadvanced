@@ -42,6 +42,15 @@ use mod_selfselectadvanced\activity;
  * No address is handled at any point, for anybody: the 1.17 rule for
  * approaches holds here too.
  *
+ * FIELD-VISIBILITY MATRIX (contact-privacy audit, 2026-08-01): this
+ * endpoint admits any holder of mod/selfselectadvanced:respond - which
+ * is every student - and discloses to them a GUIDE's name, department
+ * and (outside students-approach mode) current load. It returns no
+ * student data and no contact data of any kind, so it is not a
+ * cardinal-rule surface and needs no gate from the contact-privacy
+ * work. Recorded here so the matrix has a row for it rather than a
+ * silence.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -101,8 +110,17 @@ class search_guides extends external_api {
         // are what every guide list in the plugin already shows, and no
         // address is handled at any point (the 1.17 rule for approaches
         // holds here too).
+        // :assignguide joined the list in 1.20.0. It is the capability
+        // that reaches manage.php's assign/reassign tabs, and the
+        // control there is guidepicker::render() - a select that starts
+        // EMPTY and is filled entirely by this endpoint. Without this
+        // name a holder of the new narrow capability opens the page it
+        // was created for and finds a picker that answers nothing,
+        // which would leave "a holder of :assignguide can assign a
+        // team's guide" true only for somebody who also holds
+        // :coordinate or :manage.
         $allowed = false;
-        foreach (['respond', 'creategroup', 'guide', 'manage', 'coordinate'] as $capability) {
+        foreach (['respond', 'creategroup', 'guide', 'manage', 'coordinate', 'assignguide'] as $capability) {
             if (has_capability('mod/selfselectadvanced:' . $capability, $context)) {
                 $allowed = true;
                 break;
@@ -134,7 +152,7 @@ class search_guides extends external_api {
         // nominating a successor still needs it, but the teams choosing
         // do not see it.
         $showload = empty($activity->settings()->studentapproach);
-        foreach (['manage', 'coordinate', 'guide'] as $staffcapability) {
+        foreach (['manage', 'coordinate', 'guide', 'assignguide'] as $staffcapability) {
             if (has_capability('mod/selfselectadvanced:' . $staffcapability, $context)) {
                 $showload = true;
                 break;

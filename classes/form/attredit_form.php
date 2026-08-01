@@ -29,6 +29,28 @@ require_once($CFG->libdir . '/formslib.php');
  * Custom data: userid (0 = adding: shows the core user selector),
  * username (display when editing).
  *
+ * RECORDED, NOT FIXED (contact-privacy audit, 2026-08-01). The user
+ * picker below is core's own AMD selector, 'core_user/form_user_selector',
+ * which calls the core_user_search_identity web service. That service
+ * does require_capability('moodle/user:viewalldetails',
+ * context_system::instance()) and returns SITE-WIDE users with the
+ * $CFG->showuseridentity fields attached. It ignores the module context,
+ * the course and every capability this plugin defines, so the
+ * per-activity contact-privacy switch has NO effect on it. Reaching it
+ * would mean replacing a core component, which the good-neighbour
+ * principle says this plugin does not do.
+ *
+ * Two consequences worth naming rather than rediscovering:
+ *
+ * - moodle/user:viewalldetails at SYSTEM context is an undocumented HARD
+ *   PREREQUISITE of mod/selfselectadvanced:ingestattributes. That
+ *   capability is declared with 'archetypes' => [] at CONTEXT_SYSTEM, so
+ *   a site that grants it to a non-admin gets an attributes page whose
+ *   only user picker throws on every keystroke;
+ * - the identity fields the picker shows are the site's, not this
+ *   activity's. Do not "fix" this by swapping the selector for a plugin
+ *   one; it is a separate ticket with its own audience argument.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later

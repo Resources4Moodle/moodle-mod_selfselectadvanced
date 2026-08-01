@@ -156,7 +156,11 @@ final class capabilities_upgrade_test extends \advanced_testcase {
         }
 
         $this->run_the_upgrade();
-        $this->assertSame('2026073150', get_config('mod_selfselectadvanced', 'version'));
+        // Every later block runs too, so this is the ladder TIP, not
+        // this test's own savepoint: it moves with every version.php
+        // serial (2026073160 -> 2026073170 narrow capabilities -> 2026073180 contact
+        // privacy -> 2026073190 least-privilege capabilities).
+        $this->assertSame('2026073190', get_config('mod_selfselectadvanced', 'version'));
 
         foreach ($roles as $role) {
             foreach (self::MANAGERCAPS as $capability) {

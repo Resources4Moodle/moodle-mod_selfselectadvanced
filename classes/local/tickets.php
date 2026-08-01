@@ -823,6 +823,66 @@ class tickets {
     }
 
     /**
+     * Contact details of ticket requesters the viewer is connected to
+     * via an ACTIVE CLAIM (contact-privacy rule (c)).
+     *
+     * NO EMAIL, EVER (maintainer decision 17, 2026-08-01): staff reach a
+     * requester with the Send a message action, which is a Moodle
+     * message and shows nobody an address. Do not add an 'email' key
+     * back - "the claimant is a connection" was written before the
+     * maintainer said the plugin regresses to Moodle messaging, and a
+     * coordinator is precisely the non-editing-teacher audience the
+     * cardinal rule names.
+     *
+     * The mobile is consent-gated with a literal false bypass, and that
+     * literal is correct here and is the only sanctioned one: consent
+     * path only, no bypass inside a privacy feature.
+     *
+     * Empty when the activity does not protect contact details. That
+     * inversion - protection ON gives a claimant MORE than OFF - is
+     * deliberate: routing rule (c) through can_see_map() in both modes
+     * would hit that helper's all-true OFF shortcut and leak requester
+     * contact to every queue viewer, not just the claimant. If the
+     * claimant should have contact in both modes, the fix is a small
+     * rule-(c)-alone helper (the shape of
+     * contactprivacy::guided_subjects()), NOT relaxing the shortcut.
+     *
+     * Render-time read: no lock, no transaction, no write. The map
+     * re-reads claimedby/status, so a claim released between page load
+     * and render drops the row by itself.
+     *
+     * @param activity $activity the activity
+     * @param int $viewerid the viewer, presumed claimant
+     * @param int[] $requesterids requester user ids from the page's rows
+     * @return stdClass[] requesterid => (object) ['mobile' => string]
+     */
+    public static function requester_contact_map(activity $activity, int $viewerid, array $requesterids): array {
+        $requesterids = array_values(array_unique(array_map('intval', $requesterids)));
+        if (!$requesterids || !contactprivacy::enabled($activity)) {
+            return [];
+        }
+
+        $map = contactprivacy::can_see_map($activity, $viewerid, $requesterids);
+        $ids = array_keys(array_filter($map));
+        if (!$ids) {
+            return [];
+        }
+
+        $records = \mod_selfselectadvanced\local\attributes\manager::get_for_users($ids);
+        $out = [];
+        foreach ($ids as $id) {
+            $record = $records[$id] ?? null;
+            $out[$id] = (object) [
+                'mobile' => \mod_selfselectadvanced\local\attributes\manager::mobile_visible($record, false)
+                    ? (string) $record->mobile
+                    : '',
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * The queue: open tickets first come first served, then claimed,
      * then closed newest first.
      *

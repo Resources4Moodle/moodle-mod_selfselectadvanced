@@ -67,7 +67,7 @@ final class tickets_test extends \advanced_testcase {
         $generator->enrol_user($manager->id, $course->id, 'editingteacher');
         $coordinator = $generator->create_user();
         $generator->enrol_user($coordinator->id, $course->id, 'teacher');
-        role_assign(coordinatorrole::ensure(), $coordinator->id, \context_course::instance($course->id));
+        role_assign(coordinatorrole::ensure(), $coordinator->id, \context_module::instance((int) $instance->cmid));
 
         $activity = activity::from_instance((int) $instance->id);
         $group = $plugingen->create_group([
@@ -693,8 +693,9 @@ final class tickets_test extends \advanced_testcase {
 
     /**
      * The role exists after install with its capability set at system
-     * context, assignable at course and module level; ensure() is
-     * idempotent and never duplicates it.
+     * context, assignable at ACTIVITY level only (1.20.1 - it does work
+     * inside one activity and nowhere else); ensure() is idempotent and
+     * never duplicates it.
      */
     public function test_coordinator_role_created(): void {
         global $DB;
@@ -704,9 +705,8 @@ final class tickets_test extends \advanced_testcase {
         $this->assertSame($roleid, coordinatorrole::ensure());
         $this->assertSame(1, $DB->count_records('role', ['shortname' => coordinatorrole::SHORTNAME]));
 
-        $levels = array_map('intval', get_role_contextlevels($roleid));
-        $this->assertContains(CONTEXT_COURSE, $levels);
-        $this->assertContains(CONTEXT_MODULE, $levels);
+        $levels = array_map('intval', array_values(get_role_contextlevels($roleid)));
+        $this->assertSame([CONTEXT_MODULE], $levels);
 
         $systemcontext = \context_system::instance();
         foreach (

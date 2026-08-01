@@ -198,6 +198,16 @@ $messageproviders = [
             'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
         ],
     ],
+    // A member of staff reaching one participant (decision 18): the
+    // replacement for every mailto: link 1.20 removed. Deliberately NOT
+    // in notifier::DIGESTIBLE - a person-to-person message must not sit
+    // in a weekly digest.
+    'staffmessage' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
     // A student asking to join another team, and the answer
     // (strategy 1.19 B): to the target team's leader, then back to the
     // student.

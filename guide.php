@@ -360,6 +360,17 @@ if ($showvolunteer) {
 
 $queue = [];
 $guided = [];
+// Whether the "Team page" link below leads anywhere for THIS viewer.
+// Every row of $mygroups is a team this person is the assigned guide
+// of, so group.php's own gate (teamaccess::may_open_team) reduces to a
+// context-wide capability question here - asked ONCE, never per row. A
+// site that PREVENTs :viewassignedteams gets no link rather than a
+// visible link to a refusal.
+$canopenteam = has_any_capability([
+    'mod/selfselectadvanced:viewassignedteams',
+    'mod/selfselectadvanced:viewall',
+    'mod/selfselectadvanced:manage',
+], $context);
 // Department filter: ONE query for every roster's departments
 // instead of a per-group roster+attribute fetch (audit item 27).
 $deptmap = [];
@@ -458,6 +469,18 @@ foreach ($mygroups as $group) {
             'id' => $cm->id,
             'g' => $group->id,
             'action' => 'freeze',
+        ]))->out(false);
+        // The team page itself. Until 1.20.1 the dashboard offered
+        // Review, Freeze, Release and Step out but no route to the page
+        // those actions live on, because group.php's entry gate refused
+        // a guide who did not also hold :viewall - so the link would
+        // have led straight to a permissions error on any site that had
+        // withdrawn it. It is offered only when this viewer's own
+        // capabilities open that page, for the same reason.
+        $row->canopenteam = $canopenteam;
+        $row->teamurl = (new moodle_url('/mod/selfselectadvanced/group.php', [
+            'id' => $cm->id,
+            'g' => $group->id,
         ]))->out(false);
         // EOI pre-assignment (1.11.0): a forming team can now carry a
         // guideid before it is ever submitted, via an accepted interest.

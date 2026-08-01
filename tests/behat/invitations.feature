@@ -18,9 +18,14 @@ Feature: Invitation-only joining with reserved seats
       | student1 | C1     | student |
       | student2 | C1     | student |
       | student3 | C1     | student |
+    # contactprivacy 0 (legacy): the selector scenario below searches by
+    # address, which is a privilege of viewers the identity gate admits
+    # once contact details are protected - and a student leader is not
+    # one. The protected behaviour is pinned in contactprivacy.feature
+    # and in external_search_test::test_email_match_gated_when_private.
     And the following "activities" exist:
-      | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership |
-      | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 3       | 1       | 1             |
+      | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership | contactprivacy |
+      | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 3       | 1       | 1             | 0              |
     And the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   |
       | ssa1               | Team Blue | student2 |

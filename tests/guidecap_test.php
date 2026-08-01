@@ -60,7 +60,7 @@ final class guidecap_test extends \advanced_testcase {
         $generator->enrol_user($manager->id, $course->id, 'editingteacher');
         $coordinator = $generator->create_user();
         $generator->enrol_user($coordinator->id, $course->id, 'teacher');
-        role_assign(coordinatorrole::ensure(), $coordinator->id, \context_course::instance($course->id));
+        role_assign(coordinatorrole::ensure(), $coordinator->id, \context_module::instance((int) $instance->cmid));
 
         return [activity::from_instance((int) $instance->id), $guide, $otherguide, $manager, $coordinator, $course];
     }

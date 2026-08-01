@@ -651,7 +651,16 @@ class joinrequests {
         // respond(), which flushes it after ITS release. Cleared
         // blockers activate parked overrides at once (item 19); on the
         // outermost path commit_set() does this itself.
-        \mod_selfselectadvanced\local\override\store::recheck_pending($activity, $actorid);
+        //
+        // RESTRICTED to what this acceptance moved - the requester and
+        // the two teams involved. Without it this nested path would
+        // sweep every pending row of the activity on every join accept
+        // (T-08); commit_set()'s outermost call takes the same kind of
+        // restriction built from its own committed move set.
+        \mod_selfselectadvanced\local\override\store::recheck_pending($activity, $actorid, [
+            'user' => [(int) $request->userid],
+            'group' => [(int) $target->id, (int) $sourceid],
+        ]);
 
         return self::get($activity, (int) $request->id);
     }

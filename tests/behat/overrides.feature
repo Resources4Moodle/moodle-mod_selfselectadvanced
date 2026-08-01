@@ -88,3 +88,32 @@ Feature: Overrides resolved through the single service
     When I am on the "Tight labs" "mod_selfselectadvanced > moves" page
     Then I should see "L2" in the ".ssa-rulechip-L2" "css_element"
     And "Override this rule…" "link" should exist in the ".ssa-rulechip-L2" "css_element"
+
+  Scenario: Editing an override into a conflicting effective pair is refused with both sources named
+    Given the following "mod_selfselectadvanced > overrides" exist:
+      | selfselectadvanced | scope | target   | maxlead | maxmembership |
+      | ssa1               | user  | student1 | 3       | 3             |
+    When I am on the "Lab groups" "mod_selfselectadvanced > overrides" page logged in as teacher1
+    Then I should see "Max lead: 3"
+    When I follow "Edit"
+    And I set the field "Maximum group memberships per student" to ""
+    And I press "Save changes"
+    Then I should not see "Override saved."
+    And I should see "Effective limits conflict"
+    And I should see "the activity settings"
+    # The BLOCKER's own labels, not the form field labels beside them:
+    # "Maximum groups a student may lead" is the form's own chrome and
+    # is re-rendered on every validation failure, so asserting it could
+    # not fail whether the tuple check ran or not.
+    And I should see "Max lead (3, from this override) exceeds Max memberships"
+
+  Scenario: A cross-scope conflict written through the seam is parked with the conflict named
+    Given the following "mod_selfselectadvanced > overrides" exist:
+      | selfselectadvanced | scope | target    | timeopen           | timedue         |
+      | ssa1               | group | Team Blue | ##1 January 2030## |                 |
+      | ssa1               | user  | student1  |                    | ##1 June 2029## |
+    When I am on the "Lab groups" "mod_selfselectadvanced > overrides" page logged in as teacher1
+    Then I should see "Effective dates conflict"
+    And I should see "the group override for Team Blue"
+    And I should see "The conflict arises for"
+    And I should see "User override pending"

@@ -291,7 +291,7 @@ final class races_stale_read_test extends \advanced_testcase {
         $generator->enrol_user($guide->id, $course->id, 'teacher');
         $coordinator = $generator->create_user();
         $generator->enrol_user($coordinator->id, $course->id, 'teacher');
-        role_assign(coordinatorrole::ensure(), $coordinator->id, \context_course::instance($course->id));
+        role_assign(coordinatorrole::ensure(), $coordinator->id, $activity->context());
 
         $group = $plugingen->create_group([
             'activityid' => $activity->id(),

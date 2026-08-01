@@ -46,6 +46,10 @@ $PAGE->set_title(get_string('roster', 'mod_selfselectadvanced'));
 $PAGE->set_heading(format_string($course->fullname));
 
 $canmanage = has_capability('mod/selfselectadvanced:manage', $activity->context());
+// The reach verdict for Send a message, asked ONCE for the page: this
+// page already requires :viewall, so every viewer of it may write to a
+// participant. staffmessage::send() re-checks before anything travels.
+$canmessage = $canmanage || has_capability('mod/selfselectadvanced:viewall', $activity->context());
 $perpage = \mod_selfselectadvanced\local\perpage::current(50);
 $table = new \mod_selfselectadvanced\table\roster_table(
     'ssaroster',
@@ -54,7 +58,9 @@ $table = new \mod_selfselectadvanced\table\roster_table(
     $fstate,
     $frole,
     $canmanage,
-    $download !== ''
+    $download !== '',
+    $canmessage,
+    (int) $USER->id
 );
 $table->is_downloading($download, \mod_selfselectadvanced\local\exporter::stamp('roster'));
 

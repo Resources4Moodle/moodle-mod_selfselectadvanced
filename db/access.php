@@ -114,6 +114,49 @@ $capabilities = [
         ],
     ],
 
+    // The two narrow slices of :manage (1.20.0). A Group Coordinator
+    // who resolves a composition-change ticket can now carry the change
+    // out, without also gaining settings, quotas, dates and
+    // auto-grouping. The conflict-of-interest guard refuses both on any
+    // team the holder is involved in, unless they also hold :manage.
+    //
+    // Both declare archetypes AND clonepermissionsfrom, which core
+    // treats as ALTERNATIVES, not as an addition (accesslib.php: "we
+    // ignore archetype key if we have cloned permissions"), and which
+    // of the two fires depends on the install path: on a FRESH install
+    // :manage does not exist yet when the pass reads its existing-caps
+    // list, so archetypes wins; on an UPGRADE it does, so the clone
+    // wins and every role holding :manage inherits these at the same
+    // context and permission. The one holder that differs between the
+    // paths is the manager role, and no gate can tell: every seam these
+    // capabilities open is has_any_capability([:manage, <narrow>]) and
+    // the conflict-of-interest guard exempts :manage outright.
+    // Documented in full in docs/architecture.md section 4.
+
+    // Stage, commit and cancel student moves without the full manage
+    // power.
+    'mod/selfselectadvanced:managecomposition' => [
+        'riskbitmask' => RISK_CONFIG,
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => [
+            'editingteacher' => CAP_ALLOW,
+        ],
+        'clonepermissionsfrom' => 'mod/selfselectadvanced:manage',
+    ],
+
+    // Assign or reassign a team's guide, and decide expressions of
+    // interest, without the full manage power.
+    'mod/selfselectadvanced:assignguide' => [
+        'riskbitmask' => RISK_CONFIG,
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => [
+            'editingteacher' => CAP_ALLOW,
+        ],
+        'clonepermissionsfrom' => 'mod/selfselectadvanced:manage',
+    ],
+
     // Create, edit and delete overrides.
     'mod/selfselectadvanced:override' => [
         'riskbitmask' => RISK_CONFIG,
@@ -149,15 +192,91 @@ $capabilities = [
         'archetypes' => [],
     ],
 
-    // See all groups, members, states and the penalty ledger.
+    // Open the team page of a team this person is the ASSIGNED guide
+    // of - and only that team. Split out of :viewall in 1.20.1: the
+    // entry gate at group.php conflated "may see everything in this
+    // activity" with "may see the team I am responsible for", so a site
+    // that withdrew :viewall from its non-editing teachers locked every
+    // guide out of the page carrying Freeze, Release and the roster
+    // they are there to judge.
+    //
+    // clonepermissionsfrom is :guide, NOT :viewall, and the choice is
+    // load-bearing. Core copies the SOURCE ROLE'S PERMISSION VERBATIM,
+    // CAP_PREVENT included (lib/accesslib.php, the $newcaps clone loop:
+    // assign_capability($capname, $rolecapability->permission, ...)).
+    // Cloning from :viewall would therefore hand CAP_PREVENT to exactly
+    // the sites that have already withdrawn it - the sites this
+    // capability exists for - and they would upgrade into the same
+    // lockout. :guide is the right source because the population that
+    // needs this is precisely the population that guides teams.
+    //
+    // Declaring BOTH archetypes and clonepermissionsfrom is deliberate
+    // and the two are ALTERNATIVES, not an addition (see the note above
+    // :managecomposition): a FRESH install takes the archetype list
+    // because :guide is not yet in the capabilities table when core
+    // captures its existing-caps snapshot; an UPGRADE takes the clone.
+    'mod/selfselectadvanced:viewassignedteams' => [
+        'riskbitmask' => RISK_PERSONAL,
+        'captype' => 'read',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => [
+            'teacher' => CAP_ALLOW,
+        ],
+        'clonepermissionsfrom' => 'mod/selfselectadvanced:guide',
+    ],
+
+    // See all groups, members, states and the penalty ledger - the whole
+    // activity, every team, whether or not this person guides any of
+    // them. The non-editing teacher archetype was removed in 1.20.1:
+    // it made every one of them an unrestricted viewer by default,
+    // which is what the maintainer's participant-visibility policy
+    // withdraws. What a guide actually needs is :viewassignedteams.
+    //
+    // This edit reaches FRESH INSTALLS ONLY. Core's update_capabilities()
+    // applies an archetype list only to capabilities that are NEW to the
+    // capabilities table, so an upgraded site keeps every row it has -
+    // measured on both engines, and asserted by
+    // tests/viewassignedteams_test.php. Withdrawing it from an existing
+    // site is an administrator's act, deliberately not the plugin's:
+    // role_capabilities carries no provenance, so the plugin cannot tell
+    // its own install-time grant from a permission somebody chose.
     'mod/selfselectadvanced:viewall' => [
         'riskbitmask' => RISK_PERSONAL,
         'captype' => 'read',
         'contextlevel' => CONTEXT_MODULE,
         'archetypes' => [
             'editingteacher' => CAP_ALLOW,
-            'teacher' => CAP_ALLOW,
             'manager' => CAP_ALLOW,
         ],
+    ],
+
+    // See a participant's EMAIL and MOBILE inside this activity - the
+    // identity half of what :viewall used to imply. Split out in 1.20
+    // because :viewall is a "how many teams" question and this is a
+    // "whose contact details" question, and because a site may withdraw
+    // the core participant capabilities entirely: after that, this and
+    // the per-activity contact-privacy switch are the only controls the
+    // plugin has over identity disclosure.
+    //
+    // No archetype and no clone: NOBODY holds it by default, not even
+    // the editing teacher, who passes through contactprivacy's :manage
+    // arm instead. A site that wants a reports role to read contact
+    // fields grants it deliberately.
+    //
+    // clonepermissionsfrom is deliberately ABSENT. Core copies the
+    // source role's permission verbatim, CAP_PREVENT included, so
+    // cloning from :viewall would hand this to every non-editing
+    // teacher on every existing site - the exact exposure 1.20 closes.
+    //
+    // It NEVER restores what the site removed at core level: every
+    // consumer AND-composes it (good-neighbour principle), and it is
+    // NOT part of contactprivacy::is_unrestricted() - it is a
+    // permission to see fields, not a permission to bypass the
+    // connection map.
+    'mod/selfselectadvanced:viewparticipantidentity' => [
+        'riskbitmask' => RISK_PERSONAL,
+        'captype' => 'read',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => [],
     ],
 ];

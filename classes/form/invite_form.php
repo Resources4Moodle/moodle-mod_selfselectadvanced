@@ -48,7 +48,16 @@ class invite_form extends \moodleform {
             'multiple' => true,
             'ajax' => 'mod_selfselectadvanced/candidateselector',
             'noselectionstring' => get_string('invitenoselection', 'mod_selfselectadvanced'),
-            'placeholder' => get_string('inviteplaceholder', 'mod_selfselectadvanced'),
+            // A placeholder must not promise a match the query will not
+            // make: while the activity protects contact details, a
+            // restricted inviter searches names only. Missing key means
+            // legacy behaviour (matching on both).
+            'placeholder' => get_string(
+                empty($this->_customdata['emailmatch']) && array_key_exists('emailmatch', $this->_customdata)
+                    ? 'inviteplaceholdername'
+                    : 'inviteplaceholder',
+                'mod_selfselectadvanced'
+            ),
             'valuehtmlcallback' => function ($userid) {
                 $user = \core_user::get_user((int) $userid);
 

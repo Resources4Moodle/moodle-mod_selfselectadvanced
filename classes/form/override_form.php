@@ -190,6 +190,81 @@ class override_form extends \moodleform {
             $errors['timecutoff'] = get_string('errdatesorder', 'mod_selfselectadvanced');
         }
 
-        return $errors;
+        return array_merge($errors, $this->tuple_errors($data, $errors));
+    }
+
+    /**
+     * The MERGED effective tuple, checked as a courtesy (finding-9).
+     *
+     * The checks above only ever see the fields of THIS submission, so
+     * they cannot see the tuple a per-field fallthrough actually
+     * produces: a lone timedue merged over the activity's cutoff, or a
+     * user's window merged under a group override's. This runs the same
+     * shared checker store::save() runs, so an admin is told which two
+     * effective values conflict and where each came from, inline,
+     * instead of the row silently parking pending. The seam still
+     * enforces independently - the form is courtesy, the seam is law.
+     *
+     * @param array $data submitted data
+     * @param array $errors the errors found so far
+     * @return array field => error message, for fields not already flagged
+     */
+    private function tuple_errors(array $data, array $errors): array {
+        $mode = (string) $this->_customdata['mode'];
+        if ($mode !== 'user' && $mode !== 'group') {
+            // A guide row's maxguided has no tuple partner; the checker
+            // returns nothing for it anyway.
+            return [];
+        }
+        $activity = $this->_customdata['activity'] ?? null;
+        if (!$activity instanceof \mod_selfselectadvanced\activity) {
+            return [];
+        }
+        $targetid = empty($this->_customdata['overrideid'])
+            ? (int) ($data['target'] ?? 0)
+            : (int) $this->_customdata['targetid'];
+        if (!$targetid) {
+            // The 'required' error has already fired.
+            return [];
+        }
+
+        $fields = \mod_selfselectadvanced\local\override\store::FIELDS[$mode];
+        $candidate = (object) array_merge(
+            array_fill_keys($fields, null),
+            \mod_selfselectadvanced\local\override\store::normalise($mode, $data),
+            [
+                'scope' => $mode,
+                'userid' => $mode === 'user' ? $targetid : null,
+                'groupid' => $mode === 'group' ? $targetid : null,
+            ]
+        );
+
+        $tuple = [];
+        $violations = \mod_selfselectadvanced\local\override\consistency::violations($activity, $candidate);
+        foreach ($violations as $violation) {
+            // Attach it to the side the submitter can actually change.
+            $field = $violation->firstsource === \mod_selfselectadvanced\local\override\consistency::SOURCE_THIS
+                ? $violation->firstfield
+                : $violation->secondfield;
+            // The same-submission checks above speak about a PAIR and
+            // write to whichever of the two fields they choose: open >
+            // due lands on `timedue`, due > cutoff and open > cutoff
+            // both land on `timecutoff`. Testing only the field this
+            // violation picked therefore missed every date duplicate
+            // and the admin was told the same thing twice on two
+            // fields - the numeric pairs deduped only because both
+            // messages happen to land on `minsize`. Both ends of the
+            // pair are tested against the errors found so far.
+            if (
+                isset($errors[$violation->firstfield])
+                || isset($errors[$violation->secondfield])
+                || isset($tuple[$field])
+            ) {
+                continue;
+            }
+            $tuple[$field] = \mod_selfselectadvanced\local\override\consistency::describe($activity, $violation);
+        }
+
+        return $tuple;
     }
 }

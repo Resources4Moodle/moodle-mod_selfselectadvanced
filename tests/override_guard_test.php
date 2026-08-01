@@ -206,7 +206,7 @@ final class override_guard_test extends \advanced_testcase {
             'maxmembership' => 2,
         ]);
         $activity = activity::from_instance((int) $instance->id);
-        $coursecontext = \context_course::instance($course->id);
+        $modcontext = $activity->context();
 
         $mk = function (string $role) use ($generator, $course) {
             $user = $generator->create_user();
@@ -219,7 +219,7 @@ final class override_guard_test extends \advanced_testcase {
         $mover = $mk('student');
         $manager = $mk('editingteacher');
         $coordinator = $mk('student');
-        role_assign(\mod_selfselectadvanced\local\coordinatorrole::ensure(), $coordinator->id, $coursecontext);
+        role_assign(\mod_selfselectadvanced\local\coordinatorrole::ensure(), $coordinator->id, $modcontext);
         accesslib_clear_all_caches_for_unit_testing();
 
         $source = $plugingen->create_group([
@@ -276,7 +276,7 @@ final class override_guard_test extends \advanced_testcase {
         role_assign(
             \mod_selfselectadvanced\local\coordinatorrole::ensure(),
             $guidecoordinator->id,
-            $coursecontext
+            $modcontext
         );
         accesslib_clear_all_caches_for_unit_testing();
         global $DB;
@@ -298,7 +298,7 @@ final class override_guard_test extends \advanced_testcase {
         role_assign(
             \mod_selfselectadvanced\local\coordinatorrole::ensure(),
             $selfcoordinator->id,
-            $coursecontext
+            $modcontext
         );
         accesslib_clear_all_caches_for_unit_testing();
         $selfmove = $api->moves()->stage(

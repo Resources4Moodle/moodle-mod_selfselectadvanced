@@ -77,9 +77,13 @@ all settings are per activity instance.
 | `mod/selfselectadvanced:freeze` | teacher (non-editing) |
 | `mod/selfselectadvanced:unfreeze` | editingteacher |
 | `mod/selfselectadvanced:manage` | editingteacher |
+| `mod/selfselectadvanced:managecomposition` | editingteacher (and every role holding `:manage`, on upgrade) |
+| `mod/selfselectadvanced:assignguide` | editingteacher (and every role holding `:manage`, on upgrade) |
 | `mod/selfselectadvanced:override` | editingteacher |
 | `mod/selfselectadvanced:ingestattributes` | none (system context; site admins) |
-| `mod/selfselectadvanced:viewall` | editingteacher, teacher |
+| `mod/selfselectadvanced:viewall` | editingteacher (the non-editing teacher was removed in 1.20.1 — **on fresh installs only**; no existing site loses it) |
+| `mod/selfselectadvanced:viewassignedteams` | teacher (non-editing) — open the team pages of teams they are the assigned guide of, and only those |
+| `mod/selfselectadvanced:viewparticipantidentity` | none (granted deliberately) — see participants' email addresses and mobile numbers inside this activity; AND-ed onto the core identity capabilities, never a substitute for them |
 
 Every action checks the capability, never the role name.
 
@@ -210,17 +214,54 @@ The privacy provider exports and deletes memberships, briefs,
 invitations, nominations, overrides, moves, penalties, reminder
 preferences and the plugin-local participant attributes (stored
 site-wide, solely for grouping, never written to user profiles).
-Candidate search matches on email for all inviters — a deliberate,
-documented decision (display of addresses remains identity-gated);
-search-by-email confirms at most that an address belongs to a course
-peer. Backups exclude auto-grouping logs and pending staged moves
+Candidate search no longer matches on email for every inviter — that
+was true up to 1.19.x and was changed in 1.20.0, because gating the
+DISPLAY of an address while leaving the MATCH open leaves an oracle:
+type an address in, and whether a row comes back answers whose it is.
+The match and the label now sit on the same gate, so a student team
+leader searching under an activity that protects contact details gets
+neither. The staff move form's participant picker is a different
+endpoint and a stricter one: it matches on the address only for a
+holder of `mod/selfselectadvanced:manage`, so the narrow
+`:managecomposition` permission cannot be used to look a name up from
+an address. Neither picker has ever returned a phone number, and since
+1.20.0 the candidate picker's label carries an address only for a
+viewer the same gate admits — `:manage`, or a deliberately granted
+`mod/selfselectadvanced:viewparticipantidentity`, AND-ed onto the two
+core identity capabilities, so the plugin can only ever remove the
+address and never restore one the site withdrew.
+
+### Contact privacy (per activity, default on)
+
+`contactprivacy` is an activity setting, on for new instances and for
+every instance that existed before 1.20.0, switched by a `:manage`
+holder. While it is on:
+
+- no page, export, CSV, picker, web service, notification or event
+  payload of this plugin renders or links an email address to anybody
+  below `:manage`. Staff reach a participant with **Send a message**,
+  which travels as a Moodle message and shows the sender no address;
+- a mobile number reaches only a viewer *connected* to its owner — a
+  confirmed teammate, the guide assigned to that person's team, or the
+  holder of that person's claimed request ticket — and only when the
+  owner switched their own sharing consent on. Nobody below a site
+  administrator bypasses that consent: the bypass asks for
+  `mod/selfselectadvanced:viewparticipantidentity`, which no role holds
+  by default.
+
+Backups exclude auto-grouping logs and pending staged moves
 (operational/transient state). Uninstalling drops the plugin's own
 tables, configuration and capabilities. Two things are deliberately
 left behind: previously frozen core course groups, which are course
 data by then, and the Group Coordinators role when anybody is still
-assigned to it — an uninstall must not revoke people's access as a
-side effect. An unassigned role that this plugin created is removed,
-and whatever is kept is named on screen at the time.
+assigned to it at that moment — an uninstall must not revoke people's
+access as a side effect. A role that is already unassigned is removed,
+and whatever is kept is named on screen at the time. Since 1.20.0,
+coordinator appointments are recorded against the activity, and Moodle
+deletes those activity contexts *after* this plugin's own uninstall
+step has run: on a site whose only appointments were made by this
+plugin, the role is therefore kept and then ends up with nobody in it.
+It grants nothing to nobody, and an administrator can delete it.
 
 ## Third-party libraries
 

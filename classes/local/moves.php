@@ -283,6 +283,16 @@ class moves {
             }
         }
 
+        // Conflict of interest (1.16 D): an actor whose authority to be
+        // here is the narrow :managecomposition capability may not
+        // stage a move touching a team they are involved in. Probed on
+        // BOTH sides, and null-safe: a park (D6-2) has no target, and a
+        // placement of a groupless student has no source.
+        $this->require_uninvolved_narrow($target, $actorid);
+        if ($sourcegroupid !== null) {
+            $this->require_uninvolved_narrow($source, $actorid);
+        }
+
         $now = time();
         $move = (object) [
             'activityid' => $this->activity->id(),
@@ -805,6 +815,40 @@ class moves {
 
             $moves = $this->load_pending($moveids);
 
+            // Conflict of interest again, against the rows re-read
+            // INSIDE the lock: staging and committing are separate
+            // acts, and the roster can change between them - the actor
+            // may have joined a touched team since they staged. Both
+            // sides are guarded and both are optional (a park carries a
+            // null targetgroupid; a placement carries a null source),
+            // which matters because groups::get() is MUST_EXIST and
+            // (int) null would ask it for group 0. This only reads and
+            // throws: nothing new is written, sent or fired inside the
+            // lock (house rule 1).
+            //
+            // The actor's authority is constant for the whole call, so
+            // it is asked ONCE, outside the loop. Reading the two group
+            // rows first and deciding afterwards would cost up to
+            // 2 x MAX_COMMIT extra queries on every commit a manager
+            // makes and on every leader-accepted join request - a
+            // per-row cost for a per-call answer (house rule 3).
+            if ($this->coi_applies($actorid)) {
+                foreach ($moves as $move) {
+                    if ($move->targetgroupid) {
+                        $this->require_uninvolved_narrow(
+                            groups::get($this->activity, (int) $move->targetgroupid),
+                            $actorid
+                        );
+                    }
+                    if ($move->sourcegroupid) {
+                        $this->require_uninvolved_narrow(
+                            groups::get($this->activity, (int) $move->sourcegroupid),
+                            $actorid
+                        );
+                    }
+                }
+            }
+
             $now = time();
             $leaderchanges = [];
             foreach ($moves as $move) {
@@ -1026,7 +1070,22 @@ class moves {
             // activity:/group: locks are still open, so it is handed
             // back and run there instead (cleared blockers activate
             // parked overrides at once, item 19).
-            \mod_selfselectadvanced\local\override\store::recheck_pending($this->activity, $actorid);
+            //
+            // RESTRICTED to what this set actually moved: a commit is a
+            // hot path, and re-pricing every pending row of a
+            // 10,000-student activity to learn that none of them
+            // changed is work nobody asked for (T-08).
+            \mod_selfselectadvanced\local\override\store::recheck_pending(
+                $this->activity,
+                $actorid,
+                [
+                    'user' => array_map(static fn($move) => (int) $move->userid, $moves),
+                    'group' => array_merge(
+                        array_map(static fn($move) => (int) ($move->sourcegroupid ?? 0), $moves),
+                        array_map(static fn($move) => (int) ($move->targetgroupid ?? 0), $moves)
+                    ),
+                ]
+            );
         }
 
         return count($moves);
@@ -1283,6 +1342,70 @@ class moves {
         if (!empty($grouprow->coregroupid)) {
             $syncgroupids[] = (int) $grouprow->id;
         }
+    }
+
+    /**
+     * The conflict-of-interest guard, applied to the NARROW authority
+     * this release introduces and to nothing that could reach this
+     * engine before it.
+     *
+     * The rule (1.16 D) is that staff whose authority is a narrow
+     * plugin capability may not act on a team they are part of, guide
+     * or are the successor guide of. :managecomposition is what widened
+     * these seams beyond :manage, so :managecomposition is what the
+     * rule restrains - exactly the shape
+     * tickets::require_uninvolved_override() uses for :coordinate, and
+     * for the same stated reason: adding a role to a site must never
+     * quietly take authority away from somebody who already had it.
+     *
+     * That scoping is LOAD-BEARING, not caution. This engine's other
+     * caller is joinrequests::do_accept() (joinrequests.php:562 stages
+     * and :617 commits), whose actor is whoever
+     * joinrequests::require_decider() admitted - and that returns FIRST
+     * for the TARGET TEAM'S OWN LEADER (joinrequests.php:772-775). A
+     * leader is by definition a confirmed member of the team they are
+     * admitting somebody to, and require_uninvolved() exempts only
+     * :manage holders. An unconditional probe here would therefore
+     * refuse every student-led join acceptance on the site with
+     * "you cannot act on this team because you are a member of it".
+     *
+     * A holder of :manage needs no test of their own: the probe is
+     * still made and require_uninvolved() returns immediately for them.
+     *
+     * @param stdClass|null $group the team to probe, or null when this
+     *        side of the move has none (a park has no target; placing a
+     *        groupless student has no source)
+     * @param int $actorid the acting staff member
+     * @throws \moodle_exception refusalcoiinvolved when involved
+     */
+    private function require_uninvolved_narrow(?stdClass $group, int $actorid): void {
+        if ($group === null || !$this->coi_applies($actorid)) {
+            return;
+        }
+
+        tickets::require_uninvolved($this->activity, $group, $actorid);
+    }
+
+    /**
+     * Whether the conflict-of-interest rule restrains THIS actor here.
+     *
+     * One answer for a whole call, so callers can ask it once instead
+     * of once per move: an actor's capabilities do not change between
+     * two rows of the same commit. Exactly the two conditions
+     * require_uninvolved_narrow() applied inline before - a :manage
+     * holder is exempt (tickets::require_uninvolved() returns at once
+     * for them anyway), and an actor without :managecomposition is not
+     * restrained at all, which is what keeps a student leader's join
+     * acceptance working.
+     *
+     * @param int $actorid the acting staff member
+     * @return bool true when the actor's authority here is the narrow one
+     */
+    private function coi_applies(int $actorid): bool {
+        $context = $this->activity->context();
+
+        return !has_capability('mod/selfselectadvanced:manage', $context, $actorid)
+            && has_capability('mod/selfselectadvanced:managecomposition', $context, $actorid);
     }
 
     /**

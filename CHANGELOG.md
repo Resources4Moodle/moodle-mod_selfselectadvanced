@@ -1,6 +1,210 @@
 # Changelog
 
+## 1.20.1 (2026-08-01)
+
+> `$plugin->release` still reads `1.20.0`. The code comments and this
+> section name 1.20.1 because that is the release these changes belong
+> to, but the release string is owned elsewhere in this cycle and is
+> deliberately not touched here.
+
+- **A guide reaches the team they are assigned to without having to see
+  every team.** Until now the team page asked one question at the door:
+  are you a member of this team, or may you see everything in this
+  activity? A guide is never a member of the team they guide, so on a
+  site that had withdrawn "See all groups, members, states and the
+  penalty ledger" from its non-editing teachers, every guide was refused
+  their own team's page — and with it Freeze, Release, the roster, the
+  proposal and the ticket forms, while the very same guide could still
+  freeze that team in bulk from the dashboard. A new permission, **Open
+  the team pages of teams they are the assigned guide of**, answers the
+  narrow question; the door now admits a member, the team's own assigned
+  guide, a Manage holder or a see-everything holder, and nobody else.
+  A Manage holder without the broad permission was refused too, along
+  with eight manager-only actions on that page. That is fixed here.
+- **Non-editing teachers are no longer unrestricted viewers on a new
+  site.** "See all groups, members, states and the penalty ledger" is no
+  longer given to the non-editing teacher role on a **fresh install**;
+  the new narrow permission is given instead. **On an existing site this
+  changes nothing at all** — every permission your site has recorded is
+  left exactly as it is, this upgrade never takes one away, and the
+  upgrade log names the roles that still hold the broad one so you can
+  decide for yourself.
+- **What the team page shows now follows the assignment, not the job
+  title.** Holding the guide permission said you guide teams; it did not
+  say you guide THIS one. The mobile column and the composition
+  columns now appear for the team's OWN guide, and the pending-invitation
+  list is visible to them too.
+- **The review page refuses before it renders.** Any guide could read
+  any team's roster, its members' composition attributes, the assigned
+  guide's private notes and the proposal filename by editing one number
+  in the address bar. Writing was already refused; reading is now
+  refused as well, before the page draws.
+- **A guide the team turned down loses the team.** The team drill-down
+  behind the guide dashboard admitted anyone who had ever expressed an
+  interest, whatever the answer, so a guide a leader had rejected — or
+  one who had withdrawn — kept the roster for good. It now admits a
+  **live** interest only: pending or accepted.
+- **A team that changes hands stops being visible to the guide who gave
+  it up — but not until the handover is finished.** An accepted interest
+  is how a guide becomes a team's guide, and it kept that team's member
+  list even after the team had been handed to somebody else or
+  reassigned by staff. Sight of the roster now follows the team: while a
+  handover is waiting for the new guide's answer the outgoing guide can
+  still see it (they are still carrying the team), and the moment the
+  new guide accepts — or staff reassign the team outright — it closes.
+- **The Back button on a guide's workload page no longer leads to a
+  refusal.** It pointed at the flagged report, which needs the
+  see-everything permission that a guide on a new site no longer has.
+  It now returns them to their own dashboard, and still returns a
+  see-everything holder to the report they came from. The dashboard's
+  "Team page" link is likewise offered only to somebody the team page
+  will actually admit.
+- **An empty Actions column is no longer drawn** on the team drill-down
+  when no row on it can carry an action.
+- **The guide dashboard finally links to the team page**, and a guide can
+  open their own workload from the "Teams you guide" card without
+  needing to see everybody's.
+- **The Group Coordinator role is assignable at ACTIVITY level only.**
+  It does work inside one activity, and a course-level assignment
+  silently carried see-everything, the override hatch, Manage
+  composition and Assign guide into every instance in the course at
+  once. Moodle no longer offers the role on a course's Assign roles
+  screen. **Assignments you already made are untouched:** a course-level
+  one still grants exactly what it granted, and is still listed on, and
+  removable from, the plugin's own Coordinators screen.
+- **An override can no longer produce a combination that contradicts
+  itself.** Overrides fill in field by field: an override that sets only
+  a deadline keeps the activity's own opening date and cut-off. Nothing
+  ever checked the combination that produced — so "give this student
+  until Friday" could be recorded against a cut-off that had already
+  passed (the extension was then silently trimmed back to the old
+  cut-off, while the late penalty was calculated from the new date), a
+  team could be given a maximum size below the activity's minimum and
+  become impossible to settle, and a group's opening date could land
+  after one of its members' personal deadline. Every override write now
+  checks the combination it actually creates — its own values merged
+  with the activity's settings, and, for dates, merged with the
+  overrides of the teams a student belongs to or the members of a team.
+  A contradictory one is held **pending**, exactly as an over-capacity
+  reduction already was, with a message naming **both** conflicting
+  values and where each came from, and a link to the page that fixes it;
+  it starts applying by itself the moment the conflict is resolved. The
+  same check runs on the override form, so an administrator is told
+  before saving rather than afterwards. **Editing the activity's own
+  settings re-examines the overrides already granted**, and holds back
+  any that the edit has just contradicted — nothing is deleted, and
+  nothing changes for overrides that still make sense.
+- **An override form no longer says the same thing twice.** Submitting a
+  pair of dates the wrong way round reported the conflict on both
+  fields; it is reported once.
+- **The blocked-override list is paged, and the re-check that runs with
+  it is bounded.** A single settings edit can now hold back an entire
+  activity's overrides, which made the overrides page's every-visit
+  re-check — and its unpaged list of blocked rows, with a name looked up
+  per row — reachable at the size this plugin is built for. The re-check
+  now works through a window at a time, resolves its names in two
+  queries, asks only for the override rows a row can actually conflict
+  with instead of the whole activity's, and skips a row another process
+  is busy writing rather than turning a committed move into an error.
+  The nightly reconcile, which is the safety net for the blocked rows
+  beyond the page's window, still reaches every one of them — a window
+  at a time rather than in a single unbounded read.
+
 ## 1.20.0 (2026-07-31)
+
+- **Participants' contact details are protected by default, in every
+  activity.** A new activity setting, **Protect participant contact
+  details**, is on for new activities AND for every activity that
+  already exists after this upgrade. An editing teacher (or anyone else
+  holding Manage) can switch it off per activity. While it is on, no
+  page, link or download in this activity shows a student's email
+  address, and a mobile number is shown only to somebody actually
+  connected to its owner — a confirmed teammate, the guide assigned to
+  their team, or the coordinator or manager holding that person's
+  claimed request ticket — and only when that person consented to share
+  it.
+- **Staff reach a student with Send a message instead of an address.**
+  The team drill-down behind the guide dashboard used to show every
+  member's email address, a per-member mail link, an "Email the whole
+  team" button and contact columns in its download. All of that is
+  gone, replaced by a **Send a message** action on the team drill-down,
+  the roster and the ticket queue. It composes a Moodle message: the
+  sender never sees an address, the recipient never sees the sender's,
+  and delivery follows the recipient's own notification preferences.
+  **Read this if you relied on that page:** the address removal is
+  unconditional, so switching contact protection OFF does not bring the
+  addresses back. Turning it off restores the WhatsApp link and the
+  legacy mobile rules, nothing more.
+- **A person's own sharing consent is no longer overruled by anybody.**
+  Seeing every team ("See all groups, members, states and the penalty
+  ledger") used to be enough to read every stored mobile number,
+  consented or not; the flagged-students report printed them with no
+  check at all and put them in its spreadsheet. Both are fixed. **This
+  is a change even with contact protection switched off:** a number now
+  appears only when its owner shared it, unless a site deliberately
+  grants the new **See participants' email addresses and mobile numbers
+  inside this activity** permission, which no role holds by default.
+- **The invitation picker no longer answers questions about email
+  addresses.** Typing a full address into it and getting exactly one
+  person back confirmed whose address it was. While contact details are
+  protected the picker matches names only, and says so in the search
+  box; with protection off it behaves as it always did.
+- **This setting never overrides your site.** If participant visibility
+  has been withdrawn at site or course level, that still applies —
+  everything here can only narrow what a viewer sees, never widen it.
+- **A Group Coordinator can now carry out the composition change they
+  decided.** Until now a coordinator could claim a ticket asking for a
+  student to be moved, agree with it and resolve it — and then had no
+  way to make the move, because moving students and assigning guides
+  were behind the full Manage permission (settings, quotas, dates,
+  auto-grouping). Two new narrow permissions carve out exactly those two
+  jobs: **Manage composition** (stage, commit and cancel student moves,
+  and use the move form's student picker) and **Assign guide** (assign
+  or reassign a team's guide, and decide guides' expressions of
+  interest). The Group Coordinator role gets both on upgrade, and so
+  does every role that already held Manage — **nobody loses anything,
+  and nobody gains Manage.** If your site had deliberately prevented or
+  prohibited something for the Group Coordinator role, that decision is
+  left exactly as it is.
+- **The Group Coordinator role also carries the staff override hatch
+  now, and only where somebody was appointed.** Overriding a
+  composition rule, parking a student with no destination and
+  dissolving a dead-end team are the same one permission (Override
+  rules); a coordinator who is trusted to carry out a move needs it to
+  carry out the awkward ones. On sites upgrading from 1.19.x the role
+  already picked this up indirectly, because it holds Override; a
+  freshly installed site did not. Both paths now agree. The grant is
+  safe to make because appointments are recorded against the
+  **activity** (see below), so it can only ever apply in an activity
+  somebody was appointed in — never across a course and never
+  site-wide. If you assign the role at course level yourself through
+  Moodle's own role screens, that is your decision and it behaves as
+  you asked.
+- **Coordinators still cannot act on their own teams.** Both new
+  permissions are refused on any team the holder is a confirmed member
+  of, guides, or is the proposed successor guide of — checked again at
+  the moment a move is committed, not only when it is staged, because
+  the roster can change in between. A coordinator with an expression of
+  interest of their own pending on a team may not decide that team's
+  interests at all, their own or a rival's. Holders of Manage are
+  unaffected, as with every other conflict-of-interest rule here, and so
+  is a student leader answering a request to join their own team.
+- **The move form's student picker no longer answers questions about
+  email addresses.** It matched on the address as well as the name, so
+  typing an address in and getting a name back confirmed who owned it.
+  For anyone whose permission is the new narrow one, the address is no
+  longer matched at all — names and register numbers only. Nothing this
+  picker returns has ever included an email address or a phone number,
+  and it now does not fetch them either.
+- **The people who do the work now hear about it.** The "a team is
+  waiting for a guide" notice reaches holders of Assign guide, and the
+  membership-cap and auto-grouping-result notices reach holders of
+  Manage composition, alongside the managers who always got them.
+  Somebody holding two of these permissions is told once, not twice.
+- **Running auto-grouping still needs the full Manage permission.** It
+  rewrites the whole roster in one act, so it is not part of either
+  narrow permission even though the dashboard it sits on is now reachable
+  with them.
 
 - **Accepting a stale join request can no longer cost a student a
   team.** If a student asked to join a team and then got into that same
@@ -55,6 +259,33 @@
   pressing Freeze, or a large bulk freeze whose overflow is finished by
   cron, used to re-announce the freeze and mail every confirmed member
   again. The repair now does the repair and nothing else.
+- **A Group Coordinator now coordinates the activity they were
+  appointed in, and no other.** The appointment was recorded against
+  the *course*, although it is made from one activity's screen and
+  every permission it carries is asked for per activity. In a course
+  running two Group self-selection (Advanced) activities, appointing
+  somebody in one gave them freeze, unfreeze, exceptions, the request
+  queue and "view all" in both. Appointments are now recorded against
+  the activity. **On upgrade, every existing appointment is copied to
+  every instance in its course** so nobody loses a job they were doing
+  — where that is more than one instance, remove the ones you do not
+  want from each activity's own Group Coordinators screen. A course
+  with no such activity keeps its appointment untouched.
+- **Only a non-editing teacher can be appointed a Group Coordinator.**
+  The rule was a default filter on the table and nothing more: a POST,
+  a "Every participant" filter or a line in an uploaded file could
+  appoint a student, who then held "view all" (personal data) and
+  "override" (configuration). Both the single appointment and the
+  upload now refuse anybody who is not a non-editing teacher, and the
+  table says "Not eligible" instead of offering a button that would
+  fail. Eligibility is decided by the role's **archetype**, so a site
+  that renamed its non-editing-teacher role to Tutor, Demonstrator or
+  Facilitator is served correctly — the previous filter matched the
+  short name `teacher` literally and showed such a site an empty pool.
+  People who already hold the role keep it and can still be removed.
+- **A cohort upload of coordinators no longer asks one question per
+  line.** Enrolment and eligibility are now resolved once for the whole
+  file.
 
 ## 1.19.2 (2026-07-31)
 

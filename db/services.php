@@ -54,6 +54,8 @@ $functions = [
         'description' => 'Search this activity\'s participants for the manager move form.',
         'type' => 'read',
         'ajax' => true,
-        'capabilities' => 'mod/selfselectadvanced:manage',
+        // Advisory and comma-separated, per Moodle convention; the
+        // enforcing check is in search_participants::execute().
+        'capabilities' => 'mod/selfselectadvanced:manage, mod/selfselectadvanced:managecomposition',
     ],
 ];

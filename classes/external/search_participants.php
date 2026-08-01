@@ -30,8 +30,17 @@ use mod_selfselectadvanced\activity;
  * the SYSTEM context, which a coordinator holding their role inside one
  * course can never satisfy, so the move form could not be used at all
  * on a stock site. This provider searches only the participants of THIS
- * activity and is authorised by the plugin's own manage capability in
- * the module context, where a course coordinator does hold it.
+ * activity and is authorised by the plugin's own manage capability, or
+ * by the narrow :managecomposition capability, in the module context -
+ * where a coordinator appointed in that activity does hold it.
+ *
+ * Contact privacy (cardinal rule): this endpoint returns a user id and
+ * a display label built from name fields and the person's current team.
+ * It has never returned an email address or a phone number and must
+ * never start. It also no longer MATCHES on an email address for a
+ * :managecomposition-only actor - see execute() - because a search that
+ * accepts an address and answers with a name is an inverse contact
+ * lookup however little it prints.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -74,7 +83,17 @@ class search_participants extends external_api {
         $activity = activity::from_cmid($cmid);
         $context = $activity->context();
         self::validate_context($context);
-        require_capability('mod/selfselectadvanced:manage', $context);
+        // The move form's picker is dead without this, so the endpoint
+        // widens with the pages it serves. The exception names the
+        // narrow capability (least privilege).
+        if (!has_any_capability(['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:managecomposition'], $context)) {
+            throw new \required_capability_exception(
+                $context,
+                'mod/selfselectadvanced:managecomposition',
+                'nopermissions',
+                ''
+            );
+        }
 
         $query = trim($query);
         if ($query === '') {
@@ -101,13 +120,34 @@ class search_participants extends external_api {
             false
         );
         $params[$name] = '%' . $DB->sql_like_escape($query) . '%';
-        $name = 'sp' . $index++;
-        $conditions[] = $DB->sql_like('u.email', ':' . $name, false, false);
-        $params[$name] = '%' . $DB->sql_like_escape($query) . '%';
+        // Matching on the address is an ORACLE, not a convenience: type
+        // an email in, get back the name of the person who owns it,
+        // confirmed by whether a row comes back at all. For an actor
+        // whose whole authority is :managecomposition - a non-editing
+        // teacher on a stock site - that is the cardinal rule's inverse
+        // mapping, reached one AJAX call at a time and never rendered
+        // anywhere a review could see it. Only an unrestricted viewer
+        // gets the condition, and :manage IS that test: it is the same
+        // capability contactprivacy::is_unrestricted() asks, so this
+        // endpoint is already on the switch's own definition of an
+        // exempt viewer and does not need to consult it separately.
+        // Deliberately NOT widened to the per-activity switch's OFF
+        // mode: this is the staff move form's picker, and the
+        // :managecomposition holder it exists for must never gain the
+        // oracle just because an editing teacher turned protection off
+        // somewhere else in the activity.
+        if (has_capability('mod/selfselectadvanced:manage', $context)) {
+            $name = 'sp' . $index++;
+            $conditions[] = $DB->sql_like('u.email', ':' . $name, false, false);
+            $params[$name] = '%' . $DB->sql_like_escape($query) . '%';
+        }
 
+        // The email column is deliberately NOT selected either: nothing
+        // below reads it, and a column that is fetched is a column a
+        // later edit can print.
         $selects = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
         $rows = $DB->get_records_sql(
-            "SELECT u.id, u.email, $selects
+            "SELECT u.id, $selects
                FROM {user} u
                JOIN ($enrolsql) eu ON eu.id = u.id
               WHERE u.deleted = 0 AND (" . implode(' OR ', $conditions) . ")

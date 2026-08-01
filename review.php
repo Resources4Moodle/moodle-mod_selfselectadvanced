@@ -41,6 +41,26 @@ require_capability('mod/selfselectadvanced:guide', $context);
 $api = new \mod_selfselectadvanced\local\api($activity);
 $group = \mod_selfselectadvanced\local\groups::get($activity, $groupid);
 
+// Disclosure is decided here, not at the bottom of the page. The gate
+// above is :guide on the ACTIVITY and the team arrives in the URL, so
+// until 1.20.1 any :guide holder - which is every non-editing teacher
+// on a stock site, and the Group Coordinator role - could read any
+// team's roster, its members' composition attributes and the assigned
+// guide's private notes by editing one number. Writing was already
+// refused; reading was the breach. Managers and broad-read holders keep
+// their access unchanged.
+// The predicate is teamaccess::may_review_team() and is not
+// transcribed here, so a unit test of that function is a test of this
+// page's gate.
+if (!\mod_selfselectadvanced\local\teamaccess::may_review_team($activity, $group, (int) $USER->id)) {
+    throw new required_capability_exception(
+        $context,
+        'mod/selfselectadvanced:viewassignedteams',
+        'nopermissions',
+        ''
+    );
+}
+
 $baseurl = new moodle_url('/mod/selfselectadvanced/review.php', ['id' => $cm->id, 'g' => $group->id]);
 $queueurl = new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]);
 

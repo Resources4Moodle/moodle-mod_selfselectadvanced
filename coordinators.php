@@ -163,9 +163,18 @@ if ($tab === 'appoint') {
     $download = optional_param('download', '', PARAM_ALPHA);
     $perpage = \mod_selfselectadvanced\local\perpage::current(25);
 
+    // Who holds it HERE. Appointments live at the activity's context
+    // from 1.20.0 on; parent = true keeps a legacy course-context row,
+    // or one an administrator assigned higher up, visible - somebody
+    // who effectively holds the role has to be seen and removable.
     $holders = array_map('intval', array_keys(
-        get_role_users($roleid, $coursecontext, false, 'u.id, u.firstname, u.lastname')
+        get_role_users($roleid, $context, true, 'u.id, u.firstname, u.lastname')
     ));
+
+    // One query for the page: the same set the backend will accept, so
+    // the table can neither offer an appointment that would be refused
+    // nor hide one that would succeed.
+    $eligible = coordinatorimport::eligible_userids($activity);
 
     $tableurl = new moodle_url($baseurl, ['tab' => 'appoint', 'rolefilter' => $rolefilter]);
     if ($namefilter !== '') {
@@ -229,6 +238,7 @@ if ($tab === 'appoint') {
         $activity,
         $roleid,
         $holders,
+        $eligible,
         $courseroles,
         $tableurl,
         $namefilter,

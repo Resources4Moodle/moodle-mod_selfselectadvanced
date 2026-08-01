@@ -394,7 +394,16 @@ class engine {
         foreach ($cascadedbyuser as $placeduser => $cascaded) {
             $invitationservice->notify_cascaded($cascaded, $placeduser);
         }
-        foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $mgr) {
+        // An auto-grouping run's result - and above all its UNPLACED
+        // students - is repaired by moving people, so holders of the
+        // narrow composition capability get the summary too,
+        // deduplicated (somebody holding both is one recipient).
+        foreach (
+            \mod_selfselectadvanced\local\notifier::recipients($activity, [
+                'mod/selfselectadvanced:manage',
+                'mod/selfselectadvanced:managecomposition',
+            ]) as $mgr
+        ) {
             \mod_selfselectadvanced\local\notifier::send(
                 $activity,
                 'autogroupresult',

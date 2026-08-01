@@ -79,15 +79,44 @@ class group_page implements renderable, templatable {
         $isforming = $this->group->state === state::FORMING;
 
         // Staff see participant attributes on the roster (spec 8.1 read
-        // access). The mobile column is broader than the attribute
-        // dimensions: viewall holders always see it; a guide (without
-        // viewall) and the group's own confirmed members — the leader
-        // and teammates the consent strings promise — see it gated per
-        // member on that member's own consent (manager::mobile_visible;
-        // no viewall bypass for any of them). Outsider students never
-        // see the column.
+        // access). WHO sees the mobile COLUMN is a reach question and
+        // still keys on :viewall; WHOSE NUMBER appears in it is an
+        // identity question and no longer does. A number renders only
+        // when the viewer is connected to its owner (contactprivacy's
+        // map) AND the owner consented - and the consent bypass
+        // mobile_consent_bypass() describes belongs to the surfaces
+        // that ask a reach question (flagged.php, review_page,
+        // tickets.php), not to this one.
+        //
+        // DELIBERATE, and pinned by a test: a viewer admitted to this
+        // page by :manage ALONE gets names and nothing else. Step 4 of
+        // T-19 widened the door so the eight manager-only actions on
+        // this page are reachable without :viewall; adding :manage to
+        // $showmobilecol would widen the WINDOW at the same time, and
+        // the cardinal rule narrows. A manager who needs the roster's
+        // composition columns holds :viewall on every shipped role
+        // that has :manage.
         $canviewall = has_capability('mod/selfselectadvanced:viewall', $context, $this->userid);
-        $isguide = has_capability('mod/selfselectadvanced:guide', $context, $this->userid, false);
+        $hasidentitycap = has_capability(
+            'mod/selfselectadvanced:viewparticipantidentity',
+            $context,
+            $this->userid
+        );
+        $mobilebypass = \mod_selfselectadvanced\local\contactprivacy::mobile_consent_bypass(
+            $activity,
+            $this->userid,
+            $hasidentitycap
+        );
+        // ASSIGNMENT, not the bare capability. Holding :guide says this
+        // person guides teams; it does not say they guide THIS one, and
+        // the dimension columns and the mobile column are that team's
+        // participant data. Before 1.20.1 the group.php entry gate
+        // happened to hide the difference; it no longer does.
+        $isguide = \mod_selfselectadvanced\local\teamaccess::is_assigned_guide(
+            $activity,
+            $this->group,
+            $this->userid
+        );
         $isconfirmedmember = $DB->record_exists('selfselectadvanced_member', [
             'groupid' => (int) $this->group->id,
             'userid' => $this->userid,
@@ -97,6 +126,14 @@ class group_page implements renderable, templatable {
         $rostermembers = groups::get_roster((int) $this->group->id);
         $attrs = $showmobilecol
             ? \mod_selfselectadvanced\local\attributes\manager::get_for_users(
+                array_map(static fn($m) => (int) $m->userid, $rostermembers)
+            )
+            : [];
+        // One bulk connection map for the roster, never one per row.
+        $privacymap = $showmobilecol
+            ? \mod_selfselectadvanced\local\contactprivacy::can_see_map(
+                $activity,
+                $this->userid,
                 array_map(static fn($m) => (int) $m->userid, $rostermembers)
             )
             : [];
@@ -132,7 +169,8 @@ class group_page implements renderable, templatable {
                 $row->dims[] = ['value' => $row->$dim];
             }
             if ($showmobilecol) {
-                $mobilevisible = \mod_selfselectadvanced\local\attributes\manager::mobile_visible($attr, $canviewall);
+                $mobilevisible = !empty($privacymap[(int) $member->userid])
+                    && \mod_selfselectadvanced\local\attributes\manager::mobile_visible($attr, $mobilebypass);
                 $rawmobile = (string) ($attr->mobile ?? '');
                 $row->mobile = $mobilevisible ? $rawmobile : get_string('mobilewithheld', 'mod_selfselectadvanced');
                 $row->dims[] = ['value' => $row->mobile];
@@ -192,9 +230,18 @@ class group_page implements renderable, templatable {
             ];
         }
 
-        // Pending invitations, visible to the leader and staff.
+        // Pending invitations, visible to the leader, the team's own
+        // assigned guide and staff. The invited-but-unanswered seats
+        // are part of the composition the guide judges, and the block
+        // renders a name and nothing else. $isguide is assignment-
+        // shaped since 1.20.1, so this admits the team's own guide and
+        // nobody else's.
         $pendinginvites = [];
-        if ($isleader || has_capability('mod/selfselectadvanced:viewall', $context, $this->userid)) {
+        if (
+            $isleader
+            || $isguide
+            || has_capability('mod/selfselectadvanced:viewall', $context, $this->userid)
+        ) {
             $namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
             $sql = "SELECT m.id AS memberid, m.userid, m.timeinvited, $namefields
                       FROM {selfselectadvanced_member} m

@@ -21,8 +21,10 @@
  * Actions: invite (leader), withdraw (leader), accept/decline (the
  * invitee acting on their own invitation), delete (leader).
  *
- * Access: confirmed or invited members of the group, and viewall
- * holders. Ownership of every id is verified server-side (IDOR rule,
+ * Access: confirmed or invited members of the group, the team's own
+ * assigned guide, manage holders and viewall holders - the four doors
+ * teamaccess::may_open_team() names, which is the predicate this page
+ * calls. Ownership of every id is verified server-side (IDOR rule,
  * spec section 14.12).
  *
  * @package    mod_selfselectadvanced
@@ -46,18 +48,26 @@ $api = new \mod_selfselectadvanced\local\api($activity);
 // Ownership check: the group must belong to this activity.
 $group = \mod_selfselectadvanced\local\groups::get($activity, $groupid);
 
-// Access: group members (any live membership row) or viewall holders.
+// Access: group members (any live membership row), the team's own
+// assigned guide, a manager, or viewall holders.
+//
+// A guide is never a MEMBER of the team they guide, so until 1.20.1
+// this door refused them their own team - and Freeze, Release, the
+// ticket forms, the roster and the proposal all live behind it. A
+// :manage holder without :viewall was refused too, along with eight
+// manager-only actions. The per-action checks below are unchanged;
+// this gate decides who may LOOK. The predicate is NOT transcribed
+// here: teamaccess::may_open_team() is the one place it lives, so a
+// unit test of that function is a test of this page's gate. The
+// membership row is still read below because the confirmed-member
+// question is asked again further down the page.
+if (!\mod_selfselectadvanced\local\teamaccess::may_open_team($activity, $group, (int) $USER->id)) {
+    require_capability('mod/selfselectadvanced:viewall', $context);
+}
 $membership = $DB->get_record('selfselectadvanced_member', [
     'groupid' => $group->id,
     'userid' => $USER->id,
 ]);
-$ismember = $membership && in_array($membership->status, [
-    \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED,
-    \mod_selfselectadvanced\local\groups::STATUS_INVITED,
-], true);
-if (!$ismember) {
-    require_capability('mod/selfselectadvanced:viewall', $context);
-}
 
 $baseurl = new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $group->id]);
 $viewurl = new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]);
@@ -77,6 +87,12 @@ if ($isleaderforming) {
     $inviteform = new \mod_selfselectadvanced\form\invite_form($baseurl->out(false), [
         'cmid' => $cm->id,
         'groupid' => (int) $group->id,
+        // Truthfulness in the placeholder: the same predicate
+        // candidates::search() uses, so the box never promises a match
+        // the query will not make.
+        'emailmatch' => !\mod_selfselectadvanced\local\contactprivacy::enabled($activity)
+            || \mod_selfselectadvanced\local\contactprivacy::is_unrestricted($activity, (int) $USER->id)
+            || has_capability('mod/selfselectadvanced:viewparticipantidentity', $context, (int) $USER->id),
     ]);
 }
 

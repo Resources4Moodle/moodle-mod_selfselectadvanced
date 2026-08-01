@@ -90,15 +90,47 @@ $confirmedids = $DB->get_fieldset_sql(
     [$activity->id(), \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED]
 );
 $attrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users(array_keys($enrolled));
+// Mobile numbers on this report used to be printed from a HARD-CODED
+// literal true - not even the owner's own sharing consent was
+// consulted, on the plugin's largest cohort-wide surface, and its CSV
+// export carried the same string. The page gate at the top of this file
+// is :viewall, which means "may see the whole course's anomalies"; it
+// is not an identity grant, and passing it (or true) down here would
+// re-create the defect one layer up.
+//
+// The subject set is the whole enrolled cohort - ~10k students on a
+// busy site, including everyone in no team - so the verdict is asked in
+// bulk through can_see_map(), which chunks at 1000. Do not replace it
+// with an ad-hoc query.
+//
+// Consequence, stated so a later reader does not "fix" it back: for a
+// GROUPLESS student the map is false for every viewer except an
+// unrestricted one, so under protection the report degrades to names.
+// That is what a "students in no team" report is for.
+$mobilebypass = \mod_selfselectadvanced\local\contactprivacy::mobile_consent_bypass(
+    $activity,
+    (int) $USER->id,
+    has_capability('mod/selfselectadvanced:viewparticipantidentity', $context)
+);
+$privacymap = \mod_selfselectadvanced\local\contactprivacy::can_see_map(
+    $activity,
+    (int) $USER->id,
+    array_keys($enrolled)
+);
 // Hash set built once: a linear scan rebuilt per iteration costs
 // seconds of pure CPU on a course of several thousand students.
 $confirmedset = array_flip(array_map('intval', $confirmedids));
 $groupless = [];
 $missingattrs = [];
 foreach ($enrolled as $user) {
+    $showmobile = !empty($privacymap[(int) $user->id])
+        && \mod_selfselectadvanced\local\attributes\manager::mobile_visible(
+            $attrs[(int) $user->id] ?? null,
+            $mobilebypass
+        );
     $attrline = \mod_selfselectadvanced\local\attributes\manager::display_line(
         $attrs[(int) $user->id] ?? null,
-        true
+        $showmobile
     );
     if (!isset($confirmedset[(int) $user->id])) {
         $groupless[] = (object) [
@@ -106,7 +138,7 @@ foreach ($enrolled as $user) {
             'attrline' => $attrline,
             'attrplain' => \mod_selfselectadvanced\local\attributes\manager::plain_line(
                 $attrs[(int) $user->id] ?? null,
-                true
+                $showmobile
             ),
             'placeurl' => (new moodle_url('/mod/selfselectadvanced/moveedit.php', ['id' => $cm->id]))->out(false),
         ];

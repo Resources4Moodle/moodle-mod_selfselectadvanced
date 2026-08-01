@@ -21,13 +21,19 @@ Feature: Students control mobile-sharing consent
       | user     | mobile        |
       | student1 | +91 987654321 |
 
+  # The two lines were rewritten in 1.20.1: they promised the owner that
+  # "staff with full view can still see it", which T-07 made false - the
+  # consent bypass now asks for :viewparticipantidentity, which no role
+  # holds by default. tests/behat/contactprivacy.feature pins the new
+  # copy in both modes of the contact-privacy switch; this scenario pins
+  # the FLIP, so it asserts the leading clause of each line only.
   Scenario: A student grants consent and the state line flips
     Given I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
-    Then I should see "Your mobile number is hidden from students. Staff with full view can still see it."
+    Then I should see "Your mobile number is hidden."
     And I should see "Share my number"
     When I press "Share my number"
-    Then I should see "Your mobile number is visible to your team leaders, teammates and guides."
+    Then I should see "Your mobile number is shared with your confirmed teammates"
     And I should see "Stop sharing my number"
     When I press "Stop sharing my number"
-    Then I should see "Your mobile number is hidden from students. Staff with full view can still see it."
+    Then I should see "Your mobile number is hidden."
     And I should see "Share my number"

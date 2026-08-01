@@ -161,6 +161,8 @@ class store {
         // then released once, leaving a phantom hold (T-04).
         $lock = $callerholdslock ? null : locks::acquire('override:' . $scope . ':' . $targetid);
         $outermost = !$DB->is_transaction_started();
+        $eventclass = null;
+        $eventdata = [];
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -209,7 +211,19 @@ class store {
             // position parks the whole row as 'pending' until the excess
             // is resolved (blockers listed on the overrides page); the
             // resolver only ever sees 'active' rows.
-            $record->blockers = guard::blockers($activity, $record);
+            //
+            // The tuple checker joins it here rather than at the form,
+            // because per-field fallthrough means the invariant's real
+            // domain is the MERGED effective tuple, which comes into
+            // existence at resolve time and had no write-path validator
+            // at all (finding-9). $record already carries the merged
+            // old+new values, so CLEARING a field is checked correctly:
+            // dropping a group row's minsize while the activity's
+            // minsize exceeds that row's maxsize parks it.
+            $record->blockers = array_merge(
+                guard::blockers($activity, $record),
+                consistency::blockers($activity, $record)
+            );
             $record->status = $record->blockers ? 'pending' : 'active';
 
             $blockers = $record->blockers;
@@ -223,7 +237,16 @@ class store {
             }
             $record->blockers = $blockers;
 
-            $eventclass::create([
+            // Built here, where the data is at hand, and fired below -
+            // after THIS call's commit and lock release (requirement
+            // 2). Only the three pre-existing events of the two hottest
+            // services are grandfathered inside a lock; this path is
+            // being rewritten, so it moves out. On the nested path
+            // ($callerholdslock: state::approve_auto pre-acquires this
+            // row's lock and owns the transaction) the CALLER's lock
+            // and transaction are necessarily still open - that is
+            // T-04's handshake, and not this seam's to unwind.
+            $eventdata = [
                 'objectid' => $record->id,
                 'context' => $activity->context(),
                 'relateduserid' => self::related_userid($scope, $targetid),
@@ -233,7 +256,7 @@ class store {
                     'oldvalues' => $old,
                     'newvalues' => $new,
                 ],
-            ])->trigger();
+            ];
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -247,7 +270,46 @@ class store {
             }
         }
 
+        $eventclass::create($eventdata)->trigger();
+
         return $record;
+    }
+
+    /**
+     * Normalise submitted override values to what the store stores.
+     *
+     * Shared by the page and the form's pre-check so both judge the
+     * SAME candidate: empty and zero clear a field (falling through to
+     * the next precedence level), the three flags are 1 or nothing, and
+     * a guide's maxguided keeps its explicit zero ("always full").
+     * Only keys actually present in $data come back.
+     *
+     * @param string $scope user, group, guide or move
+     * @param array $data submitted field => raw value
+     * @return array field => int|null
+     */
+    public static function normalise(string $scope, array $data): array {
+        $values = [];
+        foreach (self::FIELDS[$scope] ?? [] as $field) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+            $value = $data[$field];
+            if (in_array($field, ['quotaexempt', 'penaltywaived', 'guidehidden'], true)) {
+                $value = $value ? 1 : null;
+            } else if ($field === 'maxguided' && $scope === 'guide' && $value !== '' && $value !== null) {
+                // 1.5.0: an EXPLICIT zero is a real guide cap ("always
+                // full"), unlike every other limit where 0 means unset.
+                $value = (int) $value;
+            } else if ($value === '' || $value === null || (int) $value === 0) {
+                $value = null;
+            } else {
+                $value = (int) $value;
+            }
+            $values[$field] = $value;
+        }
+
+        return $values;
     }
 
     /**
@@ -255,45 +317,315 @@ class store {
      * been cleared become active (and start resolving). Returns the
      * still-pending rows with their live blockers attached.
      *
+     * Locking: one row at a time. `override:{scope}:{targetid}` is
+     * rank 5 and same-rank stacking is illegal (only 'group:' may
+     * stack), so each row's lock is acquired and released inside the
+     * loop, in the ascending id order the query already produces, and
+     * every activation event fires after that row's release. There is
+     * deliberately no activity-wide resource: 'overrides:{id}' is
+     * unrankable - str_starts_with('overrides:42', 'override:') is
+     * false - and would throw on every acquire.
+     *
+     * BOUNDED, three ways. commit_set() and the join-accept path call
+     * this on their hot path, where sweeping every pending row of a
+     * 10,000-student activity to re-price rows nothing just touched is
+     * waste: they pass the targets their committed move set actually
+     * moved. The overrides page passes a keyset WINDOW instead
+     * ($fromid/$limitnum), because T-08 made a large pending set
+     * reachable from a single settings edit and an unpaged sweep of it
+     * on every page visit is the house rule's own example. And the
+     * per-row consistency check is handed the chunk's MEMBERSHIP index
+     * so it reads memberships once for the sweep rather than once per
+     * row.
+     *
+     * Ordering note: the membership half of that index is preloaded and
+     * the OVERRIDE half deliberately is not - consistency::blockers()
+     * still re-reads the active rows per call, so a row activated
+     * earlier in this loop is visible to later rows' checks. Two
+     * mutually conflicting pending rows therefore resolve
+     * deterministically - the lower id activates and the other stays
+     * pending - rather than both activating. Memberships cannot change
+     * that verdict mid-sweep; active override rows can.
+     *
+     * A row whose lock is CONTENDED is skipped, not fatal: this sweep
+     * runs after commit_set() has already committed and released, and
+     * after the nightly task has reconciled other activities, so
+     * throwing errlocktimeout out of here would turn one busy row into
+     * a visible failure of work that has already succeeded. The sweep
+     * is idempotent - the next visit or the nightly task catches it.
+     *
      * @param activity $activity the activity
      * @param int $actorid the acting user
+     * @param array|null $restricttargets ['user' => [userids],
+     *        'group' => [groupids]] to sweep only those rows; null
+     *        sweeps every pending row of the activity
+     * @param int $fromid keyset cursor: examine rows with id > this
+     * @param int $limitnum examine at most this many rows, 0 for all
+     * @param int|null $lastexamined out: the id of the last row this
+     *        call examined, for the caller's next cursor; 0 when the
+     *        window was empty
      * @return stdClass[] still-pending rows, each with ->blockers
      */
-    public static function recheck_pending(activity $activity, int $actorid): array {
+    public static function recheck_pending(
+        activity $activity,
+        int $actorid,
+        ?array $restricttargets = null,
+        int $fromid = 0,
+        int $limitnum = 0,
+        ?int &$lastexamined = null
+    ): array {
         global $DB;
 
-        $stillpending = [];
-        $rows = $DB->get_records('selfselectadvanced_override', [
+        $lastexamined = 0;
+        $select = 'activityid = :activityid AND status = :status AND id > :fromid';
+        $params = [
             'activityid' => $activity->id(),
             'status' => 'pending',
-        ], 'id ASC');
+            'fromid' => $fromid,
+        ];
+        if ($restricttargets !== null) {
+            $userids = array_values(array_unique(array_filter(array_map(
+                'intval',
+                $restricttargets['user'] ?? []
+            ))));
+            $groupids = array_values(array_unique(array_filter(array_map(
+                'intval',
+                $restricttargets['group'] ?? []
+            ))));
+            if (!$userids && !$groupids) {
+                return [];
+            }
+            $ors = [];
+            if ($userids) {
+                [$insql, $inparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'ru');
+                $ors[] = "userid $insql";
+                $params += $inparams;
+            }
+            if ($groupids) {
+                [$insql, $inparams] = $DB->get_in_or_equal($groupids, SQL_PARAMS_NAMED, 'rg');
+                $ors[] = "groupid $insql";
+                $params += $inparams;
+            }
+            $select .= ' AND (' . implode(' OR ', $ors) . ')';
+        }
+        $rows = $DB->get_records_select(
+            'selfselectadvanced_override',
+            $select,
+            $params,
+            'id ASC',
+            '*',
+            0,
+            $limitnum > 0 ? $limitnum : 0
+        );
+        if (!$rows) {
+            return [];
+        }
+        // Memberships only (see the ordering note above): the override
+        // half of the index is left out so each row still reads the
+        // active rows live.
+        $preload = ['memberships' => consistency::preload_memberships($activity, $rows)];
+
+        $stillpending = [];
+        $events = [];
         foreach ($rows as $row) {
-            $blockers = guard::blockers($activity, $row);
-            if ($blockers) {
-                $row->blockers = $blockers;
-                $stillpending[] = $row;
+            $lastexamined = (int) $row->id;
+            try {
+                $lock = locks::acquire('override:' . $row->scope . ':' . self::row_target($row));
+            } catch (\moodle_exception $e) {
+                // Contended: somebody else is writing this very row, so
+                // their write decides its status. Skipped, never fatal.
                 continue;
             }
-            $DB->update_record('selfselectadvanced_override', (object) [
-                'id' => $row->id,
-                'status' => 'active',
-                'usermodified' => $actorid,
-                'timemodified' => time(),
-            ]);
-            \mod_selfselectadvanced\event\override_updated::create([
-                'objectid' => (int) $row->id,
-                'context' => $activity->context(),
-                'relateduserid' => in_array($row->scope, ['user', 'guide'], true) ? (int) $row->userid : null,
-                'other' => [
-                    'scope' => $row->scope,
-                    'targetid' => (int) ($row->userid ?? $row->groupid),
-                    'oldvalues' => ['status' => 'pending'],
-                    'newvalues' => ['status' => 'active'],
-                ],
-            ])->trigger();
+            try {
+                // Re-read inside the lock: the copy above may be stale
+                // by the time this row's turn comes round (house rule
+                // A7), and a save() racing this sweep must win or lose
+                // cleanly rather than have its status overwritten.
+                $fresh = $DB->get_record('selfselectadvanced_override', [
+                    'id' => $row->id,
+                    'activityid' => $activity->id(),
+                ]);
+                if (!$fresh || $fresh->status !== 'pending') {
+                    continue;
+                }
+                $blockers = array_merge(
+                    guard::blockers($activity, $fresh),
+                    consistency::blockers($activity, $fresh, $preload)
+                );
+                if ($blockers) {
+                    $fresh->blockers = $blockers;
+                    $stillpending[] = $fresh;
+                    continue;
+                }
+                $DB->update_record('selfselectadvanced_override', (object) [
+                    'id' => $fresh->id,
+                    'status' => 'active',
+                    'usermodified' => $actorid,
+                    'timemodified' => time(),
+                ]);
+                $events[] = self::status_event($activity, $fresh, 'pending', 'active');
+            } finally {
+                $lock->release();
+            }
+        }
+        foreach ($events as $event) {
+            \mod_selfselectadvanced\event\override_updated::create($event)->trigger();
         }
 
         return $stillpending;
+    }
+
+    /**
+     * Sweep EVERY pending row of the activity, one WINDOW at a time.
+     *
+     * recheck_pending() is windowed because a single settings edit can
+     * park an activity's whole override set, and the page that sweeps it
+     * must not fetch ten thousand rows to render fifty. A caller whose
+     * job IS the whole set - the nightly reconcile, which is also the
+     * safety net for the rows the overrides page's window did not reach
+     * - still has to arrive at the last row, so it walks the windows
+     * here instead of asking for all of them in one query. Same reason,
+     * same shape as park_inconsistent(): the cursor is a KEYSET, never
+     * an offset, because activating a row removes it from
+     * status='pending' and an offset window would step over rows it
+     * never examined.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the acting user
+     * @param int $window rows examined per pass
+     * @return int the number of passes that examined at least one row
+     */
+    public static function recheck_all_pending(activity $activity, int $actorid, int $window = 500): int {
+        $window = max(1, $window);
+        $fromid = 0;
+        $passes = 0;
+        while (true) {
+            $lastexamined = 0;
+            self::recheck_pending($activity, $actorid, null, $fromid, $window, $lastexamined);
+            if ($lastexamined <= $fromid) {
+                // The window was empty: every row has been examined.
+                return $passes;
+            }
+            $passes++;
+            $fromid = $lastexamined;
+        }
+    }
+
+    /**
+     * Park every ACTIVE row whose merged effective tuple the activity's
+     * new settings have just invalidated (the settings-edit hole).
+     *
+     * A settings edit changes the fallthrough value of every field no
+     * override row sets, so rows that were consistent when written can
+     * become inconsistent without anybody touching them. They are moved
+     * back to 'pending', where the overrides page's own recheck heals
+     * them again the moment the conflict is resolved.
+     *
+     * CHUNKED with a keyset cursor, never an offset: parking a row
+     * removes it from the status='active' set, so a $limitfrom window
+     * would step over rows it never examined. The loop stops when a
+     * pass returns NO ROWS - not when a pass parks nothing, which would
+     * stop at a clean first chunk and never look at row 501. The
+     * counterpart index is rebuilt once per pass, so a later chunk sees
+     * the parks the earlier chunks made.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the acting user
+     * @return stdClass[] the rows parked, each with ->blockers
+     */
+    public static function park_inconsistent(activity $activity, int $actorid): array {
+        global $DB;
+
+        $parked = [];
+        $lastid = 0;
+        while (true) {
+            $rows = $DB->get_records_select(
+                'selfselectadvanced_override',
+                'activityid = :activityid AND status = :status AND id > :lastid',
+                ['activityid' => $activity->id(), 'status' => 'active', 'lastid' => $lastid],
+                'id ASC',
+                '*',
+                0,
+                consistency::CHUNK
+            );
+            if (!$rows) {
+                return $parked;
+            }
+            // Two reads for the chunk's memberships and its
+            // counterparties' override rows, and ONE pass of name
+            // lookups for every violation the chunk produces - not one
+            // per parked row, which is what the first cut cost and what
+            // its docblock denied.
+            $preload = consistency::preload($activity, $rows);
+            $chunkblockers = consistency::blockers_many($activity, $rows, $preload);
+            $events = [];
+            foreach ($rows as $row) {
+                $lastid = (int) $row->id;
+                $blockers = $chunkblockers[(int) $row->id] ?? [];
+                if (!$blockers) {
+                    continue;
+                }
+                $lock = locks::acquire('override:' . $row->scope . ':' . self::row_target($row));
+                try {
+                    $fresh = $DB->get_record('selfselectadvanced_override', [
+                        'id' => $row->id,
+                        'activityid' => $activity->id(),
+                    ]);
+                    if (!$fresh || $fresh->status !== 'active') {
+                        continue;
+                    }
+                    $DB->update_record('selfselectadvanced_override', (object) [
+                        'id' => $fresh->id,
+                        'status' => 'pending',
+                        'usermodified' => $actorid,
+                        'timemodified' => time(),
+                    ]);
+                    $fresh->status = 'pending';
+                    $fresh->blockers = $blockers;
+                    $parked[] = $fresh;
+                    $events[] = self::status_event($activity, $fresh, 'active', 'pending');
+                } finally {
+                    $lock->release();
+                }
+            }
+            foreach ($events as $event) {
+                \mod_selfselectadvanced\event\override_updated::create($event)->trigger();
+            }
+        }
+    }
+
+    /**
+     * The override_updated payload for a status transition.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $row the override row
+     * @param string $from the old status
+     * @param string $to the new status
+     * @return array the event's create() arguments
+     */
+    private static function status_event(activity $activity, stdClass $row, string $from, string $to): array {
+        return [
+            'objectid' => (int) $row->id,
+            'context' => $activity->context(),
+            'relateduserid' => in_array($row->scope, ['user', 'guide'], true) ? (int) $row->userid : null,
+            'other' => [
+                'scope' => $row->scope,
+                'targetid' => self::row_target($row),
+                'oldvalues' => ['status' => $from],
+                'newvalues' => ['status' => $to],
+            ],
+        ];
+    }
+
+    /**
+     * The target id a stored override row names, whatever its scope.
+     *
+     * @param stdClass $row the override row
+     * @return int
+     */
+    private static function row_target(stdClass $row): int {
+        return (int) ($row->userid ?? 0)
+            ?: ((int) ($row->groupid ?? 0) ?: (int) ($row->moveid ?? 0));
     }
 
     /**

@@ -139,6 +139,10 @@ if ($action === 'edit' && $mode !== 'move') {
             'targetmodule' => $targetmodule,
             'targetid' => $targetid ?? 0,
             'targetlabel' => $targetlabel,
+            // The form runs the same effective-tuple checker the seam
+            // runs, so a conflict is named inline instead of silently
+            // parking the row (the seam still enforces either way).
+            'activity' => $activity,
         ]
     );
     if ($existing && !$form->is_submitted()) {
@@ -153,25 +157,9 @@ if ($action === 'edit' && $mode !== 'move') {
         redirect($baseurl);
     }
     if ($data = $form->get_data()) {
-        $values = [];
-        foreach (\mod_selfselectadvanced\local\override\store::FIELDS[$mode] as $field) {
-            if (!property_exists($data, $field)) {
-                continue;
-            }
-            $value = $data->$field;
-            if (in_array($field, ['quotaexempt', 'penaltywaived', 'guidehidden'], true)) {
-                $value = $value ? 1 : null;
-            } else if ($field === 'maxguided' && $mode === 'guide' && $value !== '' && $value !== null) {
-                // 1.5.0: an EXPLICIT zero is a real guide cap ("always
-                // full"), unlike every other limit where 0 means unset.
-                $value = (int) $value;
-            } else if ($value === '' || $value === null || (int) $value === 0) {
-                $value = null;
-            } else {
-                $value = (int) $value;
-            }
-            $values[$field] = $value;
-        }
+        // One implementation of "what did they actually type", shared
+        // with the form's pre-check so both judge the same candidate.
+        $values = \mod_selfselectadvanced\local\override\store::normalise($mode, (array) $data);
         if ($existing) {
             $targetid = (int) ($existing->userid ?? 0) ?: (int) ($existing->groupid ?? 0);
         } else {
@@ -359,12 +347,65 @@ foreach (['user', 'group', 'guide', 'move'] as $tab) {
 // Guarded reductions: re-check pending rows on every visit (and via
 // the explicit button) so cleared blockers activate immediately; the
 // remainder are listed with links to the page that resolves each one.
-$pending = \mod_selfselectadvanced\local\override\store::recheck_pending($activity, (int) $USER->id);
+//
+// PAGED, with a keyset cursor rather than an offset - activating a row
+// removes it from the pending set, so a $limitfrom window would step
+// over rows it never examined. Before T-08 a large pending set was
+// hard to produce; store::park_inconsistent() can now park an
+// activity's whole override set from one settings edit, so both the
+// sweep and this list are windowed and the names are resolved in two
+// batched queries instead of one per row.
+$pendingfrom = optional_param('pfrom', 0, PARAM_INT);
+$pendingperpage = \mod_selfselectadvanced\local\perpage::current();
+$pendinglast = 0;
+$pending = \mod_selfselectadvanced\local\override\store::recheck_pending(
+    $activity,
+    (int) $USER->id,
+    null,
+    $pendingfrom,
+    $pendingperpage,
+    $pendinglast
+);
+$pendingusers = [];
+$pendinggroups = [];
+if ($pending) {
+    $userids = [];
+    $groupids = [];
+    foreach ($pending as $row) {
+        if (in_array($row->scope, ['user', 'guide'], true)) {
+            $userids[(int) $row->userid] = true;
+        } else if (!empty($row->groupid)) {
+            $groupids[(int) $row->groupid] = true;
+        }
+    }
+    if ($userids) {
+        // Names only - never an email address or a phone number.
+        $namefields = \core_user\fields::for_name()->get_sql('', false, '', '', true)->selects;
+        [$pinsql, $pparams] = $DB->get_in_or_equal(array_keys($userids), SQL_PARAMS_NAMED, 'po');
+        foreach ($DB->get_records_sql("SELECT id{$namefields} FROM {user} WHERE id $pinsql", $pparams) as $user) {
+            $pendingusers[(int) $user->id] = fullname($user);
+        }
+    }
+    if ($groupids) {
+        [$pinsql, $pparams] = $DB->get_in_or_equal(array_keys($groupids), SQL_PARAMS_NAMED, 'pgr');
+        $pparams['activityid'] = $activity->id();
+        $grouprows = $DB->get_records_select(
+            'selfselectadvanced_group',
+            "id $pinsql AND activityid = :activityid",
+            $pparams,
+            '',
+            'id, name'
+        );
+        foreach ($grouprows as $grouprow) {
+            $pendinggroups[(int) $grouprow->id] = format_string($grouprow->name);
+        }
+    }
+}
 $pendingout = [];
 foreach ($pending as $row) {
     $target = in_array($row->scope, ['user', 'guide'], true)
-        ? fullname(\core_user::get_user((int) $row->userid))
-        : format_string($DB->get_field('selfselectadvanced_group', 'name', ['id' => (int) $row->groupid]));
+        ? ($pendingusers[(int) $row->userid] ?? get_string('deleted'))
+        : ($pendinggroups[(int) $row->groupid] ?? get_string('deleted'));
     $items = [];
     foreach ($row->blockers as $blocker) {
         $items[] = $OUTPUT->action_link(
@@ -393,6 +434,28 @@ if ($pendingout) {
         new moodle_url('/mod/selfselectadvanced/overrides.php', ['id' => $cm->id]),
         get_string('overridesrecheck', 'mod_selfselectadvanced'),
         'get'
+    );
+}
+// The next window of the pending list, offered whenever this pass
+// examined a full one - the rows beyond it are neither swept nor
+// listed until it is followed, which is the point of windowing them.
+$morepending = $pendinglast > 0 && $DB->record_exists_select(
+    'selfselectadvanced_override',
+    'activityid = :activityid AND status = :status AND id > :lastid',
+    ['activityid' => $activity->id(), 'status' => 'pending', 'lastid' => $pendinglast]
+);
+if ($morepending) {
+    echo html_writer::div(
+        html_writer::link(
+            new moodle_url('/mod/selfselectadvanced/overrides.php', [
+                'id' => $cm->id,
+                'mode' => $mode,
+                'pfrom' => $pendinglast,
+            ]),
+            get_string('overridespendingnext', 'mod_selfselectadvanced'),
+            ['class' => 'btn btn-secondary btn-sm']
+        ),
+        'mb-3'
     );
 }
 echo $OUTPUT->render_from_template('mod_selfselectadvanced/overrides_list', (object) [

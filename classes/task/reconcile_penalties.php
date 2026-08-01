@@ -51,7 +51,15 @@ class reconcile_penalties extends \core\task\scheduled_task {
                 continue;
             }
             $count = ledger::recompute_all($activity);
-            \mod_selfselectadvanced\local\override\store::recheck_pending($activity, get_admin()->id);
+            // Every pending row, but a window at a time: a single
+            // settings edit can park an activity's whole override set
+            // (T-08), so asking for all of them in one query is the
+            // unbounded read house rule 3 names - on the one caller
+            // that runs for every activity on the site. The overrides
+            // page sweeps only the window it renders, which makes this
+            // the safety net for the rows beyond it, so it must still
+            // reach the last row.
+            \mod_selfselectadvanced\local\override\store::recheck_all_pending($activity, get_admin()->id);
             if ($count) {
                 mtrace("mod_selfselectadvanced: reconciled $count penalty rows in activity {$row->id}");
             }

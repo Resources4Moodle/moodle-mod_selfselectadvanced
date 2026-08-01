@@ -39,6 +39,17 @@ use stdClass;
  * options rather than assumed: whether a coordinator should also be a
  * participant is the school's decision, not the plugin's.
  *
+ * Every appointment this class makes is a role assignment at the
+ * ACTIVITY's context, carrying component 'mod_selfselectadvanced' so the
+ * row says which instance made it. The role's capabilities are declared
+ * at CONTEXT_MODULE and every consumer of them asks per activity, so a
+ * course-context grant was silently course-wide across every instance.
+ *
+ * Only a non-editing teacher may be appointed, decided by role
+ * ARCHETYPE rather than shortname - see eligible_userids(). Both writers
+ * here and the candidates table consult that one predicate, so what the
+ * screen offers and what the service accepts cannot drift apart.
+ *
  * Every run reports before it commits, so the person uploading sees
  * exactly what will happen first.
  *
@@ -95,14 +106,18 @@ class coordinatorimport {
             'lines' => [],
         ];
 
-        // Who holds the role in this course right now.
-        $current = array_map('intval', $DB->get_fieldset_select(
-            'role_assignments',
-            'userid',
-            'roleid = ? AND contextid = ?',
-            [$roleid, $coursecontext->id]
+        // Who holds the role for this activity right now. BOTH contexts:
+        // the module rows this plugin writes, and any course row left by
+        // a site that predates 1.20.0 or assigned the role by hand. A
+        // holder invisible here would be appointed a second time by
+        // OVERWRITE, and never stood down by it.
+        $modcontextid = $activity->context()->id;
+        $current = array_map('intval', $DB->get_fieldset_sql(
+            "SELECT DISTINCT ra.userid
+               FROM {role_assignments} ra
+              WHERE ra.roleid = :roleid AND ra.contextid IN (:ctxa, :ctxb)",
+            ['roleid' => $roleid, 'ctxa' => $modcontextid, 'ctxb' => $coursecontext->id]
         ));
-        $current = array_values(array_unique($current));
 
         $wanted = [];
         $unwanted = [];
@@ -145,8 +160,40 @@ class coordinatorimport {
             }
         }
 
+        // Two set questions asked once for the whole file, not once per
+        // line: a 10,000-student course uploaded as a cohort used to pay
+        // one is_enrolled() query per name.
+        $eligible = [];
+        $enrolledids = [];
+        if ($wanted) {
+            $eligible = array_flip(self::eligible_userids($activity));
+            [$esql, $eparams] = get_enrolled_sql($coursecontext);
+            [$insql, $inparams] = $DB->get_in_or_equal(array_keys($wanted), SQL_PARAMS_NAMED, 'imp');
+            $enrolledids = array_flip(array_map('intval', $DB->get_fieldset_sql(
+                "SELECT eu.id FROM ($esql) eu WHERE eu.id $insql",
+                $eparams + $inparams
+            )));
+        }
+
         foreach ($wanted as $userid => $user) {
-            $enrolled = is_enrolled($coursecontext, $userid);
+            if (in_array($userid, $current, true)) {
+                // Asked first, so somebody who already holds the role is
+                // reported as unchanged even when today's eligibility
+                // rule would refuse them. A migrated holder named in the
+                // file must not turn into a refusal.
+                $report->unchanged++;
+                $report->lines[] = self::line(0, self::label($user), 'coordinatorimportalready');
+                continue;
+            }
+            if (!isset($eligible[$userid])) {
+                // Before the enrolment question on purpose: somebody who
+                // could never hold the role must be reported as such,
+                // not quietly enrolled in the course first.
+                $report->skipped++;
+                $report->lines[] = self::line(0, self::label($user), 'coordinatorimportineligible');
+                continue;
+            }
+            $enrolled = isset($enrolledids[$userid]);
             if (!$enrolled && !$doenrol) {
                 // The rule from the order: a coordinator must already be
                 // in the course. Enrolling them is an option the person
@@ -155,17 +202,12 @@ class coordinatorimport {
                 $report->lines[] = self::line(0, self::label($user), 'coordinatorimportnotenrolled');
                 continue;
             }
-            if (in_array($userid, $current, true)) {
-                $report->unchanged++;
-                $report->lines[] = self::line(0, self::label($user), 'coordinatorimportalready');
-                continue;
-            }
             if ($commit) {
                 if (!$enrolled && $doenrol) {
                     self::enrol($courseid, $userid);
                     $report->enrolled++;
                 }
-                role_assign($roleid, $userid, $coursecontext->id);
+                role_assign($roleid, $userid, $modcontextid, 'mod_selfselectadvanced', 0);
                 \mod_selfselectadvanced\event\coordinator_assigned::create([
                     'objectid' => $activity->id(),
                     'context' => $activity->context(),
@@ -185,7 +227,7 @@ class coordinatorimport {
                 continue;
             }
             if ($commit) {
-                role_unassign($roleid, (int) $userid, $coursecontext->id);
+                self::strip($roleid, (int) $userid, $modcontextid, $coursecontext->id);
                 \mod_selfselectadvanced\event\coordinator_removed::create([
                     'objectid' => $activity->id(),
                     'context' => $activity->context(),
@@ -251,16 +293,69 @@ class coordinatorimport {
     }
 
     /**
+     * Every user eligible to be appointed coordinator in this activity.
+     *
+     * Policy: only non-editing teachers, keyed on role ARCHETYPE
+     * 'teacher' and never on the shortname, which institutions rename
+     * ("Tutor", "Demonstrator", "Facilitator") and which a site can
+     * hand to a role that is nothing of the sort. Eligibility decides
+     * who may hold :viewall and :override, so it cannot rest on a label.
+     *
+     * The coordinator role itself is archetype 'teacher' too
+     * (coordinatorrole::ensure() creates it that way), so it is
+     * excluded: holding the role must not be what makes somebody
+     * eligible for it.
+     *
+     * The search runs over the ACTIVITY's whole context path - module,
+     * course, category(s), system - not from the course down. A
+     * non-editing teacher added through core's "Assign roles in this
+     * activity" holds their row at CONTEXT_MODULE alone, and they are
+     * exactly the people this activity would draw a coordinator from.
+     *
+     * One query, ids only: callers intersect, never loop per user.
+     *
+     * @param activity $activity the activity
+     * @return int[] user ids, unordered
+     */
+    public static function eligible_userids(activity $activity): array {
+        global $DB;
+
+        // Activity + course + category(s) + system.
+        $contextids = $activity->context()->get_parent_context_ids(true);
+        [$ctxsql, $params] = $DB->get_in_or_equal($contextids, SQL_PARAMS_NAMED, 'ectx');
+        $params['archetype'] = 'teacher';
+        $sql = "SELECT DISTINCT ra.userid
+                  FROM {role_assignments} ra
+                  JOIN {role} r ON r.id = ra.roleid
+                 WHERE ra.contextid $ctxsql AND r.archetype = :archetype";
+        $coordroleid = coordinatorrole::roleid();
+        if ($coordroleid > 0) {
+            $sql .= ' AND r.id <> :coordroleid';
+            $params['coordroleid'] = $coordroleid;
+        }
+
+        return array_map('intval', $DB->get_fieldset_sql($sql, $params));
+    }
+
+    /**
      * Appoint one person, from the participants table (strategy 1.18 D).
      *
-     * The same rule the upload enforces: they must already be in the
-     * course. The event and the message are the same ones the upload
-     * emits, so the audit trail does not record two kinds of
-     * appointment depending on which control was used.
+     * The same rules the upload enforces: they must already be in the
+     * course, and they must be a non-editing teacher. The event and the
+     * message are the same ones the upload emits, so the audit trail
+     * does not record two kinds of appointment depending on which
+     * control was used.
+     *
+     * The row is written at the ACTIVITY's context with this plugin's
+     * component, so the appointment reaches exactly the instance it was
+     * made in and says who made it. THIS is what keeps the coordinator
+     * role - and anything later granted to it - confined to activities
+     * where a coordinator has actually been appointed: the plugin never
+     * assigns the role anywhere but CONTEXT_MODULE.
      *
      * @param activity $activity the activity
      * @param int $userid the person
-     * @throws \moodle_exception when they are not enrolled
+     * @throws \moodle_exception when they are not enrolled, or are not a non-editing teacher
      */
     public static function appoint(activity $activity, int $userid): void {
         $coursecontext = \context_course::instance($activity->cm()->course);
@@ -268,11 +363,21 @@ class coordinatorimport {
             throw new \moodle_exception('coordinatorimportnotenrolled', 'mod_selfselectadvanced');
         }
         $roleid = coordinatorrole::roleid();
-        if (user_has_role_assignment($userid, $roleid, $coursecontext->id)) {
+        $modcontext = $activity->context();
+
+        // Asked before eligibility, and deliberately: core resolves this
+        // over the whole context path, so it covers the module row this
+        // plugin writes and any course-context row migrated from an
+        // older release or assigned by hand. Somebody who already holds
+        // the role is a no-op, never a refusal.
+        if (user_has_role_assignment($userid, $roleid, $modcontext->id)) {
             return;
         }
+        if (!in_array($userid, self::eligible_userids($activity), true)) {
+            throw new \moodle_exception('coordinatorineligible', 'mod_selfselectadvanced');
+        }
 
-        role_assign($roleid, $userid, $coursecontext->id);
+        role_assign($roleid, $userid, $modcontext->id, 'mod_selfselectadvanced', 0);
         \mod_selfselectadvanced\event\coordinator_assigned::create([
             'objectid' => $activity->id(),
             'context' => $activity->context(),
@@ -292,19 +397,61 @@ class coordinatorimport {
      * @param int $userid the person
      */
     public static function remove(activity $activity, int $userid): void {
+        global $DB;
+
         $coursecontext = \context_course::instance($activity->cm()->course);
         $roleid = coordinatorrole::roleid();
-        if (!user_has_role_assignment($userid, $roleid, $coursecontext->id)) {
+        $modcontext = $activity->context();
+
+        // Only a row this activity can actually take away counts as
+        // holding it. user_has_role_assignment() walks the whole parent
+        // path, so it answers true for a category- or system-level
+        // grant that strip() deliberately leaves alone - and the event
+        // and the message would then record a removal that never
+        // happened. Since 1.20.0 the coordinators screen lists holders
+        // with parent = true, so that POST is one button press away.
+        $holds = $DB->record_exists_select(
+            'role_assignments',
+            'roleid = :roleid AND userid = :userid AND contextid IN (:ctxa, :ctxb)',
+            ['roleid' => $roleid, 'userid' => $userid, 'ctxa' => $modcontext->id, 'ctxb' => $coursecontext->id]
+        );
+        if (!$holds) {
             return;
         }
 
-        role_unassign($roleid, $userid, $coursecontext->id);
+        self::strip($roleid, $userid, $modcontext->id, $coursecontext->id);
         \mod_selfselectadvanced\event\coordinator_removed::create([
             'objectid' => $activity->id(),
             'context' => $activity->context(),
             'relateduserid' => $userid,
         ])->trigger();
         self::tell($activity, $userid, 'removed');
+    }
+
+    /**
+     * Take the role away wherever this activity can see it.
+     *
+     * Three targeted deletes rather than one: role_unassign() matches
+     * the component it is given, so the row this plugin wrote, a row an
+     * administrator assigned by hand at the activity, and a legacy or
+     * manual course-context row are three different rows. Removing one
+     * and leaving the others would leave the person still holding the
+     * role while the screen reported them stood down. Each call is a
+     * no-op when nothing matches.
+     *
+     * Category- and system-level assignments are deliberately left
+     * alone: they were not made for this activity and one activity's
+     * screen has no business revoking them.
+     *
+     * @param int $roleid the coordinator role
+     * @param int $userid the person
+     * @param int $modcontextid the activity's context id
+     * @param int $coursecontextid the course's context id
+     */
+    private static function strip(int $roleid, int $userid, int $modcontextid, int $coursecontextid): void {
+        role_unassign($roleid, $userid, $modcontextid, 'mod_selfselectadvanced', 0);
+        role_unassign($roleid, $userid, $modcontextid);
+        role_unassign($roleid, $userid, $coursecontextid);
     }
 
     /**

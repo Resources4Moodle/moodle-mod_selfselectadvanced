@@ -60,6 +60,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'guidewindow', 'guideautoapprove', 'guidevolunteer', 'studentapproach',
             'eoienabled', 'eoiwindow', 'eoimax', 'eoisequential', 'eoipeers', 'eoigroupmax',
             'minmembership', 'defaulterpenalty', 'incompletepenalty', 'leadershare',
+            'contactprivacy',
             'timecreated', 'timemodified',
         ]);
         $quotas = new backup_nested_element('quotas');

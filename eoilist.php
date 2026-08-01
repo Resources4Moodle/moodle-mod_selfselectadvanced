@@ -17,8 +17,18 @@
 /**
  * A guide's own expressions of interest (EOI 1.11.0): the drill-down
  * behind the guide dashboard's pending/timed-out/declined stat cards,
- * plus a member listing per team (mailto, WhatsApp, mail-the-whole-team)
- * for any team the guide has ever expressed interest in.
+ * plus a member listing per team for any team the guide has ever
+ * expressed interest in.
+ *
+ * NO EMAIL ADDRESS IS RENDERED, LINKED OR EXPORTED HERE, for anybody -
+ * a teammate, an assigned guide, an editing teacher alike (maintainer
+ * decision 17, 2026-08-01). This page used to be the plugin's only raw
+ * address emitter; the address column, the per-member mailto:, the
+ * "Email the whole team" button and the contact columns of the download
+ * are gone, and staff reach a member through Send a message, which is a
+ * Moodle message. A mobile number shows only to a viewer connected to
+ * its owner who also consented, and never with an off-platform link
+ * while the activity protects contact details.
  *
  * Read-only GET throughout; the leader's accept/reject decision and the
  * guide's own express/withdraw actions live elsewhere (pickteam.php,
@@ -102,17 +112,21 @@ if ($withdrawaction === 'withdraw') {
     die;
 }
 
-// Member drill-down: ownership is the guide's OWN interest in that
-// group, any status - the same per-request IDOR guard used throughout
-// the plugin (spec 14.12), so a guide cannot browse every team's
-// contact details by guessing group ids.
+// Member drill-down: ownership is the guide's own LIVE interest in that
+// group - the same per-request IDOR guard used throughout the plugin
+// (spec 14.12), so a guide cannot browse every team's roster by
+// guessing group ids, narrowed in 1.20.1 to interests that are still
+// live.
 if ($viewgroup > 0) {
-    $hasowninterest = $DB->record_exists('selfselectadvanced_eoi', [
-        'activityid' => $activity->id(),
-        'groupid' => $viewgroup,
-        'guideid' => $USER->id,
-    ]);
-    if (!$hasowninterest) {
+    // DECISIONS 19 and 20 (maintainer, 2026-08-01) both live in
+    // teamaccess::may_drill_down(), which is where the predicate is
+    // written and explained: a live interest only, and an accepted one
+    // only while its guide is still the team's assigned guide, so a
+    // handover keeps the outgoing guide's sight until acceptance
+    // completes it and a staff reassignment ends it at once. Not
+    // transcribed here - a unit test of that function is a test of this
+    // page's gate.
+    if (!\mod_selfselectadvanced\local\teamaccess::may_drill_down($activity, $viewgroup, (int) $USER->id)) {
         throw new moodle_exception('nopermissions', 'error', '', get_string('eoimembers', 'mod_selfselectadvanced'));
     }
     $group = \mod_selfselectadvanced\local\groups::get($activity, $viewgroup);
@@ -123,22 +137,28 @@ if ($viewgroup > 0) {
     // shown as the sensible default.
     $useddims = \mod_selfselectadvanced\local\attributes\manager::used_dimensions($activity);
 
-    // Mobile visibility is per-member consent, gated through
-    // manager::mobile_visible; a viewall holder always sees every
-    // number, a guide without it only when that member consented.
-    $viewerhasviewall = has_capability('mod/selfselectadvanced:viewall', $context, $USER->id, false);
+    // Mobile visibility is connection AND the member's own consent.
+    // The capability asked is the IDENTITY one, never :viewall: seeing
+    // every team is not permission to overrule a person's consent, and
+    // :viewall is a reach question that no identity decision in this
+    // plugin may read any more.
+    $hasidentitycap = has_capability('mod/selfselectadvanced:viewparticipantidentity', $context, $USER->id, false);
 
     $mq = optional_param('mq', '', PARAM_RAW_TRIMMED);
     $msort = optional_param('msort', 'lastname', PARAM_ALPHANUMEXT);
     $mdir = optional_param('mdir', 0, PARAM_INT);
+    $memberurl = new moodle_url($baseurl, array_filter(['viewgroup' => $viewgroup, 'mq' => $mq]));
 
     $namefields = implode(', ', array_map(
         static fn(string $field) => 'u.' . $field,
         \core_user\fields::for_name()->get_required_fields()
     ));
     $dimselect = implode(', ', array_map(static fn(string $dim) => 'a.' . $dim, $useddims));
+    // The address column is deliberately NOT selected. An address that
+    // is never fetched cannot leak through a later edit, a var_dump or
+    // a template that iterates the record.
     $memberrecords = $DB->get_records_sql(
-        "SELECT u.id AS userid, $namefields, u.email, a.mobile, a.shareconsent, $dimselect
+        "SELECT u.id AS userid, $namefields, a.mobile, a.shareconsent, $dimselect
            FROM {selfselectadvanced_member} m
            JOIN {user} u ON u.id = m.userid
       LEFT JOIN {selfselectadvanced_userattr} a ON a.userid = u.id
@@ -147,28 +167,53 @@ if ($viewgroup > 0) {
         ['groupid' => $group->id, 'confirmed' => \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED]
     );
 
+    // One bulk decision for the whole team, never one per row: the
+    // connection map, the consent-bypass verdict, the switch itself and
+    // the Send-a-message verdict.
+    $memberids = array_map(static fn($r) => (int) $r->userid, $memberrecords);
+    $privacymap = \mod_selfselectadvanced\local\contactprivacy::can_see_map($activity, (int) $USER->id, $memberids);
+    $mobilebypass = \mod_selfselectadvanced\local\contactprivacy::mobile_consent_bypass(
+        $activity,
+        (int) $USER->id,
+        $hasidentitycap
+    );
+    $protect = \mod_selfselectadvanced\local\contactprivacy::enabled($activity);
+    $messagemap = \mod_selfselectadvanced\local\staffmessage::may_message_map($activity, (int) $USER->id, $memberids);
+
     $members = [];
-    $addresses = [];
     $anymobileshown = false;
+    // Whether ANY row can carry an action, decided once for the table.
+    // may_message_map() is empty for a viewer who is neither :manage
+    // nor :viewall and guides nobody on this roster, and a header over
+    // a column of empty cells is an invitation to "fix" it by widening
+    // the gate that made it empty.
+    $anymessage = (bool) array_filter($messagemap);
     foreach ($memberrecords as $memberrecord) {
         // Manager::mobile_visible() reads only ->shareconsent off the
         // record; the joined member row carries it directly, so it
-        // doubles as the attribute record without a second query.
-        $mobilevisible = \mod_selfselectadvanced\local\attributes\manager::mobile_visible(
-            $memberrecord,
-            $viewerhasviewall
-        );
+        // doubles as the attribute record without a second query. The
+        // connection map is AND-ed onto it: consent alone is not a
+        // reason to show a number to somebody unconnected.
+        $mobilevisible = !empty($privacymap[(int) $memberrecord->userid])
+            && \mod_selfselectadvanced\local\attributes\manager::mobile_visible($memberrecord, $mobilebypass);
         $rawmobile = (string) ($memberrecord->mobile ?? '');
-        $digits = $mobilevisible ? preg_replace('/\D+/', '', $rawmobile) : '';
+        // With the switch ON the plugin offers no off-platform contact
+        // affordance at all: the number itself may still reach a
+        // connected, consenting viewer, but there is no wa.me link.
+        $digits = ($mobilevisible && !$protect) ? preg_replace('/\D+/', '', $rawmobile) : '';
         $member = (object) [
             'firstname' => $memberrecord->firstname,
             'lastname' => $memberrecord->lastname,
-            'email' => $memberrecord->email,
             'mobile' => $mobilevisible ? $rawmobile : get_string('mobilewithheld', 'mod_selfselectadvanced'),
-            'mobileraw' => $mobilevisible ? $rawmobile : '',
-            'mailtourl' => 'mailto:' . $memberrecord->email,
             'haswhatsapp' => $digits !== '',
             'whatsappurl' => $digits !== '' ? 'https://wa.me/' . $digits : '',
+            'messageurl' => !empty($messagemap[(int) $memberrecord->userid])
+                ? \mod_selfselectadvanced\local\staffmessage::url(
+                    $activity,
+                    (int) $memberrecord->userid,
+                    $memberurl
+                )->out(false)
+                : '',
         ];
         if ($mobilevisible && $rawmobile !== '') {
             $anymobileshown = true;
@@ -177,15 +222,16 @@ if ($viewgroup > 0) {
             $member->$dim = (string) ($memberrecord->$dim ?? '');
         }
         $members[] = $member;
-        if (!empty($memberrecord->email)) {
-            $addresses[] = $memberrecord->email;
-        }
     }
 
     // Text filter across every visible field, then a locale-aware sort
     // on the requested column; the roster is bounded by the group size,
-    // so both happen comfortably in PHP.
-    $sortable = array_merge(['firstname', 'lastname', 'email', 'mobile'], $useddims);
+    // so both happen comfortably in PHP. 'email' is gone from the list
+    // because the column is gone: filtering or sorting on a property
+    // the objects no longer carry is a warning on every request, and
+    // keeping the raw address on the object so the filter still worked
+    // would rebuild the oracle the removal just closed.
+    $sortable = array_merge(['firstname', 'lastname', 'mobile'], $useddims);
     if ($mq !== '') {
         $needle = \core_text::strtolower($mq);
         $members = array_values(array_filter($members, static function ($member) use ($needle, $sortable) {
@@ -205,17 +251,18 @@ if ($viewgroup > 0) {
         }
     }
 
-    // Export: the same per-member visibility rule applies, so a
-    // non-viewall guide's download can never carry a withheld number.
+    // Export: names and the composition dimensions, and NO contact
+    // column of any kind (decision 17). A spreadsheet is the easiest
+    // thing in the world to forward, so it is the last place a contact
+    // detail should travel.
     if ($download !== '') {
-        $columns = [get_string('firstname'), get_string('lastname'), get_string('email'),
-            get_string('attrmobile', 'mod_selfselectadvanced')];
+        $columns = [get_string('firstname'), get_string('lastname')];
         foreach ($useddims as $dim) {
             $columns[] = get_string('attr' . $dim, 'mod_selfselectadvanced');
         }
         $exportrows = [];
         foreach ($members as $member) {
-            $exportrow = [$member->firstname, $member->lastname, $member->email, $member->mobileraw];
+            $exportrow = [$member->firstname, $member->lastname];
             foreach ($useddims as $dim) {
                 $exportrow[] = $member->$dim;
             }
@@ -232,7 +279,6 @@ if ($viewgroup > 0) {
         echo html_writer::tag('p', get_string('mobilecaution', 'mod_selfselectadvanced'), ['class' => 'text-muted small']);
     }
 
-    $memberurl = new moodle_url($baseurl, array_filter(['viewgroup' => $viewgroup, 'mq' => $mq]));
     echo html_writer::start_tag('form', ['method' => 'get',
         'action' => $memberurl->out_omit_querystring(), 'class' => 'd-flex flex-wrap gap-2 mb-2']);
     foreach (['id' => $cm->id, 'viewgroup' => $viewgroup, 'status' => $status] as $hname => $hvalue) {
@@ -256,14 +302,15 @@ if ($viewgroup > 0) {
     $table->head = [
         $sortlink('firstname', get_string('firstname')),
         $sortlink('lastname', get_string('lastname')),
-        $sortlink('email', get_string('email')),
         $sortlink('mobile', get_string('attrmobile', 'mod_selfselectadvanced')),
     ];
     foreach ($useddims as $dim) {
         $table->head[] = $sortlink($dim, get_string('attr' . $dim, 'mod_selfselectadvanced'));
     }
+    if ($anymessage) {
+        $table->head[] = get_string('actions');
+    }
     foreach ($members as $member) {
-        $contact = html_writer::link($member->mailtourl, $member->email);
         $mobilecell = s($member->mobile);
         if ($member->haswhatsapp) {
             $mobilecell .= ' ' . html_writer::link(
@@ -272,25 +319,25 @@ if ($viewgroup > 0) {
                 ['class' => 'ms-1']
             );
         }
-        $row = [s($member->firstname), s($member->lastname), $contact, $mobilecell];
+        $row = [s($member->firstname), s($member->lastname), $mobilecell];
         foreach ($useddims as $dim) {
             $row[] = s($member->$dim);
+        }
+        // The Send-a-message action that replaces the deleted mailto:
+        // link. It opens a form; nothing is sent by following it.
+        if ($anymessage) {
+            $row[] = $member->messageurl !== ''
+                ? html_writer::link(
+                    $member->messageurl,
+                    get_string('messagesend', 'mod_selfselectadvanced'),
+                    ['class' => 'btn btn-outline-secondary btn-sm']
+                )
+                : '';
         }
         $table->data[] = $row;
     }
     $table->attributes['class'] = 'generaltable selfselectadvanced-eoimembers';
     echo html_writer::table($table);
-
-    if ($addresses) {
-        echo html_writer::div(
-            html_writer::link(
-                'mailto:' . implode(',', $addresses),
-                get_string('eoimailall', 'mod_selfselectadvanced'),
-                ['class' => 'btn btn-secondary btn-sm']
-            ),
-            'mt-2'
-        );
-    }
 
     echo html_writer::div(
         \mod_selfselectadvanced\local\exporter::controls($memberurl, ''),

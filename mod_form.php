@@ -319,6 +319,13 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->addHelpButton('eoigroupmax', 'eoigroupmax', 'mod_selfselectadvanced');
         $mform->disabledIf('eoigroupmax', 'eoienabled', 'notchecked');
 
+        // Contact privacy (cardinal rule): default ON; an editing teacher
+        // may switch it off for this activity.
+        $mform->addElement('header', 'contactprivacyheading', get_string('contactprivacyheading', 'mod_selfselectadvanced'));
+        $mform->addElement('advcheckbox', 'contactprivacy', get_string('contactprivacy', 'mod_selfselectadvanced'));
+        $mform->setDefault('contactprivacy', 1);
+        $mform->addHelpButton('contactprivacy', 'contactprivacy', 'mod_selfselectadvanced');
+
         $this->standard_coursemodule_elements();
         $this->add_action_buttons();
     }

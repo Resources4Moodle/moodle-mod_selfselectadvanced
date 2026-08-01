@@ -542,7 +542,12 @@ final class invitations_test extends \advanced_testcase {
         $this->assertSame((int) $users[1]->id, $results[0]['id']);
         $this->assertTrue($results[0]['eligible']);
 
-        // By email.
+        // By email: NOT for a student leader, because this fixture uses
+        // the product default and that protects contact details. Typing
+        // a full address and getting one row back would confirm whose it
+        // is - the oracle contact privacy closes. The legacy (switch
+        // off) behaviour and the staff side are pinned in
+        // external_search_test::test_email_match_gated_when_private.
         $results = \mod_selfselectadvanced\local\candidates::search(
             $activity,
             $group,
@@ -550,8 +555,8 @@ final class invitations_test extends \advanced_testcase {
             'stu2@example.com',
             $leader
         );
-        $this->assertCount(1, $results);
-        $this->assertSame((int) $users[2]->id, $results[0]['id']);
+        $this->assertSame([], $results);
+        $this->assertNotEmpty($users[2]->email, 'the address really does belong to somebody enrolled here');
 
         // By first name matches several; the leader (already a member)
         // is returned as ineligible with the reason.

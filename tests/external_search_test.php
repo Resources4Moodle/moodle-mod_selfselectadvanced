@@ -37,6 +37,12 @@ final class external_search_test extends \externallib_advanced_testcase {
     /**
      * The leader can search by last name and email through the full
      * external wrapper; results carry eligibility.
+     *
+     * LEGACY (A14/S7) behaviour, so the activity is created with
+     * contact privacy OFF: with the switch on - which is the product
+     * default since 1.20 - matching by address is a privilege of
+     * viewers the identity gate admits, and a student leader is not
+     * one. test_email_match_gated_when_private pins both halves.
      */
     public function test_execute_as_leader(): void {
         $this->resetAfterTest();
@@ -48,6 +54,7 @@ final class external_search_test extends \externallib_advanced_testcase {
             'maxsize' => 3,
             'maxlead' => 1,
             'maxmembership' => 1,
+            'contactprivacy' => 0,
         ]);
         $leader = $generator->create_user(['firstname' => 'Lea', 'lastname' => 'Der']);
         $peer = $generator->create_user([
@@ -124,5 +131,282 @@ final class external_search_test extends \externallib_advanced_testcase {
             (int) $group->id,
             'x'
         );
+    }
+
+    /**
+     * A course, two activities (protected and legacy), a leader with a
+     * team in each, and a target whose address is the search term.
+     *
+     * @return array [protected activity, legacy activity, leader, target, teacher, group ids]
+     */
+    private function privacy_world(): array {
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $on = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'maxsize' => 4,
+            'maxlead' => 2,
+            'maxmembership' => 2,
+        ]);
+        $off = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'maxsize' => 4,
+            'maxlead' => 2,
+            'maxmembership' => 2,
+            'contactprivacy' => 0,
+        ]);
+        $leader = $generator->create_user(['firstname' => 'Lea', 'lastname' => 'Der']);
+        $target = $generator->create_user([
+            'firstname' => 'Tara',
+            'lastname' => 'Gett',
+            'email' => 'target@example.com',
+        ]);
+        $teacher = $generator->create_user(['firstname' => 'Ed', 'lastname' => 'Iting']);
+        $generator->enrol_user($leader->id, $course->id, 'student');
+        $generator->enrol_user($target->id, $course->id, 'student');
+        $generator->enrol_user($teacher->id, $course->id, 'editingteacher');
+
+        $onactivity = activity::from_instance((int) $on->id);
+        $offactivity = activity::from_instance((int) $off->id);
+        $this->setUser($leader);
+        $ongroup = (new api($onactivity))->create_group((int) $leader->id, 'Protected', 'T', '<p>b</p>', FORMAT_HTML);
+        $offgroup = (new api($offactivity))->create_group((int) $leader->id, 'Legacy', 'T', '<p>b</p>', FORMAT_HTML);
+
+        return [$onactivity, $offactivity, $leader, $target, $teacher, $ongroup, $offgroup, $course];
+    }
+
+    /**
+     * 11. THE ORACLE. Matching by address is gated by the same rule that
+     * gates showing it: with the switch on a student leader searching a
+     * full address gets NOTHING back, so they cannot confirm that the
+     * address belongs to anybody here. An editing teacher still can, and
+     * legacy mode is unchanged for everyone.
+     *
+     * The web service is asserted too, so it is pinned to INHERIT the
+     * fix rather than to be hardened a second time of its own.
+     */
+    public function test_email_match_gated_when_private(): void {
+        $this->resetAfterTest();
+        [$on, $off, $leader, $target, $teacher, $ongroup, $offgroup] = $this->privacy_world();
+
+        $ongate = (new api($on))->gatekeeper();
+        $offgate = (new api($off))->gatekeeper();
+
+        $this->setUser($leader);
+        $this->assertCount(
+            0,
+            \mod_selfselectadvanced\local\candidates::search(
+                $on,
+                $ongroup,
+                $ongate,
+                'target@example.com',
+                (int) $leader->id
+            ),
+            'a student leader cannot use the picker as an address oracle'
+        );
+        // ... and neither can the web service they reach it through.
+        $this->assertCount(
+            0,
+            \mod_selfselectadvanced\external\search_candidates::execute(
+                $on->cm()->id,
+                (int) $ongroup->id,
+                'target@example.com'
+            ),
+            'the web service inherits the fix'
+        );
+        // The name search is untouched.
+        $this->assertCount(
+            1,
+            \mod_selfselectadvanced\local\candidates::search($on, $ongroup, $ongate, 'Gett', (int) $leader->id)
+        );
+
+        // Legacy mode: A14/S7 matching preserved for everyone.
+        $this->assertCount(
+            1,
+            \mod_selfselectadvanced\local\candidates::search(
+                $off,
+                $offgroup,
+                $offgate,
+                'target@example.com',
+                (int) $leader->id
+            )
+        );
+
+        // An editing teacher holds :manage, so the switch does not
+        // restrict them.
+        $this->setUser($teacher);
+        $this->assertCount(
+            1,
+            \mod_selfselectadvanced\local\candidates::search(
+                $on,
+                $ongroup,
+                $ongate,
+                'target@example.com',
+                (int) $teacher->id
+            )
+        );
+        unset($target);
+    }
+
+    /**
+     * 12. The LABEL. A teacher-archetype viewer with a core identity
+     * capability sees no address while the switch is on; legacy mode and
+     * the :manage holder do. And the plugin's own identity capability is
+     * AND-ed onto core, never OR-ed - so granting it while core forbids
+     * the field restores nothing.
+     */
+    public function test_label_email_hidden_when_private(): void {
+        $this->resetAfterTest();
+        [$on, $off, $leader, $target, $teacher, $ongroup, $offgroup, $course] = $this->privacy_world();
+
+        $generator = $this->getDataGenerator();
+        $ongate = (new api($on))->gatekeeper();
+        $offgate = (new api($off))->gatekeeper();
+
+        // A non-editing teacher with the core identity capability
+        // explicitly allowed in the module context.
+        $watcher = $generator->create_user(['firstname' => 'Wanda', 'lastname' => 'Watcher']);
+        $generator->enrol_user($watcher->id, $course->id, 'teacher');
+        $identityrole = $generator->create_role();
+        assign_capability(
+            'moodle/site:viewuseridentity',
+            CAP_ALLOW,
+            $identityrole,
+            \context_module::instance($on->cm()->id)
+        );
+        role_assign($identityrole, $watcher->id, \context_module::instance($on->cm()->id));
+        accesslib_clear_all_caches_for_unit_testing();
+
+        $labels = array_column(
+            \mod_selfselectadvanced\local\candidates::search($on, $ongroup, $ongate, 'Gett', (int) $watcher->id),
+            'label'
+        );
+        $this->assertCount(1, $labels);
+        $this->assertStringNotContainsString('(target@example.com', $labels[0]);
+
+        $labels = array_column(
+            \mod_selfselectadvanced\local\candidates::search($off, $offgroup, $offgate, 'Gett', (int) $watcher->id),
+            'label'
+        );
+        $this->assertStringContainsString('(target@example.com', $labels[0], 'legacy mode is unchanged');
+
+        $labels = array_column(
+            \mod_selfselectadvanced\local\candidates::search($on, $ongroup, $ongate, 'Gett', (int) $teacher->id),
+            'label'
+        );
+        $this->assertStringContainsString('(target@example.com', $labels[0], 'the manage holder owns the switch');
+
+        // THE CONNECTION MAP factor, isolated. This viewer clears both
+        // the plugin arm (:viewparticipantidentity) AND the core arm
+        // (moodle/course:viewhiddenuserfields, by teacher archetype),
+        // so nothing but the map stands between them and the address -
+        // and they are connected to nobody, so the label carries none.
+        $mapped = $generator->create_user(['firstname' => 'Mona', 'lastname' => 'Mapped']);
+        $generator->enrol_user($mapped->id, $course->id, 'teacher');
+        $mappedrole = $generator->create_role();
+        assign_capability(
+            'mod/selfselectadvanced:viewparticipantidentity',
+            CAP_ALLOW,
+            $mappedrole,
+            \context_module::instance($on->cm()->id)
+        );
+        role_assign($mappedrole, $mapped->id, \context_module::instance($on->cm()->id));
+        accesslib_clear_all_caches_for_unit_testing();
+        $this->assertTrue(has_capability('moodle/course:viewhiddenuserfields', $on->context(), $mapped->id));
+        $labels = array_column(
+            \mod_selfselectadvanced\local\candidates::search($on, $ongroup, $ongate, 'Gett', (int) $mapped->id),
+            'label'
+        );
+        $this->assertCount(1, $labels, 'the identity capability admits the match');
+        $this->assertStringNotContainsString(
+            '(target@example.com',
+            $labels[0],
+            'but the connection map still decides whose address may be shown'
+        );
+
+        // AND-order, good-neighbour principle: a viewer granted the
+        // PLUGIN identity capability, CONNECTED to the subject as the
+        // assigned guide of their team, and with both core capabilities
+        // withdrawn, still sees no address. Everything except the core
+        // arm says yes here, so this assertion isolates it: inverting
+        // the composition to an OR is exactly what it catches.
+        $granted = $generator->create_user(['firstname' => 'Gina', 'lastname' => 'Granted']);
+        $generator->enrol_user($granted->id, $course->id, 'teacher');
+        $this->connect_as_guide($on, $ongroup, $target, $granted);
+        $pluginrole = $generator->create_role();
+        assign_capability(
+            'mod/selfselectadvanced:viewparticipantidentity',
+            CAP_ALLOW,
+            $pluginrole,
+            \context_module::instance($on->cm()->id)
+        );
+        // PROHIBIT, not PREVENT: has_capability() resolves each role
+        // down its own path and then allows if ANY role says so, so a
+        // PREVENT on this extra role would leave the teacher role's own
+        // ALLOW standing and the fixture would not model a site that
+        // has actually withdrawn the field.
+        assign_capability(
+            'moodle/site:viewuseridentity',
+            CAP_PROHIBIT,
+            $pluginrole,
+            \context_module::instance($on->cm()->id)
+        );
+        assign_capability(
+            'moodle/course:viewhiddenuserfields',
+            CAP_PROHIBIT,
+            $pluginrole,
+            \context_module::instance($on->cm()->id)
+        );
+        role_assign($pluginrole, $granted->id, \context_module::instance($on->cm()->id));
+        accesslib_clear_all_caches_for_unit_testing();
+
+        $this->assertTrue(
+            has_capability('mod/selfselectadvanced:viewparticipantidentity', $on->context(), $granted->id)
+        );
+        $this->assertFalse(has_capability('moodle/site:viewuseridentity', $on->context(), $granted->id));
+        $this->assertFalse(has_capability('moodle/course:viewhiddenuserfields', $on->context(), $granted->id));
+
+        $labels = array_column(
+            \mod_selfselectadvanced\local\candidates::search($on, $ongroup, $ongate, 'Gett', (int) $granted->id),
+            'label'
+        );
+        $this->assertTrue(
+            \mod_selfselectadvanced\local\contactprivacy::can_see($on, (int) $granted->id, (int) $target->id),
+            'the connection is real, so only the core arm can be refusing'
+        );
+        $this->assertCount(1, $labels, 'the plugin capability does admit the MATCH');
+        $this->assertStringNotContainsString(
+            '(target@example.com',
+            $labels[0],
+            'but it must never restore a field the SITE withheld'
+        );
+        unset($leader);
+    }
+
+    /**
+     * Make one user the assigned guide of a team the other is a
+     * confirmed member of, so the connection map answers true for the
+     * pair.
+     *
+     * @param activity $activity the activity
+     * @param \stdClass $group the team
+     * @param \stdClass $member the subject to add as a confirmed member
+     * @param \stdClass $guide the viewer to make the assigned guide
+     */
+    private function connect_as_guide(
+        activity $activity,
+        \stdClass $group,
+        \stdClass $member,
+        \stdClass $guide
+    ): void {
+        global $DB;
+
+        $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_member([
+            'groupid' => (int) $group->id,
+            'userid' => (int) $member->id,
+            'status' => \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED,
+        ]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $guide->id, ['id' => (int) $group->id]);
+        unset($activity);
     }
 }

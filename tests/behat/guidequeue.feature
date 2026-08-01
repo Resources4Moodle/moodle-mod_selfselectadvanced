@@ -22,12 +22,15 @@ Feature: A guide's request queue and asking for a higher team limit
       | guide2   | C1     | teacher        |
       | teacher1 | C1     | editingteacher |
       | coord1   | C1     | teacher        |
-    And the following "role assigns" exist:
-      | user   | role             | contextlevel | reference |
-      | coord1 | groupcoordinator | Course       | C1        |
     And the following "activities" exist:
       | activity           | course | name       | idnumber | minsize | maxlead | maxmembership | maxguided |
       | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 1       | 1             | 2         |
+    # ACTIVITY context (1.20.1): the Group Coordinator role does work
+    # inside one activity and is assignable nowhere else, so the table
+    # has to sit BELOW the activities table that creates its reference.
+    And the following "role assigns" exist:
+      | user   | role             | contextlevel    | reference |
+      | coord1 | groupcoordinator | Activity module | ssa1      |
 
   Scenario: A guide asks for a higher limit and a manager grants it in one action
     When I am on the "Lab groups" "mod_selfselectadvanced > guide queue" page logged in as guide1
