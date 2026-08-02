@@ -58,16 +58,17 @@ $group = \mod_selfselectadvanced\local\groups::get($activity, $groupid);
 // manager-only actions. The per-action checks below are unchanged;
 // this gate decides who may LOOK. The predicate is NOT transcribed
 // here: teamaccess::may_open_team() is the one place it lives, so a
-// unit test of that function is a test of this page's gate. The
-// membership row is still read below because the confirmed-member
-// question is asked again further down the page.
+// unit test of that function is a test of this page's gate.
+//
+// This page used to read the membership row again here, for the one
+// question further down that needed CONFIRMED rather than any live
+// row - who may download the proposal. That question moved into
+// teamaccess::may_read_proposal() with the rest of the file policy
+// (audit A-05), and the row went with it, so the page no longer keeps
+// a second copy of a membership to answer a question it no longer asks.
 if (!\mod_selfselectadvanced\local\teamaccess::may_open_team($activity, $group, (int) $USER->id)) {
     require_capability('mod/selfselectadvanced:viewall', $context);
 }
-$membership = $DB->get_record('selfselectadvanced_member', [
-    'groupid' => $group->id,
-    'userid' => $USER->id,
-]);
 
 $baseurl = new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $group->id]);
 $viewurl = new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]);
@@ -819,17 +820,22 @@ echo $OUTPUT->render_from_template('mod_selfselectadvanced/group_page', $page->e
 // Proposal section (1.3.0): current file + upload control.
 $fs = get_file_storage();
 $proposalfiles = $fs->get_area_files($context->id, 'mod_selfselectadvanced', 'proposal', (int) $group->id, 'id', false);
-// Who may actually DOWNLOAD it, matching selfselectadvanced_pluginfile()
-// exactly. This page admits invited-but-unconfirmed people, and it used
-// to hand them a live link to a file the file server then refused - so
-// an invitee clicked the team's proposal and got "file not found". The
-// filename is still shown, because it was already on their screen and
-// hiding it now would say less than the page said before; what changes
-// is that it is no longer a link that cannot work.
-$maydownloadproposal = has_capability('mod/selfselectadvanced:viewall', $context)
-    || ($membership && $membership->status === \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED)
-    || ((int) ($group->guideid ?? 0) === (int) $USER->id
-        && has_capability('mod/selfselectadvanced:guide', $context));
+// Who may actually DOWNLOAD it. This page admits invited-but-unconfirmed
+// people, and it used to hand them a live link to a file the file server
+// then refused - so an invitee clicked the team's proposal and got "file
+// not found". The filename is still shown, because it was already on
+// their screen and hiding it now would say less than the page said
+// before; what changes is that it is no longer a link that cannot work.
+//
+// The predicate is teamaccess::may_read_proposal() and is not
+// transcribed here: this line and selfselectadvanced_pluginfile() each
+// used to carry their own copy of it, which is how they came to
+// disagree with the pages about the assigned guide (audit A-05).
+$maydownloadproposal = \mod_selfselectadvanced\local\teamaccess::may_read_proposal(
+    $activity,
+    $group,
+    (int) $USER->id
+);
 
 $proposalhtml = '';
 foreach ($proposalfiles as $file) {

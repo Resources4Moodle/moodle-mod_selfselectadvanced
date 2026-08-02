@@ -39,6 +39,36 @@ use stdClass;
  * mismatch against the matched account is warned but the row is still
  * ingested, username being authoritative (A9).
  *
+ * CONTACT PRIVACY, DECISION 24 - and why the email fallback SURVIVES it
+ * (2026-08-02, stated so it is a decision and not an oversight).
+ * Decision 24 forbids every surface of this plugin from matching,
+ * rendering, exporting or labelling an address for any role while the
+ * per-activity switch is on, and it cost the move-form picker and the
+ * invitation candidate search their address match. This importer keeps
+ * its fallback key for three reasons, all of which are about where the
+ * address comes from and what leaves again:
+ *
+ *  - the address is SUPPLIED, not discovered. It is a cell in a file
+ *    the operator wrote, used once, as an exact lower-cased equality
+ *    lookup - never a LIKE, so it cannot be walked with a prefix - to
+ *    name a row's subject. It is not a repeatable probe over the
+ *    enrolled population;
+ *  - this ingest runs at SITE ADMINISTRATION level
+ *    (admin_externalpage_setup, see attributes.php), the authority that
+ *    can already read every account's address through core's own user
+ *    administration. Closing this door leaves that one open, so
+ *    closing it buys nothing and breaks a documented input format;
+ *  - nothing goes back out. A matched row is reported by USERNAME
+ *    ({@see csvnamemismatch}); a rejected row echoes only the key the
+ *    operator typed - their own input, never a second account's
+ *    address. That is the property Decision 24 actually protects here,
+ *    and it is pinned by tests/importaddress_test.php rather than left
+ *    to inspection.
+ *
+ * ACCEPTED RESIDUAL, stated rather than hidden: an administrator who
+ * pastes addresses obtained elsewhere learns which of them belong to
+ * accounts on this site, though not - through this class - whose.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later

@@ -127,6 +127,8 @@ class api {
      *        constraints and do not apply, but the nominated leader's do
      * @return stdClass the created group row
      * @throws \moodle_exception when the gatekeeper refuses
+     * @throws \required_capability_exception when the student path's
+     *         actor does not hold :creategroup
      */
     public function create_group(
         int $userid,
@@ -157,6 +159,13 @@ class api {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
         } else {
+            // AUTHORITY first, eligibility second. can_create_group()
+            // answers the window, L3 and L4 - it has never asked
+            // whether the actor is ALLOWED to create a team at all, so
+            // an activity-level Prohibit on :creategroup stopped
+            // groupedit.php and left this service wide open to a direct
+            // POST (A-02). The gate below is kept exactly as it was.
+            authority::require_lead($this->activity, $userid);
             $leaderid = $userid;
             if ($refusal = $this->gatekeeper->can_create_group($userid)) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
@@ -302,10 +311,19 @@ class api {
      * @param stdClass $group group row
      * @param int $userid the acting user (must be the leader)
      * @throws \moodle_exception when the gatekeeper refuses
+     * @throws \required_capability_exception when the actor does not
+     *         hold :creategroup
      */
     public function delete_group(stdClass $group, int $userid): void {
         global $DB;
 
+        // Deleting a forming team is a LEADER action, and leading is
+        // the second half of what :creategroup grants. can_delete_group()
+        // asks only "forming?" and "is this the leader?" - ownership and
+        // state, never authority - so a leader whose capability had been
+        // prohibited could still destroy the team (A-02). The ownership
+        // gate below is unchanged and still decides everything else.
+        authority::require_lead($this->activity, $userid);
         if ($refusal = $this->gatekeeper->can_delete_group($group, $userid)) {
             throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
         }

@@ -427,7 +427,7 @@ final class staff_authority_test extends \advanced_testcase {
         // gains its approval time first.
         $DB->set_field('selfselectadvanced_group', 'timeapproved', time(), ['id' => $group->id]);
         $group = groups::get($activity, (int) $group->id);
-        ledger::set_award($activity, $group, 17.5);
+        ledger::set_award($activity, $group, 17.5, (int) $staff->id);
         try {
             $api->dissolve_group($group, 'wind up', (int) $staff->id);
             $this->fail('Expected errdissolveaward');
@@ -435,7 +435,7 @@ final class staff_authority_test extends \advanced_testcase {
             $this->assertSame('errdissolveaward', $e->errorcode);
         }
         $this->assertTrue($DB->record_exists('selfselectadvanced_group', ['id' => $group->id]));
-        ledger::set_award($activity, $group, null);
+        ledger::set_award($activity, $group, null, (int) $staff->id);
 
         // An open ticket -> refused.
         $DB->insert_record('selfselectadvanced_ticket', (object) [

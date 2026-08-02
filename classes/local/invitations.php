@@ -64,10 +64,16 @@ class invitations {
      * @param int $actorid the inviting leader
      * @return stdClass the member row
      * @throws \moodle_exception when the gatekeeper refuses
+     * @throws \required_capability_exception when the leader does not
+     *         hold :creategroup
      */
     public function send(stdClass $group, int $inviteeid, int $actorid): stdClass {
         global $DB;
 
+        // Authority before ownership: inviting is a leader action, and
+        // leading is what :creategroup grants ("Create groups and act
+        // as leader"). Being named on the row is not a grant.
+        authority::require_lead($this->activity, $actorid);
         if ((int) $group->leaderid !== $actorid) {
             throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
         }
@@ -159,9 +165,20 @@ class invitations {
      * @param int $userid the invitee acting on their own invitation
      * @return stdClass the confirmed member row
      * @throws \moodle_exception when the gatekeeper refuses
+     * @throws \required_capability_exception when the invitee does not
+     *         hold :respond
      */
     public function accept(stdClass $group, int $userid): stdClass {
         global $DB;
+
+        // BEFORE the lock, the write, the event and the message (A-03).
+        // Holding an invitation row is not authority to answer it: an
+        // invited user with :respond prohibited called this service and
+        // became CONFIRMED, while the sibling path
+        // joinrequests::request() had required the same capability
+        // since it was written. Two paths that disagree about one
+        // question are an oversight, not a policy.
+        authority::require_respond($this->activity, $userid);
 
         // L4 counts across ALL groups; the group lock alone cannot
         // serialise two accepts into different groups (audit item 6).
@@ -226,9 +243,22 @@ class invitations {
      * @param stdClass $group group row
      * @param int $userid the invitee
      * @return stdClass the declined member row
+     * @throws \required_capability_exception when the invitee does not
+     *         hold :respond
      */
     public function decline(stdClass $group, int $userid): stdClass {
         global $DB;
+
+        // Spec 6.2's "always allowed" is a RULE statement - no window,
+        // no seat and no cap can stop a decline - not an authority one,
+        // and the two were being read as one sentence. A decline still
+        // writes a member row, fires an event and mails the leader, so
+        // it is a response and :respond governs it - deliberately with
+        // no cleanup exception, because an invitation the invitee may
+        // no longer answer is still withdrawable by its leader and
+        // still expirable by expire_due(), neither of which asks the
+        // invitee for anything.
+        authority::require_respond($this->activity, $userid);
 
         $lock = locks::acquire('group:' . $group->id);
         try {
@@ -283,9 +313,14 @@ class invitations {
      * @param int $actorid the acting leader
      * @return stdClass the member row
      * @throws \moodle_exception when the gatekeeper refuses
+     * @throws \required_capability_exception when the leader does not
+     *         hold :creategroup
      */
     public function withdraw(stdClass $group, int $memberid, int $actorid): stdClass {
         global $DB;
+
+        // A leader action, so the leader authority (A-02).
+        authority::require_lead($this->activity, $actorid);
 
         $lock = locks::acquire('group:' . $group->id);
         try {
@@ -554,9 +589,18 @@ class invitations {
      * @param int $actorid the acting leader
      * @return stdClass the removed member row
      * @throws \moodle_exception when the gatekeeper refuses
+     * @throws \required_capability_exception when the leader does not
+     *         hold :creategroup
      */
     public function confirm_leave(stdClass $group, int $memberid, int $actorid): stdClass {
         global $DB;
+
+        // A leader action, so the leader authority (A-02). The MEMBER's
+        // own request_leave() is deliberately not gated: a student who
+        // has lost every capability here must still be able to ask to
+        // leave, and the leader's confirmation is the write that
+        // actually changes the roster.
+        authority::require_lead($this->activity, $actorid);
 
         $lock = locks::acquire('group:' . $group->id);
         $outermost = !$DB->is_transaction_started();

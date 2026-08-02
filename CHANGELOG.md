@@ -109,6 +109,104 @@
   The nightly reconcile, which is the safety net for the blocked rows
   beyond the page's window, still reaches every one of them — a window
   at a time rather than in a single unbounded read.
+- **A permission you have PROHIBITED now actually stops the action.**
+  Four things a site could forbid on the Permissions page and still
+  watch happen. Creating a team and leading it — inviting, withdrawing
+  an invitation, confirming a member's departure, deleting the team —
+  asked whether you owned the team and whether the rules allowed it,
+  and never whether you were permitted to do it at all, so the button
+  disappeared from the screen and a direct form post went straight
+  through. Answering an invitation, accept or decline, was the same,
+  while asking to JOIN a team had required the permission since the day
+  it was written. Freezing a team asked a manager or coordinator
+  freezing on someone's behalf for their permission, and asked the
+  team's own assigned guide for nothing. And a bulk freeze large enough
+  to finish on a later cron pass checked the permission when the button
+  was pressed and never again — so revoking it, or removing the person's
+  role, between the click and the cron run changed nothing.
+  All four now ask at the SERVICE, which is the only place a direct
+  post, an AJAX call, a web service and a queued task all have to pass
+  through; the queued bulk freeze re-asks before every single team and
+  logs the ones it therefore skipped. **On an existing site this changes
+  nothing** — everyone who could do these things yesterday still can.
+  What changes is that withdrawing the permission now works.
+- **A control you are not permitted to use is no longer drawn.** With
+  the permissions above withdrawn, the screens still offered Invite,
+  Delete team, Confirm leave, Accept and Decline, and every one of them
+  ended at a "you do not have permission" page. They are now hidden.
+  A pending invitation is still LISTED when you may not answer it —
+  you need to know a team is waiting on you, and its leader can still
+  withdraw it — but the two buttons are gone.
+- **The file server now asks the same question as the page that offered
+  the link.** A team's proposal was served by a rule written out a
+  second time inside the file server, and the two copies had drifted
+  apart in both directions: a guide assigned to a team, on a site that
+  had withdrawn the new narrow permission, was refused every other door
+  on that team and still got the file; while a Manage holder — who can
+  open the review page, where the proposal is displayed in place — was
+  refused the very file that page had just embedded. There is now ONE
+  rule, and the screen and the file server both call it. Who may
+  download a proposal: the team's confirmed members, the team's assigned
+  guide, a Manage or see-everything holder, and a guide the team is
+  currently approaching, for as long as that approach is unanswered.
+  An invited but unconfirmed person still sees the filename without a
+  link — an invitation is not a membership. **A guide a team has just
+  approached can now open the proposal they were asked to judge**; the
+  page that asks them to decide had always shown the link, and the file
+  server had always refused it.
+- **No screen, search, export or label anywhere in this plugin shows or
+  matches on an email address while contact protection is on — for
+  anybody, including editing teachers, managers and administrators.**
+  Two surfaces still exempted a Manage holder. The staff move form's
+  participant picker accepted a full address and answered with a name,
+  regardless of the setting; the invitation candidate picker did the
+  same and printed the address as well. Typing an address in and seeing
+  who comes back is an address book run backwards, and it does not stop
+  being one because the person doing it is senior. Both are names-only
+  now, which is what the expression-of-interest roster has been since
+  1.20.0. Both pickers still find people by name, and staff still reach
+  a participant with Send a message.
+- **The two staff imports keep their email fallback, deliberately.** The
+  coordinator upload and the participant-attribute CSV both accept an
+  address as the match key for a row with no username. That address is
+  one the person running the import typed into their own file, resolved
+  once by exact match, and neither import ever puts an address back into
+  its report: a matched person is named by full name and username, and
+  an unmatched line echoes only what the file said. Removing it would
+  break a documented file format to close a door the operator is already
+  standing on the other side of.
+- **Accepting a join request no longer re-examines blocked overrides
+  while holding a lock.** The sweep that lets a blocked override start
+  applying once the thing blocking it is gone ran from inside the lock
+  that serialises answering a request, so the notice it publishes
+  travelled under that lock and it took further locks of its own
+  underneath. It now runs after the lock is released, still restricted
+  to the student and the two teams the acceptance actually moved — and
+  it no longer runs at all when a request is turned DOWN, which moves
+  nobody and so can have unblocked nothing.
+- **A large composition template can no longer exhaust a page's memory
+  and end the request.** Seating a roster into a slot template searches
+  for an exact answer, and the memory it used to do that was never
+  written down or bounded. Measured on the shapes at the edge of what
+  the search accepts, ONE team could allocate 169 MB — against the 128
+  MB a Moodle page is given, which nothing on the way in raises — so the
+  failure was a fatal error on one team rather than a slow page, on the
+  team autocomplete a student types into and on the manager's compliance
+  sweep. The search now keeps a fraction of what it kept before and
+  stops rather than growing past a stated ceiling; the worst case
+  measured over 680 adversarial templates fell from 169 MB to 41 MB,
+  and every one of those 680 returns exactly the answer it returned
+  before. The envelope, its measurements and which number to tune are
+  written down beside the limit they belong to.
+- **Two comments that were not true are true now.** The move engine said
+  every team a commit touches is locked by the commit, when on one of
+  its two paths it locks nothing and requires the caller to have done
+  it; the caller's obligation is now stated, and checked. The privacy
+  provider promised that removing an erased person from a mirrored
+  course group would be handed to a queued background task if a
+  transaction were open; there is no such hand-off and no such task —
+  the work runs inline, and the comment now says what actually happens
+  and why it is safe.
 
 ## 1.20.0 (2026-07-31)
 

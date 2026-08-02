@@ -429,7 +429,7 @@ selfselectadvanced_howto_attach_proposal($activity, $solstice, 'Solstice - solar
 $api->lifecycle()->submit($solstice, (int) $guide->id, (int) $s05->id);
 $solstice = groups::get($activity, (int) $solstice->id);
 $api->lifecycle()->approve($solstice, (int) $guide->id);
-ledger::set_award($activity, $solstice, 88.0);
+ledger::set_award($activity, $solstice, 88.0, (int) $guide->id);
 cli_writeln("Solstice: firm, approved by Sam Okoye, awarded mark 88 (group {$solstice->id})");
 
 // Meridian: frozen, mirrored into a core course group - the "frozen"

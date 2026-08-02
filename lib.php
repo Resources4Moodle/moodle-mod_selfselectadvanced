@@ -487,8 +487,16 @@ function selfselectadvanced_user_names(array $userids): array {
 
 /**
  * Serve files from the proposal filearea (itemid = plugin group id).
- * Visible to confirmed members of that group, to the guide assigned to
- * it, and to staff with viewall.
+ *
+ * WHO may read it is not decided here. It is
+ * teamaccess::may_read_proposal(), the one policy the pages that render
+ * the link also call, because until 1.20.1 this function carried its
+ * own transcription of it and the copies had drifted: an assigned guide
+ * on a site that withdrew :viewassignedteams passed HERE while every
+ * other door on their own team refused them, and a :manage-only
+ * reviewer was refused the file the review page had just embedded
+ * (audit A-05). A file server is the last gate a direct URL meets, so
+ * it must ask the same question as the screen that offered the URL.
  *
  * @param stdClass $course the course
  * @param stdClass $cm the course module
@@ -519,21 +527,9 @@ function selfselectadvanced_pluginfile(
     if ((int) $group->activityid !== (int) $cm->instance) {
         return false;
     }
-    if (!has_capability('mod/selfselectadvanced:viewall', $context)) {
-        $ismember = $DB->record_exists('selfselectadvanced_member', [
-            'groupid' => $groupid,
-            'userid' => $USER->id,
-            'status' => 'confirmed',
-        ]);
-        // The group's own guide reads the proposal too - judging it is
-        // the whole of the job. Until 1.19.1 a guide without :viewall
-        // was refused their own group's file, so the attachment the
-        // team was asked to submit was unreadable by its reader.
-        $isguide = (int) ($group->guideid ?? 0) === (int) $USER->id
-            && has_capability('mod/selfselectadvanced:guide', $context);
-        if (!$ismember && !$isguide) {
-            return false;
-        }
+    $activity = \mod_selfselectadvanced\activity::from_cmid((int) $cm->id);
+    if (!\mod_selfselectadvanced\local\teamaccess::may_read_proposal($activity, $group, (int) $USER->id)) {
+        return false;
     }
     $fs = get_file_storage();
     $filename = array_pop($args);

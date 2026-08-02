@@ -34,9 +34,11 @@ use mod_selfselectadvanced\local\rules\gatekeeper;
  * exactly one person confirms that address belongs to that person and
  * names them - the inverse mapping, handed to a viewer who is not
  * allowed the forward one. So while {@see contactprivacy} protects the
- * activity, a restricted viewer - every student leader, every
- * non-editing teacher, every coordinator - searches names only, and
- * sees no address on any label.
+ * activity, EVERY viewer searches names only and sees no address on any
+ * label - maintainer decision 24, which removed the last exemption:
+ * until 1.20.1 a :manage holder, and a role granted
+ * :viewparticipantidentity, still matched and still saw the address
+ * while the switch was on.
  *
  * AND-ORDER RULE (good-neighbour principle). The plugin's own gate is
  * AND-ed onto the two core identity capabilities, never OR-ed: this
@@ -49,9 +51,8 @@ use mod_selfselectadvanced\local\rules\gatekeeper;
  *   moodle/course:viewhiddenuserfields is still granted to
  *   teacher/editingteacher/manager in core. A lockdown runbook naming
  *   one capability ships half-done;
- * - with the switch ON the address is appended for NOBODY below
- *   mod/selfselectadvanced:manage, unless a site deliberately granted
- *   mod/selfselectadvanced:viewparticipantidentity.
+ * - with the switch ON the address is appended for NOBODY, so the
+ *   core arm is the only thing the switch-OFF case still depends on.
  *
  * Accepted residual: a partial email that collides with a display-name
  * substring still matches. That reveals nothing an enrolled user's name
@@ -102,13 +103,30 @@ class candidates {
         [$enrolsql, $enrolparams] = get_enrolled_sql($context, 'mod/selfselectadvanced:respond', 0, true);
 
         $protect = contactprivacy::enabled($activity);
-        // The plugin's own permission to see contact fields. It is
-        // AND-ed onto the core check below, never OR-ed: a plugin
-        // capability must not restore a field the SITE removed
-        // (good-neighbour principle).
-        $mayseeidentity = !$protect
-            || contactprivacy::is_unrestricted($activity, $viewerid)
-            || has_capability('mod/selfselectadvanced:viewparticipantidentity', $context, $viewerid);
+        // MAINTAINER DECISION 24 (2026-08-02): while the per-activity
+        // switch is ON there is no exempt viewer. Not the editing
+        // teacher, not the manager, not the administrator, not a role
+        // a site granted :viewparticipantidentity - no surface of this
+        // plugin matches, renders, exports or labels an address for
+        // ANY role. This used to read "!$protect OR is_unrestricted()
+        // OR :viewparticipantidentity",
+        // on the argument that :manage owns the switch and may
+        // therefore see through it; the audit found the same question
+        // answered the other way on eoilist.php and on
+        // search_participants, and the maintainer ruled for the strict
+        // answer. The switch is now the whole test.
+        //
+        // :viewparticipantidentity is NOT dead: it still governs the
+        // mobile columns through contactprivacy::mobile_consent_bypass()
+        // and the identity columns of the staff tables. What it no
+        // longer does is reopen an address.
+        //
+        // What survives from the previous design, and must: the
+        // remaining factor is AND-ed onto the two core identity
+        // capabilities below, never OR-ed, so this class can only ever
+        // REMOVE an address from a label and can never restore one the
+        // SITE withheld (good-neighbour principle).
+        $mayseeidentity = !$protect;
 
         // U3/S6: match across all core name fields, the full-name concat and email.
         $namefields = \core_user\fields::for_name()->get_required_fields();

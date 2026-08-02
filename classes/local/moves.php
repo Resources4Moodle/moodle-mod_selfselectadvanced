@@ -765,10 +765,41 @@ class moves {
         // paths, which serialise on group:{id} - so a manager commit
         // could overbook L2 against invitations::send, and a freeze
         // landing mid-commit left the plugin roster, the core group and
-        // the snapshot disagreeing (T-02 R1). Every touched group is
-        // locked too, activity first and then groups in ascending id:
-        // the one global order.
+        // the snapshot disagreeing (T-02 R1). So the hold for a commit
+        // is the activity lock plus one per touched group, activity
+        // first and then groups in ascending id: the one global order.
+        //
+        // CORRECTED 2026-08-02 (audit O-5). This used to say "every
+        // touched group is locked too" flatly, which is not what this
+        // line does: on the $callerholdslocks path it takes NOTHING.
+        // The hold is the same either way, but WHO takes it is not, and
+        // stating it as an unconditional act of this method hid the
+        // obligation the other path carries. Precisely:
+        //
+        // WITH $callerholdslocks FALSE this method acquires
+        // lock_resources_for() over the pending rows of $moveids and
+        // releases them at its finally.
+        //
+        // WITH $callerholdslocks TRUE the CALLER must already hold at
+        // least that set, taken in the same order, and must still hold
+        // it when this returns - because its own transaction is still
+        // open around ours. joinrequests::do_accept() is the one
+        // production caller: it takes activity + source + target for
+        // the single move it is about to commit, which is exactly
+        // lock_resources_for() over that move, and it takes them BEFORE
+        // opening its transaction, so releasing at our finally would
+        // have opened the very window T-02 R1c closes.
+        //
+        // The obligation is checked rather than trusted: a caller that
+        // claims the locks while holding none is a defect that would
+        // otherwise commit silently unserialised.
         $outermost = !$DB->is_transaction_started();
+        if ($callerholdslocks && locks::held_count() === 0) {
+            debugging(
+                'commit_set() was told the caller holds the move locks, and no lock is held',
+                DEBUG_DEVELOPER
+            );
+        }
         $locks = $callerholdslocks
             ? []
             : locks::acquire_all(self::lock_resources_for($this->activity->id(), $this->load_pending($moveids)));

@@ -650,6 +650,19 @@ class freeze {
                         throw new \moodle_exception('refusalnotassignedguide', 'mod_selfselectadvanced');
                     }
                     tickets::require_uninvolved($activity, $fresh, $actorid);
+                } else {
+                    // The assigned guide's OWN freeze, and the one branch
+                    // of this method that asked for no capability at all
+                    // (A-01). Being named in guideid is ownership of the
+                    // record; :freeze is the authority to act on it, and
+                    // an administrator who prohibits the capability is
+                    // saying this person may no longer freeze anything -
+                    // including the teams they still guide. The
+                    // on-behalf branch above keeps its own authority
+                    // (:manage / :coordinate) unchanged: that is a
+                    // different grant, documented as such, and not one
+                    // this check may quietly widen.
+                    authority::require_freeze($activity, $actorid);
                 }
                 // Good-neighbour membership audit (RCA Q3): freezing
                 // is the moment this plugin pushes into the course's

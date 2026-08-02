@@ -139,11 +139,21 @@ if ($action === 'saveaward' && data_submitted() && confirm_sesskey()) {
         redirect($baseurl, $gradingrefusal->get_message(), null, \core\output\notification::NOTIFY_ERROR);
     }
     $award = optional_param('award', '', PARAM_RAW_TRIMMED);
-    \mod_selfselectadvanced\local\penalty\ledger::set_award(
-        $activity,
-        $group,
-        $award === '' ? null : unformat_float($award)
-    );
+    // The actor travels WITH the write. The page's own $maygradeteam
+    // check above is defence in depth and no longer the only thing
+    // standing between a POST and a gradebook row: the service locks
+    // the team, re-reads it through this activity, and asks
+    // can_grade_team() about the actor itself (A-06).
+    try {
+        \mod_selfselectadvanced\local\penalty\ledger::set_award(
+            $activity,
+            $group,
+            $award === '' ? null : unformat_float($award),
+            (int) $USER->id
+        );
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
     redirect(
         $baseurl,
         get_string('awardsaved', 'mod_selfselectadvanced'),

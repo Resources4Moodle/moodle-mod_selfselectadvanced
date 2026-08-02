@@ -108,22 +108,36 @@ final class search_participants_test extends \advanced_testcase {
     }
 
     /**
-     * 13. The email LIKE this endpoint keeps for :manage holders still
-     * works, and a viewer whose whole authority is :managecomposition -
-     * a non-editing teacher on a stock site - gets nothing back for a
-     * full address, so the endpoint is not an oracle for them.
+     * 13. MAINTAINER DECISION 24: nobody gets the address match.
      *
-     * The never-displayed address column stays unselected; that has no
-     * observable behaviour and is checked by inspection instead
-     * (grep -c "u\.email" == 1, the LIKE and nothing else).
+     * This endpoint used to accept a full address from a :manage holder
+     * and answer with the name of the person who owns it, on the
+     * argument that :manage is the contact-privacy switch's own exempt
+     * viewer. eoilist.php had already answered the same question the
+     * other way for every role. The strict answer won, so the actors
+     * here are ranked by authority - a site administrator, an editing
+     * teacher who holds :manage, a coordinator who holds only
+     * :managecomposition - and NONE of them gets a row back for an
+     * address that unquestionably belongs to somebody in the activity.
+     *
+     * The switch is deliberately left at its default in one activity
+     * and turned OFF in another, because the removal is unconditional:
+     * an editing teacher turning protection off somewhere else in the
+     * activity must not grow the picker an oracle.
      */
-    public function test_email_match_still_works_for_manage(): void {
+    public function test_no_role_can_use_the_picker_as_an_address_oracle(): void {
         $generator = $this->getDataGenerator();
         $this->resetAfterTest();
 
         $course = $generator->create_course();
-        $instance = $generator->create_module('selfselectadvanced', ['course' => $course->id]);
-        $activity = activity::from_instance((int) $instance->id);
+        $protected = activity::from_instance((int) $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'contactprivacy' => 1,
+        ])->id);
+        $legacy = activity::from_instance((int) $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'contactprivacy' => 0,
+        ])->id);
 
         $target = $generator->create_user([
             'firstname' => 'Tara', 'lastname' => 'Gett', 'email' => 'target@example.com',
@@ -132,38 +146,52 @@ final class search_participants_test extends \advanced_testcase {
 
         $manager = $generator->create_user();
         $generator->enrol_user($manager->id, $course->id, 'editingteacher');
-        $this->setUser($manager);
-        $found = search_participants::execute((int) $activity->cm()->id, 'target@example.com');
-        $this->assertCount(1, $found);
-        $this->assertSame((int) $target->id, $found[0]['id']);
-        $this->assertStringNotContainsString('@', $found[0]['label'], 'the label never carries an address');
 
-        // A composition-only actor reaches this endpoint but not the
-        // address condition.
         $mover = $generator->create_user();
         $generator->enrol_user($mover->id, $course->id, 'teacher');
         $moverrole = $generator->create_role();
-        assign_capability(
-            'mod/selfselectadvanced:managecomposition',
-            CAP_ALLOW,
-            $moverrole,
-            \context_module::instance($activity->cm()->id)
-        );
-        role_assign($moverrole, $mover->id, \context_module::instance($activity->cm()->id));
+        foreach ([$protected, $legacy] as $activity) {
+            assign_capability(
+                'mod/selfselectadvanced:managecomposition',
+                CAP_ALLOW,
+                $moverrole,
+                \context_module::instance($activity->cm()->id)
+            );
+            role_assign($moverrole, $mover->id, \context_module::instance($activity->cm()->id));
+        }
         accesslib_clear_all_caches_for_unit_testing();
 
-        $this->setUser($mover);
-        $this->assertSame([], search_participants::execute((int) $activity->cm()->id, 'target@example.com'));
-        $this->assertCount(1, search_participants::execute((int) $activity->cm()->id, 'Gett'));
+        foreach (['protected' => $protected, 'legacy' => $legacy] as $label => $activity) {
+            $cmid = (int) $activity->cm()->id;
+            foreach (['administrator' => null, 'editing teacher' => $manager, 'coordinator' => $mover] as $who => $user) {
+                if ($user === null) {
+                    $this->setAdminUser();
+                } else {
+                    $this->setUser($user);
+                }
+                $this->assertSame(
+                    [],
+                    search_participants::execute($cmid, 'target@example.com'),
+                    "an $who used the $label picker as an address oracle"
+                );
+                // The positive control, in the same breath: the picker
+                // is not simply broken, it still finds people by name.
+                $found = search_participants::execute($cmid, 'Gett');
+                $this->assertCount(1, $found);
+                $this->assertSame((int) $target->id, $found[0]['id']);
+                $this->assertStringNotContainsString('@', $found[0]['label'], 'the label never carries an address');
+            }
+        }
     }
 
     /**
-     * The address column is never selected here, so no later edit can
-     * print what was not fetched: exactly one occurrence survives, the
-     * gated LIKE condition itself.
+     * The address column is neither matched nor selected here, so no
+     * later edit can print - or confirm - what was never fetched. Zero
+     * occurrences, not one: the gated LIKE that used to justify the
+     * single occurrence is gone (maintainer decision 24).
      */
-    public function test_the_address_column_is_not_selected(): void {
+    public function test_the_address_column_is_never_touched(): void {
         $source = file_get_contents(__DIR__ . '/../classes/external/search_participants.php');
-        $this->assertSame(1, substr_count($source, 'u.email'));
+        $this->assertSame(0, substr_count($source, 'u.email'));
     }
 }

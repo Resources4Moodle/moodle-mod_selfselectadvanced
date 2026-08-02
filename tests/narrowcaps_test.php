@@ -642,10 +642,12 @@ final class narrowcaps_test extends \advanced_testcase {
 
     /**
      * (8) The picker is not an address book run backwards. Searching
-     * the exact email of a student finds them for an unrestricted
-     * viewer and finds NOBODY for a :managecomposition-only actor -
-     * who can still find that same student by name, so the guard costs
-     * them nothing they are entitled to.
+     * the exact email of a student finds NOBODY - for the
+     * :managecomposition-only actor it was first closed against, and
+     * since MAINTAINER DECISION 24 (2026-08-02) for the :manage holder
+     * who used to be the switch's own exempt viewer as well. Both can
+     * still find that same student by name, so the guard costs them
+     * nothing they are entitled to.
      */
     public function test_search_participants_email_oracle_closed(): void {
         $this->resetAfterTest();
@@ -659,23 +661,24 @@ final class narrowcaps_test extends \advanced_testcase {
         $this->getDataGenerator()->enrol_user($known->id, $course->id, 'student');
 
         $narrow = $this->narrow_staff($activity, $course, 'mod/selfselectadvanced:managecomposition');
-        $this->setUser($narrow);
-        $this->assertSame(
-            [],
-            search_participants::execute((int) $activity->cm()->id, 'zenobia.quill@example.invalid'),
-            'the endpoint confirmed an email address belongs to a named student'
-        );
-        $byname = search_participants::execute((int) $activity->cm()->id, 'Zenobia');
-        $this->assertSame([(int) $known->id], array_column($byname, 'id'));
-
         $manager = $this->manager($course);
-        $this->setUser($manager);
-        $byemail = search_participants::execute((int) $activity->cm()->id, 'zenobia.quill@example.invalid');
-        $this->assertSame([(int) $known->id], array_column($byemail, 'id'));
 
-        // Whoever asks, and however they found them, no result ever
-        // carries an address or a phone number (cardinal rule).
-        foreach (array_merge($byname, $byemail) as $row) {
+        $labels = [];
+        foreach (['coordinator' => $narrow, 'manager' => $manager] as $who => $user) {
+            $this->setUser($user);
+            $this->assertSame(
+                [],
+                search_participants::execute((int) $activity->cm()->id, 'zenobia.quill@example.invalid'),
+                "the endpoint confirmed an email address belongs to a named student, for a $who"
+            );
+            $byname = search_participants::execute((int) $activity->cm()->id, 'Zenobia');
+            $this->assertSame([(int) $known->id], array_column($byname, 'id'), "the $who lost the picker");
+            $labels = array_merge($labels, $byname);
+        }
+
+        // Whoever asks, no result ever carries an address or a phone
+        // number (cardinal rule).
+        foreach ($labels as $row) {
             $this->assertSame(['id', 'label'], array_keys($row));
             $this->assertStringNotContainsString('@', $row['label']);
         }

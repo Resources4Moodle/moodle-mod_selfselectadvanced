@@ -37,8 +37,8 @@ use mod_selfselectadvanced\activity;
  * Contact privacy (cardinal rule): this endpoint returns a user id and
  * a display label built from name fields and the person's current team.
  * It has never returned an email address or a phone number and must
- * never start. It also no longer MATCHES on an email address for a
- * :managecomposition-only actor - see execute() - because a search that
+ * never start. Since maintainer DECISION 24 it does not MATCH on an
+ * address either, for any role - see execute() - because a search that
  * accepts an address and answers with a name is an inverse contact
  * lookup however little it prints.
  *
@@ -120,27 +120,31 @@ class search_participants extends external_api {
             false
         );
         $params[$name] = '%' . $DB->sql_like_escape($query) . '%';
+        // NAMES ONLY. There is no address condition here at all, for
+        // anybody, and MAINTAINER DECISION 24 (2026-08-02) is why.
+        //
         // Matching on the address is an ORACLE, not a convenience: type
         // an email in, get back the name of the person who owns it,
-        // confirmed by whether a row comes back at all. For an actor
-        // whose whole authority is :managecomposition - a non-editing
-        // teacher on a stock site - that is the cardinal rule's inverse
-        // mapping, reached one AJAX call at a time and never rendered
-        // anywhere a review could see it. Only an unrestricted viewer
-        // gets the condition, and :manage IS that test: it is the same
-        // capability contactprivacy::is_unrestricted() asks, so this
-        // endpoint is already on the switch's own definition of an
-        // exempt viewer and does not need to consult it separately.
-        // Deliberately NOT widened to the per-activity switch's OFF
-        // mode: this is the staff move form's picker, and the
-        // :managecomposition holder it exists for must never gain the
-        // oracle just because an editing teacher turned protection off
-        // somewhere else in the activity.
-        if (has_capability('mod/selfselectadvanced:manage', $context)) {
-            $name = 'sp' . $index++;
-            $conditions[] = $DB->sql_like('u.email', ':' . $name, false, false);
-            $params[$name] = '%' . $DB->sql_like_escape($query) . '%';
-        }
+        // confirmed by whether a row comes back at all - the cardinal
+        // rule's inverse mapping, reached one AJAX call at a time and
+        // never rendered anywhere a review could see it. Until now this
+        // endpoint gave that condition to :manage holders on the
+        // argument that :manage is what contactprivacy::is_unrestricted()
+        // asks, so they are the switch's own exempt viewer. T-07 had
+        // already answered the same question the other way on
+        // eoilist.php, where the address is gone for EVERY role
+        // including :manage and regardless of the switch. Two surfaces,
+        // one question, opposite answers - and the maintainer has ruled
+        // for the strict one: no surface of this plugin matches,
+        // renders, exports or labels an address for any role, editing
+        // teachers, managers and administrators included.
+        //
+        // Unconditional, not gated on contactprivacy::enabled(), for
+        // the same reason eoilist.php is unconditional: a picker that
+        // grows an oracle when somebody edits a setting elsewhere in
+        // the activity is a second answer to a settled question waiting
+        // to happen. Staff who need to reach a participant use Send a
+        // message ({@see \mod_selfselectadvanced\local\staffmessage}).
 
         // The email column is deliberately NOT selected either: nothing
         // below reads it, and a column that is fetched is a column a

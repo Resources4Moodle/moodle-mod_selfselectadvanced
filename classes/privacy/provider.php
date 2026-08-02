@@ -1024,9 +1024,32 @@ class provider implements
 
         // The erased person must leave the course group too, or the
         // mirror keeps a membership row for someone the plugin no
-        // longer knows (D7-F1). Privacy providers run from cron with no
-        // ambient transaction; where one exists, the deferral guard
-        // hands the work to the queued adhoc instead.
+        // longer knows (D7-F1).
+        //
+        // CORRECTED 2026-08-02 (audit O-5). This used to say "where an
+        // ambient transaction exists, the deferral guard hands the work
+        // to the queued adhoc instead". There is no such guard and
+        // there is no such queue on this path. The
+        // is_transaction_started() deferral it referred to was REMOVED
+        // in 1.20 (requirement 6), because that flag is unconditionally
+        // true under PHPUnit on PostgreSQL and false on MariaDB, so
+        // branching behaviour on it shipped one defect and would have
+        // shipped more. Nothing here queues an adhoc task; the call
+        // below runs inline, transaction or no transaction.
+        //
+        // What is actually true, and why that is safe. The deletion
+        // paths run from core's privacy request task or a CLI/admin
+        // request, neither of which wraps this class in a transaction
+        // of its own, and this method opens none. If a caller did have
+        // one open, core buffers the events and messages
+        // sync_core_group() produces and discards the buffers on
+        // database_transaction_rolledback, so nothing escapes a
+        // rollback - the cost is buffering, not a leak, and
+        // freeze::sync_core_group() carries the measurement for that
+        // claim in its own comment. The ONLY adhoc on this path is the
+        // retry freeze::request_sync() queues when a sync FAILS, queued
+        // by freeze and never by this class, and deduped against an
+        // identical pending row.
         if ($mirrored) {
             $activity = self::activity_or_null($activityid);
             if ($activity !== null) {

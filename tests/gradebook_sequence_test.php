@@ -61,6 +61,12 @@ final class gradebook_sequence_test extends \advanced_testcase {
         foreach ([$student, $mate] as $user) {
             $generator->enrol_user($user->id, $course->id, 'student');
         }
+        // Awards are an authorised mutation since 1.20 (A-06), so the
+        // fixture needs somebody entitled to make one: an editing
+        // teacher holds :manage, which review.php's grading gate
+        // (gatekeeper::can_grade_team) admits for exactly this reason.
+        $staff = $generator->create_user();
+        $generator->enrol_user($staff->id, $course->id, 'editingteacher');
 
         // Group A: joined FIRST (leader), incomplete (2 < minsize 3).
         $a = $plugingen->create_group([
@@ -100,8 +106,8 @@ final class gradebook_sequence_test extends \advanced_testcase {
         }
 
         // Awards: Alpha 40, Beta 30.
-        ledger::set_award($activity, groups::get($activity, (int) $a->id), 40.0);
-        ledger::set_award($activity, groups::get($activity, (int) $b->id), 30.0);
+        ledger::set_award($activity, groups::get($activity, (int) $a->id), 40.0, (int) $staff->id);
+        ledger::set_award($activity, groups::get($activity, (int) $b->id), 30.0, (int) $staff->id);
 
         $computed = gradebook::compute_user($activity, (int) $student->id);
         // Step 1 Alpha (leader): +40 − 6 (60% of 10) = 34.
@@ -122,14 +128,14 @@ final class gradebook_sequence_test extends \advanced_testcase {
         $this->assertSame(53.0, $flipped->grade);
 
         // Clamp: an oversized award never exceeds grademax mid-run.
-        ledger::set_award($activity, groups::get($activity, (int) $b->id), 500.0);
+        ledger::set_award($activity, groups::get($activity, (int) $b->id), 500.0, (int) $staff->id);
         $clamped = gradebook::compute_user($activity, (int) $student->id);
         $this->assertLessThanOrEqual(100.0, $clamped->grade);
 
         // Classic model preserved: with NO awards anywhere the first
         // step starts from the base grade.
-        ledger::set_award($activity, groups::get($activity, (int) $a->id), null);
-        ledger::set_award($activity, groups::get($activity, (int) $b->id), null);
+        ledger::set_award($activity, groups::get($activity, (int) $a->id), null, (int) $staff->id);
+        ledger::set_award($activity, groups::get($activity, (int) $b->id), null, (int) $staff->id);
         $classic = gradebook::compute_user($activity, (int) $student->id);
         $this->assertStringContainsString('base', $classic->steps[0]);
         // 100 − 4 (member share in first-joined Beta) − 6 (leader share

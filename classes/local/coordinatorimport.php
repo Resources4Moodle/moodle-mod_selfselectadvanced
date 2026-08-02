@@ -477,6 +477,46 @@ class coordinatorimport {
     /**
      * Find a person by username, then by email.
      *
+     * CONTACT PRIVACY, DECISION 24 - and why this address match SURVIVES
+     * it (2026-08-02, stated here so it is a decision and not an
+     * oversight). Decision 24 forbids every surface of this plugin from
+     * matching, rendering, exporting or labelling an address for any
+     * role while the per-activity switch is on. Two surfaces lost their
+     * address match to it: the move form's participant picker and the
+     * invitation candidate search. This one did not, and the difference
+     * is where the address comes from.
+     *
+     * Those two are DISCOVERY surfaces: an interactive, unbounded,
+     * repeatable probe over the whole enrolled population, one AJAX
+     * call at a time, that turns "an address I am guessing at" into "a
+     * person, named". This is a KEY RESOLUTION over a file the operator
+     * wrote, in a bounded single-shot action behind
+     * mod/selfselectadvanced:manage, whose whole purpose is to name
+     * people the operator already holds identifiers for. Removing it
+     * would break a documented input format - "one per line, by
+     * username or email" - to close a door the operator is standing on
+     * the other side of.
+     *
+     * What Decision 24 DOES bind here, and what is enforced:
+     *
+     *  - no report line this class produces carries an address that the
+     *    operator did not type. A matched person is reported by
+     *    {@see self::label()}, which is a full name and a username and
+     *    never the email column; an UNMATCHED line echoes the needle
+     *    the operator supplied and nothing else. Pinned by
+     *    tests/importaddress_test.php, which fails if any report line
+     *    grows an address;
+     *  - nothing here reads, stores or forwards an address for any
+     *    other purpose. The lookup is exact, lower-cased and equality-
+     *    only - never a LIKE - so it cannot be walked with a prefix.
+     *
+     * ACCEPTED RESIDUAL, stated rather than hidden: a :manage holder
+     * who pastes addresses obtained elsewhere learns which of them
+     * belong to accounts on this site, and the names of those accounts.
+     * That is the same authority that can switch contact privacy off
+     * for the activity outright, and every run is reported before it
+     * commits, so the act is visible to the person doing it.
+     *
      * @param string $needle username or email from the file
      * @return stdClass|null the user, or null when nobody matches
      */

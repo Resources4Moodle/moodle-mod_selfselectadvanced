@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\output;
 
 use mod_selfselectadvanced\local\api;
+use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\eoi;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\state;
@@ -77,6 +78,17 @@ class group_page implements renderable, templatable {
         $seats = $this->api->gatekeeper()->seat_position($this->group);
         $isleader = (int) $this->group->leaderid === $this->userid;
         $isforming = $this->group->state === state::FORMING;
+        // AUTHORITY, asked of the page for the same reason the services
+        // now ask it of themselves (1.20.1 A-02/A-03): this page's
+        // leader and invitee controls were drawn from ownership and
+        // lifecycle state alone, so an administrator's PROHIBIT left
+        // every button exactly where it was and turned it into a form
+        // that always refuses on submit - which review.php's own
+        // comment calls worse than no form. The predicate is CALLED,
+        // never transcribed, so the control and the service it posts to
+        // cannot drift.
+        $maylead = authority::may_lead($activity, $this->userid);
+        $mayrespond = authority::may_respond($activity, $this->userid);
 
         // Staff see participant attributes on the roster (spec 8.1 read
         // access). WHO sees the mobile COLUMN is a reach question and
@@ -289,7 +301,7 @@ class group_page implements renderable, templatable {
             'groupid' => $this->group->id,
             'userid' => $this->userid,
         ]);
-        $caninvite = $isleader && $isforming && $seats->free > 0;
+        $caninvite = $isleader && $isforming && $seats->free > 0 && $maylead;
 
         // Succession (spec 6.4, A3): active nomination banner for the
         // nominee, status plus cancel for the leader.
@@ -321,7 +333,7 @@ class group_page implements renderable, templatable {
             && $ownrow->status === groups::STATUS_CONFIRMED
             && empty($ownrow->leaverequested);
         $leaverequests = [];
-        if ($isleader && $isforming) {
+        if ($isleader && $isforming && $maylead) {
             $namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
             $sql = "SELECT m.id AS memberid, m.userid, $namefields
                       FROM {selfselectadvanced_member} m
@@ -547,15 +559,15 @@ class group_page implements renderable, templatable {
             'rosterfilter' => $rq,
             'rosterfilteraction' => $groupurl->out_omit_querystring(false),
             'isleader' => $isleader,
-            'candelete' => $isleader && $isforming,
+            'candelete' => $isleader && $isforming && $maylead,
             'caninvite' => $caninvite,
             'inviteformhtml' => $caninvite && $this->inviteform ? $this->inviteform->render() : '',
-            'invitedisabledreason' => $isleader && $isforming && $seats->free < 1
+            'invitedisabledreason' => $isleader && $isforming && $maylead && $seats->free < 1
                 ? get_string('refusalnoseats', 'mod_selfselectadvanced')
                 : '',
             'pendinginvites' => $pendinginvites,
             'haspendinginvites' => !empty($pendinginvites),
-            'showrespond' => $ownrow && $ownrow->status === groups::STATUS_INVITED,
+            'showrespond' => $ownrow && $ownrow->status === groups::STATUS_INVITED && $mayrespond,
             'sesskey' => sesskey(),
             'actionurl' => (new \moodle_url('/mod/selfselectadvanced/group.php'))->out(false),
             'cmid' => $cmid,

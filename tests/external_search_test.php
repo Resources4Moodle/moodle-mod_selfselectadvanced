@@ -177,10 +177,12 @@ final class external_search_test extends \externallib_advanced_testcase {
 
     /**
      * 11. THE ORACLE. Matching by address is gated by the same rule that
-     * gates showing it: with the switch on a student leader searching a
-     * full address gets NOTHING back, so they cannot confirm that the
-     * address belongs to anybody here. An editing teacher still can, and
-     * legacy mode is unchanged for everyone.
+     * gates showing it: with the switch on, searching a full address
+     * gets NOTHING back, so nobody can confirm that the address belongs
+     * to anybody here. MAINTAINER DECISION 24 (2026-08-02) extended
+     * that to the last exempt viewer: the editing teacher, who holds
+     * :manage and used to see through the switch, is refused the match
+     * too. Legacy mode - the switch off - is unchanged for everyone.
      *
      * The web service is asserted too, so it is pinned to INHERIT the
      * fix rather than to be hardened a second time of its own.
@@ -232,18 +234,25 @@ final class external_search_test extends \externallib_advanced_testcase {
             )
         );
 
-        // An editing teacher holds :manage, so the switch does not
-        // restrict them.
+        // Decision 24: an editing teacher holds :manage, and that is no
+        // longer an exemption. The switch is the whole test.
         $this->setUser($teacher);
         $this->assertCount(
-            1,
+            0,
             \mod_selfselectadvanced\local\candidates::search(
                 $on,
                 $ongroup,
                 $ongate,
                 'target@example.com',
                 (int) $teacher->id
-            )
+            ),
+            'the manage holder used the picker as an address oracle'
+        );
+        // ... and the picker still works for them by name, so this is
+        // a narrowing and not a breakage.
+        $this->assertCount(
+            1,
+            \mod_selfselectadvanced\local\candidates::search($on, $ongroup, $ongate, 'Gett', (int) $teacher->id)
         );
         unset($target);
     }
@@ -290,11 +299,20 @@ final class external_search_test extends \externallib_advanced_testcase {
         );
         $this->assertStringContainsString('(target@example.com', $labels[0], 'legacy mode is unchanged');
 
+        // Decision 24: the manage holder no longer owns the switch. The
+        // label carries a name and nothing else for them either, and
+        // the legacy assertion just above is what proves the switch -
+        // rather than a broken query - is doing the withholding.
         $labels = array_column(
             \mod_selfselectadvanced\local\candidates::search($on, $ongroup, $ongate, 'Gett', (int) $teacher->id),
             'label'
         );
-        $this->assertStringContainsString('(target@example.com', $labels[0], 'the manage holder owns the switch');
+        $this->assertCount(1, $labels, 'the manage holder still finds people by name');
+        $this->assertStringNotContainsString(
+            '(target@example.com',
+            $labels[0],
+            'no surface labels an address while the switch is on, managers included'
+        );
 
         // THE CONNECTION MAP factor, isolated. This viewer clears both
         // the plugin arm (:viewparticipantidentity) AND the core arm
@@ -317,7 +335,7 @@ final class external_search_test extends \externallib_advanced_testcase {
             \mod_selfselectadvanced\local\candidates::search($on, $ongroup, $ongate, 'Gett', (int) $mapped->id),
             'label'
         );
-        $this->assertCount(1, $labels, 'the identity capability admits the match');
+        $this->assertCount(1, $labels, 'the NAME match admits them; decision 24 leaves no address match at all');
         $this->assertStringNotContainsString(
             '(target@example.com',
             $labels[0],
@@ -374,7 +392,7 @@ final class external_search_test extends \externallib_advanced_testcase {
             \mod_selfselectadvanced\local\contactprivacy::can_see($on, (int) $granted->id, (int) $target->id),
             'the connection is real, so only the core arm can be refusing'
         );
-        $this->assertCount(1, $labels, 'the plugin capability does admit the MATCH');
+        $this->assertCount(1, $labels, 'the NAME match admits them; decision 24 leaves no address match at all');
         $this->assertStringNotContainsString(
             '(target@example.com',
             $labels[0],

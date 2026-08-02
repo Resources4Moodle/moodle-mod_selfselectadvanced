@@ -83,7 +83,7 @@ all settings are per activity instance.
 | `mod/selfselectadvanced:ingestattributes` | none (system context; site admins) |
 | `mod/selfselectadvanced:viewall` | editingteacher (the non-editing teacher was removed in 1.20.1 — **on fresh installs only**; no existing site loses it) |
 | `mod/selfselectadvanced:viewassignedteams` | teacher (non-editing) — open the team pages of teams they are the assigned guide of, and only those |
-| `mod/selfselectadvanced:viewparticipantidentity` | none (granted deliberately) — see participants' email addresses and mobile numbers inside this activity; AND-ed onto the core identity capabilities, never a substitute for them |
+| `mod/selfselectadvanced:viewparticipantidentity` | none (granted deliberately) — see participants' identity and mobile columns inside this activity; AND-ed onto the core identity capabilities, never a substitute for them. Since 1.20.1 it does **not** reopen an email address while contact privacy is on: nothing does |
 
 Every action checks the capability, never the role name.
 
@@ -183,6 +183,18 @@ review page, and it travels with course backups. Guides keep private
 **rich-text notes** on the review page before accepting a group;
 students never see them.
 
+Who may DOWNLOAD a proposal is one rule, asked both by the screen that
+offers the link and by the file server that answers it (1.20.1): the
+team's **confirmed** members, the team's **assigned guide**, a holder
+of `:viewall` or `:manage`, and a guide the team is **currently
+approaching** for as long as that approach is unanswered. An invited
+but unconfirmed person sees the filename and no link — an invitation is
+not yet a membership. Before 1.20.1 the file server asked a different
+question from every other door on the team: an assigned guide whose
+site had withdrawn `:viewassignedteams` still passed it, and a
+`:manage` holder who could open the review page was refused the file
+that page embeds.
+
 ## The flagged report: anomalies and grandfathered groups
 
 The flagged report is the manager's worklist, in tabs (each
@@ -218,18 +230,28 @@ Candidate search no longer matches on email for every inviter — that
 was true up to 1.19.x and was changed in 1.20.0, because gating the
 DISPLAY of an address while leaving the MATCH open leaves an oracle:
 type an address in, and whether a row comes back answers whose it is.
-The match and the label now sit on the same gate, so a student team
-leader searching under an activity that protects contact details gets
-neither. The staff move form's participant picker is a different
-endpoint and a stricter one: it matches on the address only for a
-holder of `mod/selfselectadvanced:manage`, so the narrow
-`:managecomposition` permission cannot be used to look a name up from
-an address. Neither picker has ever returned a phone number, and since
-1.20.0 the candidate picker's label carries an address only for a
-viewer the same gate admits — `:manage`, or a deliberately granted
-`mod/selfselectadvanced:viewparticipantidentity`, AND-ed onto the two
-core identity capabilities, so the plugin can only ever remove the
-address and never restore one the site withdrew.
+The match and the label sit on the same gate.
+
+**Since 1.20.1 that gate has no exemptions.** While an activity's
+contact-privacy setting is on, no picker of this plugin matches,
+renders, exports or labels an email address for **any** role — student
+team leader, coordinator, non-editing teacher, editing teacher, manager
+or site administrator alike. Up to 1.20.0 a `:manage` holder searched
+and saw addresses through the switch on the candidate picker, and the
+staff move form's participant picker matched on the address for them
+regardless of the switch; the move form's picker is now names-only
+unconditionally, matching the expression-of-interest roster, which has
+been names-only for everybody since 1.20.0. Neither picker has ever
+returned a phone number. Staff reach a participant with **Send a
+message** instead.
+
+The two staff **imports** are the deliberate exception, and the reason
+is that the address there is one the operator typed: the coordinator
+upload and the participant-attribute CSV both accept an address as a
+fallback match key for a row whose username is blank, resolved once by
+exact equality. Neither ever puts an address back into its report — a
+matched person is named by full name and username, and an unmatched
+line echoes only the key the file supplied.
 
 ### Contact privacy (per activity, default on)
 
@@ -238,9 +260,13 @@ every instance that existed before 1.20.0, switched by a `:manage`
 holder. While it is on:
 
 - no page, export, CSV, picker, web service, notification or event
-  payload of this plugin renders or links an email address to anybody
-  below `:manage`. Staff reach a participant with **Send a message**,
-  which travels as a Moodle message and shows the sender no address;
+  payload of this plugin renders, links or **matches on** an email
+  address, for **anybody** — `:manage` holders, editing teachers and
+  administrators included (1.20.1; up to 1.20.0 `:manage` was exempt).
+  Staff reach a participant with **Send a message**, which travels as a
+  Moodle message and shows the sender no address. The one exception is
+  a staff import, where the address is supplied by the operator's own
+  file and never appears in the report;
 - a mobile number reaches only a viewer *connected* to its owner — a
   confirmed teammate, the guide assigned to that person's team, or the
   holder of that person's claimed request ticket — and only when the

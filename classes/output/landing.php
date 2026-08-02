@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\output;
 
 use mod_selfselectadvanced\local\api;
+use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\state;
 use renderable;
@@ -161,6 +162,17 @@ class landing implements renderable, templatable {
                 $data->myinvitations[] = $this->export_group_row($group, $cmid);
             }
             $data->hasmyinvitations = !empty($data->myinvitations);
+            // The ACCEPT and DECLINE controls, gated on the capability
+            // that now decides both at the service seam (1.20.1 A-03).
+            // The invitations themselves are still LISTED when it is
+            // prohibited - the student needs to know the team is
+            // waiting on them, and their leader can still withdraw it -
+            // but a button whose only possible outcome is a Moodle
+            // no-permission page is not an offer. The predicate is
+            // authority::may_respond(), CALLED and not transcribed, so
+            // this control and invitations::accept()/decline() cannot
+            // drift into disagreeing.
+            $data->mayrespond = authority::may_respond($activity, $this->userid);
 
             // Pending succession nominations for this user (spec 6.4, A3).
             $data->mynominations = [];

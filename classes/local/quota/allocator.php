@@ -132,6 +132,57 @@ final class allocator {
      */
     public const MAX_NODES = 200000;
 
+    /**
+     * Memo entries above which the search gives up - the MEMORY half of
+     * the budget, and the reason this class is safe to call from a page
+     * nobody raised the memory limit on.
+     *
+     * THE ENVELOPE, measured 2026-08-02 on PHP 8.4 over a 680-case
+     * adversarial corpus (rosters of 4 to 31 members, 2 to 13 slots, 1
+     * to 5 seats a slot, 3 to 8 values a dimension, no-overlap slots
+     * predominating), peak emalloc for ONE solve, over and above the
+     * caller:
+     *
+     *   MAX_NODES alone, nested-array memo (the 1.20 shipping shape)
+     *     worst run that finished EXACT       69.0 MB
+     *     worst run overall                  169.2 MB   <- FATAL
+     *   MAX_NODES alone, packed-string memo
+     *     worst run that finished EXACT       20.3 MB
+     *     worst run overall                   64.3 MB
+     *   MAX_NODES + MAX_MEMO (this build)
+     *     worst run that finished EXACT       20.3 MB
+     *     worst run overall                   41.0 MB
+     *
+     * Every case in that corpus returns the same filled / assignment /
+     * totalfilled / exact as the 1.20 shipping shape did: the 128 MB
+     * headroom was bought without moving a single verdict.
+     *
+     * Moodle's MEMORY_STANDARD is 128 MB on 64-bit and NO entry point
+     * that reaches this class raises it - not search_groups (per
+     * keystroke), not joinrequest.php, not flagged.php's sweep. The
+     * failure mode of exceeding it is a fatal on one team, not a slow
+     * page, which is why the ceiling is enforced here rather than
+     * documented and hoped for.
+     *
+     * WHICH AXIS TO TUNE. MAX_NODES buys exactness and costs TIME;
+     * MAX_MEMO buys exactness and costs MEMORY. They are close to
+     * proportional - an entry is about 340 bytes - so a site that
+     * raises its PHP memory limit can raise this in step (100000
+     * entries is about 33 MB) and a site that cannot must lower it.
+     * Both are fail-CLOSED: giving up hands the roster to the greedy
+     * fallback, whose fill is a lower bound on the exact answer, so a
+     * smaller budget can only under-report a team's fill and can never
+     * call a non-compliant team compliant.
+     *
+     * Set to 100000 because no run in the corpus that finished exactly
+     * needed more, so this ceiling costs no exactness that MAX_NODES
+     * was buying - it only truncates runs that were already heading
+     * for the fallback.
+     *
+     * @var int
+     */
+    public const MAX_MEMO = 100000;
+
     /** @var int Roster size above which the greedy fallback is used. */
     public const MAX_MEMBERS = 30;
 
@@ -192,7 +243,7 @@ final class allocator {
     /** @var string[][] Profile value in the slot's dimension, per slot index. */
     private array $pval = [];
 
-    /** @var array Memoised [score, bookings] keyed by search state. */
+    /** @var string[] Memoised "score|profile,profile" keyed by search state. */
     private array $memo = [];
 
     /** @var int Search nodes consumed by the current run. */
@@ -263,7 +314,8 @@ final class allocator {
         $this->build_bounds();
 
         try {
-            [, $bookings] = $this->best_from(0, $this->counts, []);
+            $this->best_from(0, $this->counts, []);
+            $bookings = $this->reconstruct();
         } catch (\OverflowException $e) {
             // The node budget ran out. The heuristic booking is itself
             // a valid assignment, so falling back to it can only
@@ -424,32 +476,65 @@ final class allocator {
     }
 
     /**
-     * The best score reachable from this search state, and how.
+     * The state key a memo entry is filed under.
+     *
+     * @param int $i the slot index to fill next
+     * @param int[] $avail members still unbooked, per profile index
+     * @param array $consumed dimension => value => true, recorded by earlier slots
+     * @return string the canonical key
+     */
+    private static function state_key(int $i, array $avail, array $consumed): string {
+        return $i . "\x01" . implode(',', $avail) . "\x02" . self::consumed_key($consumed);
+    }
+
+    /**
+     * The best score reachable from this search state, and the booking
+     * THIS slot takes to reach it.
      *
      * Score is fill * weight - ranksum with weight = slots * seats + 1,
      * so the ranksum of any assignment is strictly smaller than one
      * unit of fill: maximising the score maximises fill first and
      * minimises ranksum second, in pure integer arithmetic.
      *
+     * MEMORY (1.20, O-4) - see the envelope note on MAX_NODES. A memo
+     * entry is ONE flat string, "score|profile,profile", holding this
+     * slot's booking and nothing else. Until this change every entry
+     * carried `[$i => $booking] + $sub[1]` - a fresh NESTED array naming
+     * a booking for this slot and for every slot after it - so a single
+     * solve held O(nodes x slots) small PHP arrays and could allocate a
+     * sixth of a gigabyte on its own, against a 128 MB
+     * MEMORY_STANDARD that no entry point raises. The optimal
+     * assignment is recovered instead by {@see reconstruct()}, which
+     * walks the same states forward from the root and reads each one's
+     * own booking out of the memo. Every state on that path was
+     * necessarily visited and memoised on the way down, the transition
+     * (avail, consumed) is a pure function of the booking, and nothing
+     * here changes which booking wins a tie - so the recovered
+     * assignment is the one this search chose. Verified on a 680-case
+     * adversarial corpus: identical filled / assignment / totalfilled /
+     * exact for every case, on PostgreSQL and MariaDB alike (the
+     * class touches neither).
+     *
      * @param int $i the slot index to fill next
      * @param int[] $avail members still unbooked, per profile index
      * @param array $consumed dimension => value => true, recorded by earlier slots
-     * @return array [score, bookings keyed by slot index]
+     * @return int the best score reachable from this state
      * @throws \OverflowException when the node budget is exhausted
      */
-    private function best_from(int $i, array $avail, array $consumed): array {
+    private function best_from(int $i, array $avail, array $consumed): int {
         if ($i === $this->n) {
-            return [0, []];
+            return 0;
         }
-        $key = $i . "\x01" . implode(',', $avail) . "\x02" . self::consumed_key($consumed);
+        $key = self::state_key($i, $avail, $consumed);
         if (isset($this->memo[$key])) {
-            return $this->memo[$key];
+            return self::packed_score($this->memo[$key]);
         }
 
         $maxseats = min($this->suffixseats[$i], array_sum($avail));
         $bound = $maxseats * $this->weight - $this->suffixranks[$i][$maxseats];
 
-        $best = [PHP_INT_MIN, []];
+        $bestscore = PHP_INT_MIN;
+        $bestbooking = [];
         foreach ($this->candidate_bookings($i, $avail, $consumed) as $booking) {
             if (++$this->nodes > self::MAX_NODES) {
                 throw new \OverflowException('composition search budget exhausted');
@@ -458,24 +543,85 @@ final class allocator {
             foreach ($booking as $p) {
                 $next[$p]--;
             }
-            $sub = $this->best_from(
+            $score = count($booking) * ($this->weight - $this->rank[$i]) + $this->best_from(
                 $i + 1,
                 $next,
                 self::merge_consumed($consumed, $this->used_values($i, $booking))
             );
-            $score = count($booking) * ($this->weight - $this->rank[$i]) + $sub[0];
-            if ($score > $best[0]) {
+            if ($score > $bestscore) {
                 // Strictly greater, so the FIRST result found wins a
                 // tie and the canonical enumeration order below decides
                 // which one that is.
-                $best = [$score, [$i => $booking] + $sub[1]];
+                $bestscore = $score;
+                $bestbooking = $booking;
             }
-            if ($best[0] >= $bound) {
+            if ($bestscore >= $bound) {
                 break;
             }
         }
+        if (count($this->memo) >= self::MAX_MEMO) {
+            // The memory half of the budget. Thrown rather than simply
+            // not memoised: dropping entries would leave the search
+            // correct but re-deriving states it has already paid for,
+            // which spends the NODE budget to buy nothing, and
+            // reconstruct() needs every state on the winning path.
+            throw new \OverflowException('composition search memory envelope exhausted');
+        }
+        $this->memo[$key] = $bestscore . '|' . implode(',', $bestbooking);
 
-        return $this->memo[$key] = $best;
+        return $bestscore;
+    }
+
+    /**
+     * The score half of a packed memo entry.
+     *
+     * @param string $packed the entry, "score|profile,profile"
+     * @return int the score
+     */
+    private static function packed_score(string $packed): int {
+        return (int) substr($packed, 0, (int) strpos($packed, '|'));
+    }
+
+    /**
+     * The booking half of a packed memo entry.
+     *
+     * @param string $packed the entry, "score|profile,profile"
+     * @return int[] the profile indices booked into that slot
+     */
+    private static function packed_booking(string $packed): array {
+        $list = substr($packed, (int) strpos($packed, '|') + 1);
+
+        return $list === '' ? [] : array_map('intval', explode(',', $list));
+    }
+
+    /**
+     * Walk the memo forward from the root and collect the winning
+     * booking of every slot.
+     *
+     * Only ever called after a best_from() that RETURNED - a run that
+     * threw has no optimal path to recover - so every state on the path
+     * is present. The ?? '' is a belt on those braces and not a
+     * behaviour: an absent state would mean the memo and the transition
+     * disagree, and booking nobody in the remaining slots is the
+     * fail-closed reading of that.
+     *
+     * @return array profile index lists keyed by slot index
+     */
+    private function reconstruct(): array {
+        $bookings = [];
+        $avail = $this->counts;
+        $consumed = [];
+        for ($i = 0; $i < $this->n; $i++) {
+            $packed = $this->memo[self::state_key($i, $avail, $consumed)] ?? '';
+            $booking = $packed === '' ? [] : self::packed_booking($packed);
+            $bookings[$i] = $booking;
+            foreach ($booking as $p) {
+                $avail[$p]--;
+            }
+            $consumed = self::merge_consumed($consumed, $this->used_values($i, $booking));
+        }
+
+        return $bookings;
     }
 
     /**

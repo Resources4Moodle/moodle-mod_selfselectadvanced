@@ -57,6 +57,7 @@
         ],
         "hasmyinvitations": false,
         "myinvitations": [],
+        "mayrespond": true,
         "isstaff": false,
         "hasallgroups": false,
         "allgroups": [],
@@ -135,6 +136,7 @@
                         <span class="d-block small text-muted">{{seatsummary}}</span>
                     </span>
                     <span class="text-end">
+                        {{#mayrespond}}
                         <form method="post" action="{{actionurl}}" class="d-inline">
                             <input type="hidden" name="id" value="{{cmid}}">
                             <input type="hidden" name="g" value="{{id}}">
@@ -153,6 +155,7 @@
                                 {{#str}} decline, mod_selfselectadvanced {{/str}}
                             </button>
                         </form>
+                        {{/mayrespond}}
                     </span>
                 </li>
             {{/myinvitations}}

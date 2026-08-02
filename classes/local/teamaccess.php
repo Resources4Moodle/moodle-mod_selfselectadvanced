@@ -30,9 +30,12 @@ use mod_selfselectadvanced\activity;
  * four copies of a predicate is how this plugin acquired four different
  * answers to it.
  *
- * Each of the three team-scoped doors is ONE method here, CALLED by the
- * page: group.php uses may_open_team(), review.php may_review_team() and
- * eoilist.php's drill-down may_drill_down(). Nothing transcribes them.
+ * Each team-scoped door is ONE method here, CALLED by the page:
+ * group.php uses may_open_team(), review.php may_review_team(),
+ * eoilist.php's drill-down may_drill_down(), and - since 1.20.1, audit
+ * A-05 - the proposal FILE uses may_read_proposal(), called by
+ * selfselectadvanced_pluginfile() and by the page that renders the
+ * link. Nothing transcribes them.
  * The first cut of this class shipped with the predicates duplicated
  * inline on the pages and a unit test comparing one copy against
  * another, which is a test of the copy: reverting a page's gate left it
@@ -104,6 +107,91 @@ class teamaccess {
             || self::is_assigned_guide($activity, $group, $userid)
             || has_capability('mod/selfselectadvanced:viewall', $context, $userid)
             || has_capability('mod/selfselectadvanced:manage', $context, $userid);
+    }
+
+    /**
+     * Whether this person may READ the team's proposal file.
+     *
+     * A-05: until 1.20.1 selfselectadvanced_pluginfile() carried its
+     * own copy of this - ":viewall OR confirmed member OR (guideid AND
+     * :guide)" - and group.php carried a second copy to decide whether
+     * to render a link at all. Two transcriptions of one question, and
+     * they had already drifted from the pages: an assigned guide whose
+     * site had withdrawn :viewassignedteams was refused every OTHER
+     * door on their own team yet still passed the file server, because
+     * the file server asked :guide; and a :manage-only reviewer, whom
+     * may_review_team() admits to the review page where the proposal is
+     * EMBEDDED, was refused the file the page had just linked. This is
+     * the one policy both now call, so neither can drift again.
+     *
+     * DECISION (2026-08-02, this wave): the proposal's audience is NOT
+     * every audience a page admits. It is the team's own confirmed
+     * people, the team's guide, the staff who oversee the activity, and
+     * the guide the team is CURRENTLY asking to take it on. Stated as
+     * the four clauses below, and what each one deliberately excludes:
+     *
+     *  - CONFIRMED membership only. may_open_team() admits an INVITED
+     *    person to the team page, and group.php has withheld the
+     *    proposal link from them since 1.19.1 on the grounds that an
+     *    invitation is not yet a membership. That stays true, and it is
+     *    the reason this is a predicate of its own rather than a second
+     *    call to may_open_team().
+     *  - the ASSIGNED guide, on :viewassignedteams and not on :guide -
+     *    the same test is_assigned_guide() applies everywhere else, so
+     *    withdrawing that capability now closes every door at once
+     *    instead of all but this one.
+     *  - :viewall or :manage. :manage is named because eight
+     *    manager-only actions live on the team page and because
+     *    may_review_team() admits :manage to a page that embeds the
+     *    file; :manage has never implied :viewall.
+     *  - a LIVE approach. contacts::send() refuses a team that already
+     *    has a guide, so a guide who has been approached is by
+     *    construction NOT the assigned guide, and until now
+     *    contactreview.php - the page whose entire purpose is "read
+     *    their approach and decide" - handed them a link the file
+     *    server refused. Only status SENT, an ALLOW list in the shape
+     *    of DECISION 19: accepting pre-assigns them and the guideid
+     *    clause takes over in the same instant, declining ends it, and
+     *    a future sixth status is excluded by default.
+     *
+     * The two capability tests are asked before either query, so the
+     * common staff case costs no read at all and the contact lookup is
+     * reached only by somebody who has failed everything cheaper.
+     *
+     * Read-time only: no lock, no transaction, no write, no event.
+     *
+     * @param activity $activity the activity
+     * @param \stdClass $group the group row (must carry guideid)
+     * @param int $userid the viewer
+     * @return bool
+     */
+    public static function may_read_proposal(activity $activity, \stdClass $group, int $userid): bool {
+        global $DB;
+
+        $context = $activity->context();
+        if (
+            has_capability('mod/selfselectadvanced:viewall', $context, $userid)
+            || has_capability('mod/selfselectadvanced:manage', $context, $userid)
+            || self::is_assigned_guide($activity, $group, $userid)
+        ) {
+            return true;
+        }
+        $confirmed = $DB->record_exists('selfselectadvanced_member', [
+            'groupid' => (int) $group->id,
+            'userid' => $userid,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        if ($confirmed) {
+            return true;
+        }
+
+        return has_capability('mod/selfselectadvanced:guide', $context, $userid)
+            && $DB->record_exists('selfselectadvanced_contact', [
+                'activityid' => $activity->id(),
+                'groupid' => (int) $group->id,
+                'guideid' => $userid,
+                'status' => contacts::STATUS_SENT,
+            ]);
     }
 
     /**

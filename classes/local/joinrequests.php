@@ -358,6 +358,31 @@ class joinrequests {
             $lock->release();
         }
 
+        // Cleared blockers activate parked overrides at once (item 19).
+        // AFTER the release, never inside it: recheck_pending() fires
+        // an override_updated per row it activates, and until 1.20.1
+        // this ran from inside do_accept() - outside the move engine's
+        // locks but still inside the joinrequest:{id} lock above, so
+        // those events travelled under a lock (audit O-3). Only
+        // move_committed, leadership_transferred and join_decided are
+        // grandfathered there. It also takes override: locks of its
+        // own, which is a second lock nested under ours for no reason
+        // now that it can simply run out here.
+        //
+        // RESTRICTED to what this acceptance moved - the requester and
+        // the two teams involved - because an unrestricted sweep would
+        // examine every pending row of the activity on every join
+        // accept (T-08). Only on the accept path: a decline moves
+        // nobody, so nothing it did can have cleared a blocker.
+        // commit_set()'s own outermost call takes the same kind of
+        // restriction, built from its committed move set.
+        if ($accept) {
+            \mod_selfselectadvanced\local\override\store::recheck_pending($activity, $actorid, [
+                'user' => [(int) $request->userid],
+                'group' => [(int) $target->id, (int) $request->sourcegroupid],
+            ]);
+        }
+
         // A new event never travels under a lock or an open transaction
         // (requirement 2): the move engine collected these while our
         // joinrequest:{id} lock was still held, and they fire here.
@@ -645,23 +670,14 @@ class joinrequests {
             locks::release_all($locks);
         }
 
-        // Outside our transaction and outside the activity/group locks,
-        // but still inside respond()'s joinrequest:{id} lock - so DB
-        // work and events only. No message: $deferred is handed back to
-        // respond(), which flushes it after ITS release. Cleared
-        // blockers activate parked overrides at once (item 19); on the
-        // outermost path commit_set() does this itself.
-        //
-        // RESTRICTED to what this acceptance moved - the requester and
-        // the two teams involved. Without it this nested path would
-        // sweep every pending row of the activity on every join accept
-        // (T-08); commit_set()'s outermost call takes the same kind of
-        // restriction built from its own committed move set.
-        \mod_selfselectadvanced\local\override\store::recheck_pending($activity, $actorid, [
-            'user' => [(int) $request->userid],
-            'group' => [(int) $target->id, (int) $sourceid],
-        ]);
-
+        // The parked-override sweep does NOT run here. It used to -
+        // outside this method's transaction and locks, but still inside
+        // respond()'s joinrequest:{id} lock, so every override_updated
+        // event it fired travelled under a lock. Only three events in
+        // this plugin are grandfathered inside one, and that is not one
+        // of them, and recheck_pending() takes override: locks of its
+        // own on top of ours for good measure. respond() runs it after
+        // its release; see the call there (audit O-3).
         return self::get($activity, (int) $request->id);
     }
 

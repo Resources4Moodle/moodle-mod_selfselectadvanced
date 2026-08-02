@@ -20,6 +20,7 @@ use mod_selfselectadvanced\activity;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\locks;
 use mod_selfselectadvanced\local\override\resolver;
+use mod_selfselectadvanced\local\rules\gatekeeper;
 use mod_selfselectadvanced\local\state;
 use stdClass;
 
@@ -193,32 +194,125 @@ class ledger {
     }
 
     /**
-     * Push grades: point value minus the penalty of EACH firm or frozen
-     * group the student is a confirmed member of (cumulative, D5),
-     * floored at zero. Students without such a membership get a null
-     * grade (not zero) until placed (spec 11).
+     * Set or clear the guide-awarded group mark and republish grades:
+     * the ACTOR-AWARE mutation seam for the one number in this plugin
+     * that lands directly in a student's gradebook.
      *
-     * @param activity $activity the activity
-     * @param int $userid one user, or 0 for all
-     */
-    /**
-     * Set or clear the guide-awarded group mark and republish grades.
+     * Before 1.20 this method was a bare writer. It took no actor, so
+     * it asked for no authority; it took a group ROW, so it never
+     * checked that the row belonged to the activity it was handed; and
+     * it took the group lock only on the path that had to CREATE the
+     * ledger row, so the far commoner path - correcting an existing
+     * award - wrote unserialised. Measured (A-06): an award written
+     * while $USER was an unrelated student, and activity A accepted
+     * together with a team belonging to activity B, producing a penalty
+     * row owned by A for B's group. review.php's own gate stayed green
+     * while its binding was mutated to grade unconditionally, because
+     * the gate the test exercised was in the gatekeeper and the page
+     * was the only thing that called it.
      *
-     * @param activity $activity the activity
-     * @param stdClass $group the group
+     * The envelope, in order: acquire the group lock; re-read the team
+     * THROUGH THE ACTIVITY (groups::get is activity-scoped and
+     * MUST_EXIST, so a foreign team is a missing record, not a
+     * cross-activity write); authorise the actor against the team as it
+     * IS, not as the caller remembers it; write; release; and only then
+     * publish the deferred events and push the grades - neither of
+     * which may travel under a lock.
+     *
+     * @param activity $activity the activity that must own the team
+     * @param stdClass $group the group; re-read under the lock, so a
+     *        stale copy is safe and a foreign one is refused
      * @param float|null $award the mark, null clears
+     * @param int $actorid the person setting the award
+     * @throws \dml_missing_record_exception when the team is not this
+     *         activity's
+     * @throws \moodle_exception when the actor may not grade this team,
+     *         or the team is not firm or frozen
      */
-    public static function set_award(activity $activity, stdClass $group, ?float $award): void {
+    public static function set_award(
+        activity $activity,
+        stdClass $group,
+        ?float $award,
+        int $actorid
+    ): void {
         global $DB;
 
-        $row = $DB->get_record('selfselectadvanced_penalty', [
-            'activityid' => $activity->id(),
-            'groupid' => (int) $group->id,
-        ]);
-        if (!$row) {
-            $row = self::upsert_for_group($activity, $group);
+        $gatekeeper = new gatekeeper($activity, new resolver($activity));
+        $deferred = [];
+
+        $lock = locks::acquire('group:' . (int) $group->id);
+        try {
+            // Activity scope and freshness in one read. Every check
+            // below judges $fresh; $group is never trusted again.
+            $fresh = groups::get($activity, (int) $group->id);
+
+            // The SAME predicate review.php renders its form from, so
+            // the page cannot grant more than the service allows: a
+            // binding mutated to grade unconditionally now meets this.
+            if ($refusal = $gatekeeper->can_grade_team($fresh, $actorid)) {
+                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            }
+            // An award belongs to a team that has been approved. The
+            // page has always drawn the field for firm and frozen teams
+            // only; saying so here is what makes that a rule rather
+            // than a rendering habit - and an award on a forming team
+            // would also wedge it, since dissolve_group() refuses to
+            // close any team carrying one.
+            if (!in_array($fresh->state, [state::FIRM, state::FROZEN], true)) {
+                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+            }
+
+            $transaction = $DB->start_delegated_transaction();
+            $row = $DB->get_record('selfselectadvanced_penalty', [
+                'activityid' => $activity->id(),
+                'groupid' => (int) $fresh->id,
+            ]);
+            if (!$row) {
+                // The $callerserialises flag: we hold group:{id}
+                // already and locks are not re-entrant, so letting
+                // upsert acquire it again would self-deadlock to
+                // errlocktimeout. The deferred array is mandatory with
+                // it, and is drained after the release below.
+                $row = self::upsert_for_group($activity, $fresh, null, true, $deferred);
+            }
+            $DB->set_field('selfselectadvanced_penalty', 'award', $award, ['id' => $row->id]);
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The envelope's last clause, and the one the first cut of
+            // this method left out: a throw between the open and the
+            // commit used to walk out of here leaving the transaction
+            // on the stack for the request to dispose of. That matters
+            // more now than it did, because review.php CATCHES what
+            // this throws and redirects with a notification instead of
+            // fataling - so the unwound half-write has to be undone
+            // HERE, while there is still a transaction object to undo
+            // it with. calculator::compute() throwing on a team with no
+            // timeapproved, and any deadlock or constraint failure on
+            // either write below the open, are the reachable ones.
+            //
+            // Unconditional rather than gated on an "outermost" flag:
+            // this seam's callers are review.php, the seed tool and the
+            // tests, none of which opens a transaction, so it is always
+            // the outermost one. NOT decided with
+            // $DB->is_transaction_started(), which is unconditionally
+            // true under PHPUnit on PostgreSQL and false on MariaDB.
+            // Should a caller ever nest it, Moodle rolls the whole
+            // stack back and rethrows, and their own is_disposed()
+            // guard - the idiom invitations::confirm_leave() uses - is
+            // what keeps that honest.
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
         }
-        $DB->set_field('selfselectadvanced_penalty', 'award', $award, ['id' => $row->id]);
+
+        foreach ($deferred as $payload) {
+            \mod_selfselectadvanced\event\penalty_recomputed::create($payload)->trigger();
+        }
+
+        // A grade-API write, and never under the lock.
         self::push_grades($activity);
     }
 

@@ -40,7 +40,10 @@ $api = new \mod_selfselectadvanced\local\api($activity);
 // Bulk freeze of selected firm groups (spec 12).
 $action = optional_param('action', '', PARAM_ALPHA);
 if ($action === 'bulkfreeze' && data_submitted() && confirm_sesskey()) {
-    require_capability('mod/selfselectadvanced:freeze', $context);
+    // The same predicate the queued overflow re-asks before every
+    // freeze it performs (A-01), so the page and the task can never
+    // drift into disagreeing about who may freeze.
+    \mod_selfselectadvanced\local\authority::require_freeze($activity, (int) $USER->id);
     // One request freezes a bounded number of teams; the remainder
     // goes to cron, where the same work is legal and nothing times out.
     // The loop itself lives on the freeze class so a test can pin the
@@ -450,7 +453,7 @@ foreach ($mygroups as $group) {
     } else if ($matchesfilters) {
         $row->groupid = (int) $group->id;
         $row->canfreeze = $group->state === \mod_selfselectadvanced\local\state::FIRM
-            && has_capability('mod/selfselectadvanced:freeze', $context);
+            && \mod_selfselectadvanced\local\authority::may_freeze($activity, (int) $USER->id);
         // Releasing a team this guide froze (strategy 1.19 C). A team
         // an editing teacher or coordinator froze is theirs to release,
         // and the guide is offered the unfreeze REQUEST instead - the
@@ -752,7 +755,7 @@ echo $OUTPUT->render_from_template('mod_selfselectadvanced/guide_dashboard', (ob
     'hasqueue' => !empty($queue),
     'guided' => $guided,
     'hasguided' => !empty($guided),
-    'canbulkfreeze' => has_capability('mod/selfselectadvanced:freeze', $context)
+    'canbulkfreeze' => \mod_selfselectadvanced\local\authority::may_freeze($activity, (int) $USER->id)
         && !empty(array_filter($guided, static fn($g) => !empty($g->canfreeze))),
     'sesskey' => sesskey(),
     'cmid' => $cm->id,
