@@ -91,9 +91,27 @@ class csv_importer {
      * @param bool $commit false = dry-run report only, true = write inside a transaction
      * @param \stdClass|null $options mode ('override'|'fillmissing') and defaults array
      * @return stdClass report: ok, headererror, created, updated, warnings[], rejected[], total
+     * @throws \required_capability_exception when the actor may not ingest attributes
      */
     public static function run(csv_import_reader $reader, int $actorid, bool $commit, ?\stdClass $options = null): stdClass {
         global $DB;
+
+        // AUTHORISED HERE (audit A-6), and asked of the DRY RUN too.
+        //
+        // attributes.php reaches this method twice - once with
+        // $commit=false to render the preview and once with true to
+        // write - and both were gated by admin_externalpage_setup()
+        // alone. The dry run is not "the harmless half": it resolves
+        // every row's username or email against the user table and
+        // reports which ones matched, which is an existence oracle over
+        // the whole site's accounts and it needs the same authority as
+        // the write.
+        //
+        // manager::set() below asks this again per row and that is not
+        // redundant: this is the seam a caller entering the IMPORT
+        // crosses, and the per-row check is the seam a caller entering
+        // the WRITE crosses. Each is the gate for its own door.
+        require_capability(manager::INGEST, \context_system::instance(), $actorid);
 
         // 1.5.0 modes, mirroring core user upload: 'override' (file
         // wins; admin defaults fill EMPTY cells) or 'fillmissing'

@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\local;
 
 use mod_selfselectadvanced\activity;
+use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\rules\gatekeeper;
 use stdClass;
 
@@ -30,6 +31,25 @@ use stdClass;
  * outgoing leader's lead slot is released by the transfer itself
  * (leaderid moves on); after step-out the former leader may hold
  * pending invitations elsewhere (a held place) or remain groupless.
+ *
+ * AUTHORITY (1.20.1, audit F-1). Leadership can be ACQUIRED as well as
+ * created, and this file is where it is acquired. Every verb here asks
+ * \local\authority before it takes a lock, on the same split the rest
+ * of the plugin uses:
+ *
+ * - nominate() and cancel() are the LEADER's verbs, so they ask
+ *   :creategroup ("Create groups and act as leader") exactly as
+ *   invitations::send(), withdraw() and confirm_leave() do.
+ * - confirm() and decline() are the NOMINEE's answer, so they ask
+ *   :respond, whose own string is "Accept or decline invitations AND
+ *   NOMINATIONS" - promised in lang/en and in authority::RESPOND's
+ *   docblock, and until this wave implemented for invitations only.
+ *
+ * Measured before the fix on both engines: with :creategroup and
+ * :respond both PROHIBITed at the activity context a student was
+ * nominated, confirmed, and became the team's leader. The gatekeeper
+ * calls these methods still make answer ownership and lifecycle, which
+ * is a different question and never was authority.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -61,9 +81,17 @@ class succession {
      * @param string $type 'transfer' or 'stepout'
      * @param int $actorid the acting leader
      * @throws \moodle_exception when the gatekeeper refuses
+     * @throws \required_capability_exception when the leader does not
+     *         hold :creategroup
      */
     public function nominate(stdClass $group, int $nomineeid, string $type, int $actorid): void {
         global $DB;
+
+        // BEFORE the lock, the write and the message. Naming a successor
+        // is a leader's disposal of the team's leadership, so it is the
+        // leader authority - the same one create, invite, withdraw and
+        // confirm-leave ask for.
+        authority::require_lead($this->activity, $actorid);
 
         $lock = locks::acquire('group:' . $group->id);
         try {
@@ -84,6 +112,25 @@ class succession {
             ]);
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The can_nominate() gate is asked on the row read INSIDE the lock
+            // and throws from inside the transaction; group.php catches
+            // moodle_exception and redirects with a notification, so a
+            // caught refusal never reaches Moodle's exception handler
+            // and nothing else would roll this back.
+            //
+            // Unconditional, never gated on
+            // $DB->is_transaction_started(): under PHPUnit that
+            // predicate answers for advanced_testcase (true on m5pg,
+            // false on m5my) rather than for this method, and the
+            // nested arm it selects is wrong anyway - an undisposed
+            // frame left on the stack makes the caller's own rollback()
+            // rethrow without issuing the physical ROLLBACK. See
+            // state::submit() and penalty\ledger::set_award().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }
@@ -108,9 +155,21 @@ class succession {
      * @param int $userid the confirming nominee
      * @return string the executed type ('transfer' or 'stepout')
      * @throws \moodle_exception when the gatekeeper refuses
+     * @throws \required_capability_exception when the nominee does not
+     *         hold :respond
      */
     public function confirm(stdClass $group, int $userid): string {
         global $DB;
+
+        // BEFORE the locks, the writes, the event and the message. This
+        // is the one call in the plugin that HANDS somebody leadership,
+        // and it asks the responder's capability rather than the
+        // leader's: the nominee is answering a nomination, which is
+        // literally what :respond is named for. Note what it must NOT
+        // ask - :creategroup - because the nominee is not creating a
+        // team, and a site that allows responses while pausing new
+        // teams must still be able to complete a handover.
+        authority::require_respond($this->activity, $userid);
 
         // L3 lead counts span groups: activity lock first (audit item 6).
         $activitylock = locks::acquire('activity:' . $this->activity->id());
@@ -177,6 +236,14 @@ class succession {
             freeze::request_sync($this->activity, $fresh);
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The can_confirm_succession() gate and the MUST_EXIST read of the
+            // outgoing leader's member row both throw from inside the
+            // transaction. Unconditional - see nominate().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
             $activitylock->release();
@@ -207,8 +274,15 @@ class succession {
      * @param stdClass $group group row
      * @param int $userid the declining nominee
      * @throws \moodle_exception when the caller is not the nominee
+     * @throws \required_capability_exception when the nominee does not
+     *         hold :respond
      */
     public function decline(stdClass $group, int $userid): void {
+        // Both halves of the response are gated, as on the invitation
+        // path: declining writes a row and mails the leader, and the
+        // capability string says "Accept OR DECLINE". Nothing is
+        // stranded by refusing - the leader can still cancel().
+        authority::require_respond($this->activity, $userid);
         $this->clear($group, $userid, true);
     }
 
@@ -218,8 +292,13 @@ class succession {
      * @param stdClass $group group row
      * @param int $actorid the acting leader
      * @throws \moodle_exception when the caller is not the leader
+     * @throws \required_capability_exception when the leader does not
+     *         hold :creategroup
      */
     public function cancel(stdClass $group, int $actorid): void {
+        // Authority first, then ownership: "you are the leader" is a
+        // fact about the row and has never been a grant.
+        authority::require_lead($this->activity, $actorid);
         if ((int) $group->leaderid !== $actorid) {
             throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
         }
@@ -259,6 +338,15 @@ class succession {
             ]);
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Both refusalnotnominee guards are judged on the row read
+            // INSIDE the lock and throw from inside the transaction -
+            // the nominee answering while the leader cancels is the
+            // ordinary race. Unconditional - see nominate().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }

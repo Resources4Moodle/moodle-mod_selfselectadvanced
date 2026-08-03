@@ -167,6 +167,16 @@ final class eoi_test extends \advanced_testcase {
      */
     public function test_express_refusals(): void {
         $this->resetAfterTest();
+        // Wave 3D: a refusal now rolls its OWN delegated transaction
+        // back instead of abandoning it, which sets $DB's force_rollback
+        // until the transaction stack empties. This test refuses a verb
+        // and then commits another one, and on PostgreSQL - and only
+        // there - advanced_testcase holds a frame underneath that never
+        // lets the stack empty, so the later commit would be refused on
+        // one engine and not the other. Committing the harness frame
+        // here is what makes the two engines agree; the same line, for
+        // the same reason, as in races_locking_test.
+        $this->preventResetByRollback();
 
         // The eoienabled setting is off.
         [$activity, $students, $guides] = $this->setup_activity(['eoienabled' => 0]);
@@ -309,6 +319,16 @@ final class eoi_test extends \advanced_testcase {
     public function test_respond_requires_leader_or_manager(): void {
         global $DB;
         $this->resetAfterTest();
+        // Wave 3D: a refusal now rolls its OWN delegated transaction
+        // back instead of abandoning it, which sets $DB's force_rollback
+        // until the transaction stack empties. This test refuses a verb
+        // and then commits another one, and on PostgreSQL - and only
+        // there - advanced_testcase holds a frame underneath that never
+        // lets the stack empty, so the later commit would be refused on
+        // one engine and not the other. Committing the harness frame
+        // here is what makes the two engines agree; the same line, for
+        // the same reason, as in races_locking_test.
+        $this->preventResetByRollback();
 
         [$activity, $students, $guides] = $this->setup_activity();
         $leader = (int) $students[0]->id;
@@ -502,6 +522,16 @@ final class eoi_test extends \advanced_testcase {
      */
     public function test_accepted_interest_counts_against_capacity_everywhere(): void {
         $this->resetAfterTest();
+        // Wave 3D: a refusal now rolls its OWN delegated transaction
+        // back instead of abandoning it, which sets $DB's force_rollback
+        // until the transaction stack empties. This test refuses a verb
+        // and then commits another one, and on PostgreSQL - and only
+        // there - advanced_testcase holds a frame underneath that never
+        // lets the stack empty, so the later commit would be refused on
+        // one engine and not the other. Committing the harness frame
+        // here is what makes the two engines agree; the same line, for
+        // the same reason, as in races_locking_test.
+        $this->preventResetByRollback();
 
         [$activity, $students, $guides] = $this->setup_activity(['maxguided' => 1], 2, 1);
         $leadera = (int) $students[0]->id;
@@ -551,6 +581,16 @@ final class eoi_test extends \advanced_testcase {
      */
     public function test_group_waitlist_cap(): void {
         $this->resetAfterTest();
+        // Wave 3D: a refusal now rolls its OWN delegated transaction
+        // back instead of abandoning it, which sets $DB's force_rollback
+        // until the transaction stack empties. This test refuses a verb
+        // and then commits another one, and on PostgreSQL - and only
+        // there - advanced_testcase holds a frame underneath that never
+        // lets the stack empty, so the later commit would be refused on
+        // one engine and not the other. Committing the harness frame
+        // here is what makes the two engines agree; the same line, for
+        // the same reason, as in races_locking_test.
+        $this->preventResetByRollback();
 
         [$activity, $students, $guides] = $this->setup_activity(['eoigroupmax' => 1]);
         $leader = (int) $students[0]->id;

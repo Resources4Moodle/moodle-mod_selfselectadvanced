@@ -21,6 +21,7 @@ use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\eoi;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\state;
+use mod_selfselectadvanced\local\teamaccess;
 use renderable;
 use renderer_base;
 use templatable;
@@ -305,11 +306,26 @@ class group_page implements renderable, templatable {
 
         // Succession (spec 6.4, A3): active nomination banner for the
         // nominee, status plus cancel for the leader.
+        //
+        // AUTHORITY (audit F-1). Leadership can be ACQUIRED as well as
+        // created, and this banner is where it is acquired. The three
+        // controls it carries are gated on the capability that names
+        // the action - :respond for the nominee's Accept/Decline pair,
+        // :creategroup for the leader's Cancel - so a PROHIBIT removes
+        // the button rather than leaving a form that ends at a
+        // no-permission page.
+        //
+        // The BANNER itself is deliberately not gated: a nominee whose
+        // capability has been withdrawn must still be able to see that
+        // their team is waiting on them, exactly as the landing page
+        // keeps listing an invitation it will no longer let them
+        // answer.
         $nomineename = '';
         if (!empty($this->group->successorid)) {
             $nomineename = fullname(\core_user::get_user((int) $this->group->successorid));
         }
         $isnominee = !empty($this->group->successorid) && (int) $this->group->successorid === $this->userid;
+        $mayanswernomination = $isnominee && $mayrespond;
         $nomineerefusal = null;
         if ($isnominee) {
             $nomineerefusal = $this->api->gatekeeper()->can_confirm_succession($this->group, $this->userid);
@@ -352,9 +368,23 @@ class group_page implements renderable, templatable {
             }
         }
 
+        // CALLED, not transcribed (audit F-6, completed by D5). The
+        // freeze predicate has a home; this line and group.php's action
+        // gate each used to carry a copy of it, which is the exact
+        // shape that produced A-05 - two transcriptions that agreed
+        // until one was edited.
+        //
+        // BOTH halves are calls now. F-6 replaced the capability half
+        // and left the identity half transcribed one line above it,
+        // which is the same defect wearing the other hat: "is this
+        // THEIR team?" is teamaccess::is_assigned_guide() everywhere
+        // else in the plugin. No viewer changes hands by this edit -
+        // group.php's entry gate is teamaccess::may_open_team(), which
+        // admits a non-member guide by that very predicate, so a viewer
+        // it would newly refuse could not have reached this page.
         $canfreeze = $this->group->state === state::FIRM
-            && (int) ($this->group->guideid ?? 0) === $this->userid
-            && has_capability('mod/selfselectadvanced:freeze', $context, $this->userid);
+            && teamaccess::is_assigned_guide($activity, $this->group, $this->userid)
+            && authority::may_freeze($activity, $this->userid);
         $canunfreeze = $this->group->state === state::FROZEN
             && has_capability('mod/selfselectadvanced:unfreeze', $context, $this->userid);
         // Mirror maintenance (T-16). Resync is offered whenever there is
@@ -528,8 +558,29 @@ class group_page implements renderable, templatable {
                 'g' => $this->group->id,
                 'action' => 'dissolve',
             ]))->out(false),
+            // The proposal section is drawn by group.php, below this
+            // template, but the QUESTION it asks belongs here with the
+            // page's other per-viewer answers (audit F-4). Exported so
+            // there is something a unit test can compare against
+            // teamaccess::may_read_proposal() for a named actor: while
+            // the call lived in the script, the only guard anybody
+            // could write was a grep for its own text, and group.php
+            // carries that same literal twice in prose.
+            'mayreadproposal' => \mod_selfselectadvanced\local\teamaccess::may_read_proposal(
+                $activity,
+                $this->group,
+                $this->userid
+            ),
             'quota' => $quota,
-            'showsubmit' => $this->submitform !== null,
+            // AUTHORITY is a factor here as well as in group.php's
+            // decision to BUILD the form (audit D2). Two reasons, and
+            // the second is the one that matters: the flag also draws
+            // the section's heading and its blocked-reason line, which
+            // a prohibited leader has no business being shown; and this
+            // exporter is instantiable directly - the unit tests do it
+            // on every page assertion - so a factor that lives only in
+            // the calling script is a factor no test can reach.
+            'showsubmit' => $this->submitform !== null && $maylead,
             'submitformhtml' => $this->submitform?->render() ?? '',
             'submitblockedreason' => $this->submit_blocked_reason($isleader, $isforming, $submitrefusal),
             'guidename' => $guidename,
@@ -540,8 +591,11 @@ class group_page implements renderable, templatable {
             'hasnomination' => !empty($this->group->successorid),
             'nomineename' => $nomineename,
             'nominationisstepout' => ($this->group->successortype ?? '') === 'stepout',
-            'isnominee' => $isnominee,
-            'nomineeblocked' => $isnominee && $nomineerefusal !== null,
+            // The template draws Confirm and Decline inside this
+            // section and nothing else, so the flag carries the
+            // authority as well as the identity (F-1).
+            'isnominee' => $mayanswernomination,
+            'nomineeblocked' => $mayanswernomination && $nomineerefusal !== null,
             'nomineeblockedreason' => $nomineerefusal?->get_message(),
             'shownominateform' => $this->nominateform !== null,
             'nominateformhtml' => $this->nominateform?->render() ?? '',
@@ -558,7 +612,15 @@ class group_page implements renderable, templatable {
             'rosterhead' => $rosterhead,
             'rosterfilter' => $rq,
             'rosterfilteraction' => $groupurl->out_omit_querystring(false),
-            'isleader' => $isleader,
+            // A RENDER INSTRUCTION, not a fact about the row: the two
+            // places the template consults this flag are both leader
+            // CONTROLS - Withdraw on a pending invitation, and Cancel
+            // nomination - and both of the services behind them require
+            // :creategroup. The roster's per-row leader badge is a
+            // different variable in a different scope and still says
+            // who leads. Ownership itself is unchanged and is asserted
+            // on the group row by the tests, not read off here.
+            'isleader' => $isleader && $maylead,
             'candelete' => $isleader && $isforming && $maylead,
             'caninvite' => $caninvite,
             'inviteformhtml' => $caninvite && $this->inviteform ? $this->inviteform->render() : '',

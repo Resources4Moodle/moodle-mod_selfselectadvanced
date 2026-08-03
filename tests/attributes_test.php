@@ -276,7 +276,14 @@ final class attributes_test extends \advanced_testcase {
         $this->assertFalse((bool) manager::get((int) $u1->id)->shareconsent);
 
         // Column absent from the file entirely: also untouched.
-        manager::set_consent((int) $u1->id, true, (int) get_admin()->id);
+        //
+        // The student grants their OWN consent here. set_consent() is
+        // self-service and refuses any other actor (audit A-4), so the
+        // administrator this fixture used to pass would now be turned
+        // away - correctly: the staff route to this flag is the Share
+        // Consent column of the very import under test, which writes it
+        // through manager::set() under :ingestattributes.
+        manager::set_consent((int) $u1->id, true, (int) $u1->id);
         $noconsentheader = "Username,First name,Last Name,Gender,Department,Sub-Department,Mobile Number\n";
         csv_importer::run($this->reader($noconsentheader . "consenta,,,,,,\n"), (int) get_admin()->id, true);
         $this->assertTrue((bool) manager::get((int) $u1->id)->shareconsent);

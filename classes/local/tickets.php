@@ -479,6 +479,13 @@ class tickets {
     public static function claim(activity $activity, int $ticketid, int $userid): stdClass {
         global $DB;
 
+        // Same authority close() re-asks, asked here first: taking a
+        // ticket out of the queue is working the queue. The
+        // conflict-of-interest guard below RESTRAINS an actor who has
+        // this authority; it never granted it, and on its own it
+        // admitted anybody the restraint did not happen to name.
+        self::require_queue_authority($activity, $userid);
+
         $ticket = self::get($activity, $ticketid);
         // A team-limit request is about a guide, not a team, so there is
         // no team to be involved in; the conflict rule that applies to
@@ -584,6 +591,27 @@ class tickets {
         if ($outcome !== self::STATUS_OPEN && trim(html_to_text($resolution)) === '') {
             throw new \moodle_exception('refusalticketreason', 'mod_selfselectadvanced');
         }
+
+        // The queue-worker authority, RE-ASKED (audit A-5), before the
+        // lock and the transaction.
+        //
+        // `claimedby === $userid` is the only question this method used
+        // to ask about the actor, and it is record ownership: the claim
+        // is a row written the moment the ticket was picked up, and it
+        // survives everything that happens to the person afterwards.
+        // Take :coordinate away from a worker mid-shift - the whole
+        // reason an administrator would prohibit it is that this person
+        // should stop deciding queue outcomes - and every ticket
+        // already in their name stayed theirs to resolve, decline or
+        // release. Whether they may still WORK the queue is a question
+        // with an answer, and nothing asked it after the claim.
+        //
+        // The same pair tickets.php asks at its door, in the same
+        // order, so this is that door moved to the seam rather than a
+        // new rule: a manage holder passes outright (they are the
+        // force-release path for a stuck ticket too), and everyone else
+        // must still hold :coordinate.
+        self::require_queue_authority($activity, $userid);
 
         $lock = locks::acquire('ticket:' . $ticketid);
         $outermost = !$DB->is_transaction_started();
@@ -697,6 +725,34 @@ class tickets {
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * Refuse unless this actor may work the request queue at all.
+     *
+     * ONE home for the pair tickets.php and coordinator.php ask at
+     * their doors - hold :manage, or hold :coordinate - so claim() and
+     * close() cannot drift apart from each other or from the pages.
+     * Deliberately not has_any_capability(): asking :coordinate LAST
+     * and by name is what makes the refusal a required_capability
+     * exception naming the capability an administrator actually took
+     * away, which is the message the pages already produce.
+     *
+     * This is authority, not the conflict-of-interest guard below.
+     * require_uninvolved() takes authority AWAY from an actor who has
+     * it; it has never granted any, and an actor it does not happen to
+     * name walks straight past it.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the actor
+     * @throws \required_capability_exception when neither is effective
+     */
+    public static function require_queue_authority(activity $activity, int $userid): void {
+        $context = $activity->context();
+        if (has_capability('mod/selfselectadvanced:manage', $context, $userid)) {
+            return;
+        }
+        require_capability('mod/selfselectadvanced:coordinate', $context, $userid);
     }
 
     /**

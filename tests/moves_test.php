@@ -160,6 +160,16 @@ final class moves_test extends \advanced_testcase {
     public function test_swap_commits_as_a_set(): void {
         global $DB;
         $this->resetAfterTest();
+        // Wave 3D: a refusal now rolls its OWN delegated transaction
+        // back instead of abandoning it, which sets $DB's force_rollback
+        // until the transaction stack empties. This test refuses a verb
+        // and then commits another one, and on PostgreSQL - and only
+        // there - advanced_testcase holds a frame underneath that never
+        // lets the stack empty, so the later commit would be refused on
+        // one engine and not the other. Committing the harness frame
+        // here is what makes the two engines agree; the same line, for
+        // the same reason, as in races_locking_test.
+        $this->preventResetByRollback();
         [$activity, $api, $students, $a, $b] = $this->setup_two_groups();
         $s1 = (int) $students[1]->id;
         $s3 = (int) $students[3]->id;
@@ -439,7 +449,7 @@ final class moves_test extends \advanced_testcase {
         \mod_selfselectadvanced\local\quota\slots::create($activity, (object) [
             'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value',
             'value' => 'Computer', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
 
         $move = $api->moves()->stage((int) $students[4]->id, null, (int) $a->id, false, null, 99);
         $verdicts = $api->moves()->validate_set([(int) $move->id]);
@@ -978,7 +988,7 @@ final class moves_test extends \advanced_testcase {
         \mod_selfselectadvanced\local\quota\slots::create($activity, (object) [
             'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value',
             'value' => 'Computer', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
 
         return [$activity, $api, $students, $a, $b];
     }

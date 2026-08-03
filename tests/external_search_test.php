@@ -35,14 +35,17 @@ require_once($CFG->dirroot . '/webservice/tests/helpers.php');
  */
 final class external_search_test extends \externallib_advanced_testcase {
     /**
-     * The leader can search by last name and email through the full
-     * external wrapper; results carry eligibility.
+     * The leader can search by last name through the full external
+     * wrapper; results carry eligibility.
      *
-     * LEGACY (A14/S7) behaviour, so the activity is created with
-     * contact privacy OFF: with the switch on - which is the product
-     * default since 1.20 - matching by address is a privilege of
-     * viewers the identity gate admits, and a student leader is not
-     * one. test_email_match_gated_when_private pins both halves.
+     * THE ADDRESS HALF OF THIS TEST IS GONE (1.20.1 wave 3D, P-5) and
+     * its inverse is asserted instead. The activity is still created
+     * with contact privacy OFF, and that is now the interesting part:
+     * even in legacy mode this wrapper will not confirm that an address
+     * belongs to a named account. The switch decides what an activity
+     * DISPLAYS; it never decided what may be PROBED, and A14/S7's
+     * address matching is withdrawn in both states.
+     * test_email_match_gated_when_private pins the same pair.
      */
     public function test_execute_as_leader(): void {
         $this->resetAfterTest();
@@ -73,7 +76,7 @@ final class external_search_test extends \externallib_advanced_testcase {
         $result = \mod_selfselectadvanced\external\search_candidates::execute(
             $activity->cm()->id,
             (int) $group->id,
-            'uma3@example.com'
+            'Three'
         );
         $result = external_api::clean_returnvalue(
             \mod_selfselectadvanced\external\search_candidates::execute_returns(),
@@ -84,13 +87,17 @@ final class external_search_test extends \externallib_advanced_testcase {
         $this->assertSame((int) $peer->id, $result[0]['id']);
         $this->assertTrue($result[0]['eligible']);
 
-        // By last name too.
-        $result = \mod_selfselectadvanced\external\search_candidates::execute(
-            $activity->cm()->id,
-            (int) $group->id,
-            'Three'
+        // The same person, by their whole address, in the switch state
+        // that used to license it: nobody.
+        $this->assertCount(
+            0,
+            \mod_selfselectadvanced\external\search_candidates::execute(
+                $activity->cm()->id,
+                (int) $group->id,
+                'uma3@example.com'
+            ),
+            'legacy mode is not a licence to run an address oracle'
         );
-        $this->assertCount(1, $result);
     }
 
     /**
@@ -222,16 +229,30 @@ final class external_search_test extends \externallib_advanced_testcase {
             \mod_selfselectadvanced\local\candidates::search($on, $ongroup, $ongate, 'Gett', (int) $leader->id)
         );
 
-        // Legacy mode: A14/S7 matching preserved for everyone.
+        // Legacy mode: A14/S7 address MATCHING is withdrawn there too
+        // (wave 3D, P-5). This assertion used to read "1", on the
+        // argument that an activity not protecting contact details had
+        // nothing to protect. It has: the oracle answers for a person
+        // whose address the searcher typed from somewhere else
+        // entirely, and no per-activity setting was ever a decision
+        // about that. The LABEL still follows the switch - test 12
+        // pins it - because showing the address of somebody found BY
+        // NAME discloses without confirming a guess.
         $this->assertCount(
-            1,
+            0,
             \mod_selfselectadvanced\local\candidates::search(
                 $off,
                 $offgroup,
                 $offgate,
                 'target@example.com',
                 (int) $leader->id
-            )
+            ),
+            'the switch being off reopened the oracle'
+        );
+        $this->assertCount(
+            1,
+            \mod_selfselectadvanced\local\candidates::search($off, $offgroup, $offgate, 'Gett', (int) $leader->id),
+            'and legacy mode still finds people by name'
         );
 
         // Decision 24: an editing teacher holds :manage, and that is no

@@ -155,6 +155,14 @@ foreach (['appoint' => 'coordinatorappointtab', 'upload' => 'coordinatoruploadta
 echo $OUTPUT->tabtree($tabs, $tab);
 
 if ($tab === 'appoint') {
+    // One filter box, and it is a NAME filter. Whether it also matches
+    // the username - which on a site with email usernames IS an address,
+    // and would make this box an address oracle for the only audience
+    // that reaches this page - is decided in one place,
+    // coordinatorcandidates_table's identity composition, together with
+    // whether the column renders and whether it exports. Do not add a
+    // second condition here: the MATCH and the DISPLAY have to stay on
+    // one gate, which is what closed the same hole in the invite picker.
     $namefilter = optional_param('namefilter', '', PARAM_TEXT);
     $rolefilter = optional_param('rolefilter', 'teacher', PARAM_ALPHA);
     if (!in_array($rolefilter, ['teacher', 'all', 'coordinators'], true)) {

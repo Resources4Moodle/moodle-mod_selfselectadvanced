@@ -78,6 +78,38 @@ class slots {
     public const DIMENSIONS = ['department', 'subdepartment', 'gender', 'program'];
 
     /**
+     * @var string Configure rules, quotas and dates. The authority
+     * behind every write in this class.
+     */
+    public const MANAGE = 'mod/selfselectadvanced:manage';
+
+    /**
+     * Refuse unless this actor may configure this activity's quotas.
+     *
+     * AUTHORISED HERE (audit A-6), not by quotas.php. The composition
+     * template is what every feasibility verdict, every fit score and
+     * every auto-grouping run is computed against, so editing it moves
+     * who can join which team across the whole activity - and the only
+     * thing that had ever asked about the actor was a require_capability
+     * at the top of one page. Three methods trusted it; nothing that
+     * did not come through that page was checked at all.
+     *
+     * The actor is passed EXPLICITLY, never read from $USER, and the
+     * parameter is required rather than defaulted for the reason
+     * authority.php gives: a default of "the current user" is silently
+     * wrong in every context that has no current user - cron, an adhoc
+     * task, a CLI seed - and would turn a missing argument into a
+     * capability answer about whoever happened to be logged in.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the person acting
+     * @throws \required_capability_exception when the capability is not effective
+     */
+    private static function require_manage(activity $activity, int $actorid): void {
+        require_capability(self::MANAGE, $activity->context(), $actorid);
+    }
+
+    /**
      * All slots of an activity in slot order.
      *
      * @param activity $activity the activity
@@ -96,10 +128,14 @@ class slots {
      *
      * @param activity $activity the activity
      * @param stdClass $data mincount, dimension, matchtype, value, allowoverlap
+     * @param int $actorid the acting manager
      * @return stdClass the stored row
+     * @throws \required_capability_exception when the actor may not manage this activity
      */
-    public static function create(activity $activity, stdClass $data): stdClass {
+    public static function create(activity $activity, stdClass $data, int $actorid): stdClass {
         global $DB;
+
+        self::require_manage($activity, $actorid);
 
         if (!in_array($data->dimension, self::DIMENSIONS, true)) {
             throw new \coding_exception('Bad slot dimension');
@@ -135,10 +171,14 @@ class slots {
      * @param activity $activity the activity
      * @param int $slotid the row id
      * @param stdClass $data mincount, dimension, matchtype, value, allowoverlap
+     * @param int $actorid the acting manager
      * @return stdClass the updated row
+     * @throws \required_capability_exception when the actor may not manage this activity
      */
-    public static function update(activity $activity, int $slotid, stdClass $data): stdClass {
+    public static function update(activity $activity, int $slotid, stdClass $data, int $actorid): stdClass {
         global $DB;
+
+        self::require_manage($activity, $actorid);
 
         $slot = $DB->get_record('selfselectadvanced_qslot', [
             'id' => $slotid,
@@ -167,9 +207,13 @@ class slots {
      *
      * @param activity $activity the activity
      * @param int $slotid the row id
+     * @param int $actorid the acting manager
+     * @throws \required_capability_exception when the actor may not manage this activity
      */
-    public static function delete(activity $activity, int $slotid): void {
+    public static function delete(activity $activity, int $slotid, int $actorid): void {
         global $DB;
+
+        self::require_manage($activity, $actorid);
 
         $DB->delete_records('selfselectadvanced_qslot', ['id' => $slotid, 'activityid' => $activity->id()]);
         $slotno = 1;

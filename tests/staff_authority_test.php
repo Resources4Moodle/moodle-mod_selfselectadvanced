@@ -392,6 +392,16 @@ final class staff_authority_test extends \advanced_testcase {
     public function test_dissolve_refusals(): void {
         global $DB;
         $this->resetAfterTest();
+        // Wave 3D: a refusal now rolls its OWN delegated transaction
+        // back instead of abandoning it, which sets $DB's force_rollback
+        // until the transaction stack empties. This test refuses a verb
+        // and then commits another one, and on PostgreSQL - and only
+        // there - advanced_testcase holds a frame underneath that never
+        // lets the stack empty, so the later commit would be refused on
+        // one engine and not the other. Committing the harness frame
+        // here is what makes the two engines agree; the same line, for
+        // the same reason, as in races_locking_test.
+        $this->preventResetByRollback();
         [$activity, $api, $group, $students, $staff] = $this->setup_team();
 
         // No :overriderules -> refused, even holding :manage.

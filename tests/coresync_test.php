@@ -252,7 +252,13 @@ final class coresync_test extends \advanced_testcase {
 
         [$activity, $group, , $guide] = $this->setup_team();
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
-        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+        // A REAL actor, not the literal 99 that used to stand here
+        // (audit A-2): unfreeze() now asks a positive authority
+        // question, and an id belonging to no user row could never
+        // answer one. The guide froze this team themselves, so
+        // releasing it is the release strategy 1.19 C grants them - the
+        // mirror behaviour under test is unchanged either way.
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), (int) $guide->id);
         $coreid = (int) $restored->coregroupid;
         $this->assertNotEmpty($coreid);
 
@@ -293,7 +299,7 @@ final class coresync_test extends \advanced_testcase {
 
         $this->assertFalse(groups_remove_member_allowed($coreid, (int) $students[1]->id));
 
-        freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+        freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), (int) $guide->id);
 
         $this->assertTrue(groups_remove_member_allowed($coreid, (int) $students[1]->id));
     }
@@ -461,11 +467,18 @@ final class coresync_test extends \advanced_testcase {
 
         $newguide = $this->getDataGenerator()->create_user();
         $this->getDataGenerator()->enrol_user($newguide->id, $course->id, 'teacher');
+        // A real manager, not a bare integer: assign_guide() asks
+        // has_any_capability([:manage, :assignguide]) of its actor
+        // (1.20.1, wave 3C), so the actor has to be someone the
+        // capability system can answer for. Nothing else here moves -
+        // the path under test is still the mirror swap.
+        $manager = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($manager->id, $course->id, 'editingteacher');
 
         (new \mod_selfselectadvanced\local\api($activity))->lifecycle()->assign_guide(
             groups::get($activity, (int) $frozen->id),
             (int) $newguide->id,
-            99
+            (int) $manager->id
         );
 
         $this->assertFalse(groups_is_member($coreid, (int) $guide->id), 'the old guide lingered in the mirror');

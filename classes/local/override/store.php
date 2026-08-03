@@ -649,6 +649,30 @@ class store {
         $targetid = (int) ($existing->userid ?? 0)
             ?: ((int) ($existing->groupid ?? 0) ?: (int) ($existing->moveid ?? 0));
 
+        // MIRROR OF save()'s GATE (audit A-3), and BEFORE the lock and
+        // the transaction, exactly where save() asks it.
+        //
+        // save() has refused a conflicted actor since strategy 1.17 B1
+        // and delete() asked nothing, which left the guard worth
+        // whatever the shorter route around it was worth: a coordinator
+        // who may not GRANT themselves an exception - not to themselves,
+        // not on a team they guide, are the successor guide of, or are a
+        // confirmed member of - could REVOKE the one restraining them,
+        // or the one holding a rival team to a limit, and the effective
+        // value the resolver returns changes either way. An exception
+        // and its removal are the same decision seen from two sides;
+        // only one of them was ever seen to be disinterested.
+        //
+        // Judged on the row that is actually on disk, whose scope and
+        // target are read above. A caller cannot choose the subject of
+        // the check by what it passes - it passes a row id.
+        \mod_selfselectadvanced\local\tickets::require_uninvolved_override(
+            $activity,
+            $existing->scope,
+            $targetid,
+            $actorid
+        );
+
         $lock = locks::acquire('override:' . $existing->scope . ':' . $targetid);
         $outermost = !$DB->is_transaction_started();
         try {

@@ -81,15 +81,15 @@ if ($slotdata = $slotform->get_data()) {
         'allowoverlap' => (int) $slotdata->allowoverlap,
     ];
     if (!empty($slotdata->slotid)) {
-        \mod_selfselectadvanced\local\quota\slots::update($activity, (int) $slotdata->slotid, $slotpayload);
+        \mod_selfselectadvanced\local\quota\slots::update($activity, (int) $slotdata->slotid, $slotpayload, (int) $USER->id);
     } else {
-        \mod_selfselectadvanced\local\quota\slots::create($activity, $slotpayload);
+        \mod_selfselectadvanced\local\quota\slots::create($activity, $slotpayload, (int) $USER->id);
     }
     redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 if ($action === 'slotdelete' && data_submitted() && confirm_sesskey()) {
-    \mod_selfselectadvanced\local\quota\slots::delete($activity, required_param('slot', PARAM_INT));
+    \mod_selfselectadvanced\local\quota\slots::delete($activity, required_param('slot', PARAM_INT), (int) $USER->id);
     redirect($baseurl);
 }
 

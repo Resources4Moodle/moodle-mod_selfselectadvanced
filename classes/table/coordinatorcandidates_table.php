@@ -90,7 +90,7 @@ class coordinatorcandidates_table extends \table_sql {
         string $rolefilter = 'teacher',
         string $download = ''
     ) {
-        global $DB, $USER;
+        global $DB;
 
         parent::__construct($uniqueid);
         $this->activity = $activity;
@@ -105,17 +105,36 @@ class coordinatorcandidates_table extends \table_sql {
         // sits behind the same composition step 8 of the contact-privacy
         // work uses - the plugin's own identity permission AND-ed onto
         // core's, never OR-ed, so the plugin can only ever remove the
-        // column and never restore one the SITE withheld. The page's
-        // audience holds :manage, so is_unrestricted() carries them past
-        // the plugin arm; when a site withdraws the core identity
-        // capabilities the column (and the username filter below) go
-        // with them. Note the two core capabilities are ALTERNATIVES:
-        // preventing only moodle/site:viewuseridentity leaves the column
-        // showing, because moodle/course:viewhiddenuserfields is still
-        // granted to teacher/editingteacher/manager in core.
+        // column and never restore one the SITE withheld. Note the two
+        // core capabilities are ALTERNATIVES: preventing only
+        // moodle/site:viewuseridentity leaves the column showing,
+        // because moodle/course:viewhiddenuserfields is still granted to
+        // teacher/editingteacher/manager in core.
+        //
+        // :manage IS NO LONGER AN ARM OF THIS (1.20.1 wave 3D), and its
+        // removal is the fix. This page's whole audience holds :manage,
+        // so is_unrestricted() carried every one of them past the
+        // plugin's gate: while the switch was on, the one surface where
+        // an address could still be read - and searched, and downloaded
+        // - was the surface no shipped role reaches without it. On a
+        // site with email usernames the "Name" filter was an address
+        // ORACLE for that audience (type an address, get a row) and the
+        // download was a bulk address export, both of them exactly what
+        // maintainer decision 24 closed everywhere else. Protection on
+        // now means the same thing here as in the picker, on eoilist and
+        // in search_participants: names, unless the SITE has
+        // deliberately granted :viewparticipantidentity.
+        //
+        // The residual, stated rather than discovered: with the switch
+        // on and that capability held by nobody (which is how it
+        // installs), this page shows full names and course roles and no
+        // identifier to tell two same-named teachers apart. Appointment
+        // is a per-row button, not a typed identifier, so nothing is
+        // unreachable; a site that needs the disambiguator grants
+        // :viewparticipantidentity, which is what that capability is
+        // for.
         $modulecontext = $activity->context();
         $mayseeidentity = !\mod_selfselectadvanced\local\contactprivacy::enabled($activity)
-            || \mod_selfselectadvanced\local\contactprivacy::is_unrestricted($activity, (int) $USER->id)
             || has_capability('mod/selfselectadvanced:viewparticipantidentity', $modulecontext);
         $this->showusername = $mayseeidentity
             && (has_capability('moodle/site:viewuseridentity', $modulecontext)

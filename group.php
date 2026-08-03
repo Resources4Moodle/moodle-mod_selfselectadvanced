@@ -79,6 +79,11 @@ $PAGE->set_heading(format_string($course->fullname));
 
 $isleaderforming = (int) $group->leaderid === (int) $USER->id
     && $group->state === \mod_selfselectadvanced\local\state::FORMING;
+// AUTHORITY, asked once and CALLED rather than transcribed: owning the
+// leaderid is a fact about the row, and an administrator's PROHIBIT is
+// a decision about the person. The forms below are the leader's, and a
+// form that always refuses on submit is worse than no form.
+$maylead = \mod_selfselectadvanced\local\authority::may_lead($activity, (int) $USER->id);
 
 $inviteform = null;
 if ($isleaderforming) {
@@ -98,9 +103,14 @@ if ($isleaderforming) {
 }
 
 $nominateform = null;
-if ($isleaderforming && empty($group->successorid)) {
+if ($isleaderforming && $maylead && empty($group->successorid)) {
     // Roster-scoped nominee list: eligible members, and cap-excluded
-    // members shown with the reason (spec 6.4).
+    // members shown with the reason (spec 6.4). $maylead is part of the
+    // condition because succession::nominate() now requires the leader
+    // authority (F-1) and because building this form walks the whole
+    // roster through check_nominee_leadslot() - work done for a
+    // prohibited leader would be work done to draw a form that cannot
+    // be submitted.
     $eligible = [];
     $excluded = [];
     foreach (\mod_selfselectadvanced\local\groups::get_roster((int) $group->id) as $member) {
@@ -128,7 +138,15 @@ if ($isleaderforming && empty($group->successorid)) {
 }
 
 $submitform = null;
-if ($isleaderforming) {
+if ($isleaderforming && $maylead) {
+    // AUTHORITY, added in 1.20.1 (audit D2): submitting to a guide is a
+    // LEADER verb - "Create groups and act as leader" - and it is the
+    // one this page drew from $isleaderforming alone while the invite,
+    // nominate and delete controls beside it had already been gated.
+    // state::submit() now refuses the same actor, so leaving the form
+    // here would be exactly the thing review.php's rule forbids: a form
+    // that always refuses on submit is worse than no form.
+    //
     // The section always renders for the leader of a forming group:
     // while any blocker stands the button is disabled with the reason
     // beside it, never hidden (a control that may or may not exist is
@@ -385,7 +403,11 @@ if ($action === 'eoirespond') {
 }
 
 if ($action === 'freeze') {
-    require_capability('mod/selfselectadvanced:freeze', $context);
+    // CALLED, not transcribed (audit F-6): the freeze predicate has a
+    // home in \local\authority and this page used to carry a fourth
+    // copy of it. Same answer today - which is exactly the condition
+    // under which A-05's copies drifted apart tomorrow.
+    \mod_selfselectadvanced\local\authority::require_freeze($activity, (int) $USER->id);
     if (data_submitted() && confirm_sesskey()) {
         $frozen = \mod_selfselectadvanced\local\freeze::freeze_group($activity, $group, (int) $USER->id);
         $notice = get_string('groupfrozennotice', 'mod_selfselectadvanced', $group->pluginuid);
@@ -815,7 +837,11 @@ $page = new \mod_selfselectadvanced\output\group_page(
 );
 
 echo $OUTPUT->header();
-echo $OUTPUT->render_from_template('mod_selfselectadvanced/group_page', $page->export_for_template($OUTPUT));
+// After the header, deliberately: before it $OUTPUT is still the
+// bootstrap placeholder and the exporter's renderer_base parameter is
+// typed.
+$pagedata = $page->export_for_template($OUTPUT);
+echo $OUTPUT->render_from_template('mod_selfselectadvanced/group_page', $pagedata);
 
 // Proposal section (1.3.0): current file + upload control.
 $fs = get_file_storage();
@@ -827,15 +853,16 @@ $proposalfiles = $fs->get_area_files($context->id, 'mod_selfselectadvanced', 'pr
 // their screen and hiding it now would say less than the page said
 // before; what changes is that it is no longer a link that cannot work.
 //
-// The predicate is teamaccess::may_read_proposal() and is not
-// transcribed here: this line and selfselectadvanced_pluginfile() each
-// used to carry their own copy of it, which is how they came to
-// disagree with the pages about the assigned guide (audit A-05).
-$maydownloadproposal = \mod_selfselectadvanced\local\teamaccess::may_read_proposal(
-    $activity,
-    $group,
-    (int) $USER->id
-);
+// The answer comes off the page's own export, which calls
+// teamaccess::may_read_proposal() once (audit F-4). Until 1.20.1 this
+// script asked the predicate itself, in a script no unit test can
+// execute - so the test that guarded it could only grep for the call,
+// the file carries that same literal twice in prose, and the audit
+// replaced the real call with has_capability(':viewall') and stayed
+// green. A value on the exported context is a value a test can compare
+// against the predicate for a named actor, which is the invariant A-05
+// is actually about.
+$maydownloadproposal = (bool) $pagedata->mayreadproposal;
 
 $proposalhtml = '';
 foreach ($proposalfiles as $file) {

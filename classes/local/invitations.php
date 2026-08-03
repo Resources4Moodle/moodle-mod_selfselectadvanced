@@ -125,6 +125,20 @@ class invitations {
             ])->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The can_invite() gate is re-asked on the row read INSIDE the lock,
+            // so a rival invitation that filled the last seat between
+            // the two asks is refused from inside the transaction -
+            // and group.php catches that to redraw with the refusal.
+            // Unconditional, never gated on
+            // $DB->is_transaction_started(): see
+            // state::submit() for why that predicate answers for the
+            // test harness rather than for this method, and why the
+            // nested arm it selected was the wrong one anyway.
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }
@@ -215,6 +229,15 @@ class invitations {
             $cascaded = $this->cascade_at_cap($userid, (int) $fresh->id);
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Two throws live inside this transaction: the MUST_EXIST
+            // member read (the invitation can be withdrawn between the
+            // page load and the click) and the can_accept() refusal.
+            // Unconditional - see send().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
             $activitylock->release();
@@ -287,6 +310,14 @@ class invitations {
             ])->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The MUST_EXIST member read and the refusalnotinvited
+            // guard both throw from inside the transaction.
+            // Unconditional - see send().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }
@@ -349,6 +380,15 @@ class invitations {
             ])->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The MUST_EXIST member read and the can_withdraw()
+            // refusal both throw from inside the transaction - the
+            // invitee accepting first is the ordinary race.
+            // Unconditional - see send().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }
@@ -424,6 +464,17 @@ class invitations {
 
                 $transaction->allow_commit();
                 $count++;
+            } catch (\Throwable $e) {
+                // The MUST_EXIST read inside the loop's transaction is
+                // the reachable throw: the member row can be deleted
+                // with its group between the batch query and the lock.
+                // Without this the sweep walked out of the task leaving
+                // one delegated transaction open per abandoned
+                // iteration. Unconditional - see send().
+                if (isset($transaction) && !$transaction->is_disposed()) {
+                    $transaction->rollback($e);
+                }
+                throw $e;
             } finally {
                 $lock->release();
             }
@@ -530,7 +581,6 @@ class invitations {
         global $DB;
 
         $lock = locks::acquire('group:' . $group->id);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -555,7 +605,8 @@ class invitations {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // Unconditional since 1.20 wave 3D - see send().
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;
@@ -603,7 +654,6 @@ class invitations {
         authority::require_lead($this->activity, $actorid);
 
         $lock = locks::acquire('group:' . $group->id);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -628,7 +678,8 @@ class invitations {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // Unconditional since 1.20 wave 3D - see send().
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;

@@ -36,10 +36,26 @@ use mod_selfselectadvanced\local\state;
  */
 final class freeze_test extends \advanced_testcase {
     /**
-     * A firm group of two with an assigned guide.
+     * A firm group of two with an assigned guide, and the member of
+     * staff who releases it.
+     *
+     * THE STAFF ACTOR IS PART OF THE FIXTURE, not decoration (audit
+     * A-2). Every unfreeze below used to be driven with the literal
+     * `99` - an id belonging to no user row at all. freeze::unfreeze()
+     * is documented as a manager action and its parameter is named "the
+     * acting manager", so an id that is NOBODY could never have proved
+     * anything about that: has_capability() of a non-existent user is
+     * false for every capability, which means the one thing those tests
+     * could not detect was a missing capability check. They did not
+     * detect it, and the service had none.
+     *
+     * A real, enrolled editing teacher holds :unfreeze by archetype, so
+     * the tests that use it assert the same behaviour they always did -
+     * a manager releases a frozen team - while now being capable of
+     * failing if that authority stops being asked for.
      *
      * @param array $settings instance overrides
-     * @return array [activity, api, group, students[], guide]
+     * @return array [activity, api, group, students[], guide, staff]
      */
     private function setup_firm(array $settings = []): array {
         $generator = $this->getDataGenerator();
@@ -61,6 +77,8 @@ final class freeze_test extends \advanced_testcase {
         }
         $guide = $generator->create_user();
         $generator->enrol_user($guide->id, $course->id, 'teacher');
+        $staff = $generator->create_user();
+        $generator->enrol_user($staff->id, $course->id, 'editingteacher');
 
         $activity = activity::from_instance((int) $instance->id);
         $group = $plugingen->create_group([
@@ -77,7 +95,7 @@ final class freeze_test extends \advanced_testcase {
             'status' => groups::STATUS_CONFIRMED,
         ]);
 
-        return [$activity, new api($activity), groups::get($activity, (int) $group->id), $students, $guide];
+        return [$activity, new api($activity), groups::get($activity, (int) $group->id), $students, $guide, $staff];
     }
 
     /**
@@ -214,7 +232,7 @@ final class freeze_test extends \advanced_testcase {
         $this->preventResetByRollback();
         $this->resetAfterTest();
 
-        [$activity, $api, $group, $students, $guide] = $this->setup_firm();
+        [$activity, $api, $group, $students, $guide, $staff] = $this->setup_firm();
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
         $mover = (int) $students[2]->id;
 
@@ -241,7 +259,7 @@ final class freeze_test extends \advanced_testcase {
         // are RETAINED (D7-D1), and the stranger stays because it is
         // not this plugin's row to delete.
         $coregroupid = (int) $frozen->coregroupid;
-        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), (int) $staff->id);
         $this->assertSame(state::FIRM, $restored->state);
         $this->assertSame($coregroupid, (int) $restored->coregroupid);
         $this->assertTrue(groups_group_exists($coregroupid));
@@ -386,7 +404,7 @@ final class freeze_test extends \advanced_testcase {
         $this->preventResetByRollback();
         $this->resetAfterTest();
 
-        [$activity, , $group, $students, $guide] = $this->setup_firm();
+        [$activity, , $group, $students, $guide, $staff] = $this->setup_firm();
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
         $oldcoreid = (int) $frozen->coregroupid;
 
@@ -423,7 +441,7 @@ final class freeze_test extends \advanced_testcase {
         $restored = freeze::unfreeze(
             activity::from_instance($activity->id()),
             groups::get($activity, (int) $repaired->id),
-            99
+            (int) $staff->id
         );
         $this->assertSame(2, groups::count_confirmed((int) $restored->id));
         $this->assertSame(state::FIRM, $restored->state);
@@ -438,12 +456,12 @@ final class freeze_test extends \advanced_testcase {
         $this->preventResetByRollback();
         $this->resetAfterTest();
 
-        [$activity, , $group, , $guide] = $this->setup_firm();
+        [$activity, , $group, , $guide, $staff] = $this->setup_firm();
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
         $coreid = (int) $frozen->coregroupid;
         $this->assertTrue(groups_group_exists($coreid));
 
-        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), (int) $staff->id);
 
         $this->assertSame(state::FIRM, $restored->state);
         $this->assertSame($coreid, (int) $restored->coregroupid);
@@ -458,11 +476,11 @@ final class freeze_test extends \advanced_testcase {
         $this->preventResetByRollback();
         $this->resetAfterTest();
 
-        [$activity, $api, $group, $students, $guide] = $this->setup_firm();
+        [$activity, $api, $group, $students, $guide, $staff] = $this->setup_firm();
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
         $coreid = (int) $frozen->coregroupid;
 
-        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), (int) $staff->id);
         $this->assertSame($coreid, (int) $restored->coregroupid);
 
         // Swap students[1] out for the still-groupless students[2]
@@ -576,7 +594,7 @@ final class freeze_test extends \advanced_testcase {
         $this->preventResetByRollback();
         $this->resetAfterTest();
 
-        [$activity, , $group, , $guide] = $this->setup_firm();
+        [$activity, , $group, , $guide, $staff] = $this->setup_firm();
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
 
         $snapshot = json_decode(freeze::latest_snapshot((int) $frozen->id)->roster, true);
@@ -585,7 +603,7 @@ final class freeze_test extends \advanced_testcase {
             array_map(static fn(array $entry) => (int) $entry['userid'], $snapshot)
         );
 
-        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), (int) $staff->id);
 
         $this->assertFalse($DB->record_exists('selfselectadvanced_member', [
             'groupid' => $restored->id,
@@ -689,7 +707,7 @@ final class freeze_test extends \advanced_testcase {
         $this->preventResetByRollback();
         $this->resetAfterTest();
 
-        [$activity, , $group, , $guide] = $this->setup_firm();
+        [$activity, , $group, , $guide, $staff] = $this->setup_firm();
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
         $coreid = (int) $frozen->coregroupid;
 
@@ -702,7 +720,7 @@ final class freeze_test extends \advanced_testcase {
         }
         $this->assertTrue(groups_group_exists($coreid));
 
-        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), 99);
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), (int) $staff->id);
 
         $sink = $this->redirectEvents();
         $result = freeze::discard_core_group($activity, groups::get($activity, (int) $restored->id), 99);
@@ -872,7 +890,7 @@ final class freeze_test extends \advanced_testcase {
         global $DB;
         $this->resetAfterTest();
 
-        [$activity, , $group, $students, $guide] = $this->setup_firm();
+        [$activity, , $group, $students, $guide, $staff] = $this->setup_firm();
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
 
         // Mutate the plugin roster out of band: one member out, one in.
@@ -894,7 +912,7 @@ final class freeze_test extends \advanced_testcase {
         freeze::unfreeze(
             $activity,
             groups::get($activity, (int) $frozen->id),
-            99,
+            (int) $staff->id,
             'Composition change agreed with the guide'
         );
         $unfrozen = array_values(array_filter(

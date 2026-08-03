@@ -53,13 +53,31 @@ use mod_selfselectadvanced\task\bulkfreeze_adhoc;
  * - A-06 ledger::set_award() took no actor, so it authorised nobody,
  *   and took a group row without checking it belonged to the activity.
  *
+ * And the three the 1.20.1 blind audit found still open afterwards:
+ *
+ * - F-1 the whole succession workflow was ungated. With :creategroup
+ *   AND :respond both prohibited a student was nominated, confirmed,
+ *   and became the team's leader. Leadership can be ACQUIRED as well as
+ *   created, and :respond's own string has said "invitations AND
+ *   NOMINATIONS" since it was written.
+ * - F-2 gatekeeper::can_grade_team() admitted the assigned guide on
+ *   identity alone - the same shape the freeze service had closed one
+ *   file away, on the path that writes a mark into the gradebook.
+ * - F-3 the A-01 gate in bulkfreeze_adhoc survived being DELETED,
+ *   because the only actor exercising it was the assigned guide, whom
+ *   freeze::freeze_group() refuses on its own. The gate is load-bearing
+ *   for the ON-BEHALF actor, whose branch asks :manage/:coordinate and
+ *   never :freeze, so that is the case pinned here.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \mod_selfselectadvanced\local\authority
  * @covers     \mod_selfselectadvanced\local\api
  * @covers     \mod_selfselectadvanced\local\invitations
+ * @covers     \mod_selfselectadvanced\local\succession
  * @covers     \mod_selfselectadvanced\local\penalty\ledger
+ * @covers     \mod_selfselectadvanced\local\rules\gatekeeper::can_grade_team
  * @covers     \mod_selfselectadvanced\local\freeze
  * @covers     \mod_selfselectadvanced\task\bulkfreeze_adhoc
  */
@@ -391,6 +409,204 @@ final class prohibited_capability_test extends \advanced_testcase {
     }
 
     /**
+     * A forming team whose leader has one confirmed member to nominate.
+     *
+     * @param activity $activity the activity
+     * @param api $api the facade
+     * @param \stdClass[] $students the students
+     * @return array{0: \stdClass, 1: int, 2: int} group row, leader id, nominee id
+     */
+    private function nominable_team(activity $activity, api $api, array $students): array {
+        $leader = (int) $students[0]->id;
+        $nominee = (int) $students[1]->id;
+
+        $group = groups::get($activity, (int) $api->create_group(
+            $leader,
+            'Succession',
+            'T',
+            '<p>b</p>',
+            FORMAT_HTML
+        )->id);
+        $api->invitations()->send($group, $nominee, $leader);
+        $api->invitations()->accept($group, $nominee);
+
+        return [groups::get($activity, (int) $group->id), $leader, $nominee];
+    }
+
+    /**
+     * F-1: nominating a successor is the leader disposing of the team's
+     * leadership, so it is the leader authority - the same one create,
+     * invite, withdraw and confirm-leave ask for.
+     */
+    public function test_succession_nominate_refuses_a_prohibited_leader(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, $api, $students] = $this->fixture();
+        [$group, $leader, $nominee] = $this->nominable_team($activity, $api, $students);
+
+        // Ownership and every rule still pass: only the administrator's
+        // decision has moved.
+        $this->assertNull($api->gatekeeper()->can_nominate($group, $nominee, 'transfer', $leader));
+        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->assertFalse(authority::may_lead($activity, $leader));
+
+        $messagesink = $this->redirectMessages();
+        try {
+            $api->succession()->nominate($group, $nominee, 'transfer', $leader);
+            $this->fail('nominate() named a successor for a prohibited leader');
+        } catch (\required_capability_exception $e) {
+            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
+        }
+
+        $this->assertNull(
+            $DB->get_field('selfselectadvanced_group', 'successorid', ['id' => (int) $group->id]),
+            'A refused nomination still wrote a successor onto the team'
+        );
+        $this->assertSame([], $messagesink->get_messages(), 'the nominee was mailed about a nomination that never happened');
+        $messagesink->close();
+    }
+
+    /**
+     * F-1: cancelling is a leader verb too, and it used to ask nothing
+     * but `$group->leaderid !== $actorid` - a fact about the row.
+     */
+    public function test_succession_cancel_refuses_a_prohibited_leader(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, $api, $students] = $this->fixture();
+        [$group, $leader, $nominee] = $this->nominable_team($activity, $api, $students);
+        $api->succession()->nominate($group, $nominee, 'transfer', $leader);
+
+        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+
+        try {
+            $api->succession()->cancel(groups::get($activity, (int) $group->id), $leader);
+            $this->fail('cancel() cleared a nomination for a prohibited leader');
+        } catch (\required_capability_exception $e) {
+            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
+        }
+
+        $this->assertSame(
+            $nominee,
+            (int) $DB->get_field('selfselectadvanced_group', 'successorid', ['id' => (int) $group->id]),
+            'A refused cancellation still cleared the nomination'
+        );
+    }
+
+    /**
+     * F-1, THE RELEASE BLOCKER: confirming a nomination is the one call
+     * in the plugin that HANDS somebody leadership, and it asked the
+     * gatekeeper about ownership and lifecycle and nobody about
+     * authority. Measured on both engines before the fix: with
+     * :creategroup and :respond both prohibited the nominee confirmed
+     * and became leaderid.
+     *
+     * The capability asked is :respond and not :creategroup - the
+     * nominee is answering a nomination, which is what the capability
+     * is named for, and a site that pauses new teams must still be able
+     * to finish a handover.
+     */
+    public function test_succession_confirm_refuses_a_prohibited_nominee(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, $api, $students] = $this->fixture();
+        [$group, $leader, $nominee] = $this->nominable_team($activity, $api, $students);
+        $api->succession()->nominate($group, $nominee, 'transfer', $leader);
+        $group = groups::get($activity, (int) $group->id);
+
+        // The audit's exact fixture: BOTH prohibited, and every rule
+        // still satisfied.
+        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::RESPOND, $activity->context(), 'student');
+        $this->assertFalse(authority::may_lead($activity, $nominee));
+        $this->assertFalse(authority::may_respond($activity, $nominee));
+        $this->assertNull(
+            $api->gatekeeper()->can_confirm_succession($group, $nominee),
+            'fixture: every RULE must still pass, or this measures the wrong thing'
+        );
+
+        $eventsink = $this->redirectEvents();
+        $messagesink = $this->redirectMessages();
+        try {
+            $api->succession()->confirm($group, $nominee);
+            $this->fail('confirm() made a prohibited nominee the leader of the team');
+        } catch (\required_capability_exception $e) {
+            $this->assertSame(get_capability_string(authority::RESPOND), $e->a);
+        }
+
+        $row = $DB->get_record('selfselectadvanced_group', ['id' => (int) $group->id], '*', MUST_EXIST);
+        $this->assertSame($leader, (int) $row->leaderid, 'A refused confirmation still transferred the leadership');
+        $this->assertSame($nominee, (int) $row->successorid, 'A refused confirmation still cleared the nomination');
+        $this->assertSame(1, (int) $DB->get_field('selfselectadvanced_member', 'isleader', [
+            'groupid' => (int) $group->id,
+            'userid' => $leader,
+        ]), 'the outgoing leader lost their isleader flag anyway');
+        $this->assertSame(0, (int) $DB->get_field('selfselectadvanced_member', 'isleader', [
+            'groupid' => (int) $group->id,
+            'userid' => $nominee,
+        ]));
+        foreach ($eventsink->get_events() as $event) {
+            $this->assertNotInstanceOf(\mod_selfselectadvanced\event\leadership_transferred::class, $event);
+        }
+        $this->assertSame([], $messagesink->get_messages());
+        $eventsink->close();
+        $messagesink->close();
+    }
+
+    /**
+     * F-1: declining is a response too, exactly as on the invitation
+     * path, and it writes a row and mails the leader like any other.
+     */
+    public function test_succession_decline_refuses_a_prohibited_nominee(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, $api, $students] = $this->fixture();
+        [$group, $leader, $nominee] = $this->nominable_team($activity, $api, $students);
+        $api->succession()->nominate($group, $nominee, 'transfer', $leader);
+
+        $this->prohibit(authority::RESPOND, $activity->context(), 'student');
+
+        try {
+            $api->succession()->decline(groups::get($activity, (int) $group->id), $nominee);
+            $this->fail('decline() answered a nomination for a prohibited nominee');
+        } catch (\required_capability_exception $e) {
+            $this->assertSame(get_capability_string(authority::RESPOND), $e->a);
+        }
+
+        $this->assertSame(
+            $nominee,
+            (int) $DB->get_field('selfselectadvanced_group', 'successorid', ['id' => (int) $group->id]),
+            'A refused decline still cleared the nomination'
+        );
+    }
+
+    /**
+     * F-1 control: with both capabilities intact the very same calls
+     * nominate and transfer, so the four tests above are measuring the
+     * capability and not a broken fixture. A gate that refused everybody
+     * would pass all four.
+     */
+    public function test_succession_still_works_with_the_capabilities(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, $api, $students] = $this->fixture();
+        [$group, $leader, $nominee] = $this->nominable_team($activity, $api, $students);
+
+        $this->assertTrue(authority::may_lead($activity, $leader));
+        $this->assertTrue(authority::may_respond($activity, $nominee));
+
+        $api->succession()->nominate($group, $nominee, 'transfer', $leader);
+        $this->assertSame(
+            'transfer',
+            $api->succession()->confirm(groups::get($activity, (int) $group->id), $nominee)
+        );
+
+        $row = $DB->get_record('selfselectadvanced_group', ['id' => (int) $group->id], '*', MUST_EXIST);
+        $this->assertSame($nominee, (int) $row->leaderid);
+        $this->assertNull($row->successorid);
+    }
+
+    /**
      * Two firm teams guided by the same guide.
      *
      * @param activity $activity the activity
@@ -478,6 +694,107 @@ final class prohibited_capability_test extends \advanced_testcase {
         $task->execute();
         ob_get_clean();
 
+        foreach ($ids as $id) {
+            $this->assertSame(
+                state::FROZEN,
+                $DB->get_field('selfselectadvanced_group', 'state', ['id' => $id])
+            );
+        }
+    }
+
+    /**
+     * F-3: the ON-BEHALF actor is the case that makes
+     * bulkfreeze_adhoc's own gate load-bearing.
+     *
+     * The A-01 test above queues the ASSIGNED GUIDE, and
+     * freeze::freeze_group() refuses that actor on its own since wave
+     * 3A - so the whole suite stayed green with the task's gate
+     * DELETED (mutation M5: 17 tests, 54 assertions, no failure). The
+     * task's line is the only thing standing in front of a manager or
+     * Group Coordinator, because freeze_group()'s on-behalf branch
+     * deliberately asks :manage / :coordinate and never :freeze.
+     *
+     * So: an editing teacher (:manage) GRANTED :freeze at the activity,
+     * two firm teams queued in their name, the grant then PROHIBITED,
+     * and the task run exactly as cron runs it.
+     */
+    public function test_queued_on_behalf_freeze_refuses_a_revoked_actor(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, , $students, $guide, $staff] = $this->fixture();
+        $ids = $this->two_firm_teams($activity, $students, $guide);
+        $context = $activity->context();
+        $editingteacher = (int) $DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
+
+        // The actor holds BOTH grants at queue time: :manage (which is
+        // what freeze_group() will accept them on) and :freeze (which
+        // is what the task asks). Only the second is taken away, so a
+        // refusal can come from nowhere else.
+        role_change_permission($editingteacher, $context, authority::FREEZE, CAP_ALLOW);
+        accesslib_clear_all_caches_for_unit_testing();
+        $this->assertTrue(authority::may_freeze($activity, (int) $staff->id));
+        $this->assertTrue(has_capability('mod/selfselectadvanced:manage', $context, (int) $staff->id));
+
+        $task = new bulkfreeze_adhoc();
+        $task->set_custom_data([
+            'activityid' => $activity->id(),
+            'groupids' => $ids,
+            'actorid' => (int) $staff->id,
+        ]);
+        $task->set_userid((int) $staff->id);
+
+        $this->prohibit(authority::FREEZE, $context, 'editingteacher');
+        $this->assertFalse(authority::may_freeze($activity, (int) $staff->id));
+        $this->assertTrue(
+            has_capability('mod/selfselectadvanced:manage', $context, (int) $staff->id),
+            'fixture: the on-behalf grant must SURVIVE, or the refusal proves nothing'
+        );
+
+        ob_start();
+        $task->execute();
+        $log = ob_get_clean();
+
+        foreach ($ids as $id) {
+            $this->assertSame(
+                state::FIRM,
+                $DB->get_field('selfselectadvanced_group', 'state', ['id' => $id]),
+                'a queued on-behalf freeze ran for an actor whose :freeze was prohibited'
+            );
+            $this->assertStringContainsString('bulk freeze skipped group ' . $id, $log);
+            $this->assertSame(0, $DB->count_records('selfselectadvanced_snapshot', ['groupid' => $id]));
+        }
+    }
+
+    /**
+     * F-3 control: the same queued on-behalf actor, capability intact,
+     * freezes both teams - so the test above measures the PROHIBIT and
+     * not an on-behalf branch that refuses either way. This is the
+     * assertion the audit made by deleting the gate: without it the two
+     * teams come back {frozen, frozen}.
+     */
+    public function test_queued_on_behalf_freeze_runs_with_the_capability(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, , $students, $guide, $staff] = $this->fixture();
+        $ids = $this->two_firm_teams($activity, $students, $guide);
+        $editingteacher = (int) $DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
+
+        role_change_permission($editingteacher, $activity->context(), authority::FREEZE, CAP_ALLOW);
+        accesslib_clear_all_caches_for_unit_testing();
+
+        $task = new bulkfreeze_adhoc();
+        $task->set_custom_data([
+            'activityid' => $activity->id(),
+            'groupids' => $ids,
+            'actorid' => (int) $staff->id,
+        ]);
+        $task->set_userid((int) $staff->id);
+
+        ob_start();
+        $task->execute();
+        $log = ob_get_clean();
+
+        $this->assertSame('', $log, 'a freeze that succeeded still logged a skip');
         foreach ($ids as $id) {
             $this->assertSame(
                 state::FROZEN,
@@ -717,6 +1034,125 @@ final class prohibited_capability_test extends \advanced_testcase {
 
         ledger::set_award($activity, $group, null, (int) $guide->id);
         $this->assertNull($DB->get_field('selfselectadvanced_penalty', 'award', ['id' => $row->id]));
+    }
+
+    /**
+     * F-2: the assigned guide was admitted to the GRADEBOOK on identity
+     * alone.
+     *
+     * gatekeeper::can_grade_team() read `(int) $group->guideid ===
+     * $actorid` and returned null - no capability test of any kind - so
+     * prohibiting :viewassignedteams, which closes every OTHER door on
+     * the team (the team page, the review page, the proposal file),
+     * left the one surface that writes a mark wide open.
+     *
+     * The predicate is teamaccess::is_assigned_guide(), CALLED: it is
+     * the plugin's one answer to "is this THEIR team?" and it keys on
+     * :viewassignedteams, so this closes with the rest.
+     */
+    public function test_award_refuses_a_guide_whose_assignment_capability_is_prohibited(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, $api, $students, $guide] = $this->fixture();
+        $group = $this->awardable_team($activity, $students[0], $guide);
+
+        $this->assertNull(
+            $api->gatekeeper()->can_grade_team($group, (int) $guide->id),
+            'fixture: the assigned guide must start out able to grade'
+        );
+
+        $this->prohibit(
+            'mod/selfselectadvanced:viewassignedteams',
+            $activity->context(),
+            'teacher'
+        );
+        $this->assertTrue(
+            has_capability('mod/selfselectadvanced:guide', $activity->context(), (int) $guide->id),
+            'fixture: :guide is untouched, so only the capability under test can be refusing'
+        );
+        $this->assertSame(
+            (int) $guide->id,
+            (int) $DB->get_field('selfselectadvanced_group', 'guideid', ['id' => (int) $group->id]),
+            'fixture: they are still the assigned guide - only the administrator moved'
+        );
+
+        try {
+            ledger::set_award($activity, $group, 88.0, (int) $guide->id);
+            $this->fail('set_award() wrote a gradebook mark for a guide whose capability is prohibited');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalnotassignedguide', $e->errorcode);
+        }
+
+        $this->assertFalse($DB->record_exists_select(
+            'selfselectadvanced_penalty',
+            'groupid = ? AND award IS NOT NULL',
+            [(int) $group->id]
+        ), 'A refused award still reached the ledger');
+    }
+
+    /**
+     * F-2, the other capability the string names: writing the notes and
+     * the award IS "acting as a project guide", which is what :guide
+     * is called, and review.php requires it over the whole activity.
+     * Prohibiting it now stops the write however the service is reached
+     * - by the page, by an external call, by anything future.
+     */
+    public function test_award_refuses_an_assigned_guide_prohibited_from_guiding(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, , $students, $guide] = $this->fixture();
+        $group = $this->awardable_team($activity, $students[0], $guide);
+
+        $this->prohibit('mod/selfselectadvanced:guide', $activity->context(), 'teacher');
+
+        try {
+            ledger::set_award($activity, $group, 66.0, (int) $guide->id);
+            $this->fail('set_award() let somebody grade after "act as a guide" was prohibited');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalnotassignedguide', $e->errorcode);
+        }
+
+        $this->assertFalse($DB->record_exists_select(
+            'selfselectadvanced_penalty',
+            'groupid = ? AND award IS NOT NULL',
+            [(int) $group->id]
+        ));
+    }
+
+    /**
+     * F-2, the boundary the fix must NOT cross: :viewall is a broad
+     * staff READ and does not buy a gradebook write. may_review_team()
+     * admits it to the review page; the award is a different question,
+     * and :manage is the administrative grant for it.
+     */
+    public function test_a_viewall_holder_still_may_not_award(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, $api, $students, $guide, , $course] = $this->fixture();
+        $group = $this->awardable_team($activity, $students[0], $guide);
+
+        $viewer = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($viewer->id, $course->id, 'student');
+        $role = $this->getDataGenerator()->create_role();
+        assign_capability(
+            'mod/selfselectadvanced:viewall',
+            CAP_ALLOW,
+            $role,
+            $activity->context()->id
+        );
+        role_assign($role, $viewer->id, $activity->context());
+        accesslib_clear_all_caches_for_unit_testing();
+
+        $this->assertTrue(has_capability('mod/selfselectadvanced:viewall', $activity->context(), (int) $viewer->id));
+        $this->assertNotNull($api->gatekeeper()->can_grade_team($group, (int) $viewer->id));
+
+        try {
+            ledger::set_award($activity, $group, 100.0, (int) $viewer->id);
+            $this->fail('set_award() accepted a :viewall holder');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalnotassignedguide', $e->errorcode);
+        }
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_penalty', ['groupid' => (int) $group->id]));
     }
 
     /**

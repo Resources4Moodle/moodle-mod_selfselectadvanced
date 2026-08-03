@@ -279,10 +279,15 @@ final class guidecap_test extends \advanced_testcase {
     public function test_guide_search_narrows_and_carries_department(): void {
         $this->resetAfterTest();
         [$activity, $guide, $otherguide] = $this->setup_world();
+        // Written as the site administrator: attributes\manager::set()
+        // authorises its actor against :ingestattributes at system
+        // context (audit A-6). The question under test is what the
+        // guide picker NARROWS to and what it carries, not who may
+        // write an attribute row.
         local\attributes\manager::set((int) $guide->id, [
             'department' => 'SCOPE',
             'subdepartment' => 'BCE',
-        ], (int) $guide->id);
+        ], (int) get_admin()->id);
 
         $resolver = (new local\api($activity))->gatekeeper()->resolver();
 

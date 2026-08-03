@@ -77,6 +77,24 @@ if ($action === 'bulkfreeze' && data_submitted() && confirm_sesskey()) {
 if (in_array($action, ['queueaccept', 'queuereturn'], true) && data_submitted() && confirm_sesskey()) {
     $groupid = required_param('g', PARAM_INT);
     $group = \mod_selfselectadvanced\local\groups::get($activity, $groupid);
+    // The team-scoped door, asked BEFORE the decision (audit D1). This
+    // page's own gate is require_capability(':guide') over the ACTIVITY
+    // and the team arrives in 'g' - the identical shape review.php
+    // closed at its door in 1.20.1, left open here. The two buttons
+    // this handler serves ARE the review page's Accept and Return, so
+    // they answer to the review page's predicate: teamaccess::
+    // may_review_team(), CALLED and not transcribed, so a unit test of
+    // that function is a test of this gate too. The service refuses the
+    // same actor on its own since this wave; this is the door, and a
+    // door that is only ever locked from the inside is not a door.
+    if (!\mod_selfselectadvanced\local\teamaccess::may_review_team($activity, $group, (int) $USER->id)) {
+        throw new required_capability_exception(
+            $context,
+            'mod/selfselectadvanced:viewassignedteams',
+            'nopermissions',
+            ''
+        );
+    }
     $back = new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id, 'guidetab' => 'awaiting']);
     try {
         if ($action === 'queueaccept') {

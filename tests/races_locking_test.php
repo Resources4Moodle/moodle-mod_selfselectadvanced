@@ -432,12 +432,25 @@ final class races_locking_test extends \advanced_testcase {
             'name' => 'Forming',
             'state' => state::FORMING,
         ]);
+        // A real manager, not a bare integer: assign_guide() asks
+        // has_any_capability([:manage, :assignguide]) of its actor
+        // (1.20.1, wave 3C), and that question is asked BEFORE the
+        // locks - so a bare integer would now be refused there and
+        // never reach the state gate this test is about. The refusal
+        // under test is still refusalreassignstate, still thrown from
+        // inside the transaction with both locks held.
+        $manager = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user(
+            $manager->id,
+            (int) $activity->cm()->course,
+            'editingteacher'
+        );
         $this->assert_refused(
             'refusalreassignstate',
             fn() => $api->lifecycle()->assign_guide(
                 groups::get($activity, (int) $forming->id),
                 (int) $guide->id,
-                99
+                (int) $manager->id
             )
         );
         $this->assertFalse($DB->is_transaction_started());

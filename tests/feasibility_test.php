@@ -75,10 +75,10 @@ final class feasibility_test extends \advanced_testcase {
         slots::create($activity, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value',
             'value' => 'Computer', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity, (object) [
             'mincount' => 3, 'dimension' => 'subdepartment', 'matchtype' => 'distinct', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
 
         return [$activity, new api($activity), $students];
     }
@@ -416,7 +416,7 @@ final class feasibility_test extends \advanced_testcase {
         slots::create($activity, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value',
             'value' => 'DeptB', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
 
         $this->assertSame(4, evaluator::feasibility($activity, (int) $group->id, null)->missing);
     }

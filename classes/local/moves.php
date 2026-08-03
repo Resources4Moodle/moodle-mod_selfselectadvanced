@@ -793,7 +793,6 @@ class moves {
         // The obligation is checked rather than trusted: a caller that
         // claims the locks while holding none is a defect that would
         // otherwise commit silently unserialised.
-        $outermost = !$DB->is_transaction_started();
         if ($callerholdslocks && locks::held_count() === 0) {
             debugging(
                 'commit_set() was told the caller holds the move locks, and no lock is held',
@@ -977,12 +976,37 @@ class moves {
             $transaction->allow_commit();
         } catch (\Throwable $e) {
             // Not tidying: validate_set's errmovesetinvalid throws from
-            // INSIDE this transaction with no catch anywhere in the
-            // call chain, so an invalid set used to leave a dangling
-            // delegated transaction. $outermost is what keeps this
-            // correct on the nested join-accept path, where the caller
-            // owns the transaction and must roll back itself.
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // INSIDE this transaction, so an invalid set used to leave
+            // a dangling delegated transaction.
+            //
+            // UNCONDITIONAL since 1.20 wave 3D. It was gated on an
+            // $outermost flag read from $DB->is_transaction_started(),
+            // which was claimed to "keep this correct on the nested
+            // join-accept path". It did the opposite, and this is the
+            // one method in the plugin with a real nested production
+            // caller, so the claim was checkable. joinrequests
+            // ::do_accept() holds its own transaction T1 and calls us
+            // with $callerholdslocks; ours is T2. Skipping OUR rollback
+            // leaves T2 undisposed on top of $DB's stack, so when
+            // do_accept catches and calls T1->rollback(),
+            // rollback_delegated_transaction() finds
+            // $transaction !== end($this->transactions), takes its
+            // "better just rethrow" branch and NEVER issues the
+            // physical ROLLBACK - the transaction stays open, and
+            // joinrequests::respond() catches the exception, so nothing
+            // aborts the request either. Rolling T2 back pops it and
+            // sets force_rollback, T1 is then the top of the stack, and
+            // do_accept's rollback really does roll the database back.
+            // That is Moodle's documented cascade: "If any part of the
+            // transaction rolls back then the whole thing is rolled
+            // back."
+            //
+            // A $callerholdstransaction flag in the shape of
+            // $callerholdslocks was considered and rejected: unlike the
+            // locks, there is no different ACTION for the nested case -
+            // both cases must roll their own frame back - so the flag
+            // would encode a distinction that does not exist.
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;

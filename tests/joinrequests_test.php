@@ -425,7 +425,7 @@ final class joinrequests_test extends \advanced_testcase {
         \mod_selfselectadvanced\local\quota\slots::create($activity, (object) [
             'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value',
             'value' => 'Computer', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
         \mod_selfselectadvanced\local\attributes\manager::set((int) $alpha->leaderid, ['department' => 'Computer'], 2);
         \mod_selfselectadvanced\local\attributes\manager::set((int) $beta->leaderid, ['department' => 'Elsewhere'], 2);
         \mod_selfselectadvanced\local\attributes\manager::set((int) $wanderer->id, ['department' => 'Elsewhere'], 2);

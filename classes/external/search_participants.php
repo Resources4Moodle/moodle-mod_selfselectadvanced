@@ -135,9 +135,29 @@ class search_participants extends external_api {
         // eoilist.php, where the address is gone for EVERY role
         // including :manage and regardless of the switch. Two surfaces,
         // one question, opposite answers - and the maintainer has ruled
-        // for the strict one: no surface of this plugin matches,
-        // renders, exports or labels an address for any role, editing
-        // teachers, managers and administrators included.
+        // for the strict one: WHILE AN ACTIVITY'S CONTACT-PRIVACY
+        // SWITCH IS ON, no page, picker, export or web service of this
+        // plugin matches, renders or labels an address for any role,
+        // editing teachers, managers and administrators included.
+        //
+        // THE QUALIFIER IS LOAD-BEARING and the rule was written here
+        // without it, which made it false in two places (wave-3B audit,
+        // G-3). What the switch does NOT reach, by decision rather than
+        // by oversight: the invitation candidate search
+        // ({@see \mod_selfselectadvanced\local\candidates}) matches and
+        // labels the address again once the switch is OFF, which is
+        // what the setting is for; and the two staff imports
+        // ({@see \mod_selfselectadvanced\local\coordinatorimport} and
+        // {@see \mod_selfselectadvanced\local\attributes\csv_importer})
+        // resolve an operator-supplied address by exact lower-cased
+        // equality in EITHER state, never consulting
+        // contactprivacy::enabled(), because there the address is a
+        // cell in a file the operator wrote rather than something this
+        // plugin discovered, and nothing goes back out. Both are
+        // documented in full in those classes and in README.md.
+        //
+        // THIS endpoint is stricter than the rule it serves: it matches
+        // on names only in BOTH states, for the reason below.
         //
         // Unconditional, not gated on contactprivacy::enabled(), for
         // the same reason eoilist.php is unconditional: a picker that

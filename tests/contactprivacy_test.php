@@ -154,6 +154,24 @@ final class contactprivacy_test extends \advanced_testcase {
     }
 
     /**
+     * The actor an attribute WRITE has to be made as.
+     *
+     * attributes\manager::set() authorises the actor against
+     * mod/selfselectadvanced:ingestattributes at system context, so a
+     * fixture cannot write a student's own mobile number as that
+     * student any more. Nothing in this file is about the write path -
+     * every test here is a READ-side question - so the fixture uses the
+     * one actor that legitimately holds the capability and leaves
+     * $USER alone, because several of these tests turn on who the
+     * viewer is.
+     *
+     * @return int the site administrator's user id
+     */
+    private function ingester(): int {
+        return (int) get_admin()->id;
+    }
+
+    /**
      * All four students, as a subject list.
      *
      * @return int[]
@@ -194,6 +212,21 @@ final class contactprivacy_test extends \advanced_testcase {
      * 2. The unrestricted key is :manage and nothing else: an editing
      * teacher and an admin see everybody, a teacher-archetype viewer who
      * holds :viewall does not.
+     *
+     * WAVE 3D EXAMINED THIS AND LEFT IT (P-1). The audit asked for the
+     * :manage arm to go, so that the phone surfaces would answer the
+     * way the address surfaces do after decision 24. It was implemented
+     * and backed out: lang/en's shareconsentgranted tells the number's
+     * OWNER that sharing reaches "your confirmed teammates, the guide
+     * assigned to your team, a staff member handling a request you
+     * raised, and the teachers who manage this activity", and
+     * attributes_admin.feature drives the roster and asserts an editing
+     * teacher reading a consented number. Removing the arm without
+     * rewriting that sentence would leave the plugin telling students
+     * something untrue about their own data. contactprivacy.php's own
+     * comment carries the full argument and the open question about the
+     * MANAGER archetype, which shares :manage with the editing teacher
+     * and which the cardinal rule does name.
      */
     public function test_manage_unrestricted_and_archetype_matrix(): void {
         global $USER;
@@ -425,7 +458,7 @@ final class contactprivacy_test extends \advanced_testcase {
         $leader = (int) $this->users['s1']->id;
         $coordinator = (int) $this->users['coordinator']->id;
 
-        manager::set($leader, ['mobile' => '919800000123'], $leader);
+        manager::set($leader, ['mobile' => '919800000123'], $this->ingester());
 
         $this->set_group_state($this->alpha, state::FROZEN);
         $ticket = tickets::file(
@@ -477,7 +510,7 @@ final class contactprivacy_test extends \advanced_testcase {
         $this->build_world();
 
         $s2 = (int) $this->users['s2']->id;
-        manager::set($s2, ['mobile' => '919800000222'], $s2);
+        manager::set($s2, ['mobile' => '919800000222'], $this->ingester());
         $outsider = (int) $this->users['otherteacher']->id;
 
         $PAGE->set_url('/mod/selfselectadvanced/group.php', ['id' => $this->on->cm()->id]);
@@ -557,7 +590,7 @@ final class contactprivacy_test extends \advanced_testcase {
         $this->build_world();
 
         $s2 = (int) $this->users['s2']->id;
-        manager::set($s2, ['mobile' => '919800000333'], $s2);
+        manager::set($s2, ['mobile' => '919800000333'], $this->ingester());
         manager::set_consent($s2, true, $s2);
 
         $PAGE->set_url('/mod/selfselectadvanced/review.php', ['id' => $this->on->cm()->id]);
@@ -609,7 +642,7 @@ final class contactprivacy_test extends \advanced_testcase {
         $generator = $this->getDataGenerator();
         $lonely = $generator->create_user(['email' => 'lonely@example.com']);
         $generator->enrol_user($lonely->id, $this->course->id, 'student');
-        manager::set((int) $lonely->id, ['mobile' => '919800000444'], (int) $lonely->id);
+        manager::set((int) $lonely->id, ['mobile' => '919800000444'], $this->ingester());
 
         $viewer = (int) $this->users['otherteacher']->id;
         $attrs = manager::get_for_users([(int) $lonely->id]);
@@ -642,8 +675,14 @@ final class contactprivacy_test extends \advanced_testcase {
         $required = [
             'flagged.php must pass the gated flag to display_line(), never a literal' =>
                 'manager::display_line( $attrs[(int) $user->id] ?? null, $showmobile )',
-            'and to plain_line(), which is what the flagged-students CSV carries' =>
-                'manager::plain_line( $attrs[(int) $user->id] ?? null, $showmobile )',
+            // WAVE 3D: the two call sites deliberately DISAGREE now. The
+            // screen keeps the connection verdict; the export takes a
+            // literal false, because a page of individually-permitted
+            // rows is still a bulk download once it is a file. Pinning
+            // the literal is the only way to stop a later reader
+            // "restoring the symmetry".
+            'and NEVER to plain_line(), which is what the flagged-students CSV carries' =>
+                'manager::plain_line( $attrs[(int) $user->id] ?? null, false )',
             'and that flag must be the connection map AND the owner\'s own consent' =>
                 '$showmobile = !empty($privacymap[(int) $user->id]) '
                     . '&& \\mod_selfselectadvanced\\local\\attributes\\manager::mobile_visible( '
@@ -759,6 +798,12 @@ final class contactprivacy_test extends \advanced_testcase {
      * 10b. The two core identity capabilities are ALTERNATIVES:
      * preventing one alone leaves addresses printing. Pins the trap so
      * a lockdown runbook cannot be written from one capability name.
+     *
+     * The needle became a NAME in wave 3D. It used to be the address
+     * itself, which made this test depend on the picker matching on an
+     * address - the oracle P-5 removed, in both switch states. What the
+     * test is actually about is the LABEL, so it now finds the person
+     * the only way anybody can and reads the label it gets back.
      */
     public function test_both_core_identity_capabilities_must_go_together(): void {
         $this->resetAfterTest();
@@ -783,15 +828,22 @@ final class contactprivacy_test extends \advanced_testcase {
             'leaderid' => (int) $this->users['s1']->id,
             'name' => 'LegacyPick',
         ]);
-        $results = candidates::search(
-            $this->off,
-            groups::get($this->off, (int) $offgroup->id),
-            (new api($this->off))->gatekeeper(),
-            's2@example.com',
-            $manager
-        );
+        $gatekeeper = (new api($this->off))->gatekeeper();
+        $group = groups::get($this->off, (int) $offgroup->id);
+        $results = candidates::search($this->off, $group, $gatekeeper, 'Two', $manager);
         $this->assertCount(1, $results);
-        $this->assertStringContainsString('s2@example.com', $results[0]['label']);
+        $this->assertStringContainsString(
+            's2@example.com',
+            $results[0]['label'],
+            'one core capability withdrawn is not a lockdown: the other still prints the address'
+        );
+        // And the needle it used to use finds nobody, in the switch
+        // state that is most permissive about the label.
+        $this->assertSame(
+            [],
+            candidates::search($this->off, $group, $gatekeeper, 's2@example.com', $manager),
+            'the picker answered a probe for a whole address'
+        );
     }
 
     /**
@@ -804,6 +856,16 @@ final class contactprivacy_test extends \advanced_testcase {
      * Added 2026-08-01 by the adversarial pass: the gate shipped with no
      * test of any kind, PHPUnit or Behat. Measured - replacing the whole
      * composition with a literal true left every test green.
+     *
+     * REWRITTEN IN WAVE 3D, and the rewrite is the fix. The version of
+     * this test that shipped in wave 3B asserted that a :manage holder
+     * SEES the column, because is_unrestricted() was an arm of the
+     * composition. Every viewer this page admits holds :manage, so that
+     * arm exempted the entire audience: while the switch was on, this
+     * was the one surface where an address could still be rendered,
+     * matched (type an address into "Name", get exactly one row - an
+     * oracle) and downloaded in bulk. Decision 24 names no exempt role;
+     * the arm is gone, and what is asserted below is its absence.
      */
     public function test_coordinator_candidates_username_is_identity_gated(): void {
         $this->resetAfterTest();
@@ -816,48 +878,64 @@ final class contactprivacy_test extends \advanced_testcase {
         // Any non-empty filter will do: what is asserted is the WHERE
         // clause the filter builds, not the rows it returns.
         $filter = 'teach';
+        $build = function (string $id) use ($roleid, $eligible, $url, $filter) {
+            return new \mod_selfselectadvanced\table\coordinatorcandidates_table(
+                $id,
+                $this->on,
+                $roleid,
+                [],
+                $eligible,
+                [],
+                $url,
+                $filter
+            );
+        };
 
-        // The page's own audience: a :manage holder, who clears the
-        // plugin arm through is_unrestricted() and holds core's
-        // capabilities too.
-        $shown = new \mod_selfselectadvanced\table\coordinatorcandidates_table(
-            'ssacandshown',
-            $this->on,
-            $roleid,
-            [],
-            $eligible,
-            [],
-            $url,
-            $filter
+        // The page's own audience, protection ON: :manage, both core
+        // identity capabilities, and no column, no select, no match.
+        $this->assertTrue(
+            contactprivacy::is_unrestricted($this->on, (int) $this->users['manager']->id),
+            'the viewer really does hold the capability that used to be an exemption'
         );
+        $this->assertTrue(has_capability('moodle/site:viewuseridentity', $this->on->context()));
+        $protected = $build('ssacandprotected');
+        $this->assertArrayNotHasKey('username', $protected->columns);
+        $this->assertStringNotContainsString('u.username', $protected->sql->fields);
+        $this->assertStringNotContainsString('u.username', $protected->sql->where);
+
+        // The SITE grants the plugin's identity capability: the column,
+        // the select and the match come back together.
+        $identityrole = $this->getDataGenerator()->create_role();
+        assign_capability(
+            'mod/selfselectadvanced:viewparticipantidentity',
+            CAP_ALLOW,
+            $identityrole,
+            \context_module::instance($this->on->cm()->id)
+        );
+        role_assign($identityrole, $this->users['manager']->id, \context_module::instance($this->on->cm()->id));
+        accesslib_clear_all_caches_for_unit_testing();
+
+        $shown = $build('ssacandshown');
         $this->assertArrayHasKey('username', $shown->columns);
         $this->assertStringContainsString('u.username', $shown->sql->fields);
         $this->assertStringContainsString('u.username', $shown->sql->where);
 
-        // Now the SITE withdraws its identity capabilities. The plugin
-        // arm is untouched - the viewer still holds :manage - so an OR
-        // would leave the column standing. AND takes it away, column and
-        // match together, and the spreadsheet with them.
+        // Now the SITE withdraws its own identity capabilities. The
+        // plugin arm is untouched - the viewer still holds :manage AND
+        // :viewparticipantidentity - so an OR would leave the column
+        // standing. AND takes it away, column and match together, and
+        // the spreadsheet with them.
         $coursecontext = \context_course::instance($this->course->id);
         foreach (['moodle/site:viewuseridentity', 'moodle/course:viewhiddenuserfields'] as $capability) {
             assign_capability($capability, CAP_PROHIBIT, $this->role_id('editingteacher'), $coursecontext, true);
         }
         accesslib_clear_all_caches_for_unit_testing();
         $this->assertTrue(
-            contactprivacy::is_unrestricted($this->on, (int) $this->users['manager']->id),
+            has_capability('mod/selfselectadvanced:viewparticipantidentity', $this->on->context()),
             'the plugin arm is still satisfied, so only the AND can close the column'
         );
 
-        $gated = new \mod_selfselectadvanced\table\coordinatorcandidates_table(
-            'ssacandgated',
-            $this->on,
-            $roleid,
-            [],
-            $eligible,
-            [],
-            $url,
-            $filter
-        );
+        $gated = $build('ssacandgated');
         $this->assertArrayNotHasKey('username', $gated->columns);
         $this->assertStringNotContainsString('u.username', $gated->sql->fields);
         $this->assertStringNotContainsString('u.username', $gated->sql->where);

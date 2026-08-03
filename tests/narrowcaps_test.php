@@ -420,6 +420,16 @@ final class narrowcaps_test extends \advanced_testcase {
     public function test_commit_refused_for_involved_narrow_actor(): void {
         global $DB;
         $this->resetAfterTest();
+        // Wave 3D: a refusal now rolls its OWN delegated transaction
+        // back instead of abandoning it, which sets $DB's force_rollback
+        // until the transaction stack empties. This test refuses a verb
+        // and then commits another one, and on PostgreSQL - and only
+        // there - advanced_testcase holds a frame underneath that never
+        // lets the stack empty, so the later commit would be refused on
+        // one engine and not the other. Committing the harness frame
+        // here is what makes the two engines agree; the same line, for
+        // the same reason, as in races_locking_test.
+        $this->preventResetByRollback();
 
         [$activity, $api, $students, $a, $b, $course] = $this->setup_two_groups();
         $manager = $this->manager($course);
@@ -515,6 +525,16 @@ final class narrowcaps_test extends \advanced_testcase {
     public function test_assign_guide_coi(): void {
         global $DB;
         $this->resetAfterTest();
+        // Wave 3D: a refusal now rolls its OWN delegated transaction
+        // back instead of abandoning it, which sets $DB's force_rollback
+        // until the transaction stack empties. This test refuses a verb
+        // and then commits another one, and on PostgreSQL - and only
+        // there - advanced_testcase holds a frame underneath that never
+        // lets the stack empty, so the later commit would be refused on
+        // one engine and not the other. Committing the harness frame
+        // here is what makes the two engines agree; the same line, for
+        // the same reason, as in races_locking_test.
+        $this->preventResetByRollback();
 
         [$activity, $api, $students, $a, , $course] = $this->setup_two_groups();
         $DB->set_field('selfselectadvanced_group', 'state', state::PENDING_GUIDE, ['id' => $a->id]);
@@ -553,6 +573,16 @@ final class narrowcaps_test extends \advanced_testcase {
     public function test_eoi_respond_via_assignguide(): void {
         global $DB;
         $this->resetAfterTest();
+        // Wave 3D: a refusal now rolls its OWN delegated transaction
+        // back instead of abandoning it, which sets $DB's force_rollback
+        // until the transaction stack empties. This test refuses a verb
+        // and then commits another one, and on PostgreSQL - and only
+        // there - advanced_testcase holds a frame underneath that never
+        // lets the stack empty, so the later commit would be refused on
+        // one engine and not the other. Committing the harness frame
+        // here is what makes the two engines agree; the same line, for
+        // the same reason, as in races_locking_test.
+        $this->preventResetByRollback();
 
         $generator = $this->getDataGenerator();
         $course = $generator->create_course();

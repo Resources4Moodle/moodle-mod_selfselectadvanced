@@ -29,13 +29,17 @@ use mod_selfselectadvanced\activity;
  * administrator. While it is ON:
  *
  * - no surface of this plugin renders, links or exports an email
- *   address to anybody below :manage. Staff reach a participant with
- *   the Send a message action instead ({@see staffmessage}), which
- *   travels as a Moodle message and shows nobody an address;
+ *   address to ANYBODY, :manage included (maintainer decision 24).
+ *   Staff reach a participant with the Send a message action instead
+ *   ({@see staffmessage}), which travels as a Moodle message and shows
+ *   nobody an address;
  * - a mobile number renders only to a viewer CONNECTED to its owner -
  *   a confirmed teammate, the guide assigned to their team, or the
- *   claimant of that person's claimed ticket - AND only when the owner
- *   set their own sharing consent.
+ *   claimant of that person's claimed ticket - or to a :manage holder,
+ *   and in every case only when the owner set their own sharing
+ *   consent. That fourth audience is a PROMISE, not an oversight; see
+ *   can_see_map(), which explains what it costs and what it does not
+ *   buy.
  *
  * GOOD-NEIGHBOUR PRINCIPLE. This class can only ever NARROW what a
  * viewer sees. It adds no core setting, overrides no core capability
@@ -76,6 +80,17 @@ class contactprivacy {
      * archetype), and both are exactly the audience the cardinal rule
      * restricts. Administrators pass through doanything.
      *
+     * IT NO LONGER REOPENS AN ADDRESS ANYWHERE (1.20.1 wave 3D
+     * completed what decision 24 began). candidates::search(),
+     * external\search_participants, eoilist.php and - since this wave -
+     * coordinatorcandidates_table's username column and username filter
+     * all stopped asking it. What it still governs is the PHONE, and
+     * only in the two places named on can_see_map() and
+     * mobile_consent_bypass(). Before adding a third, read the note on
+     * can_see_map() about the promise the plugin makes to the number's
+     * owner: this predicate is the code half of a sentence the student
+     * is shown, and the two move together or not at all.
+     *
      * @param activity $activity the activity
      * @param int $viewerid the viewer
      * @return bool whether the viewer holds the manage capability
@@ -88,6 +103,52 @@ class contactprivacy {
      * Bulk connection map: subjectid => bool for EVERY requested
      * subject, all true when the switch is off or the viewer is
      * unrestricted.
+     *
+     * THE :manage ARM IS A PROMISE, AND IT STAYS UNTIL THE MAINTAINER
+     * MOVES IT (1.20.1 wave 3D, P-1 examined and deliberately not
+     * changed). The wave-3C audit read this arm as decision 24's last
+     * survivor and asked for its removal, on the argument that the
+     * address surfaces lost their :manage exemption and the phone
+     * surfaces did not. Removing it was implemented, tested and then
+     * BACKED OUT, because three things say it is the specification:
+     *
+     * - lang/en's shareconsentgranted, which is what the plugin SHOWS
+     *   THE NUMBER'S OWNER when they switch sharing on: "shared with
+     *   your confirmed teammates, the guide assigned to your team, a
+     *   staff member handling a request you raised, AND THE TEACHERS
+     *   WHO MANAGE THIS ACTIVITY. Nobody else in this activity sees
+     *   it." Four audiences, and this arm is the fourth. Deleting it
+     *   turns the one sentence the plugin addresses to the data subject
+     *   about their own data into a falsehood, and lang/ is not this
+     *   wave's to correct;
+     * - tests/behat/attributes_admin.feature drives the real roster and
+     *   asserts that an EDITING TEACHER reads a CONSENTED number and
+     *   does not read an unconsented one, with a comment saying that
+     *   pairing is the point;
+     * - the cardinal rule names the audiences it protects a student
+     *   from - manager, non-editing teacher, student - and the editing
+     *   teacher, who owns the switch, is not among them.
+     *
+     * WHAT THE ARM DOES NOT BUY, and this wave narrowed all of it: no
+     * address, anywhere, for anybody (decision 24); no username-shaped
+     * address on the coordinator screen, its filter or its download; no
+     * mobile column in the site-wide attribute DOWNLOAD; no mobile in
+     * the flagged-students export. On-screen, paged, one activity at a
+     * time is the whole of what an exempt viewer gets.
+     *
+     * THE OPEN QUESTION, recorded so it is not rediscovered as new:
+     * :manage is granted to the MANAGER archetype as well as the
+     * editing teacher (db/access.php), and "manager" IS an audience the
+     * cardinal rule names. The two cannot be told apart by the
+     * capability this predicate asks. Separating them needs a
+     * capability or archetype decision in db/access.php and a rewrite
+     * of shareconsentgranted - both outside this wave - so it is
+     * reported rather than guessed at.
+     *
+     * The three CONNECTIONS below are the other half of the design and
+     * are not an exception to the rule but the point of it: a confirmed
+     * teammate, a team's ASSIGNED guide and the claimant of a person's
+     * ticket read a consented number, and no capability is involved.
      *
      * One call per page or export, never one per row: at ten thousand
      * students a per-subject check is ten thousand queries. Three
@@ -214,6 +275,14 @@ class contactprivacy {
      * viewer holds :manage. Switch ON => only :manage bypasses
      * consent; a non-editing teacher or coordinator holding :viewall
      * does not.
+     *
+     * CONSENT, NOT REACH. Every surface that asks this AND-s it onto
+     * can_see_map(), so it answers "may I overrule what this person
+     * chose about a number I am already allowed to reach", never "may I
+     * reach it". The student is told as much in lang/en's
+     * shareconsentwithheld: with sharing off, only a site administrator
+     * or staff the site has deliberately granted
+     * :viewparticipantidentity still reads the number.
      *
      * @param activity $activity the activity
      * @param int $viewerid the viewer

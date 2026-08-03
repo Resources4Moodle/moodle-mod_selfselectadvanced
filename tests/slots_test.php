@@ -85,10 +85,10 @@ final class slots_test extends \advanced_testcase {
         ]);
         slots::create($activity, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity, (object) [
             'mincount' => 3, 'dimension' => 'department', 'matchtype' => 'distinct', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
         $result = slots::evaluate($activity, $groupid);
         $this->assertTrue($result->ok);
         $this->assertSame([2, 3], [$result->slots[0]->filled, $result->slots[1]->filled]);
@@ -101,10 +101,10 @@ final class slots_test extends \advanced_testcase {
         ]);
         slots::create($activity2, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity2, (object) [
             'mincount' => 3, 'dimension' => 'department', 'matchtype' => 'distinct', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
         $result = slots::evaluate($activity2, $groupid2);
         $this->assertFalse($result->ok);
         $this->assertSame(1, $result->slots[1]->missing);
@@ -119,10 +119,10 @@ final class slots_test extends \advanced_testcase {
         ]);
         slots::create($activity3, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity3, (object) [
             'mincount' => 3, 'dimension' => 'department', 'matchtype' => 'distinct', 'allowoverlap' => 1,
-        ]);
+        ], (int) get_admin()->id);
         $result = slots::evaluate($activity3, $groupid3);
         $this->assertTrue($result->ok);
 
@@ -131,7 +131,7 @@ final class slots_test extends \advanced_testcase {
         // gender-Female slot would starve.
         slots::create($activity3, (object) [
             'mincount' => 1, 'dimension' => 'gender', 'matchtype' => 'value', 'value' => 'Female',
-        ]);
+        ], (int) get_admin()->id);
         $result = slots::evaluate($activity3, $groupid3);
         $this->assertFalse($result->ok);
         $lastslot = end($result->slots);
@@ -185,10 +185,10 @@ final class slots_test extends \advanced_testcase {
         ]);
         slots::create($activity, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity, (object) [
             'mincount' => 3, 'dimension' => 'subdepartment', 'matchtype' => 'distinct', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
         $result = slots::evaluate($activity, $groupid);
         $this->assertFalse($result->ok);
         $this->assertSame(2, $result->slots[0]->filled);
@@ -201,10 +201,10 @@ final class slots_test extends \advanced_testcase {
         ]);
         slots::create($activity2, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity2, (object) [
             'mincount' => 3, 'dimension' => 'subdepartment', 'matchtype' => 'distinct', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
         $result = slots::evaluate($activity2, $groupid2);
         $this->assertTrue($result->ok);
 
@@ -216,10 +216,10 @@ final class slots_test extends \advanced_testcase {
         ]);
         slots::create($activity3, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity3, (object) [
             'mincount' => 3, 'dimension' => 'subdepartment', 'matchtype' => 'distinct', 'allowoverlap' => 1,
-        ]);
+        ], (int) get_admin()->id);
         $result = slots::evaluate($activity3, $groupid3);
         $this->assertTrue($result->ok);
     }
@@ -236,13 +236,13 @@ final class slots_test extends \advanced_testcase {
         ]);
         slots::create($activity, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
-        ]);
+        ], (int) get_admin()->id);
         $this->assertFalse(evaluator::is_compliant($activity, $groupid));
         $report = evaluator::evaluate($activity, $groupid);
         $entry = end($report->rules);
         $this->assertStringContainsString('Computer', $entry->label);
 
-        slots::delete($activity, (int) slots::get_all($activity)[0]->id);
+        slots::delete($activity, (int) slots::get_all($activity)[0]->id, (int) get_admin()->id);
         $this->assertTrue(evaluator::is_compliant($activity, $groupid));
 
         // Blank value means "n from any ONE value": 2 share Computer? No -
@@ -250,7 +250,7 @@ final class slots_test extends \advanced_testcase {
         // Computer member satisfies it.
         slots::create($activity, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => '',
-        ]);
+        ], (int) get_admin()->id);
         $this->assertFalse(evaluator::is_compliant($activity, $groupid));
     }
 
@@ -273,10 +273,10 @@ final class slots_test extends \advanced_testcase {
         ]);
         slots::create($activity, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => '',
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity, (object) [
             'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
-        ]);
+        ], (int) get_admin()->id);
 
         $result = slots::evaluate($activity, $groupid);
 
@@ -301,18 +301,18 @@ final class slots_test extends \advanced_testcase {
         [$first, $firstgroup] = $this->setup_group($roster);
         slots::create($first, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => '',
-        ]);
+        ], (int) get_admin()->id);
         slots::create($first, (object) [
             'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
-        ]);
+        ], (int) get_admin()->id);
 
         [$second, $secondgroup] = $this->setup_group($roster);
         slots::create($second, (object) [
             'mincount' => 1, 'dimension' => 'department', 'matchtype' => 'value', 'value' => 'Computer',
-        ]);
+        ], (int) get_admin()->id);
         slots::create($second, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'value' => '',
-        ]);
+        ], (int) get_admin()->id);
 
         $this->assertTrue(slots::evaluate($first, $firstgroup)->ok);
         $this->assertTrue(slots::evaluate($second, $secondgroup)->ok);

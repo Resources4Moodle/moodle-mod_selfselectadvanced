@@ -71,7 +71,13 @@ final class external_guidesearch_test extends \externallib_advanced_testcase {
     public function test_a_student_can_search_and_sees_no_address(): void {
         $this->resetAfterTest();
         [$activity, $guide, , $student] = $this->setup_world();
-        local\attributes\manager::set((int) $guide->id, ['department' => 'SENSE'], (int) $guide->id);
+        // Written as the site administrator: attributes\manager::set()
+        // authorises its actor against :ingestattributes at system
+        // context (audit A-6), so a guide can no longer write their own
+        // attribute row. This test asks a READ-side question - what the
+        // guide picker shows a student - and the write is only its
+        // fixture, so the actor changes and nothing else does.
+        local\attributes\manager::set((int) $guide->id, ['department' => 'SENSE'], (int) get_admin()->id);
 
         $this->setUser($student);
         $result = \mod_selfselectadvanced\external\search_guides::execute($activity->cm()->id, 'Meera');

@@ -78,10 +78,10 @@ final class fit_test extends \advanced_testcase {
         slots::create($activity, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value',
             'value' => 'Computer', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity, (object) [
             'mincount' => 3, 'dimension' => 'subdepartment', 'matchtype' => 'distinct', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
 
         return [$activity, $students, $course];
     }
@@ -307,11 +307,11 @@ final class fit_test extends \advanced_testcase {
         $female = slots::create($activity, (object) [
             'mincount' => 1, 'dimension' => 'gender', 'matchtype' => 'value',
             'value' => 'Female', 'allowoverlap' => 1,
-        ]);
+        ], (int) get_admin()->id);
         $computer = slots::create($activity, (object) [
             'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value',
             'value' => 'Computer', 'allowoverlap' => 1,
-        ]);
+        ], (int) get_admin()->id);
 
         $group = $plugingen->create_group([
             'activityid' => $activity->id(),
@@ -452,15 +452,15 @@ final class fit_test extends \advanced_testcase {
         slots::create($activity, (object) [
             'mincount' => 1, 'dimension' => 'gender', 'matchtype' => 'value',
             'value' => 'Male', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity, (object) [
             'mincount' => 1, 'dimension' => 'gender', 'matchtype' => 'value',
             'value' => 'Female', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
         slots::create($activity, (object) [
             'mincount' => 3, 'dimension' => 'department', 'matchtype' => 'value',
             'value' => 'Science', 'allowoverlap' => 0,
-        ]);
+        ], (int) get_admin()->id);
 
         $group = $plugingen->create_group([
             'activityid' => $activity->id(),

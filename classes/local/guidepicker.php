@@ -33,7 +33,7 @@ class guidepicker {
     /**
      * The markup for one picker.
      *
-     * Degrades honestly without JavaScript: what is left is a plain
+     * Degrades cleanly without JavaScript: what is left is a plain
      * select carrying the current choice, which submits unchanged.
      *
      * @param string $name form field name

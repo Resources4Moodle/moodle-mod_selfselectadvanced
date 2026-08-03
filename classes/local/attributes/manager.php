@@ -36,6 +36,14 @@ class manager {
     public const DIMENSIONS = ['gender', 'department', 'subdepartment', 'program'];
 
     /**
+     * @var string Ingest and edit participant attributes. Declared at
+     * CONTEXT_SYSTEM with no archetype, so in practice only site
+     * administrators hold it - and it is the ONE authority behind every
+     * write in this file and in csv_importer.
+     */
+    public const INGEST = 'mod/selfselectadvanced:ingestattributes';
+
+    /**
      * Attribute records for a set of users, keyed by userid.
      *
      * Users without a record are absent from the result; callers treat
@@ -80,13 +88,31 @@ class manager {
     /**
      * Create or update a user's attributes (admin write path).
      *
+     * AUTHORISED HERE (audit A-6), not by the page. The class docblock
+     * has said since 1.0 that "only holders of the system-context
+     * ingestattributes capability write", and until 1.20.1 the only
+     * thing enforcing that sentence was admin_externalpage_setup() in
+     * attributes.php. That is a door, not a gate: this method writes
+     * gender, department, sub-department, MOBILE NUMBER and the sharing
+     * CONSENT FLAG for any user id it is handed, and it is reachable
+     * from the CSV importer, from any future service, task or web
+     * service, and from anything a site adds - none of which pass
+     * through that page.
+     *
+     * The capability is asked of the ACTOR at system context, which is
+     * the context db/access.php declares it in. A site administrator
+     * passes by is_siteadmin(), which is who holds it in practice.
+     *
      * @param int $userid the target user (must exist in Moodle)
      * @param array $values any of gender, department, subdepartment, mobile
      * @param int $actorid the acting administrator
      * @return stdClass the stored record
+     * @throws \required_capability_exception when the actor may not ingest attributes
      */
     public static function set(int $userid, array $values, int $actorid): stdClass {
         global $DB;
+
+        require_capability(self::INGEST, \context_system::instance(), $actorid);
 
         // The user must already exist: this plugin never creates accounts (C11).
         $DB->get_record('user', ['id' => $userid, 'deleted' => 0], 'id', MUST_EXIST);
@@ -274,12 +300,54 @@ class manager {
      * only the consent flag, never any attribute value, and only for
      * a user who already holds an attribute record.
      *
+     * SELF ONLY, and the check is the point of the method (audit A-4).
+     * The parameter has always been documented as "the student
+     * themself" and the method never once asked whether it was: any
+     * caller could set any user's consent to anything. That is not one
+     * more missing capability check - consent is the gate the entire
+     * mobile-disclosure design rests on. contactprivacy decides who may
+     * BYPASS a person's consent; mobile_visible() decides what a viewer
+     * sees given it; every one of those answers is only worth what the
+     * flag underneath is worth, and a service that will set the flag
+     * for anybody is a forgeable key to all of them.
+     *
+     * Not live-reachable today - view.php passes $USER twice - and
+     * that is exactly why it is written down here rather than left to
+     * the caller: the invariant is a property of the operation, and the
+     * next caller has not been written yet.
+     *
+     * THERE IS A STAFF PATH AND IT IS NOT THIS ONE. The CSV import
+     * carries a "Share Consent" column, and it writes the flag through
+     * {@see self::set()} - see csv_importer::run(), which passes
+     * shareconsent in the $set array - under
+     * mod/selfselectadvanced:ingestattributes, a system-context
+     * capability held in practice only by site administrators. So no
+     * legitimate staff operation needs this method, and it takes no
+     * capability argument to widen: an office correcting a consent
+     * value does it on the audited bulk path, with an actor recorded in
+     * usermodified and an attributes_updated event, and this one stays
+     * what its name says.
+     *
      * @param int $userid the consenting user
      * @param bool $consent share (true) or withhold (false)
-     * @param int $actorid the acting user (the student themself)
+     * Refused with core's own nopermissions string rather than a new
+     * plugin one, so the refusal is a clean permission message on every
+     * language pack this plugin has ever shipped in.
+     *
+     * @param int $actorid the acting user; MUST be the consenting user
+     * @throws \moodle_exception when the actor is not the subject
      */
     public static function set_consent(int $userid, bool $consent, int $actorid): void {
         global $DB;
+
+        if ($actorid !== $userid) {
+            throw new \moodle_exception(
+                'nopermissions',
+                'error',
+                '',
+                get_string('shareconsent', 'mod_selfselectadvanced')
+            );
+        }
 
         $record = $DB->get_record('selfselectadvanced_userattr', ['userid' => $userid], '*', MUST_EXIST);
         $record->shareconsent = $consent ? 1 : 0;

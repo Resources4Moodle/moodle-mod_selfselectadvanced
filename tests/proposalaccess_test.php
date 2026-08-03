@@ -16,6 +16,7 @@
 
 namespace mod_selfselectadvanced;
 
+use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\contacts;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\state;
@@ -46,6 +47,7 @@ use mod_selfselectadvanced\local\teamaccess;
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \mod_selfselectadvanced\local\teamaccess::may_read_proposal
+ * @covers     \mod_selfselectadvanced\output\group_page
  * @covers     ::selfselectadvanced_pluginfile
  */
 final class proposalaccess_test extends \advanced_testcase {
@@ -340,31 +342,147 @@ final class proposalaccess_test extends \advanced_testcase {
     }
 
     /**
-     * The page and the file server ask the SAME function.
+     * What the TEAM PAGE decides about the proposal, for one actor.
      *
-     * The first cut of teamaccess shipped with the predicates
-     * duplicated inline on the pages and a unit test comparing one copy
-     * against another, which is a test of the copy. This asserts the
-     * CALL, so reverting either caller to its own transcription goes
-     * red here even if the transcription happens to agree today.
+     * group.php cannot be executed from PHPUnit - it is a web script
+     * that requires config.php and a session - so the answer it draws
+     * the link from is exported by group_page::export_for_template()
+     * and read here (audit F-4). That is the page's own value: since
+     * 1.20.1 group.php sets $maydownloadproposal from this key and asks
+     * nothing itself.
+     *
+     * ORDERING, and it is a harness constraint rather than a fact about
+     * the code: exporting the page runs format_text(), whose filters
+     * read $PAGE->theme and so initialise the theme - after which
+     * require_login(), which fetch() runs inside the real file server,
+     * refuses to set a course on the page. So every fetch() a test
+     * wants must be taken BEFORE its first pagesays(). Neither answer
+     * depends on the other; only the harness cares.
+     *
+     * @param string $handle who is looking, by cast handle
+     * @return bool whether the page would hand them a live link
      */
-    public function test_both_callers_call_the_predicate(): void {
-        $this->resetAfterTest();
+    private function pagesays(string $handle): bool {
+        global $PAGE;
 
-        $root = dirname(__DIR__);
-        foreach (['lib.php', 'group.php'] as $file) {
-            $source = file_get_contents($root . '/' . $file);
-            $this->assertIsString($source);
-            $this->assertStringContainsString(
-                'teamaccess::may_read_proposal(',
-                $source,
-                $file . ' no longer calls the one proposal policy'
+        $this->setUser($this->users[$handle]);
+        $PAGE->set_url('/mod/selfselectadvanced/group.php', ['id' => $this->activity->cm()->id]);
+        $export = (new \mod_selfselectadvanced\output\group_page(
+            new api($this->activity),
+            groups::get($this->activity, (int) $this->alpha->id),
+            (int) $this->users[$handle]->id
+        ))->export_for_template($PAGE->get_renderer('core'));
+
+        return (bool) $export->mayreadproposal;
+    }
+
+    /**
+     * The page, the file server and the predicate give ONE answer per
+     * actor.
+     *
+     * This replaces a test that asserted the SUBSTRING
+     * 'teamaccess::may_read_proposal(' appeared in group.php. group.php
+     * contains that literal three times, twice in prose, so the audit
+     * replaced the real call with has_capability(':viewall'), deleted
+     * the adjacent comment, and the test stayed green - a green check
+     * that examined nothing.
+     *
+     * What is asserted instead is the invariant A-05 is actually about:
+     * for each named actor the page's answer EQUALS the predicate's,
+     * and equals what the real file server does when that person asks
+     * for the file. The expected column is written out first so the
+     * three-way equality cannot be satisfied by three copies of one
+     * wrong answer, and it deliberately spans both directions - two who
+     * are served and three who are not.
+     */
+    public function test_the_page_the_file_server_and_the_predicate_agree(): void {
+        $this->resetAfterTest();
+        $this->build_world();
+
+        // The four actors F-4 names, plus an outsider - and the
+        // discriminating one is the invitee, whom the PAGE admits and
+        // the FILE refuses.
+        $expected = [
+            'member' => true,
+            'guidealpha' => true,
+            'narrowmanager' => true,
+            'invitee' => false,
+            'outsider' => false,
+        ];
+
+        // Collected in two passes for the ordering reason pagesays()
+        // documents, then compared - never interleaved.
+        $predicate = [];
+        $fileserver = [];
+        foreach (array_keys($expected) as $handle) {
+            $predicate[$handle] = teamaccess::may_read_proposal(
+                $this->activity,
+                $this->alpha,
+                (int) $this->users[$handle]->id
+            );
+            $fileserver[$handle] = $this->fetch($handle);
+        }
+        $page = [];
+        foreach (array_keys($expected) as $handle) {
+            $page[$handle] = $this->pagesays($handle);
+        }
+
+        foreach ($expected as $handle => $served) {
+            $this->assertSame(
+                $served,
+                $predicate[$handle],
+                $handle . ': the policy itself has changed, so the equalities below would prove nothing'
+            );
+            $this->assertSame(
+                $predicate[$handle],
+                $page[$handle],
+                $handle . ': the team page and the proposal policy disagree'
+            );
+            $this->assertSame(
+                $predicate[$handle],
+                $fileserver[$handle],
+                $handle . ': the file server and the proposal policy disagree'
             );
         }
-        $this->assertStringNotContainsString(
-            "'status' => 'confirmed'",
-            file_get_contents($root . '/lib.php'),
-            'lib.php has grown its own membership test again'
+    }
+
+    /**
+     * The page follows the predicate under an administrator's PROHIBIT.
+     *
+     * A page that agreed with the predicate only while everybody held
+     * everything would still be a page carrying its own copy: the
+     * capability that MOVES the answer has to move both. The file
+     * server's half of this case is
+     * test_prohibiting_viewassignedteams_closes_the_file() above; this
+     * one is the page, before and after, on the same actor.
+     */
+    public function test_the_page_follows_the_predicate_when_a_capability_is_withdrawn(): void {
+        $this->resetAfterTest();
+        $this->build_world();
+
+        $this->assertTrue($this->pagesays('guidealpha'), 'positive control: the page links it first');
+
+        $prohibited = $this->getDataGenerator()->create_role();
+        assign_capability(
+            'mod/selfselectadvanced:viewassignedteams',
+            CAP_PROHIBIT,
+            $prohibited,
+            $this->activity->context()->id
+        );
+        role_assign($prohibited, $this->users['guidealpha']->id, $this->activity->context());
+        accesslib_clear_all_caches_for_unit_testing();
+
+        $this->assertFalse(
+            teamaccess::may_read_proposal(
+                $this->activity,
+                $this->alpha,
+                (int) $this->users['guidealpha']->id
+            ),
+            'fixture: the policy must refuse them now'
+        );
+        $this->assertFalse(
+            $this->pagesays('guidealpha'),
+            'the team page still drew a live proposal link after the capability was prohibited'
         );
     }
 

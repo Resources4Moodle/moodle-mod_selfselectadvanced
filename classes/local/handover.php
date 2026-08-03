@@ -76,7 +76,16 @@ class handover {
             if (!in_array($group->state, self::STATES, true)) {
                 throw new \moodle_exception('refusalhandoverstate', 'mod_selfselectadvanced');
             }
-            if ((int) $group->guideid !== $actorid) {
+            // CALLED, not transcribed (audit D5). "Is this THEIR team?"
+            // is teamaccess::is_assigned_guide() and nothing else; this
+            // line and cancel()'s twin were the last two raw copies in
+            // the guide workflow. Neither was a hole - guide.php gates
+            // the page on :guide - but a second answer to a question
+            // with a home is how this plugin acquired four answers to
+            // the proposal question (A-05). The nominee's own authority
+            // is unchanged and is asked below by can_take_guide(),
+            // which requires :guide of them.
+            if (!teamaccess::is_assigned_guide($this->activity, $group, $actorid)) {
                 throw new \moodle_exception('refusalhandovernotguide', 'mod_selfselectadvanced');
             }
             if ($nomineeid === $actorid) {
@@ -97,6 +106,28 @@ class handover {
                 'timemodified' => time(),
             ]);
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Five refusals - state, not-the-guide, self-nomination,
+            // already-pending and the nominee's capacity - all throw
+            // from INSIDE the transaction, and guide.php catches
+            // moodle_exception to redraw with the refusal. A caught
+            // throw never reaches Moodle's exception handler, so
+            // without this arm the delegated transaction stayed open
+            // for the rest of the request and everything written after
+            // it was discarded when the connection closed.
+            //
+            // Unconditional, never gated on
+            // $DB->is_transaction_started(): under PHPUnit that
+            // predicate answers for advanced_testcase (true on m5pg,
+            // false on m5my) rather than for this method, and the
+            // nested arm it selects is wrong anyway - an undisposed
+            // frame left on the stack makes the caller's own rollback()
+            // rethrow without issuing the physical ROLLBACK. See
+            // state::submit() and penalty\ledger::set_award().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
             $guidelock->release();
@@ -175,6 +206,15 @@ class handover {
             freeze::request_sync($this->activity, $requested);
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The nominee, state and capacity refusals all throw from
+            // inside the transaction - a handover cancelled between the
+            // guide's page load and the click is the ordinary race.
+            // Unconditional - see propose().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
             $guidelock->release();
@@ -234,6 +274,14 @@ class handover {
             }
             $this->clear($group, $actorid);
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The refusalhandovernonominee guard is judged on the row read INSIDE
+            // the lock and throws from inside the transaction.
+            // Unconditional - see propose().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }
@@ -269,7 +317,10 @@ class handover {
             $transaction = $DB->start_delegated_transaction();
 
             $group = groups::get($this->activity, $groupid);
-            if ((int) $group->guideid !== $actorid) {
+            // The same predicate propose() asks, for the same reason
+            // (audit D5): cancelling is the proposer taking their own
+            // proposal back, so it answers to the same question.
+            if (!teamaccess::is_assigned_guide($this->activity, $group, $actorid)) {
                 throw new \moodle_exception('refusalhandovernotguide', 'mod_selfselectadvanced');
             }
             if (empty($group->guidesuccessorid)) {
@@ -277,6 +328,14 @@ class handover {
             }
             $this->clear($group, $actorid);
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The not-the-guide and nothing-pending refusals are judged
+            // on the row read INSIDE the lock and throw from inside the
+            // transaction. Unconditional - see propose().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }

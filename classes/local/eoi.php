@@ -151,6 +151,30 @@ class eoi {
             ])->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Six refusals - not-listed, duplicate, the per-guide open
+            // cap, the per-group waitlist cap and the capacity ceiling
+            // - are all judged on rows read INSIDE the locks and throw
+            // from INSIDE the transaction. guide.php catches
+            // moodle_exception and redirects with a notification, so a
+            // caught refusal never reaches Moodle's exception handler
+            // and nothing else would roll this back: the delegated
+            // transaction stayed open for the rest of the request and
+            // everything written after it was discarded when the
+            // connection closed.
+            //
+            // Unconditional, never gated on
+            // $DB->is_transaction_started(): under PHPUnit that
+            // predicate answers for advanced_testcase (true on m5pg,
+            // false on m5my) rather than for this method, and the
+            // nested arm it selects is wrong anyway - an undisposed
+            // frame left on the stack makes the caller's own rollback()
+            // rethrow without issuing the physical ROLLBACK. See
+            // state::submit() and penalty\ledger::set_award().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
             $guidelock->release();
@@ -202,6 +226,15 @@ class eoi {
             self::transition($activity, $row, self::STATUS_WITHDRAWN);
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The revalidation inside the lock throws
+            // refusaleoinotpending from inside the transaction whenever
+            // the leader decided this interest first - exactly the race
+            // the re-read exists for. Unconditional - see express().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }
@@ -316,6 +349,16 @@ class eoi {
             }
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Everything this method refuses - not-pending, not-leader,
+            // the self-accept guard, require_uninvolved(), not-listed
+            // and the capacity ceiling - throws from INSIDE the
+            // transaction, on rows re-read inside the two locks.
+            // Unconditional - see express().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
             $guidelock->release();
@@ -401,6 +444,14 @@ class eoi {
             }
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The refusaleoinotassigned guard is judged on the row read INSIDE
+            // the lock and throws from inside the transaction.
+            // Unconditional - see express().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }

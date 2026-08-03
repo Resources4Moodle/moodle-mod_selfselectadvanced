@@ -27,12 +27,17 @@
  * "Email the whole team" button and the contact columns of the download
  * are gone, and staff reach a member through Send a message, which is a
  * Moodle message. A mobile number shows only to a viewer connected to
- * its owner who also consented, and never with an off-platform link
- * while the activity protects contact details.
+ * its owner who also consented, and never with an off-platform link of
+ * any kind, in either state of the contact-privacy switch.
  *
  * Read-only GET throughout; the leader's accept/reject decision and the
  * guide's own express/withdraw actions live elsewhere (pickteam.php,
  * group.php).
+ *
+ * NO OFF-PLATFORM LINK EITHER, whatever the switch says (1.20.1 wave
+ * 3D): the WhatsApp deep link this page used to build from a visible
+ * number when contact protection was OFF is gone, unconditionally.
+ * Moodle messaging is the whole of the contact affordance here.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -177,7 +182,6 @@ if ($viewgroup > 0) {
         (int) $USER->id,
         $hasidentitycap
     );
-    $protect = \mod_selfselectadvanced\local\contactprivacy::enabled($activity);
     $messagemap = \mod_selfselectadvanced\local\staffmessage::may_message_map($activity, (int) $USER->id, $memberids);
 
     $members = [];
@@ -197,16 +201,25 @@ if ($viewgroup > 0) {
         $mobilevisible = !empty($privacymap[(int) $memberrecord->userid])
             && \mod_selfselectadvanced\local\attributes\manager::mobile_visible($memberrecord, $mobilebypass);
         $rawmobile = (string) ($memberrecord->mobile ?? '');
-        // With the switch ON the plugin offers no off-platform contact
-        // affordance at all: the number itself may still reach a
-        // connected, consenting viewer, but there is no wa.me link.
-        $digits = ($mobilevisible && !$protect) ? preg_replace('/\D+/', '', $rawmobile) : '';
+        // NO OFF-PLATFORM CONTACT AFFORDANCE, in either switch state
+        // (1.20.1 wave 3D). This row used to grow a WhatsApp deep link,
+        // built out of the digits of the number, whenever the number was
+        // visible AND the activity was NOT protecting contact details,
+        // which inverted the maintainer's
+        // ruling twice over: the ruling was "regress to Moodle
+        // messaging only", and a deep link is worse than the number it
+        // is built from, because following it hands the digits to a
+        // third party the student never agreed to, off the platform,
+        // where no consent flag and no connection map reaches. The
+        // switch was the wrong gate for it as well - a legacy activity
+        // is not a licence to export a number to WhatsApp. The number
+        // itself still reaches a connected, consenting viewer on this
+        // screen, and the only ACTION offered is Send a message, which
+        // travels as a Moodle message.
         $member = (object) [
             'firstname' => $memberrecord->firstname,
             'lastname' => $memberrecord->lastname,
             'mobile' => $mobilevisible ? $rawmobile : get_string('mobilewithheld', 'mod_selfselectadvanced'),
-            'haswhatsapp' => $digits !== '',
-            'whatsappurl' => $digits !== '' ? 'https://wa.me/' . $digits : '',
             'messageurl' => !empty($messagemap[(int) $memberrecord->userid])
                 ? \mod_selfselectadvanced\local\staffmessage::url(
                     $activity,
@@ -311,15 +324,9 @@ if ($viewgroup > 0) {
         $table->head[] = get_string('actions');
     }
     foreach ($members as $member) {
-        $mobilecell = s($member->mobile);
-        if ($member->haswhatsapp) {
-            $mobilecell .= ' ' . html_writer::link(
-                $member->whatsappurl,
-                get_string('eoiwhatsapp', 'mod_selfselectadvanced'),
-                ['class' => 'ms-1']
-            );
-        }
-        $row = [s($member->firstname), s($member->lastname), $mobilecell];
+        // The cell is the number and nothing else - no mailto:, no
+        // WhatsApp deep link, no tel:. See the composition above.
+        $row = [s($member->firstname), s($member->lastname), s($member->mobile)];
         foreach ($useddims as $dim) {
             $row[] = s($member->$dim);
         }

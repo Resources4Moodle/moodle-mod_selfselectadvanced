@@ -130,13 +130,92 @@
   logs the ones it therefore skipped. **On an existing site this changes
   nothing** — everyone who could do these things yesterday still can.
   What changes is that withdrawing the permission now works.
+- **A team's leadership can no longer be handed over by somebody who is
+  not permitted to act.** The list above was drawn up from the things
+  the permissions were known to guard, and it missed the one action in
+  this plugin that HANDS a person a team. Nominating a successor,
+  cancelling that nomination, and the nominee's own Accept and Decline
+  all went ahead whatever an administrator had decided: with both
+  "Create groups and act as leader" and "Accept or decline invitations
+  and nominations" prohibited on the activity, a student could still be
+  nominated, confirm, and become the team's leader — by pressing the
+  button or by posting to the address directly. Naming or cancelling a
+  successor is now the leader's permission, and answering a nomination
+  is the respond permission, which is what its name has promised all
+  along. The nomination itself stays on screen: a student who may no
+  longer answer must still be able to see that their team is waiting on
+  them, and their leader can still cancel it.
+- **A guide whose permissions have been withdrawn can no longer put a
+  mark in the gradebook.** The award and the guide's notes were opened
+  to whoever was named as the team's guide, on the name alone, with no
+  permission checked at all — so withdrawing "Act as a project guide",
+  or the narrow permission that opens the team's pages, closed every
+  other door on that team and left the one that writes a grade standing
+  open. Writing an award now asks the same two questions the review page
+  asks at its door. Managers keep their access, and see-everything
+  permission still does not buy a grade write.
+- **Approving a team and sending it back now ask the permission that
+  names them.** "Act as a project guide: review, return and approve
+  groups" names three things, and the fix above reached only the first.
+  Further down the very same file, Accept and Return still admitted
+  anyone whose name was on the team as its guide and asked no
+  permission at all. So the guide who had just been refused the team
+  page, the review page and the proposal file could still open their
+  dashboard, press the one-click **Accept**, and move the team from
+  waiting to firm — writing the approval date and a penalty-ledger row
+  on the way. Withdrawing "Act as a project guide" outright did not stop
+  it either. Both now ask the same pair of questions the gradebook write
+  asks: are you the team's own assigned guide, and are you permitted to
+  guide at all. See-everything permission buys neither, and Manage keeps
+  the award correction and nothing more. The dashboard draws its Accept
+  and Return from the same answer, so where the buttons used to sit a
+  guide now reads the reason instead; the automatic approval that runs
+  when the decision window lapses is untouched, because a lapsed
+  deadline is exactly what stands in for the guide there.
+- **Submitting a team to its guide is a leader action, and is now
+  permitted like one.** "Create groups and act as leader" had been
+  applied to creating, inviting, withdrawing, confirming a departure,
+  deleting and the whole succession chain — two passes over the same
+  permission, and both walked past
+  the one action that ENDS the team's forming stage: the one that
+  claims a guide's capacity and mails them. A student whose permission
+  had been prohibited was shown neither "Invite members" nor "Delete
+  group" and could still press **Submit to guide**, in the browser, with
+  nothing crafted. The service now refuses first, before it takes any
+  lock, and the page no longer builds the form.
+- **Assigning a team's guide asks the permission whose name says so.**
+  "Assign or reassign a team's guide and decide expressions of interest"
+  covers two actions, and only the second one asked for it. Assigning —
+  which changes who supervises a group of students, frees one guide's
+  workload slot and consumes another's — checked only that the person
+  doing it was not entangled with the team, and left the permission
+  entirely to the screen it happened to be reached from. It now asks the
+  same pair that screen asks, before the locks. **Nobody who could
+  assign a guide yesterday is refused today**; what changes is that a
+  direct post, a future caller, or work queued before you withdrew the
+  permission now meets the same answer the screen gives.
+- **"Is this their team?" is asked in one place.** Four screens and
+  services kept their own private copy of that test, comparing the
+  team's guide to the person acting and stopping there. None of them was
+  a way in — each also asked a permission, or its page did — but one
+  question with four answers is precisely how the proposal file came to
+  disagree with the page that offered it. The team page's Freeze flag,
+  the freeze service's choice between "your own team" and "on the
+  guide's behalf", and both halves of a guide handover now call the one
+  answer. One test is deliberately left as it was, with the reason
+  written beside it: the restraint that stops a guide releasing a team
+  an editing teacher froze is the single place where the comparison
+  REFUSES rather than admits, and routing it through a permission would
+  mean that withdrawing a read permission handed the release back.
 - **A control you are not permitted to use is no longer drawn.** With
   the permissions above withdrawn, the screens still offered Invite,
   Delete team, Confirm leave, Accept and Decline, and every one of them
   ended at a "you do not have permission" page. They are now hidden.
-  A pending invitation is still LISTED when you may not answer it —
-  you need to know a team is waiting on you, and its leader can still
-  withdraw it — but the two buttons are gone.
+  Withdraw on a pending invitation, Freeze on a team you guide, and the
+  Accept, Decline and Cancel buttons on a leadership nomination go the
+  same way. A pending invitation is still LISTED when you may not answer
+  it — you need to know a team is waiting on you, and its leader can
+  still withdraw it — and so is a nomination; it is the buttons that go.
 - **The file server now asks the same question as the page that offered
   the link.** A team's proposal was served by a rule written out a
   second time inside the file server, and the two copies had drifted
@@ -153,7 +232,20 @@
   link — an invitation is not a membership. **A guide a team has just
   approached can now open the proposal they were asked to judge**; the
   page that asks them to decide had always shown the link, and the file
-  server had always refused it.
+  server had always refused it. **The team page and the file server are
+  now tested against each other** for a named set of people, in the
+  browser as well as in the unit tests: they already agreed, but nothing
+  in the plugin would have noticed if they stopped.
+- **The invitation candidate search no longer runs a lookup it cannot
+  use.** Once the contact-protection setting became the whole test, the
+  picker still performed a connection lookup for the page behind a
+  condition that required the setting to be both on and off at once, so
+  no row could ever reach it. It is gone. Contact protection is per
+  activity and it is a switch, not a scale: with it on, nobody matches
+  or sees an address; with it off, your site's own two identity
+  permissions decide alone. New tests hold that line for a manager, for
+  a role granted "See participants' identity", and for a site
+  administrator, on the search as well as on the label.
 - **No screen, search, export or label anywhere in this plugin shows or
   matches on an email address while contact protection is on — for
   anybody, including editing teachers, managers and administrators.**
@@ -194,10 +286,59 @@
   team autocomplete a student types into and on the manager's compliance
   sweep. The search now keeps a fraction of what it kept before and
   stops rather than growing past a stated ceiling; the worst case
-  measured over 680 adversarial templates fell from 169 MB to 41 MB,
-  and every one of those 680 returns exactly the answer it returned
-  before. The envelope, its measurements and which number to tune are
-  written down beside the limit they belong to.
+  measured over 680 adversarial templates fell from 169 MB to 41 MB.
+  The envelope, its measurements and which number to tune are written
+  down beside the limit they belong to. **The first ceiling chosen for
+  that was too low, and it is corrected below** — the sentence that once
+  stood here, that all 680 templates came back with exactly the answer
+  they had before, was true of the 680 and not of the shapes outside
+  them.
+- **A team the composition rules can seat is no longer reported short.**
+  The ceiling above was set from a sample
+  rather than from the memory it exists to protect, and it was too low:
+  ordinary teams reached it — fourteen people against nine one-seat
+  rules, nine people against eight four-seat rules — and were handed to
+  the fallback, which only ever reports a *lower bound*. One of them was
+  told it had seated five people when seven of its members can in fact
+  be seated, so a team that meets its composition template was reported
+  two seats short. Both are decided exactly again.
+- **And a team is now seated the same way whatever its attribute values
+  are called.** Correcting that ceiling introduced a worse fault than
+  the one it fixed, and this is that fault fixed. The search remembers
+  the states it has already worked out and it filed them under a label
+  that contained the attribute values themselves — so the working memory
+  a team was given depended on how long its course's words are. A course
+  that types "Electronics and Communication Engineering" into the
+  free-text Department the CSV importer accepts — forty-one characters —
+  was given roughly a tenth of the memory of a course that types "eng",
+  for the same roster and the same rules, and gave up where the other
+  finished. Two different teams, identical in every way that matters,
+  seated differently because of their vocabulary. The values are now
+  numbered internally and the labels carry the numbers, so what a course
+  calls things cannot change what it is told. The numbering itself moves
+  no answer: run against the engine as it stood before any memory limit
+  existed, with the limit switched off on both sides, the two agree on
+  every seat and every person over more than a thousand generated
+  cases — three hundred and sixty teams, each solved at four different
+  value lengths. Both corpora that were supposed to guard this used
+  seven-character values, which is why nothing noticed.
+- **The two limits on that memory are now one.** Once a remembered state
+  is a bounded size, the number of states and the memory they occupy
+  stop being two different questions — and it was the *count* that bound
+  first and cost the seats. It is gone. What is left is a single memory
+  budget, derived from the whole envelope one team is allowed rather
+  than from a sample of runs, and raised from 32 MB to 36 MB because
+  measured teams need more than 32. **What is not finished, stated
+  plainly:** no test in this plugin can make that memory budget bind. No
+  team has been found inside the size guard that needs 36 MB, so nothing
+  pins a verdict produced by exhausting it, and removing the check
+  altogether leaves the whole suite green — measured, not assumed. It is
+  a belt, and that is written down beside the constant rather than left
+  to be discovered. Large teams can still be handed to the fallback and
+  reported short by the *time* budget, which is a deliberate decision and
+  is unchanged. Every answer is now pinned against the engine run with
+  no memory budget at all, at four different value lengths, so no future
+  change can trade a team's seat for memory without a test saying so.
 - **Two comments that were not true are true now.** The move engine said
   every team a commit touches is locked by the commit, when on one of
   its two paths it locks nothing and requires the caller to have done

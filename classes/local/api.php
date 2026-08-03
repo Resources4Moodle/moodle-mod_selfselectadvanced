@@ -254,6 +254,20 @@ class api {
             $event->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The three re-checks under the lock - the leader's
+            // capacity, can_create_group() and name_taken() - all throw
+            // from INSIDE the transaction, and groupedit.php catches
+            // moodle_exception to redraw the form with the refusal. A
+            // caught throw never reaches Moodle's exception handler, so
+            // nothing else rolls this back: without this arm the
+            // delegated transaction stayed open for the rest of the
+            // request and every later write was discarded when the
+            // connection closed. Unconditional - see dissolve_group().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }
@@ -357,6 +371,17 @@ class api {
             $event->trigger();
 
             $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // The can_delete_group() gate is re-asked on the row read INSIDE the
+            // lock, so a team submitted between the page load and the
+            // click is refused from inside the transaction; group.php
+            // catches that and redirects with a notification. Without
+            // this arm the refusal left the transaction open.
+            // Unconditional - see dissolve_group().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
         } finally {
             $lock->release();
         }
@@ -433,10 +458,6 @@ class api {
             throw new \moodle_exception('errdissolvereasonrequired', 'mod_selfselectadvanced');
         }
 
-        // Captured BEFORE the locks (T-04's discipline): the refusals
-        // below throw from INSIDE the transaction, so without this a
-        // refused dissolve leaves a dangling delegated transaction.
-        $outermost = !$DB->is_transaction_started();
         $locks = locks::acquire_all([
             'activity:' . $this->activity->id(),
             'group:' . $group->id,
@@ -625,7 +646,20 @@ class api {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // The award, live-ticket and validate_set() refusals all
+            // throw from INSIDE the transaction, and manage.php CATCHES
+            // what this throws, so the half-write has to be undone here
+            // while there is still a transaction object to undo it
+            // with. Unconditional since 1.20 wave 3D: the $outermost
+            // gate it replaced was read from
+            // $DB->is_transaction_started(), which under PHPUnit
+            // answers for advanced_testcase (true on m5pg, false on
+            // m5my) rather than for this method, and which selects the
+            // WRONG arm when genuinely nested - an undisposed frame
+            // left on top of the stack makes the caller's own
+            // rollback() rethrow without issuing the physical ROLLBACK.
+            // See state::submit() and penalty\ledger::set_award().
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;

@@ -61,11 +61,20 @@ use stdClass;
  *
  * The search is pure computation over arrays the caller already loaded:
  * no queries, no capability checks, no strings, no clock and no random
- * source. Cost is bounded three ways - a deterministic input-size
- * guard, memoisation of search states, and a node BUDGET that is a step
- * counter rather than a timeout, because a timeout would let two runs
- * over identical data disagree and the pre-lock and in-lock composition
- * checks must always agree.
+ * source. Cost is bounded by a deterministic input-size guard and by
+ * TWO budgets - MAX_NODES for time and MAX_MEMO_BYTES for memory. Both
+ * are counters over the data rather than a clock or a reading of the
+ * process's own memory, because both of those would let two runs over
+ * identical data disagree, and the pre-lock composition check and the
+ * in-lock re-check must always agree or a team passes the gate and then
+ * fails the commit.
+ *
+ * The attribute VALUES never appear in a memo key: intern_values()
+ * replaces them with small integer ids, so what a course calls its
+ * departments cannot change how much of the memory budget a search
+ * gets. That is the property the 1.20 memory work was missing, and it
+ * is why one budget replaces the two this class carried through wave
+ * 3B.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -133,29 +142,8 @@ final class allocator {
     public const MAX_NODES = 200000;
 
     /**
-     * Memo entries above which the search gives up - the MEMORY half of
-     * the budget, and the reason this class is safe to call from a page
-     * nobody raised the memory limit on.
-     *
-     * THE ENVELOPE, measured 2026-08-02 on PHP 8.4 over a 680-case
-     * adversarial corpus (rosters of 4 to 31 members, 2 to 13 slots, 1
-     * to 5 seats a slot, 3 to 8 values a dimension, no-overlap slots
-     * predominating), peak emalloc for ONE solve, over and above the
-     * caller:
-     *
-     *   MAX_NODES alone, nested-array memo (the 1.20 shipping shape)
-     *     worst run that finished EXACT       69.0 MB
-     *     worst run overall                  169.2 MB   <- FATAL
-     *   MAX_NODES alone, packed-string memo
-     *     worst run that finished EXACT       20.3 MB
-     *     worst run overall                   64.3 MB
-     *   MAX_NODES + MAX_MEMO (this build)
-     *     worst run that finished EXACT       20.3 MB
-     *     worst run overall                   41.0 MB
-     *
-     * Every case in that corpus returns the same filled / assignment /
-     * totalfilled / exact as the 1.20 shipping shape did: the 128 MB
-     * headroom was bought without moving a single verdict.
+     * The memo's memory budget in BYTES, and the ONLY memory limit this
+     * class has.
      *
      * Moodle's MEMORY_STANDARD is 128 MB on 64-bit and NO entry point
      * that reaches this class raises it - not search_groups (per
@@ -164,24 +152,127 @@ final class allocator {
      * page, which is why the ceiling is enforced here rather than
      * documented and hoped for.
      *
-     * WHICH AXIS TO TUNE. MAX_NODES buys exactness and costs TIME;
-     * MAX_MEMO buys exactness and costs MEMORY. They are close to
-     * proportional - an entry is about 340 bytes - so a site that
-     * raises its PHP memory limit can raise this in step (100000
-     * entries is about 33 MB) and a site that cannot must lower it.
-     * Both are fail-CLOSED: giving up hands the roster to the greedy
-     * fallback, whose fill is a lower bound on the exact answer, so a
-     * smaller budget can only under-report a team's fill and can never
-     * call a non-compliant team compliant.
+     * Charged per entry as the two strings the memo stores plus
+     * {@see self::MEMO_ENTRY_BYTES} for what PHP spends around them. It
+     * is a COUNTER OVER THE DATA, not a reading of the process. The
+     * distinction is the same one that keeps MAX_NODES from being a
+     * timeout: memory_get_usage() depends on whatever the CALLER already
+     * allocated, so the same roster would be decided differently from
+     * the join picker and from flagged.php's sweep, and the pre-lock
+     * composition check and the in-lock re-check would be free to
+     * disagree on unchanged data - a team passing the gate and then
+     * failing the commit. strlen() over the memo's own strings depends
+     * on nothing but the template and the roster.
      *
-     * Set to 100000 because no run in the corpus that finished exactly
-     * needed more, so this ceiling costs no exactness that MAX_NODES
-     * was buying - it only truncates runs that were already heading
-     * for the fallback.
+     * WHY THERE IS ONE LIMIT HERE AND NOT TWO, corrected 2026-08-02
+     * after an independent blind audit measured the pair this replaces.
+     * Through wave 3B the memo was bounded by an entry ceiling AND a
+     * byte budget, and the byte budget was wrong in the place it bound,
+     * for one reason: a memo key embedded the ATTRIBUTE VALUES. A course
+     * that writes "Electronics and Communication Engineering" in a
+     * free-text Department - 41 characters, and attributes/csv_importer
+     * accepts it - paid roughly ten times the key length of a course
+     * that writes "eng", for the same search over the same shaped data,
+     * and so was given roughly ten times fewer remembered states out of
+     * the same budget. Measured here over 432 generated cases at value
+     * lengths of 7, 51, 131 and 311 characters, the byte budget took the
+     * exact search away on 16 of them and cost seats on 12 - EVERY ONE
+     * at 51 characters or longer, none at 7. Both corpora that were
+     * supposed to defend it used seven-character values, which is why
+     * nothing noticed.
+     *
+     * {@see intern_values()} is the repair: the values become small
+     * integer ids at load, and a key carries ids. An entry's cost now
+     * depends on the roster and the template and on nothing else -
+     * measured worst single entry, 231 bytes - so the same shape costs
+     * the same wherever it is deployed. With that true, the entry
+     * ceiling had nothing left to do that this budget does not do
+     * better, and a second limit that can bind first is a second way to
+     * lose a seat. It is gone.
+     *
+     * WHAT IT IS NOT: the entry ceiling was NOT replaced by simply
+     * dropping the byte budget. Measured on the same 432 cases, an entry
+     * ceiling of 131072 with no byte budget peaks at 296.9 MB, and 192.3
+     * MB of that is one thirty-member roster with 311-character values -
+     * over MEMORY_STANDARD entirely, on a page nothing raises the limit
+     * for. The audit's reading that the byte budget "buys no memory it
+     * needed" holds for short values and fails badly for long ones; what
+     * makes the byte budget affordable is the interning, not its
+     * removal.
+     *
+     * THE ENVELOPE, measured 2026-08-02 on PHP 8.4 with the memo budget
+     * DISABLED, so these are what the search WANTS rather than what it
+     * is allowed. 9264 cases: 7392 from 4 to 30 members, 6 to 12 slots,
+     * 1 to 4 seats, 3 to 8 values at all four value lengths, plus 1872
+     * deliberately at the wide end (26 to 30 members, up to 9 values, so
+     * almost every member is a distinct profile and the keys are as long
+     * as the guard permits):
+     *
+     *   worst entries filed                     174523
+     *   worst charged                            34.76 MB
+     *   worst peak for ONE solve                 35.15 MB
+     *   worst single entry                          231 bytes
+     *   largest gap between charge and peak        6.39 MB
+     *
+     * Entries can never exceed MAX_NODES + 1 = 200001, because a node is
+     * counted before every recursion and each call files at most one
+     * entry - so the entry count the deleted ceiling used to bound is
+     * bounded by the time budget already. What is NOT bounded by it is
+     * the PRODUCT: 200001 entries at 231 bytes is 46.2 MB, over the 43
+     * MB tests/allocator_memory_test.php sanctions. That product is what
+     * this budget exists to catch, and 34.76 MB of it has been reached
+     * by an ordinary generated case, so it is not a theoretical worry.
+     *
+     * 36 MB is the largest budget whose worst ADMISSIBLE peak - 36 plus
+     * the 6.39 MB charge-to-peak gap measured above - still lands inside
+     * that 43 MB. It clears the worst charge measured by 1.24 MB, which
+     * is deliberately not much: the 43 MB envelope is what decides this
+     * number and there is no room to be generous with it. The previous
+     * 32 MB does NOT clear it - seven of the wide-end cases charge more
+     * than 32 MB - so even after the interning the old number would
+     * still have cost seats.
+     *
+     * WHAT NO TEST CAN DO, stated because a constant nothing notices is
+     * how the wave-3B defect survived a wave. Nothing in this repository
+     * makes this budget BIND: no shape inside the input-size guard has
+     * been found that charges 36 MB, the highest being 34.76, so no test
+     * pins a verdict produced by exhausting it and deleting the
+     * enforcement below would leave the suite green. What the tests do
+     * cover is everything around it - that the budget is a counter and
+     * not a reading of the process
+     * (tests/allocator_exactness_test.php), that lowering it costs
+     * exactness rather than being ignored, that the envelope holds
+     * (tests/allocator_memory_test.php), and above all that the answer
+     * does not move when the same case is run at 7, 51, 131 and 311
+     * characters (tests/allocator_longvalues_test.php), which is exactly
+     * what the wave-3B pair failed. Lower this number if a site must,
+     * and raise it in step with a raised PHP memory limit; lowering it
+     * can only under-report a fill.
+     *
+     * (The 1.20.0 nested-array memo, before the packed rewrite, reached
+     * 169.2 MB on one solve. That figure is the wave-3A note's, over its
+     * own 680-case corpus, and is repeated here only to say what the
+     * rewrite - not this budget - removed.)
      *
      * @var int
      */
-    public const MAX_MEMO = 100000;
+    public const MAX_MEMO_BYTES = 36 * 1024 * 1024;
+
+    /**
+     * What one memo entry costs beyond the length of its two strings.
+     *
+     * A hash bucket, two zend_string headers and the allocator's size
+     * classes. Measured at 121 to 137 bytes on the corpus above, by
+     * subtracting the string bytes a run stored from the peak it
+     * allocated and dividing by the entries it filed; 128 is the round
+     * figure inside that range. The budget above is set from measured
+     * PEAKS and not from this number, so this is the SHAPE of the
+     * charge - it makes a long-keyed entry cost more than a short one -
+     * rather than a claim about any particular allocator.
+     *
+     * @var int
+     */
+    private const MEMO_ENTRY_BYTES = 128;
 
     /** @var int Roster size above which the greedy fallback is used. */
     public const MAX_MEMBERS = 30;
@@ -243,8 +334,24 @@ final class allocator {
     /** @var string[][] Profile value in the slot's dimension, per slot index. */
     private array $pval = [];
 
+    /**
+     * Interned id per dimension and normalised value, from 1.
+     *
+     * @var int[][]
+     */
+    private array $valueid = [];
+
+    /** @var int[][] The interned ids a profile carries, per profile index. */
+    private array $profileids = [];
+
+    /** @var int[][] Interned id of the profile's value in the slot's dimension. */
+    private array $pvalid = [];
+
     /** @var string[] Memoised "score|profile,profile" keyed by search state. */
     private array $memo = [];
+
+    /** @var int Bytes of memory budget the memo has spent this run. */
+    private int $memobytes = 0;
 
     /** @var int Search nodes consumed by the current run. */
     private int $nodes = 0;
@@ -309,6 +416,7 @@ final class allocator {
         }
 
         $this->build_profiles($memberids, $attrs);
+        $this->intern_values();
         $this->build_predicates();
         $this->build_ranks();
         $this->build_bounds();
@@ -317,9 +425,10 @@ final class allocator {
             $this->best_from(0, $this->counts, []);
             $bookings = $this->reconstruct();
         } catch (\OverflowException $e) {
-            // The node budget ran out. The heuristic booking is itself
-            // a valid assignment, so falling back to it can only
-            // under-report fill, never over-report it.
+            // A budget ran out - search nodes or memo bytes. The
+            // heuristic booking is itself a valid assignment, so falling
+            // back to it can only under-report fill, never over-report
+            // it.
             return $this->greedy($template, $memberids, $attrs);
         }
 
@@ -389,18 +498,79 @@ final class allocator {
     }
 
     /**
+     * Give every (dimension, value) the roster carries a small integer id.
+     *
+     * THIS IS WHAT KEEPS A MEMO ENTRY A BOUNDED SIZE, and it is the
+     * whole reason the memory budget below can be a single number. The
+     * consumption registry is part of every memo key, and until this was
+     * done the key embedded the attribute VALUES themselves - so a
+     * course that writes "Electronics and Communication Engineering" in
+     * a free-text Department field (41 characters, and the CSV importer
+     * takes it) paid ten times the key length of a course that writes
+     * "eng", for exactly the same search. A memory budget then bought
+     * ten times fewer remembered states on the first course than on the
+     * second and truncated searches that the second finished, which is
+     * seats lost for no reason but a naming convention. Measured on
+     * PHP 8.4 over 432 generated cases, the byte budget that preceded
+     * this bound on 16 of them and cost seats on 12, every one of them
+     * at value lengths of 51 characters and up.
+     *
+     * An id is per (dimension, value) rather than per value, which is
+     * exactly the pairing {@see profile_consumed()} needs: consuming
+     * "computer" as a DEPARTMENT must not block a member whose PROGRAM
+     * happens to be "computer", and that has always been the rule.
+     * Because the interning is injective, two registries collide in the
+     * key if and only if they were equal before - so the memo's
+     * equivalence classes, its hit rate, the node count and every
+     * verdict are the ones the string keys produced.
+     *
+     * Ids are handed out in profile order and, inside a profile, in
+     * {@see manager::DIMENSIONS} order. Both are already fixed by
+     * {@see build_profiles()}, so the ids - and therefore the keys - are
+     * a pure function of the input, which is what the pre-lock check and
+     * the in-lock re-check need in order to agree.
+     */
+    private function intern_values(): void {
+        $this->valueid = [];
+        $this->profileids = [];
+        $next = 1;
+        foreach ($this->profilevalues as $p => $values) {
+            $this->profileids[$p] = [];
+            foreach ($values as $dimension => $value) {
+                if ($value === '') {
+                    // An empty value is never eligible for a seat and
+                    // never blocks one, so it needs no id.
+                    continue;
+                }
+                if (!isset($this->valueid[$dimension][$value])) {
+                    $this->valueid[$dimension][$value] = $next++;
+                }
+                $this->profileids[$p][] = $this->valueid[$dimension][$value];
+            }
+        }
+    }
+
+    /**
      * The individual seat predicate for every (slot, profile) pair.
      */
     private function build_predicates(): void {
         $this->okvalue = [];
         $this->pval = [];
+        $this->pvalid = [];
         foreach ($this->template as $i => $unusedslot) {
             $this->okvalue[$i] = [];
             $this->pval[$i] = [];
+            $this->pvalid[$i] = [];
             $dimension = $this->dim[$i];
             foreach ($this->profilevalues as $p => $values) {
                 $value = $values[$dimension] ?? '';
                 $this->pval[$i][$p] = $value;
+                // 0 for a value no profile carries in this dimension -
+                // an empty one, or a slot naming a dimension the
+                // attribute manager does not know. No profile is ever
+                // given id 0, so recording one blocks nobody, which is
+                // what an empty value has always done.
+                $this->pvalid[$i][$p] = $this->valueid[$dimension][$value] ?? 0;
                 $ok = $value !== '';
                 if ($ok && $this->matchtype[$i] === 'value' && $this->slotvalue[$i] !== null) {
                     $ok = $value === $this->slotvalue[$i];
@@ -478,9 +648,16 @@ final class allocator {
     /**
      * The state key a memo entry is filed under.
      *
+     * Every part of it is a small integer: the slot index, one count per
+     * profile, and the interned ids of the consumed values. Nothing in a
+     * key scales with the length of an attribute value, so an entry's
+     * cost depends on the ROSTER and the TEMPLATE and on nothing else -
+     * which is what lets {@see self::MAX_MEMO_BYTES} be a budget rather
+     * than a lottery on how a course names its departments.
+     *
      * @param int $i the slot index to fill next
      * @param int[] $avail members still unbooked, per profile index
-     * @param array $consumed dimension => value => true, recorded by earlier slots
+     * @param array $consumed interned value id => true, recorded by earlier slots
      * @return string the canonical key
      */
     private static function state_key(int $i, array $avail, array $consumed): string {
@@ -496,7 +673,8 @@ final class allocator {
      * unit of fill: maximising the score maximises fill first and
      * minimises ranksum second, in pure integer arithmetic.
      *
-     * MEMORY (1.20, O-4) - see the envelope note on MAX_NODES. A memo
+     * MEMORY (1.20, O-4) - see the envelope note on
+     * {@see self::MAX_MEMO_BYTES}. A memo
      * entry is ONE flat string, "score|profile,profile", holding this
      * slot's booking and nothing else. Until this change every entry
      * carried `[$i => $booking] + $sub[1]` - a fresh NESTED array naming
@@ -510,16 +688,21 @@ final class allocator {
      * necessarily visited and memoised on the way down, the transition
      * (avail, consumed) is a pure function of the booking, and nothing
      * here changes which booking wins a tie - so the recovered
-     * assignment is the one this search chose. Verified on a 680-case
-     * adversarial corpus: identical filled / assignment / totalfilled /
-     * exact for every case, on PostgreSQL and MariaDB alike (the
-     * class touches neither).
+     * assignment is the one this search chose. Verified against the
+     * pre-rewrite engine over an adversarial corpus: identical filled /
+     * assignment / totalfilled / exact for every case once the memory
+     * budget stops truncating the search, on PostgreSQL and MariaDB
+     * alike (the class touches neither). The cases where a BUDGET rather
+     * than the rewrite moved an answer are pinned by
+     * tests/allocator_exactness_test.php, and the ones a budget moved
+     * because the attribute values were long by
+     * tests/allocator_longvalues_test.php.
      *
      * @param int $i the slot index to fill next
      * @param int[] $avail members still unbooked, per profile index
-     * @param array $consumed dimension => value => true, recorded by earlier slots
+     * @param array $consumed interned value id => true, recorded by earlier slots
      * @return int the best score reachable from this state
-     * @throws \OverflowException when the node budget is exhausted
+     * @throws \OverflowException when the node budget or the memory budget is exhausted
      */
     private function best_from(int $i, array $avail, array $consumed): int {
         if ($i === $this->n) {
@@ -559,15 +742,22 @@ final class allocator {
                 break;
             }
         }
-        if (count($this->memo) >= self::MAX_MEMO) {
-            // The memory half of the budget. Thrown rather than simply
-            // not memoised: dropping entries would leave the search
-            // correct but re-deriving states it has already paid for,
-            // which spends the NODE budget to buy nothing, and
-            // reconstruct() needs every state on the winning path.
+        // The memory budget, charged in bytes because that is what is
+        // scarce - and charged in bytes ALONE because interned keys make
+        // an entry's cost a function of the roster and the template, so
+        // a second limit counting entries could only bind earlier and
+        // cost a seat for nothing. Thrown rather than simply not
+        // memoised: dropping entries would leave the search correct but
+        // re-deriving states it has already paid for, which spends the
+        // NODE budget to buy nothing, and reconstruct() needs every
+        // state on the winning path.
+        $packed = $bestscore . '|' . implode(',', $bestbooking);
+        $cost = strlen($key) + strlen($packed) + self::MEMO_ENTRY_BYTES;
+        if ($this->memobytes + $cost > self::MAX_MEMO_BYTES) {
             throw new \OverflowException('composition search memory envelope exhausted');
         }
-        $this->memo[$key] = $bestscore . '|' . implode(',', $bestbooking);
+        $this->memo[$key] = $packed;
+        $this->memobytes += $cost;
 
         return $bestscore;
     }
@@ -635,7 +825,7 @@ final class allocator {
      *
      * @param int $i the slot index
      * @param int[] $avail members still unbooked, per profile index
-     * @param array $consumed dimension => value => true, recorded by earlier slots
+     * @param array $consumed interned value id => true, recorded by earlier slots
      * @return \Generator each booking, a list of profile indices (one per seat)
      */
     private function candidate_bookings(int $i, array $avail, array $consumed): \Generator {
@@ -823,40 +1013,40 @@ final class allocator {
      * A slot that books nobody records nothing; a slot that books
      * somebody records what it used whether or not it allows overlap.
      *
+     * Reported as {@see intern_values()} ids, because the registry is
+     * part of every memo key and a key may not carry an attribute value.
+     *
      * @param int $i the slot index
      * @param int[] $booking the profile indices booked into the slot
-     * @return array dimension => value => true
+     * @return int[] the interned ids the booking records
      */
     private function used_values(int $i, array $booking): array {
         if (!$booking) {
             return [];
         }
-        $dimension = $this->dim[$i];
         if ($this->matchtype[$i] === 'distinct') {
-            $values = [];
+            $ids = [];
             foreach ($booking as $p) {
-                $values[$this->pval[$i][$p]] = true;
+                $ids[$this->pvalid[$i][$p]] = true;
             }
 
-            return [$dimension => $values];
+            return array_keys($ids);
         }
 
         // Fixed-value and "any one value" slots book one shared value.
-        return [$dimension => [$this->pval[$i][reset($booking)] => true]];
+        return [$this->pvalid[$i][reset($booking)]];
     }
 
     /**
      * Fold newly recorded values into the registry.
      *
-     * @param array $consumed dimension => value => true so far
-     * @param array $used dimension => value => true just recorded
+     * @param array $consumed interned value id => true so far
+     * @param int[] $used interned ids just recorded
      * @return array the merged registry
      */
     private static function merge_consumed(array $consumed, array $used): array {
-        foreach ($used as $dimension => $values) {
-            foreach ($values as $value => $unusedflag) {
-                $consumed[$dimension][$value] = true;
-            }
+        foreach ($used as $id) {
+            $consumed[$id] = true;
         }
 
         return $consumed;
@@ -865,18 +1055,17 @@ final class allocator {
     /**
      * A canonical string for a registry, so equal registries share a memo entry.
      *
-     * @param array $consumed dimension => value => true
+     * An id is per (dimension, value), so a flat set of ids says exactly
+     * what the dimension => value => true map said, in a form whose
+     * length is bounded by the roster.
+     *
+     * @param array $consumed interned value id => true
      * @return string
      */
     private static function consumed_key(array $consumed): string {
-        ksort($consumed, SORT_STRING);
-        $parts = [];
-        foreach ($consumed as $dimension => $values) {
-            ksort($values, SORT_STRING);
-            $parts[] = $dimension . "\x1d" . implode("\x1e", array_keys($values));
-        }
+        ksort($consumed, SORT_NUMERIC);
 
-        return implode("\x1f", $parts);
+        return implode(',', array_keys($consumed));
     }
 
     /**
@@ -885,16 +1074,17 @@ final class allocator {
      * This is the no-overlap exclusion, and it is deliberately
      * cross-dimensional: after "2 with Department Computer", a third
      * Computer student must not fill a later distinct-sub-department
-     * seat.
+     * seat. It is NOT cross-DIMENSION on the value: an id is per
+     * (dimension, value), so consuming "computer" as a department does
+     * not block a member whose program is called "computer".
      *
      * @param int $p the profile index
-     * @param array $consumed dimension => value => true
+     * @param array $consumed interned value id => true
      * @return bool
      */
     private function profile_consumed(int $p, array $consumed): bool {
-        foreach ($consumed as $dimension => $values) {
-            $own = $this->profilevalues[$p][$dimension] ?? '';
-            if ($own !== '' && isset($values[$own])) {
+        foreach ($this->profileids[$p] as $id) {
+            if (isset($consumed[$id])) {
                 return true;
             }
         }

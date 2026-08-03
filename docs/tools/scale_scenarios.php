@@ -274,9 +274,9 @@ $moduleinfo = add_moduleinfo((object) [
 $activity = activity::from_instance((int) $moduleinfo->instance);
 $cm = $activity->cm();
 slots::create($activity, (object) ['mincount' => 2, 'dimension' => 'department',
-    'matchtype' => 'value', 'value' => 'SCOPE', 'allowoverlap' => 0]);
+    'matchtype' => 'value', 'value' => 'SCOPE', 'allowoverlap' => 0], (int) get_admin()->id);
 slots::create($activity, (object) ['mincount' => 3, 'dimension' => 'department',
-    'matchtype' => 'distinct', 'allowoverlap' => 0]);
+    'matchtype' => 'distinct', 'allowoverlap' => 0], (int) get_admin()->id);
 foreach ($guideids as $index => $guideid) {
     volunteering::set($activity, (int) $guideid, 1 + ($index % 12));
 }

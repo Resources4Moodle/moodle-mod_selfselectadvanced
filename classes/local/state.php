@@ -54,14 +54,34 @@ final class state {
      * manager-assigns mode (decision A5) submits without a guide and
      * the group enters the manager's assignment queue.
      *
+     * AUTHORITY (1.20.1, audit D2). This is the leader verb the two
+     * previous authority waves both walked past: :creategroup is named
+     * "Create groups and act as leader", 3A gated creation and the
+     * roster verbs, 3B gated succession - and submitting, the verb that
+     * moves a team out of FORMING, consumes a guide's declared capacity
+     * and mails them, was gated by neither the page nor this service.
+     * gatekeeper::can_submit() tests lifecycle state, the window, L1,
+     * the proposal mandate, quota compliance and `leaderid === actorid`
+     * - rule eligibility and record ownership, never authority - so a
+     * student whose :creategroup had been prohibited was correctly
+     * refused Delete group and Invite members and could still submit.
+     *
+     * Asked HERE and asked FIRST: before the guide lock, before the
+     * group lock and before the transaction (house rule - checks before
+     * the lock), on the actor rather than on $USER, because a queued
+     * task runs long after its actor's session is gone.
+     *
      * @param stdClass $group group row
      * @param int|null $guideid chosen guide, null in manager-assigns mode
      * @param int $actorid the acting leader
      * @return stdClass the updated group row
+     * @throws \required_capability_exception when the actor may not act as a leader here
      * @throws \moodle_exception when a gate refuses
      */
     public function submit(stdClass $group, ?int $guideid, int $actorid): stdClass {
         global $DB;
+
+        authority::require_lead($this->activity, $actorid);
 
         $leaderselects = (int) $this->activity->settings()->guidemode === 0;
         // A guide accepted through an expression of interest is already
@@ -78,7 +98,6 @@ final class state {
         // jointly exceed the cap. Same resource and same ordering as
         // the EOI paths: guide lock BEFORE group lock.
         $pretarget = $preassigned ?: (int) $guideid;
-        $outermost = !$DB->is_transaction_started();
         $guidelock = $pretarget ? locks::acquire('eoiguide:' . $pretarget) : null;
         $lock = locks::acquire('group:' . $group->id);
         try {
@@ -136,7 +155,25 @@ final class state {
             // Every refusal above throws from INSIDE the transaction,
             // so without this a refused submit left a dangling
             // delegated transaction (T-02 step 4.5).
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            //
+            // UNCONDITIONAL since 1.20 wave 3D. It used to be gated on
+            // an $outermost flag read from $DB->is_transaction_started()
+            // before the locks, and that flag is not a fact about this
+            // method: advanced_testcase wraps every test in a delegated
+            // transaction on PostgreSQL and not on MariaDB, so the gate
+            // was FALSE on m5pg and TRUE on m5my for the whole suite -
+            // one branch per engine, neither engine exercising both.
+            // Worse, the branch it selected on the nested path was the
+            // wrong one: leaving our own frame undisposed on top of the
+            // stack makes the CALLER's later rollback() miss the
+            // identity check in rollback_delegated_transaction(), so it
+            // rethrows without ever issuing the physical ROLLBACK and
+            // the transaction stays open for the rest of the request.
+            // Rolling our own frame back pops it, sets force_rollback
+            // and lets the caller's rollback reach the bottom, which is
+            // the cascade Moodle documents. Same idiom as
+            // penalty\ledger::set_award().
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;
@@ -198,19 +235,59 @@ final class state {
     /**
      * A5: a manager assigns (or reassigns) the guide of a submitted group.
      *
+     * AUTHORITY (1.20.1, wave 3C). ":assignguide" is named for this very
+     * verb - "Assign or reassign a team's guide and decide expressions of
+     * interest" - and until now this method asked no capability at all.
+     * It carried the conflict-of-interest guard, which answers a
+     * different question ("is this actor entangled with this team?") and
+     * returns at once for a :manage holder, so a caller that reached the
+     * service without the capability met nothing. The verb's OTHER half,
+     * deciding an expression of interest, has asked
+     * has_any_capability([:manage, :assignguide]) inside eoi::respond()
+     * since 1.20.0; one capability answering its two verbs differently is
+     * the shape wave 3C exists to remove.
+     *
+     * Asked here rather than only at manage.php because the service is
+     * the authority and a page is only a caller: the gate has to hold for
+     * a direct POST, for a future caller, and for anything queued before
+     * an administrator revoked the capability. The pair is exactly what
+     * manage.php already asks at its door, so no actor who could reach
+     * this method before can be refused by it now - reassigning a guide
+     * is a write that moves a student cohort's supervisor, releases one
+     * guide's L5 slot and takes another's, and it is worth more than
+     * ownership of a URL.
+     *
+     * Before the guide lock, the group lock and the transaction (house
+     * rule: checks first, no lock held while refusing).
+     *
      * @param stdClass $group group row
      * @param int $guideid the guide to assign
      * @param int $actorid the acting manager
      * @return stdClass the updated group row
+     * @throws \required_capability_exception when the actor may not assign a guide here
      * @throws \moodle_exception when a gate refuses
      */
     public function assign_guide(stdClass $group, int $guideid, int $actorid): stdClass {
         global $DB;
 
+        $context = $this->activity->context();
+        if (
+            !has_any_capability([
+                'mod/selfselectadvanced:manage',
+                'mod/selfselectadvanced:assignguide',
+            ], $context, $actorid)
+        ) {
+            throw new \required_capability_exception(
+                $context,
+                'mod/selfselectadvanced:assignguide',
+                'nopermissions',
+                ''
+            );
+        }
+
         // Per-guide serialisation before the group lock (same resource
         // and ordering as the EOI paths), or two concurrent assigns
         // could jointly exceed the guide's cap.
-        $outermost = !$DB->is_transaction_started();
         $guidelock = locks::acquire('eoiguide:' . $guideid);
         $lock = locks::acquire('group:' . $group->id);
         try {
@@ -278,8 +355,10 @@ final class state {
             $transaction->allow_commit();
         } catch (\Throwable $e) {
             // The state and capacity refusals above throw from INSIDE
-            // the transaction (T-02 step 4.5).
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // the transaction (T-02 step 4.5). Unconditional since 1.20
+            // wave 3D - see submit() for why the $outermost gate was
+            // both engine-dependent and wrong when nested.
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;
@@ -351,7 +430,6 @@ final class state {
             throw new \moodle_exception('errcommentrequired', 'mod_selfselectadvanced');
         }
 
-        $outermost = !$DB->is_transaction_started();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -394,8 +472,9 @@ final class state {
             $transaction->allow_commit();
         } catch (\Throwable $e) {
             // The can_return() refusal throws from INSIDE the
-            // transaction (T-02 step 4.5).
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // transaction (T-02 step 4.5). Unconditional since 1.20
+            // wave 3D - see submit().
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;
@@ -465,7 +544,6 @@ final class state {
     private function do_approve(stdClass $group, int $actorid, bool $auto): stdClass {
         global $DB;
 
-        $outermost = !$DB->is_transaction_started();
         // Ascending lock order (T-02 rank table): the override row
         // (rank 5) BEFORE the group (rank 8), because a forced approval
         // may have to write the group's relief row inside the group
@@ -545,10 +623,25 @@ final class state {
             // the request: in a cron sweep every LATER approval popped
             // its own frame without ever reaching an empty stack, so
             // nothing after the first refusal committed and dispose()
-            // force-rolled the run back. Only the outermost owner may
-            // roll back - a nested rollback poisons the caller's
-            // transaction (tickets.php, joinrequests.php).
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // force-rolled the run back.
+            //
+            // The "only the outermost owner may roll back" rider that
+            // used to stand here was wrong twice over, and is gone
+            // (1.20 wave 3D). It was decided by
+            // $DB->is_transaction_started(), which under PHPUnit
+            // answers for the harness rather than for this method - so
+            // the gate was false on m5pg and true on m5my and neither
+            // engine tried the other branch. And poisoning the caller's
+            // transaction is not a hazard to be avoided here, it is
+            // Moodle's documented cascade: skipping the rollback leaves
+            // our undisposed frame on top of the stack, which makes the
+            // caller's own rollback() fail its identity check and
+            // rethrow WITHOUT issuing the physical ROLLBACK. This
+            // method's one nested-capable caller today is the
+            // guide_autoapprove task, which opens no transaction of its
+            // own; the unconditional form is what keeps a future one
+            // safe. See submit() and penalty\ledger::set_award().
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;

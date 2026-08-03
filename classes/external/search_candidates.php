@@ -23,6 +23,7 @@ use core_external\external_single_structure;
 use core_external\external_value;
 use mod_selfselectadvanced\activity;
 use mod_selfselectadvanced\local\api;
+use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\candidates;
 use mod_selfselectadvanced\local\groups;
 
@@ -78,9 +79,36 @@ class search_candidates extends external_api {
 
         // IDOR: the group must belong to this activity, and only its
         // leader (or a manager) may search candidates for it.
+        //
+        // TWO questions, and until 1.20.1 this asked one of them (audit
+        // A-1). groups::get() answers the first - does this row belong
+        // to the activity the caller named - and `leaderid === $USER->id`
+        // answers RECORD OWNERSHIP. Neither is authority. A leader
+        // whose :creategroup an administrator has PROHIBITED still owns
+        // the row, so they fell through to the search and enumerated
+        // every enrolled candidate's id, name, eligibility verdict and
+        // localised refusal reason over AJAX - the exact pool the
+        // invitation flow they may no longer perform is built from.
+        //
+        // The service DECLARATION names :creategroup in db/services.php,
+        // and that is metadata: core checks a web service function's
+        // declared capability for the token/user in the SERVICE
+        // configuration, not on every AJAX call from a logged-in
+        // session, and even where it does the answer is not asked of
+        // this activity's context. Enforcement is here or nowhere.
+        //
+        // CALLED, not transcribed: the same authority::require_lead()
+        // that api::create_group() and invitations::invite() ask, so a
+        // prohibition takes the whole verb - the page, the service and
+        // its picker - rather than two thirds of it. The manager branch
+        // is untouched: :manage is a different grant, and narrowing it
+        // to :creategroup would break the staff repair path (an editing
+        // teacher does not hold :creategroup at all, D6-4).
         $group = groups::get($activity, $groupid);
         if ((int) $group->leaderid !== (int) $USER->id) {
             require_capability('mod/selfselectadvanced:manage', $activity->context());
+        } else {
+            authority::require_lead($activity, (int) $USER->id);
         }
 
         $api = new api($activity);

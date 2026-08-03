@@ -58,6 +58,9 @@ final class authority {
     /** @var string Freeze a firm team, singly or in bulk (spec T5). */
     public const FREEZE = 'mod/selfselectadvanced:freeze';
 
+    /** @var string Release a frozen team back to firm (spec T6). */
+    public const UNFREEZE = 'mod/selfselectadvanced:unfreeze';
+
     /**
      * May this actor act as a team leader in this activity?
      *
@@ -143,5 +146,42 @@ final class authority {
      */
     public static function require_freeze(activity $activity, int $actorid): void {
         require_capability(self::FREEZE, $activity->context(), $actorid);
+    }
+
+    /**
+     * May this actor release a frozen team in this activity?
+     *
+     * The CAPABILITY half of the unfreeze door and nothing else. The
+     * other half - "is this the assigned guide of a team no member of
+     * staff froze?" - is record ownership plus the provenance recorded
+     * in group.frozenbystaff, so by this class's own division it stays
+     * in the freeze service, which reads the row under its lock.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the person acting
+     * @return bool true when the capability is effective for them here
+     */
+    public static function may_unfreeze(activity $activity, int $actorid): bool {
+        return has_capability(self::UNFREEZE, $activity->context(), $actorid);
+    }
+
+    /**
+     * Refuse unless this actor may release a frozen team here.
+     *
+     * Asked by freeze::unfreeze() of every actor who is not the team's
+     * own assigned guide. Until 1.20 the service asked NO positive
+     * question at all: it checked the frozen state, a coordinator's
+     * conflict of interest and one restraint on the assigned guide -
+     * three CONDITIONAL clauses, all of which an actor matching none of
+     * them falls straight through - and then restored the roster and
+     * flipped the state. The page had the gate; the service, which is
+     * also driven by tests, tasks and any future caller, did not.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the person acting
+     * @throws \required_capability_exception when the capability is not effective
+     */
+    public static function require_unfreeze(activity $activity, int $actorid): void {
+        require_capability(self::UNFREEZE, $activity->context(), $actorid);
     }
 }

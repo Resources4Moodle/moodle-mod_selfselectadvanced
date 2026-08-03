@@ -20,6 +20,7 @@ use mod_selfselectadvanced\activity;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\override\resolver;
 use mod_selfselectadvanced\local\state;
+use mod_selfselectadvanced\local\teamaccess;
 use stdClass;
 
 /**
@@ -511,12 +512,40 @@ class gatekeeper {
      * notes are kept while the review is in progress, and an award is
      * routinely corrected after approval.
      *
+     * AUTHORITY (1.20.1, audit F-2). The assigned-guide branch used to
+     * read `(int) $group->guideid === $actorid` and return null - the
+     * same identity-only admission wave 3A closed in
+     * freeze::freeze_group(), left open one file away, on the path that
+     * writes a mark into the gradebook. Being NAMED in guideid is
+     * ownership of the record; it is not, and never was, a grant.
+     *
+     * The two questions this branch now asks are the two review.php
+     * asks at its door, so the write cannot admit anybody the page
+     * refuses:
+     *
+     * - teamaccess::is_assigned_guide(), CALLED and not transcribed -
+     *   the plugin's one answer to "is this THEIR team?", which keys on
+     *   :viewassignedteams. Prohibiting it closes every other door on
+     *   the team (may_open_team, may_review_team, may_read_proposal);
+     *   it now closes this one, instead of leaving the grade seam as
+     *   the single surface that ignored the administrator.
+     * - :guide, the capability whose own string is "Act as a project
+     *   guide: review, return and approve groups". Writing the notes
+     *   and the award IS acting as the project guide, and the review
+     *   page requires it over the whole activity. Asking it here means
+     *   an administrator who withdraws "act as a guide" has withdrawn
+     *   the grade write too, however the service is reached.
+     *
+     * Deliberately NOT widened: :viewall stays out. may_review_team()
+     * admits it to the review PAGE as a broad staff read; the award is
+     * a write, and :manage is the administrative grant for it.
+     *
      * @param stdClass $group the team
      * @param int $actorid the person acting
      * @return refusal|null null when allowed
      */
     public function can_grade_team(stdClass $group, int $actorid): ?refusal {
-        if (!empty($group->guideid) && (int) $group->guideid === $actorid) {
+        if ($this->acts_as_the_teams_guide($group, $actorid)) {
             return null;
         }
         if (has_capability('mod/selfselectadvanced:manage', $this->activity->context(), $actorid)) {
@@ -524,6 +553,50 @@ class gatekeeper {
         }
 
         return new refusal('refusalnotassignedguide');
+    }
+
+    /**
+     * Is this actor the team's guide, WITH the authority to act as one?
+     *
+     * The one place the plugin answers "may this person exercise a
+     * guide verb on THIS team", and the reason it exists is that wave
+     * 3B answered it three times in one file and only got one of them
+     * right: can_grade_team() was rewritten to ask the capability while
+     * can_approve() and can_return(), twelve and eighty-five lines
+     * below, still admitted on `guideid === actorid` alone. The
+     * capability's own string names all three verbs together - "Act as
+     * a project guide: review, return and approve groups" - so three
+     * different answers to it was never a defensible state.
+     *
+     * Two questions, and they are the two review.php asks at its door:
+     *
+     * - teamaccess::is_assigned_guide(), CALLED and not transcribed -
+     *   the plugin's one answer to "is this THEIR team?", keyed on
+     *   :viewassignedteams. Prohibiting it closes every other door on
+     *   the team (may_open_team, may_review_team, may_read_proposal);
+     *   it closes these too, instead of leaving the lifecycle writes as
+     *   the surfaces that ignored the administrator.
+     * - :guide itself, because being named in guideid is ownership of
+     *   the record and ownership has never been a grant. An
+     *   administrator who withdraws "act as a project guide" has
+     *   withdrawn review, return and approve with it, however the
+     *   service is reached - by the review page, by the dashboard's
+     *   one-click queue buttons, by a direct POST, or by an adhoc task
+     *   queued before the revocation.
+     *
+     * Deliberately NOT widened: :viewall stays out of all three verbs.
+     * may_review_team() admits it to the review PAGE as a broad staff
+     * read; approving, returning and awarding are writes, and :manage
+     * is the administrative grant for those - added by the callers that
+     * want it (can_grade_team), not by this predicate.
+     *
+     * @param stdClass $group the team (must carry guideid)
+     * @param int $actorid the person acting
+     * @return bool true when they may exercise a guide verb on this team
+     */
+    private function acts_as_the_teams_guide(stdClass $group, int $actorid): bool {
+        return teamaccess::is_assigned_guide($this->activity, $group, $actorid)
+            && has_capability('mod/selfselectadvanced:guide', $this->activity->context(), $actorid);
     }
 
     /**
@@ -607,6 +680,18 @@ class gatekeeper {
      * the one body both this method and the guide-window sweep evaluate
      * (T-04), so the two approval authorities cannot drift apart.
      *
+     * AUTHORITY (1.20.1, audit D1). Until this wave the assigned-guide
+     * test here was `empty($group->guideid) || (int) $group->guideid
+     * !== $actorid` and nothing else - identity alone, on the verb that
+     * moves a team PENDING_GUIDE -> FIRM, stamps timeapproved and writes
+     * a penalty-ledger row through ledger::upsert_for_group(). With
+     * :viewassignedteams prohibited for the guide's role the same actor
+     * was refused the review page, the team page and the proposal file,
+     * and still approved through the dashboard's one-click Accept; with
+     * :guide itself prohibited the service still approved. It now asks
+     * acts_as_the_teams_guide(), the same predicate can_grade_team()
+     * and can_return() ask.
+     *
      * @param \stdClass $group group row
      * @param int $actorid the acting user
      * @return refusal|null null when allowed
@@ -615,7 +700,7 @@ class gatekeeper {
         if ($group->state !== state::PENDING_GUIDE) {
             return new refusal('refusalwrongstate');
         }
-        if (empty($group->guideid) || (int) $group->guideid !== $actorid) {
+        if (!$this->acts_as_the_teams_guide($group, $actorid)) {
             return new refusal('refusalnotassignedguide');
         }
 
@@ -681,6 +766,13 @@ class gatekeeper {
      * State precondition: pending_guide (S2); the assigned guide only.
      * The mandatory comment is enforced by the return service.
      *
+     * AUTHORITY (1.20.1, audit D1). The same identity-only admission
+     * can_approve() carried, and consequential in its own way: a return
+     * moves the team back to FORMING, CLEARS guideid - releasing the
+     * guide's L5 slot - dissolves any pending handover and mails the
+     * leader. acts_as_the_teams_guide() is the one predicate all three
+     * guide verbs now ask.
+     *
      * @param \stdClass $group group row
      * @param int $actorid the acting user
      * @return refusal|null null when allowed
@@ -689,7 +781,7 @@ class gatekeeper {
         if ($group->state !== state::PENDING_GUIDE) {
             return new refusal('refusalwrongstate');
         }
-        if (empty($group->guideid) || (int) $group->guideid !== $actorid) {
+        if (!$this->acts_as_the_teams_guide($group, $actorid)) {
             return new refusal('refusalnotassignedguide');
         }
 

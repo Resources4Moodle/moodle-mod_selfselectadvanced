@@ -210,7 +210,7 @@ final class tickets_test extends \advanced_testcase {
         global $DB;
         $this->resetAfterTest();
         $this->redirectMessages();
-        [$activity, $group, $leader, , $guide, $manager, $coordinator] = $this->setup_world();
+        [$activity, $group, , , $guide, $manager, $coordinator] = $this->setup_world();
 
         $ticket = tickets::file(
             $activity,
@@ -235,13 +235,23 @@ final class tickets_test extends \advanced_testcase {
             // Already claimed: throws inside claim()'s transaction.
             fn() => tickets::claim($activity, (int) $ticket->id, (int) $manager->id),
             // Not the claimant: throws inside close()'s transaction.
+            //
+            // The actor is the MANAGER, not the leader, and that is
+            // what keeps this case in the transaction (audit A-5).
+            // close() now re-asks the queue-worker authority before it
+            // takes the lock, so a student is turned away at the door
+            // and would never reach the claimant check this case exists
+            // to unwind. The manager holds :manage, passes that door,
+            // and is still refused inside - they did not claim this
+            // ticket, and force-RELEASE is the only outcome their
+            // capability buys them.
             fn() => tickets::close(
                 $activity,
                 (int) $ticket->id,
                 tickets::STATUS_RESOLVED,
                 'mine',
                 FORMAT_PLAIN,
-                (int) $leader->id
+                (int) $manager->id
             ),
         ];
         foreach ($refusals as $index => $refusal) {

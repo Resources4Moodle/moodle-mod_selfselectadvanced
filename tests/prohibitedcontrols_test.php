@@ -18,6 +18,7 @@ namespace mod_selfselectadvanced;
 
 use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\state;
 
 /**
  * A control an administrator has PROHIBITED is not drawn.
@@ -41,6 +42,14 @@ use mod_selfselectadvanced\local\groups;
  * prohibited (hasmyinvitations stays true): the student needs to know a
  * team is waiting on them, and their leader can still withdraw it. It
  * is the two buttons that go.
+ *
+ * 1.20.1 (audit F-1) adds the SUCCESSION controls, which wave 3A missed
+ * because it enumerated the audit's ticket numbers instead of the
+ * actions the capabilities name: leadership can be ACQUIRED as well as
+ * created, so Confirm and Decline on a nomination are :respond ("Accept
+ * or decline invitations AND NOMINATIONS") and Cancel nomination is the
+ * leader authority. Same rule as the invitation list - the banner
+ * stays, the buttons go.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -152,8 +161,18 @@ final class prohibitedcontrols_test extends \advanced_testcase {
      * the ownership and lifecycle facts they used to be drawn from are
      * asserted to be UNCHANGED - so the only thing that moved is the
      * administrator's decision.
+     *
+     * Ownership is checked on the GROUP ROW rather than on the exported
+     * isleader flag, because that flag is a render instruction: the two
+     * places the template consults it are both leader controls (the
+     * Withdraw button on a pending invitation and Cancel nomination),
+     * so since 1.20.1 it carries the authority as well as the identity.
+     * Reading the row is the stronger fixture check anyway - it is the
+     * thing that must not have moved.
      */
     public function test_a_prohibited_leader_is_offered_no_leader_control(): void {
+        global $DB;
+
         $this->resetAfterTest();
         [$activity, $api, $group, $leader] = $this->fixture();
 
@@ -162,15 +181,33 @@ final class prohibitedcontrols_test extends \advanced_testcase {
         $this->assertTrue($before->candelete, 'fixture: the team must be deletable to start with');
         $this->assertTrue($before->caninvite, 'fixture: there must be a free seat to start with');
         $this->assertTrue($before->hasleaverequests, 'fixture: a leave request must be waiting');
+        $this->assertTrue($before->haspendinginvites, 'fixture: an invitation must be pending');
 
         $this->prohibit('mod/selfselectadvanced:creategroup', $activity->context(), 'student');
 
+        $this->assertSame(
+            (int) $leader->id,
+            (int) $DB->get_field('selfselectadvanced_group', 'leaderid', ['id' => (int) $group->id]),
+            'the viewer stopped leading the team, so this proves nothing'
+        );
+        $this->assertSame(
+            state::FORMING,
+            $DB->get_field('selfselectadvanced_group', 'state', ['id' => (int) $group->id]),
+            'the team left FORMING, so this proves nothing'
+        );
+
         $after = $this->grouppage($activity, $api, $group, (int) $leader->id);
-        $this->assertTrue($after->isleader, 'the viewer stopped leading the team, so this proves nothing');
         $this->assertFalse($after->candelete, 'Delete team was still offered to a prohibited leader');
         $this->assertFalse($after->caninvite, 'Invite was still offered to a prohibited leader');
         $this->assertSame('', $after->inviteformhtml, 'the invite FORM was still rendered');
         $this->assertFalse($after->hasleaverequests, 'Confirm leave was still offered to a prohibited leader');
+        $this->assertFalse($after->isleader, 'Withdraw was still offered to a prohibited leader');
+        // Deliberate, and the same principle as the invitation list: the
+        // pending invitations are still LISTED. What goes is the button.
+        $this->assertTrue(
+            $after->haspendinginvites,
+            'the pending invitations vanished - a leader must still see who the team is waiting on'
+        );
     }
 
     /**
@@ -198,6 +235,172 @@ final class prohibitedcontrols_test extends \advanced_testcase {
         $this->assertTrue(
             $landingafter->hasmyinvitations,
             'the invitation vanished from the list - the student can no longer see the team is waiting on them'
+        );
+    }
+
+    /**
+     * F-1: the nominee's Confirm/Decline pair goes with :respond, and
+     * the BANNER stays.
+     *
+     * Leadership can be acquired as well as created, and the succession
+     * banner is where it is acquired. Before this wave the pair was
+     * drawn from the successorid column alone, so an administrator's
+     * PROHIBIT left both buttons exactly where they were - on the one
+     * control in the plugin that HANDS somebody a team.
+     */
+    public function test_a_prohibited_nominee_is_offered_no_nomination_control(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        [$activity, $api, $group, $leader, , $nominee] = $this->fixture();
+        $api->succession()->nominate($group, (int) $nominee->id, 'transfer', (int) $leader->id);
+
+        $before = $this->grouppage($activity, $api, $group, (int) $nominee->id);
+        $this->assertTrue($before->hasnomination, 'fixture: a nomination must be active');
+        $this->assertTrue($before->isnominee, 'fixture: the viewer must be offered the pair to start with');
+
+        $this->prohibit('mod/selfselectadvanced:respond', $activity->context(), 'student');
+
+        // The nomination itself is untouched: only the administrator's
+        // decision moved.
+        $this->assertSame(
+            (int) $nominee->id,
+            (int) $DB->get_field('selfselectadvanced_group', 'successorid', ['id' => (int) $group->id])
+        );
+
+        $after = $this->grouppage($activity, $api, $group, (int) $nominee->id);
+        $this->assertFalse($after->isnominee, 'the team page still offered Confirm/Decline after a PROHIBIT');
+        $this->assertFalse($after->nomineeblocked);
+        // Deliberate, and the same principle as the invitation list: a
+        // student must still be able to see their team is waiting on
+        // them, and their leader can still cancel.
+        $this->assertTrue(
+            $after->hasnomination,
+            'the nomination vanished from the page - the nominee can no longer see the team is waiting on them'
+        );
+    }
+
+    /**
+     * F-1: the leader's Cancel nomination goes with :creategroup.
+     */
+    public function test_a_prohibited_leader_is_offered_no_cancel_nomination(): void {
+        $this->resetAfterTest();
+        [$activity, $api, $group, $leader, , $nominee] = $this->fixture();
+        $api->succession()->nominate($group, (int) $nominee->id, 'transfer', (int) $leader->id);
+
+        $before = $this->grouppage($activity, $api, $group, (int) $leader->id);
+        $this->assertTrue($before->hasnomination, 'fixture: a nomination must be active');
+        $this->assertTrue($before->isleader, 'fixture: the leader must be offered Cancel to start with');
+
+        $this->prohibit('mod/selfselectadvanced:creategroup', $activity->context(), 'student');
+
+        $after = $this->grouppage($activity, $api, $group, (int) $leader->id);
+        $this->assertFalse($after->isleader, 'the team page still offered Cancel nomination after a PROHIBIT');
+        $this->assertTrue($after->hasnomination, 'the leader can no longer see the nomination they raised');
+    }
+
+    /**
+     * F-6: the team page's Freeze control goes with :freeze.
+     *
+     * Added by the wave-3B prover for a reason worth recording. F-6
+     * replaced a transcribed has_capability(':freeze', ...) here with
+     * authority::may_freeze(), and reported - correctly - that no test
+     * could go red for the swap, because the two are the same question.
+     * What that reasoning missed is the stronger fact: the capability
+     * factor had NO behavioural cover at all. Forcing the whole
+     * $canfreeze predicate to true in the instance left the full plugin
+     * suite green on 576 tests, so a future edit that deletes the
+     * capability - not just moves it - would also pass unnoticed. The
+     * de-duplication really is unobservable; the LINE is not, and this
+     * pins it.
+     *
+     * The team stays FIRM and the viewer stays its assigned guide
+     * across the PROHIBIT, so the only thing that moves is the
+     * administrator's decision.
+     */
+    public function test_a_prohibited_guide_is_offered_no_freeze_control(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 6,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+        $api = new api($activity);
+
+        $leader = $generator->create_user();
+        $generator->enrol_user($leader->id, $course->id, 'student');
+        $guide = $generator->create_user();
+        $generator->enrol_user($guide->id, $course->id, 'teacher');
+
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $leader->id,
+            'name' => 'Team Frost',
+            'guideid' => (int) $guide->id,
+            'state' => state::FIRM,
+        ]);
+
+        $before = $this->grouppage($activity, $api, $group, (int) $guide->id);
+        $this->assertTrue($before->canfreeze, 'fixture: the assigned guide must be offered Freeze to start with');
+
+        $this->prohibit('mod/selfselectadvanced:freeze', $activity->context(), 'teacher');
+
+        $row = $DB->get_record('selfselectadvanced_group', ['id' => (int) $group->id], '*', MUST_EXIST);
+        $this->assertSame((int) $guide->id, (int) $row->guideid, 'the viewer stopped guiding the team');
+        $this->assertSame(state::FIRM, $row->state, 'the team left FIRM, so this proves nothing');
+
+        $after = $this->grouppage($activity, $api, $group, (int) $guide->id);
+        $this->assertFalse($after->canfreeze, 'Freeze was still offered after :freeze was prohibited');
+    }
+
+    /**
+     * The rendered team page, not just the flags: all three nomination
+     * forms have to leave the HTML.
+     *
+     * Rendered twice for the nominee and twice for the leader, because
+     * the two halves are gated on two different capabilities and a
+     * single render could pass on either one being effective.
+     */
+    public function test_the_rendered_group_page_drops_the_nomination_buttons(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+        [$activity, $api, $group, $leader, , $nominee] = $this->fixture();
+        $api->succession()->nominate($group, (int) $nominee->id, 'transfer', (int) $leader->id);
+        $output = $PAGE->get_renderer('core');
+
+        $render = fn(int $userid): string => $output->render_from_template(
+            'mod_selfselectadvanced/group_page',
+            $this->grouppage($activity, $api, $group, $userid)
+        );
+
+        $nomineehtml = $render((int) $nominee->id);
+        $this->assertStringContainsString('value="confirmnomination"', $nomineehtml, 'fixture: Confirm must start present');
+        $this->assertStringContainsString('value="declinenomination"', $nomineehtml, 'fixture: Decline must start present');
+        $leaderhtml = $render((int) $leader->id);
+        $this->assertStringContainsString('value="cancelnomination"', $leaderhtml, 'fixture: Cancel must start present');
+
+        $this->prohibit('mod/selfselectadvanced:respond', $activity->context(), 'student');
+        $nomineehtml = $render((int) $nominee->id);
+        $this->assertStringNotContainsString(
+            'value="confirmnomination"',
+            $nomineehtml,
+            'the Confirm form survived the PROHIBIT in the rendered page'
+        );
+        $this->assertStringNotContainsString('value="declinenomination"', $nomineehtml);
+
+        $this->prohibit('mod/selfselectadvanced:creategroup', $activity->context(), 'student');
+        $this->assertStringNotContainsString(
+            'value="cancelnomination"',
+            $render((int) $leader->id),
+            'the Cancel form survived the PROHIBIT in the rendered page'
         );
     }
 

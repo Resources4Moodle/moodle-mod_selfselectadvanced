@@ -106,7 +106,10 @@ $attrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users(array_k
 // Consequence, stated so a later reader does not "fix" it back: for a
 // GROUPLESS student the map is false for every viewer except an
 // unrestricted one, so under protection the report degrades to names.
-// That is what a "students in no team" report is for.
+// That is what a "students in no team" report is for; the way to reach
+// one of them is Send a message, which needs no address and no number.
+// The EXPORT degrades further and unconditionally - see the literal
+// false below.
 $mobilebypass = \mod_selfselectadvanced\local\contactprivacy::mobile_consent_bypass(
     $activity,
     (int) $USER->id,
@@ -136,9 +139,22 @@ foreach ($enrolled as $user) {
         $groupless[] = (object) [
             'fullname' => fullname($user),
             'attrline' => $attrline,
+            // THE EXPORT NEVER CARRIES A NUMBER, and the literal false
+            // is the whole point (1.20.1 wave 3D). $showmobile is the
+            // right answer for ONE row on ONE screen: it is true only
+            // for a connected viewer whose subject consented, which is
+            // the connection design working exactly as specified. What
+            // it is not is a licence to put every such row in a
+            // spreadsheet at once - and this list is the whole enrolled
+            // cohort, so a viewer with many connections downloads many
+            // numbers in one file that outlives the session and is
+            // trivially forwarded. The cardinal rule forbids BULK
+            // extraction without qualification, so the bulk path takes
+            // the strict answer even where each individual row would
+            // have been permitted. The screen above is unchanged.
             'attrplain' => \mod_selfselectadvanced\local\attributes\manager::plain_line(
                 $attrs[(int) $user->id] ?? null,
-                $showmobile
+                false
             ),
             'placeurl' => (new moodle_url('/mod/selfselectadvanced/moveedit.php', ['id' => $cm->id]))->out(false),
         ];

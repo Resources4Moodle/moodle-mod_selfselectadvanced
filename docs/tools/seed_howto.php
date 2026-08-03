@@ -355,7 +355,7 @@ slots::create($activity, (object) [
     'matchtype' => 'value',
     'value' => 'Computer Science',
     'allowoverlap' => 0,
-]);
+], (int) $admin->id);
 cli_writeln('Counting rule (>=1 Female) and seat plan (>=1 Computer Science) saved');
 
 // Guides declare their volunteered capacity (1.7.0): consulted ahead

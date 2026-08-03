@@ -31,11 +31,12 @@ use mod_selfselectadvanced\local\groups;
  * at any per-group effective (override-resolved) maximum: a flexible_table
  * has one static set of columns for every row, so a single group whose
  * own effective_maxsize() was raised by an override cannot be allowed
- * to grow the whole table. Honestly documented consequence: such a
- * group's members beyond the first (columns - 1) wrap into the LAST
- * member column as a comma-separated list instead of getting a column
- * of their own - see build_rows(). The leader always occupies the
- * first member column and is marked with a trailing asterisk; a
+ * to grow the whole table. The consequence, stated rather than left
+ * to be found: such a group's members beyond the first (columns - 1)
+ * wrap into the LAST member column as a comma-separated list instead
+ * of getting a column of their own - see build_rows(). The leader
+ * always occupies the first member column and is marked with a
+ * trailing asterisk; a
  * footnote explaining the asterisk is the caller's responsibility
  * (gridreport.php), not this table's.
  *
