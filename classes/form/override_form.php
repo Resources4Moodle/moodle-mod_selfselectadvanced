@@ -67,21 +67,44 @@ class override_form extends \moodleform {
             // team, every guide, or every enrolled student - and merely
             // filtered them in the browser, which still means rendering
             // ten thousand options before one can be hidden.
+            // The user-scope picker used to prompt "Type a name to find
+            // a guide", because the placeholder was chosen by asking
+            // only whether the mode was 'group'. Its target is an
+            // enrolled participant.
+            $placeholderkey = match ($mode) {
+                'group' => 'grouppickerplaceholder',
+                'guide' => 'guidepickerplaceholderany',
+                default => 'participantpickerplaceholder',
+            };
+            $attributes = [
+                'ajax' => $this->_customdata['targetmodule'],
+                'noselectionstring' => get_string('choosedots'),
+                'placeholder' => get_string($placeholderkey, 'mod_selfselectadvanced'),
+                'casesensitive' => false,
+                'data-cmid' => $this->_customdata['cmid'],
+            ];
+            if ($mode === 'guide') {
+                // THIS PAGE IS WHERE A FULL GUIDE IS REACHED, so this is
+                // the one picker that must not hide one. Without the
+                // attribute guideselector.js defaults withroom to true
+                // (it reads dataset.withroom !== '0', and undefined !==
+                // '0'), which dropped exactly the guides an override
+                // exists to help: a coordinator could only find guides
+                // who already had room, i.e. guides who did not need the
+                // override. The service still refuses an over-cap
+                // assignment (state::assign_guide ->
+                // gatekeeper::can_take_guide); raising the cap here is
+                // how the deliberate case is expressed, and it is the
+                // maintainer's own route: "they can have the group
+                // coordinator to override and take more people".
+                $attributes['data-withroom'] = '0';
+            }
             $mform->addElement(
                 'autocomplete',
                 'target',
                 get_string('overridetarget' . $mode, 'mod_selfselectadvanced'),
                 [],
-                [
-                    'ajax' => $this->_customdata['targetmodule'],
-                    'noselectionstring' => get_string('choosedots'),
-                    'placeholder' => get_string(
-                        $mode === 'group' ? 'grouppickerplaceholder' : 'guidepickerplaceholder',
-                        'mod_selfselectadvanced'
-                    ),
-                    'casesensitive' => false,
-                    'data-cmid' => $this->_customdata['cmid'],
-                ]
+                $attributes
             );
             $mform->setType('target', PARAM_INT);
             $mform->addRule('target', get_string('required'), 'required', null, 'client');

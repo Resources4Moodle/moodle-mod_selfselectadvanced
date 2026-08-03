@@ -46,36 +46,112 @@ class guides {
      * @param resolver $resolver the override resolver
      * @param bool $includeunavailable keep guides who are unavailable purely for want of volunteering,
      *      for manager-facing target pickers such as the overrides page
-     * @param string $namequery keep only guides whose name contains this, matched before any
+     * @param string $searchquery keep only guides whose NAME contains this - or, when the typed
+     *      text contains '@', whose name OR EMAIL ADDRESS contains it - matched before any
      *      per-guide override work is done; empty for all of them
-     * @return \stdClass[] userid-keyed: user fields + used, max, remaining, label
+     * @return \stdClass[] userid-keyed: id, fullname, used, max, remaining, label - never an address
      */
     public static function with_load(
         activity $activity,
         resolver $resolver,
         bool $includeunavailable = false,
-        string $namequery = ''
+        string $searchquery = ''
     ): array {
         $namefields = implode(', ', array_map(
             static fn($field) => 'u.' . $field,
             \core_user\fields::for_name()->get_required_fields()
         ));
+
+        // THE ADDRESS ARM ENGAGES ONLY WHEN THE TYPED TEXT CONTAINS
+        // '@', AND THAT IS MAINTAINER DECISION 41 (2026-08-04)
+        // ANSWERING A MEASUREMENT RATHER THAN A TASTE: substring
+        // matching leaks the string it matches, and a plain enrolled
+        // student holding nothing but :respond reconstructed an entire
+        // guide address - p7x9qz@confidential.invalid, a local part
+        // with no relation to the guide's name - in 453 calls to
+        // search_guides, using only found/not-found on single-character
+        // extensions of a substring.
+        //
+        // WHAT '@' BUYS, STATED HONESTLY: it does not close that oracle.
+        // A determined prober can anchor on the '@' and grow the
+        // substring in both directions from there. It removes the
+        // no-cost blind sweep over name-shaped fragments, and the
+        // maintainer accepted the residue in those terms - "staff
+        // directory is available to anyone who opens picker, but @
+        // slows deliberate probe" - because this pool is the holders of
+        // mod/selfselectadvanced:guide in this module context, i.e.
+        // staff being approached. Exact equality was considered and NOT
+        // taken.
+        //
+        // WITHOUT '@' THIS IS THE PRE-DECISION-32 MATCHER, unchanged:
+        // names only. {@see \mod_selfselectadvanced\local\candidates}
+        // is names-only for every viewer in both states of the
+        // contact-privacy switch and stays that way - an address probe
+        // against a pool of STUDENTS is an oracle over protected
+        // people, and no part of this file may be "aligned" with it.
+        $searchquery = \core_text::strtolower(trim($searchquery));
+        $matchaddress = strpos($searchquery, '@') !== false;
+
+        // THE FIELD LIST IS DECIDED BEFORE THE QUERY, which is the rule
+        // {@see \mod_selfselectadvanced\local\candidates} already states
+        // in its own words: an address that is never selected "cannot be
+        // printed by a later edit, dumped by a debugger or iterated out
+        // of the record by a template". So the column is fetched on
+        // exactly the calls that can use it - a query carrying an '@' -
+        // and on no others.
+        //
+        // The condition is the QUERY, never the caller, and that
+        // distinction is load-bearing. An earlier draft of this comment
+        // listed contact.php among the callers that "ask with no query
+        // and are handed no addresses at all". THAT WAS FALSE, and false
+        // on the one page where a student holds the keyboard:
+        // contact.php:79 reads a guidefilter parameter, :162 renders it
+        // as a visible text input, and :183 passes it here - behind
+        // require_capability(':creategroup') at :45, a student
+        // capability. Measured on both engines: a plain student leading
+        // a group, querying 'p7x9qz@', matches the guide who owns that
+        // address.
+        // That is CORRECT - the page exists so a student can find a
+        // guide, and the '@' rule governs it exactly as it governs every
+        // other caller. What was wrong was a sentence claiming a
+        // student-facing page could never fetch an address. Callers that
+        // genuinely pass no query - guidequeue.php, the unfiltered Loads
+        // tab and every selectable() site - are handed no address
+        // because their query is empty, not because of who they are.
         $users = get_users_by_capability(
             $activity->context(),
             'mod/selfselectadvanced:guide',
-            'u.id, ' . $namefields
+            'u.id, ' . ($matchaddress ? 'u.email, ' : '') . $namefields
         );
 
         // Narrowed here, before the resolver is consulted once. The
         // override lookup is the per-guide cost in this loop, so a
         // search that discards a guide afterwards would pay it for
         // every guide in the school on every keystroke (strategy 1.18 B).
-        $namequery = \core_text::strtolower(trim($namequery));
-        if ($namequery !== '') {
-            $users = array_filter(
-                $users,
-                static fn($user) => strpos(\core_text::strtolower(fullname($user)), $namequery) !== false
-            );
+        //
+        // MATCHING IS NOT DISPLAYING, and that half is absolute rather
+        // than a slowdown: the row built below carries no address,
+        // {@see \mod_selfselectadvanced\external\search_guides::label()}
+        // composes name, department, sub-department and load, and
+        // guidepickeraddress_test asserts the payload of a search made
+        // BY ADDRESS carries no '@' at all.
+        if ($searchquery !== '') {
+            $users = array_filter($users, static function ($user) use ($searchquery, $matchaddress) {
+                if (strpos(\core_text::strtolower(fullname($user)), $searchquery) !== false) {
+                    return true;
+                }
+                if (!$matchaddress) {
+                    // No '@' typed, so no address was fetched and none
+                    // is compared. See above.
+                    return false;
+                }
+
+                // Both sides lowered, as the name arm already does, so
+                // that an address a student wrote down in capitals
+                // still reaches the guide who owns it.
+                return isset($user->email)
+                    && strpos(\core_text::strtolower((string) $user->email), $searchquery) !== false;
+            });
         }
 
         // Bulk maps (RCA-2, 10k probe): one volunteering query and two
@@ -120,6 +196,9 @@ class guides {
             }
             $used = $commitments[(int) $user->id] ?? 0;
             $max = $maxvalue->value;
+            // Built field by field rather than by decorating $user, so
+            // the address the filter above matched on cannot travel any
+            // further than the filter. Do not turn this into a clone.
             $entry = (object) [
                 'id' => (int) $user->id,
                 'fullname' => fullname($user),
@@ -161,12 +240,18 @@ class guides {
      * A school with 1500 guides cannot be offered as a list, so every
      * picker asks this instead. The result carries department and load
      * so the person choosing does not need a second page to decide.
+     * The typed text is matched against a guide's name, and - only when
+     * that text contains '@' - against their email address as well
+     * (maintainer decisions 32 and 41). Nothing downstream returns an
+     * address.
      *
      * @param activity $activity the activity
      * @param resolver $resolver the override resolver
      * @param string $query the typed text
      * @param int $limit most rows to return
      * @param bool $onlyselectable drop guides with no room left, as the assignment pickers need
+     * @param bool $includeunavailable keep guides who are unavailable purely for want of
+     *      volunteering, as the override target picker needs
      * @return \stdClass[] matching guides, each with department and subdepartment attached
      */
     public static function search(
@@ -174,9 +259,17 @@ class guides {
         resolver $resolver,
         string $query,
         int $limit = 50,
-        bool $onlyselectable = true
+        bool $onlyselectable = true,
+        bool $includeunavailable = false
     ): array {
-        $matches = self::with_load($activity, $resolver, false, $query);
+        // The third argument to with_load() was hard-coded false here,
+        // so the parameter its own docblock says "manager target
+        // pickers pass" was reachable by nobody: every picker in the
+        // plugin funnels through here. A guide who has not volunteered
+        // was therefore invisible to the overrides page - one of the two
+        // guides an override exists for. Default false, so every caller
+        // that does not ask keeps exactly today's behaviour.
+        $matches = self::with_load($activity, $resolver, $includeunavailable, $query);
         if ($onlyselectable) {
             $matches = array_filter($matches, static fn($guide) => $guide->remaining > 0);
         }

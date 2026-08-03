@@ -39,17 +39,52 @@ use mod_selfselectadvanced\activity;
  * unless the activity is in students-approach mode, where the load is
  * exactly what must not be advertised (strategy 1.16 A).
  *
- * No address is handled at any point, for anybody: the 1.17 rule for
- * approaches holds here too.
+ * No address is RETURNED at any point, for anybody: the 1.17 rule for
+ * approaches holds here too. Since maintainer decision 32 the typed
+ * text is MATCHED against a guide's address as well as their name -
+ * and since decision 41 only when that text contains '@'. Matching and
+ * returning are two different questions; see the matrix note below.
  *
- * FIELD-VISIBILITY MATRIX (contact-privacy audit, 2026-08-01): this
- * endpoint admits any holder of mod/selfselectadvanced:respond - which
- * is every student - and discloses to them a GUIDE's name, department
- * and (outside students-approach mode) current load. It returns no
- * student data and no contact data of any kind, so it is not a
- * cardinal-rule surface and needs no gate from the contact-privacy
- * work. Recorded here so the matrix has a row for it rather than a
- * silence.
+ * FIELD-VISIBILITY MATRIX (contact-privacy audit, 2026-08-01; amended
+ * for decisions 32 and 41, 2026-08-03/04): this endpoint admits any holder of
+ * mod/selfselectadvanced:respond - which is every student - and
+ * discloses to them a GUIDE's name, department and (outside
+ * students-approach mode) current load. It returns no student data and
+ * no contact data of any kind, so it is not a cardinal-rule surface and
+ * needs no gate from the contact-privacy work.
+ *
+ * What decision 32 changed is the MATCH and not the RETURN. A typed
+ * query CONTAINING '@' is tested against the guide's email address as
+ * well as their name
+ * ({@see \mod_selfselectadvanced\local\guides::with_load()}), because at
+ * VIT a student approaches a faculty member in person and comes away
+ * with an address or an employee id, and the id is already the surname.
+ * A query without '@' matches names only. Nothing here learns the
+ * address: label() below composes name, department, sub-department and
+ * load, execute_returns() declares those five keys and no more, and the
+ * row guides::with_load() hands over carries no address field at all.
+ *
+ * WHAT THE '@' CONDITION IS FOR (decision 41). A blind audit measured
+ * this endpoint with the arm unconditional: a plain enrolled student
+ * holding only :respond reconstructed a whole guide address in 453
+ * calls to execute(), extending a matched substring one character at a
+ * time. Substring matching leaks the string it matches. The condition
+ * slows a deliberate probe; it does not stop one, and the maintainer
+ * accepted that residue knowingly - the guide list is a staff directory
+ * reachable by anyone who can open a picker. Do not paraphrase this as
+ * "the address cannot be recovered", and do not tighten it to exact
+ * equality: that was recommended and refused.
+ *
+ * THE OPPOSITE RULE STILL HOLDS ON THE OPPOSITE POOL, and the two files
+ * do not disagree by accident.
+ * {@see \mod_selfselectadvanced\local\candidates} and
+ * {@see \mod_selfselectadvanced\external\search_participants} match
+ * NAMES ONLY, for every viewer, in both states of the contact-privacy
+ * switch: an address probe against a pool of STUDENTS is an oracle over
+ * protected people. This pool is the holders of
+ * mod/selfselectadvanced:guide in this module context - staff, being
+ * approached. "Guides are not a protected class" is the maintainer's
+ * ruling, not this class's opinion.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -78,7 +113,8 @@ class search_guides extends external_api {
     }
 
     /**
-     * Search the activity's guides by name.
+     * Search the activity's guides by name, or by email address when the
+     * query contains '@'.
      *
      * @param int $cmid course module id
      * @param string $query search text
@@ -108,8 +144,10 @@ class search_guides extends external_api {
         //
         // Nothing returned here is private - name, department and load
         // are what every guide list in the plugin already shows, and no
-        // address is handled at any point (the 1.17 rule for approaches
-        // holds here too).
+        // address is RETURNED at any point (the 1.17 rule for approaches
+        // holds here too). Decision 32 lets a query CONTAINING '@' be
+        // matched against a guide's address (decision 41 added that
+        // condition); neither added an address to any answer.
         // :assignguide joined the list in 1.20.0. It is the capability
         // that reaches manage.php's assign/reassign tabs, and the
         // control there is guidepicker::render() - a select that starts
@@ -136,12 +174,26 @@ class search_guides extends external_api {
         }
 
         $api = new \mod_selfselectadvanced\local\api($activity);
+
+        // Who may be OFFERED a guide who is full or has not volunteered
+        // is a question of authority, not a parameter the caller could
+        // choose for itself - the rule this whole class is built on (see
+        // the docblock). The only picker that needs them is the override
+        // target picker, and the page carrying it is gated on exactly
+        // this capability (overrides.php). A student's picker cannot
+        // reach an unavailable guide by asking, however it sets
+        // withroom. It is also a no-op for the assign queue even for an
+        // :override holder, because that picker sends withroom = true
+        // and the search then drops everyone with no room left anyway.
+        $includeunavailable = has_capability('mod/selfselectadvanced:override', $context);
+
         $matches = \mod_selfselectadvanced\local\guides::search(
             $activity,
             $api->gatekeeper()->resolver(),
             $query,
             self::LIMIT,
-            $withroom
+            $withroom,
+            $includeunavailable
         );
 
         // Students-approach mode hides how much each guide is carrying,

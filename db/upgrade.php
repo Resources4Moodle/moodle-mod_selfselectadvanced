@@ -1378,5 +1378,42 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073210, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073220) {
+        // 1.20.2 - finding a guide by the detail the student actually has. No
+        // schema, capability, message-provider or scheduled-task change:
+        // db/install.xml, db/access.php, db/messages.php and db/tasks.php are
+        // untouched by this release.
+        //
+        // WHY THIS RELEASE NEEDS A SERIAL AT ALL, since it changes no table.
+        // It adds LANGUAGE STRINGS (guidepickerplaceholderany,
+        // participantpickerplaceholder), and Moodle's string cache key includes
+        // $CFG->langrev, which only reset_caches() bumps - and reset_caches()
+        // is reached by an upgrade. Ship the new keys without a version bump
+        // and an installed site keeps serving the cached string file, so the
+        // override form's picker renders the literal
+        // [[guidepickerplaceholderany]] until somebody purges caches by hand.
+        //
+        // The marker row is written for the same reason the 2026073210 one is:
+        // core writes $plugin->version into config_plugins by itself once this
+        // function returns, so the recorded version cannot distinguish a step
+        // that RAN from a step that was skipped. This row can - and
+        // versionbump_test counts it by matching '%(2026073220)%', so the
+        // serial must stay inside the parentheses in the headline below.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.2 (2026073220). Behaviour and language strings only: no schema, '
+                . 'capability or message-provider change in this step.',
+            'This step migrates nothing. It carries the release serial so that an existing '
+                . 'site detects 1.20.2 and rebuilds its string cache, without which the new '
+                . 'picker placeholders would render as [[...]] on an installed site. It is '
+                . 'deliberately observable: this row is written if and only if the step '
+                . 'actually executed. Everything 1.20.2 changes lives in the plugin code and '
+                . 'its language file, not in its tables.'
+        );
+
+        upgrade_mod_savepoint(true, 2026073220, 'selfselectadvanced');
+    }
+
     return true;
 }

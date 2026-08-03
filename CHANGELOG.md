@@ -1,5 +1,53 @@
 # Changelog
 
+## 1.20.2 — finding a guide (2026-08-04)
+
+> No schema, capability, message-provider or scheduled-task change:
+> `db/install.xml`, `db/access.php`, `db/messages.php` and `db/tasks.php` are
+> untouched. It does carry a version serial — `2026073220` / `1.20.2` — because
+> it adds language strings, and Moodle's string cache is keyed on
+> `$CFG->langrev`, which only an upgrade bumps. Without the serial the new
+> picker placeholders would render as `[[guidepickerplaceholderany]]` on an
+> installed site until somebody purged caches by hand.
+
+- **A student can now find their guide by the detail they actually have.**
+  Guide pickers match the typed text against a guide's **email address** as
+  well as their name, **when the typed text contains an `@`**; without one they
+  match names alone, exactly as before. The employee id already worked, because
+  it is recorded as the surname; the address did not, so a student who came
+  away from a corridor conversation with nothing but an address had no way to
+  complete the submission. This is a deliberate exception, and its shape
+  matters: a guide is a member of staff being approached, not a protected
+  participant.
+  **Nothing renders an address.** No picker, page, export, CSV, web service,
+  notification or event payload of this plugin shows or links a guide's
+  address — the search returns the same name, department, sub-department and
+  load it always did, the row it builds has no address field, and the column is
+  not fetched at all unless the query carries an `@`. And the participant side
+  is unchanged in both states of the contact-privacy switch: the invite picker,
+  the staff move form and the expression-of-interest roster still match on
+  names alone, for everybody.
+  **What the `@` rule is worth, and what it is not.** A substring match leaks
+  the string it matches. With the arm unconditional, a plain enrolled student
+  recovered a whole guide address — a local part unrelated to the guide's name
+  — in 453 picker calls, extending a fragment one character at a time on
+  found/not-found alone. Requiring the `@` does not close that; it removes the
+  free sweep, and a determined prober can still anchor on the `@`. The trade
+  was taken deliberately: the guide list is a staff directory reachable by
+  anyone who can open a guide picker. Exact-address matching was considered and
+  not adopted.
+- **A coordinator can once again reach the guide an override exists for.**
+  The override page's guide picker inherited the assignment pickers' "only
+  guides with free slots" filter, which meant the two guides it could never
+  offer were a guide who is full and a guide who has not volunteered —
+  precisely the two an override is opened to help. The picker on that page now
+  offers every guide, and only that page: the assignment and submission
+  pickers still list only guides with room, and the service still refuses an
+  over-cap assignment. Raising the cap first, then assigning, remains the way
+  the deliberate case is expressed; no "assign anyway" bypass was added.
+- **The user-scope override picker stops asking for a guide.** It prompted
+  "Type a name to find a guide" while searching enrolled participants.
+
 ## 1.20.1 — plugins directory review (2026-08-03)
 
 Everything the Moodle plugins directory reviewer raised on 30 July, plus the

@@ -29,8 +29,18 @@ because Moodle's `version.php` has no field for a PHP minimum.
   memberships, max groups guided), enforced at every gate with the
   current position always displayed ("You lead 1 of 2 groups") and the
   reason shown on every disabled control.
-- **Candidate search by first name, last name or email** through the
-  core autocomplete, drawing from the whole course enrolment.
+- **Candidate search across every core name field** — first, last,
+  middle and alternate name — through the core autocomplete, drawing
+  from the whole course enrolment. It has never matched a phone number,
+  and it no longer matches an email address either, for any role (see
+  *Privacy*).
+- **Guide search by name, employee id or email address**, on the guide
+  pickers only: a student who approached a faculty member in person
+  types whichever detail they came away with. The address arm engages
+  only for a query containing `@`; without one the pickers match names
+  and nothing else. No picker, page, export or web service of this
+  plugin ever *renders* a guide's address (see *Privacy* for what that
+  does and does not promise).
 - **Leadership succession**: leader-nominated transfer or step-out
   with confirmation, atomic lead-cap re-checks and a minimum-size
   replacement rule.
@@ -107,9 +117,10 @@ Every action checks the capability, never the role name.
    formation window and the penalty scheme.
 3. Managers add quota rules (values offered come from the ingested
    data) and, where needed, overrides.
-4. Students create groups and invite peers (search by name or email);
-   invitees accept or decline from their landing page.
-5. Leaders submit to a guide; guides approve or return with comments;
+4. Students create groups and invite peers (search by name — never by
+   address); invitees accept or decline from their landing page.
+5. Leaders submit to a guide, found by name, employee id or a typed-in
+   email address; guides approve or return with comments;
    approved groups accrue any late penalty into the ledger and
    gradebook.
 6. Guides freeze (single or bulk with filters): each group becomes a
@@ -238,11 +249,12 @@ DISPLAY of an address while leaving the MATCH open leaves an oracle:
 type an address in, and whether a row comes back answers whose it is.
 The match and the label sit on the same gate.
 
-**Since 1.20.1 that gate has no exemptions.** While an activity's
-contact-privacy setting is on, no picker of this plugin matches,
-renders, exports or labels an email address for **any** role — student
-team leader, coordinator, non-editing teacher, editing teacher, manager
-or site administrator alike. Up to 1.20.0 a `:manage` holder searched
+**Since 1.20.1 that gate has no exemptions for a PARTICIPANT's
+address.** Whatever the contact-privacy setting, no picker of this
+plugin matches a participant's email address, and while the setting is
+on none renders, exports or labels one, for **any** role — student team
+leader, coordinator, non-editing teacher, editing teacher, manager or
+site administrator alike. Up to 1.20.0 a `:manage` holder searched
 and saw addresses through the switch on the candidate picker, and the
 staff move form's participant picker matched on the address for them
 regardless of the switch; the move form's picker is now names-only
@@ -259,6 +271,54 @@ exact equality. Neither ever puts an address back into its report — a
 matched person is named by full name and username, and an unmatched
 line echoes only the key the file supplied.
 
+**One further carve-out, and it is about the SUBJECT rather than the
+viewer (1.20.2, maintainer decisions 32 and 41).** The **guide**
+pickers — and only those — match the typed text against a guide's own
+email address as well as their name, **and only when that text contains
+an `@`**. Type anything without one and the pickers match names alone,
+exactly as they did before. It exists because a student approaches a
+faculty member in person and comes away with an address or an employee
+id: the id is recorded as the surname and so already matched, the
+address did not.
+
+**What this does and does not promise, stated plainly, because an
+earlier draft of this section over-claimed and a blind audit measured
+the gap.** A substring match leaks the string it matches: with the
+address arm unconditional, a plain enrolled student recovered a whole
+guide address — a local part with no relation to the guide's name — in
+453 picker calls, extending a matched fragment one character at a time
+on found/not-found alone. Requiring the `@` does not close that; a
+determined prober can anchor on the `@` and grow outwards. It removes
+the free sweep, and the trade was taken deliberately: **the guide list
+is a staff directory reachable by anyone who can open a guide picker,
+and that is accepted.** Exact-address matching was considered and not
+adopted.
+
+What *is* absolute:
+
+- the pool is the holders of `mod/selfselectadvanced:guide` in that
+  module context — staff, being approached, not protected
+  participants. A student's own address reaches nobody through a guide
+  picker, whole or by domain;
+- **nothing renders an address.** No picker, page, export, CSV, web
+  service, notification or event payload of this plugin displays or
+  links a guide's address; the row the search hands its caller has no
+  address field on it at all. The search returns a guide's name,
+  department, sub-department and (where entitled) load, exactly as
+  before;
+- the column is not even fetched unless the typed text contains `@`. The
+  condition is the **query**, not the caller: a screen that offers a
+  search box can fetch an address when someone types one with an `@` in
+  it, and the contact page — where a team leader looks for a guide — is
+  one of those. Screens that pass no query at all, such as the guide
+  queue, the unfiltered loads tab and every "who is selectable" check,
+  never load one;
+- the **participant** surfaces are untouched, in **both** states of the
+  contact-privacy switch: the candidate picker, the staff move form's
+  participant picker and the expression-of-interest roster still match
+  on names alone, for everybody. That is the oracle rule and it has not
+  moved.
+
 ### Contact privacy (per activity, default on)
 
 `contactprivacy` is an activity setting, on for new instances and for
@@ -266,13 +326,17 @@ every instance that existed before 1.20.0, switched by a `:manage`
 holder. While it is on:
 
 - no page, export, CSV, picker, web service, notification or event
-  payload of this plugin renders, links or **matches on** an email
-  address, for **anybody** — `:manage` holders, editing teachers and
-  administrators included (1.20.1; up to 1.20.0 `:manage` was exempt).
-  Staff reach a participant with **Send a message**, which travels as a
-  Moodle message and shows the sender no address. The one exception is
-  a staff import, where the address is supplied by the operator's own
-  file and never appears in the report;
+  payload of this plugin renders, links or **matches on** a
+  **participant's** email address, for **anybody** — `:manage` holders,
+  editing teachers and administrators included (1.20.1; up to 1.20.0
+  `:manage` was exempt). Staff reach a participant with **Send a
+  message**, which travels as a Moodle message and shows the sender no
+  address. Two exceptions, both narrow: a staff import, where the
+  address is supplied by the operator's own file and never appears in
+  the report; and the **guide** pickers, which MATCH a guide's own
+  address — only for a query containing `@` — so that a student can
+  find the faculty member they approached, and render none (decisions
+  32 and 41, above, with the residual probe stated there);
 - a mobile number reaches only a viewer *connected* to its owner — a
   confirmed teammate, the guide assigned to that person's team, or the
   holder of that person's claimed request ticket — and only when the
