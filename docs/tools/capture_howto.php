@@ -92,7 +92,7 @@ foreach ($groupnames as $name) {
  * @param array|null $payload JSON body
  * @return array decoded response
  */
-function ssawd(string $method, string $url, ?array $payload = null): array {
+function selfselectadvanced_wd(string $method, string $url, ?array $payload = null): array {
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
@@ -115,8 +115,8 @@ function ssawd(string $method, string $url, ?array $payload = null): array {
  * @param string $driver the driver base url
  * @return string the session id
  */
-function ssaopen(string $driver): string {
-    $session = ssawd('POST', "$driver/session", [
+function selfselectadvanced_open_driver(string $driver): string {
+    $session = selfselectadvanced_wd('POST', "$driver/session", [
         'capabilities' => [
             'alwaysMatch' => [
                 'browserName' => 'chrome',
@@ -150,19 +150,19 @@ function ssaopen(string $driver): string {
  * @param string $username the user to sign in
  * @param string $password their password
  */
-function ssalogin(string $sid, string $driver, string $wwwroot, string $username, string $password): void {
-    ssawd('POST', "$driver/session/$sid/url", ['url' => "$wwwroot/login/index.php"]);
+function selfselectadvanced_login(string $sid, string $driver, string $wwwroot, string $username, string $password): void {
+    selfselectadvanced_wd('POST', "$driver/session/$sid/url", ['url' => "$wwwroot/login/index.php"]);
     usleep(1500000);
-    ssawd('POST', "$driver/session/$sid/execute/sync", [
+    selfselectadvanced_wd('POST', "$driver/session/$sid/execute/sync", [
         'script' => 'document.querySelector("#username").value = arguments[0];'
             . ' document.querySelector("#password").value = arguments[1];'
             . ' document.querySelector("#login").submit();',
         'args' => [$username, $password],
     ]);
     usleep(3000000);
-    $landed = (string) (ssawd('GET', "$driver/session/$sid/url")['value'] ?? '');
+    $landed = (string) (selfselectadvanced_wd('GET', "$driver/session/$sid/url")['value'] ?? '');
     if (str_contains($landed, '/login/')) {
-        ssawd('DELETE', "$driver/session/$sid");
+        selfselectadvanced_wd('DELETE', "$driver/session/$sid");
         cli_error("Sign-in as $username did not complete; still at $landed");
     }
 }
@@ -175,25 +175,25 @@ function ssalogin(string $sid, string $driver, string $wwwroot, string $username
  * @param array $step the storyboard step
  * @param string $file the target png path
  */
-function ssashoot(string $sid, string $driver, array $step, string $file): void {
-    ssawd('POST', "$driver/session/$sid/url", ['url' => $step['url']]);
+function selfselectadvanced_shoot(string $sid, string $driver, array $step, string $file): void {
+    selfselectadvanced_wd('POST', "$driver/session/$sid/url", ['url' => $step['url']]);
     usleep(2000000);
     foreach ($step['script'] ?? [] as $script) {
-        ssawd('POST', "$driver/session/$sid/execute/sync", ['script' => $script, 'args' => []]);
+        selfselectadvanced_wd('POST', "$driver/session/$sid/execute/sync", ['script' => $script, 'args' => []]);
         usleep(($step['settle'] ?? 1) * 1000000);
     }
     // Most pages are longer than the window, and the part worth
     // showing is rarely the top: centre the element the step is
     // actually about before taking the picture.
     if (!empty($step['scrollto'])) {
-        ssawd('POST', "$driver/session/$sid/execute/sync", [
+        selfselectadvanced_wd('POST', "$driver/session/$sid/execute/sync", [
             'script' => 'const el = document.querySelector(arguments[0]);'
                 . ' if (el) { el.scrollIntoView({block: "center"}); }',
             'args' => [$step['scrollto']],
         ]);
         usleep(800000);
     }
-    $shot = ssawd('GET', "$driver/session/$sid/screenshot");
+    $shot = selfselectadvanced_wd('GET', "$driver/session/$sid/screenshot");
     if (!empty($shot['value'])) {
         $written = file_put_contents($file, base64_decode($shot['value']));
         if ($written === false || !file_exists($file)) {
@@ -352,13 +352,13 @@ foreach ($storyboard as $name => $step) {
     $bysteps[$step['user']][$name] = $step;
 }
 foreach ($bysteps as $username => $steps) {
-    $sid = ssaopen($driver);
-    ssalogin($sid, $driver, $wwwroot, $username, $pass);
+    $sid = selfselectadvanced_open_driver($driver);
+    selfselectadvanced_login($sid, $driver, $wwwroot, $username, $pass);
     cli_writeln("--- signed in as $username");
     foreach ($steps as $name => $step) {
-        ssashoot($sid, $driver, $step, "$out/$name.png");
+        selfselectadvanced_shoot($sid, $driver, $step, "$out/$name.png");
     }
-    ssawd('DELETE', "$driver/session/$sid");
+    selfselectadvanced_wd('DELETE', "$driver/session/$sid");
 }
 
 cli_writeln('');

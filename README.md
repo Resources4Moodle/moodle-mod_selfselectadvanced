@@ -10,7 +10,13 @@ downstream activity can use.
 
 ## Requirements
 
-- Moodle 4.5 LTS or 5.x · PHP 8.1+ · MySQL/MariaDB or PostgreSQL
+- **Moodle 5.2 only** · **PHP 8.4 or later** · MariaDB or PostgreSQL
+
+The Moodle range was narrowed from "4.5 LTS or 5.x" in 1.20.1. The plugin is
+developed and gated against Moodle 5.2 on PHP 8.4 and nothing else, so a wider
+claim was a promise nobody had tested. `version.php` declares
+`supported = [502, 502]`; the PHP floor is asserted on install and on upgrade,
+because Moodle's `version.php` has no field for a PHP minimum.
   (equal support; XMLDB only)
 
 ## Features

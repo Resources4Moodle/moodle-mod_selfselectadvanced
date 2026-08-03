@@ -47,7 +47,7 @@
  * @param moodle_database $DB the database
  * @return int how many rows were deleted
  */
-function upgrade_selfselectadvanced_merge_override_twins(moodle_database $DB): int {
+function selfselectadvanced_upgrade_merge_override_twins(moodle_database $DB): int {
     $duplicates = $DB->get_records_sql(
         "SELECT COALESCE(MIN(CASE WHEN status = :active THEN id END), MIN(id)) AS keepid,
                 COUNT(id) AS dupcount, activityid, scope,
@@ -88,6 +88,16 @@ function upgrade_selfselectadvanced_merge_override_twins(moodle_database $DB): i
 function xmldb_selfselectadvanced_upgrade($oldversion): bool {
     global $DB;
     $dbman = $DB->get_manager();
+
+    // PHP 8.4 is the declared minimum from 1.20.1 onward. Moodle has no
+    // version.php field for a PHP floor - core parses version, requires,
+    // supported, incompatible, release, maturity and dependencies, and
+    // nothing else - so the floor has to be asserted where the plugin runs.
+    // It is asserted HERE, before any savepoint, so a refusal leaves nothing
+    // half-applied; db/install.php makes the same check for a fresh install.
+    if (version_compare(PHP_VERSION, '8.4.0', '<')) {
+        throw new moodle_exception('errorphptoolow', 'mod_selfselectadvanced', '', PHP_VERSION);
+    }
 
     // First public schema is 2026072400; upgrade steps accumulate below
     // with upgrade_mod_savepoint() calls as the plugin evolves.
@@ -914,7 +924,7 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         //
         // See the 2026073140 block below for what this can and cannot
         // do for a site that already ran the flawed version.
-        upgrade_selfselectadvanced_merge_override_twins($DB);
+        selfselectadvanced_upgrade_merge_override_twins($DB);
 
         upgrade_mod_savepoint(true, 2026073110, 'selfselectadvanced');
     }
@@ -984,7 +994,7 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         // 'pending' override row for the same target survives. Such a
         // target has to be re-granted by hand; CHANGELOG.md says so in
         // the release notes.
-        $deleted = upgrade_selfselectadvanced_merge_override_twins($DB);
+        $deleted = selfselectadvanced_upgrade_merge_override_twins($DB);
         if ($deleted) {
             upgrade_log(
                 UPGRADE_LOG_NOTICE,
@@ -1337,6 +1347,35 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         );
 
         upgrade_mod_savepoint(true, 2026073200, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026073210) {
+        // 1.20.1 - the plugins directory review, plus a narrowing of what this
+        // plugin claims to support. No schema, capability, message-provider or
+        // scheduled-task change: db/install.xml, db/access.php, db/messages.php
+        // and db/tasks.php are untouched by this release.
+        //
+        // What changed is metadata and naming: a package LICENSE file, every
+        // global function frankenstyle-prefixed, and version.php narrowed from
+        // "Moodle 4.5 LTS to 5.2" to Moodle 5.2 only with PHP 8.4 as the floor.
+        //
+        // The marker row is written for the same reason the 2026073200 one is:
+        // core writes $plugin->version into config_plugins by itself once this
+        // function returns, so the recorded version cannot distinguish a step
+        // that RAN from a step that was skipped. This row can.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.1 (2026073210). Packaging and metadata only: no schema, capability '
+                . 'or message-provider change in this step.',
+            'This step migrates nothing. It carries the release serial so that an existing '
+                . 'site detects 1.20.1, and it is deliberately observable: this row is '
+                . 'written if and only if the step actually executed. Everything 1.20.1 '
+                . 'changes lives in the plugin package and its declared metadata, not in '
+                . 'its tables.'
+        );
+
+        upgrade_mod_savepoint(true, 2026073210, 'selfselectadvanced');
     }
 
     return true;

@@ -33,19 +33,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Moodle 5.2 on PHP 8.4 only, matching version.php's supported = [502, 502]
+        # and the PHP floor asserted in db/install.php and db/upgrade.php.
+        # This matrix used to span 4.5, 5.0, 5.1 and 5.2 on PHP 8.2-8.4 while the
+        # local gate only ever ran 5.2 on PHP 8.4 - so CI tested branches the
+        # project did not otherwise verify, and the plugin promised branches
+        # nobody had tried. Both halves are now the same claim.
         include:
-          - php: '8.2'
-            moodle-branch: 'MOODLE_405_STABLE'
-            database: 'pgsql'
-          - php: '8.2'
-            moodle-branch: 'MOODLE_405_STABLE'
-            database: 'mariadb'
-          - php: '8.3'
-            moodle-branch: 'MOODLE_500_STABLE'
-            database: 'mariadb'
-          - php: '8.3'
-            moodle-branch: 'MOODLE_501_STABLE'
-            database: 'pgsql'
           - php: '8.4'
             moodle-branch: 'MOODLE_502_STABLE'
             database: 'pgsql'
@@ -111,7 +105,12 @@ jobs:
 
       - name: PHPUnit tests
         if: ${{ !cancelled() }}
-        run: moodle-plugin-ci phpunit --fail-on-warning --fail-on-notice
+        # NOT --fail-on-notice: moodle-plugin-ci's phpunit wrapper does not
+        # expose that option (it offers incomplete/risky/skipped/warning only)
+        # and the command aborts before a single test runs. The local gate calls
+        # vendor/bin/phpunit directly, which does support it, so the two are not
+        # interchangeable - see docs/ci.md.
+        run: moodle-plugin-ci phpunit --fail-on-warning
 
       - name: Behat features
         id: behat

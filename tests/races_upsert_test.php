@@ -411,7 +411,7 @@ final class races_upsert_test extends \advanced_testcase {
         xmldb_selfselectadvanced_upgrade(2026073100);
         // Every later block runs too, so the recorded version lands on
         // the current tip - the re-run of the corrected twin merge.
-        $this->assertSame('2026073200', get_config('mod_selfselectadvanced', 'version'));
+        $this->assertSame('2026073210', get_config('mod_selfselectadvanced', 'version'));
 
         // Engine-native proof that the DDL step did what it claims: the
         // live column is nullable and a park row stores.
@@ -449,7 +449,7 @@ final class races_upsert_test extends \advanced_testcase {
         // NEWER one, the parked twin is the one that goes, and the
         // guide's effective limit is unchanged by the upgrade.
         // Negative control: put MIN(id) back as the keeper in
-        // upgrade_selfselectadvanced_merge_override_twins() - the
+        // selfselectadvanced_upgrade_merge_override_twins() - the
         // survivor is the pending row, maxguided reads 2, and both
         // assertions below fail.
         $this->assertFalse($DB->record_exists('selfselectadvanced_override', ['id' => min($guideids)]));

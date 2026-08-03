@@ -1,13 +1,43 @@
 # Changelog
 
+## 1.20.1 — plugins directory review (2026-08-03)
+
+Everything the Moodle plugins directory reviewer raised on 30 July, plus the
+things the same rules turned up once they were applied to the whole package
+rather than to the lines that happened to be sampled.
+
+- **The package now carries its licence.** A `LICENSE` file at the plugin root,
+  the GPL v3 that every file header already claimed. Reported as a blocker.
+- **Every global function is Frankenstyle prefixed.** The review named one,
+  `clean_param_alphaext()`, which sat inside core's own `clean_param_*` naming
+  space. Auditing the package found eight more: a helper prefixed `upgrade_`,
+  where core alone declares twenty-three functions, and seven in the maintainer
+  tools including a bare `probe()`. All nine renamed, and a test now walks every
+  non-namespaced file in the package and fails on the rule rather than on the
+  three names that were reported.
+- **A message provider without its language string** was reported and was
+  already fixed; the check is now a test, because nobody could tell without
+  looking and the looking has to happen on every release. Twenty-five providers,
+  zero missing.
+- **The plugin now claims only what it is tested on: Moodle 5.2, PHP 8.4 or
+  later.** It previously declared 4.5 LTS to 5.2 while being gated against 5.2
+  alone. Moodle's `version.php` has no field for a PHP minimum, so the floor is
+  asserted in `db/install.php` and at the top of `db/upgrade.php` — before any
+  savepoint, so a refusal leaves nothing half applied — with a message that
+  names both the version required and the version running.
+- **Continuous integration now runs the same claim.** The GitHub matrix spanned
+  four Moodle branches and three PHP versions while the local gate ran one
+  combination; it now runs Moodle 5.2 on PHP 8.4 against both databases, and
+  nothing else.
+
 ## 1.20.1 (2026-08-01)
 
-> `$plugin->release` still reads `1.20.0`, deliberately. The version
-> serial in `version.php` did move — see **The update is now one an
-> existing site can actually see** at the end of this section — because
-> that is the number Moodle compares to decide whether a site needs
-> upgrading at all. The human-readable release string is a separate
-> decision and is left where 1.20.0 put it.
+> When this section was written `$plugin->release` still read `1.20.0`
+> while the version serial had moved, because the serial is what Moodle
+> compares to decide whether a site needs upgrading and the release
+> string is a separate decision. That decision has since been taken: the
+> plugins directory review above ships as **1.20.1**, and the release
+> string now says so. The work in this section is part of it.
 
 - **A guide reaches the team they are assigned to without having to see
   every team.** Until now the team page asked one question at the door:

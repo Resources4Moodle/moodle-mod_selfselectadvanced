@@ -371,6 +371,7 @@ $string['errnegativepenalty'] = 'Penalties cannot be negative.';
 $string['errnonnegative'] = 'This value cannot be negative.';
 $string['errnonnegativeint'] = 'This value must be a whole number of 0 or more. Zero means the guide is always full.';
 $string['errnosnapshot'] = 'No roster snapshot exists for this group.';
+$string['errorphptoolow'] = 'This activity requires PHP 8.4 or later. This site is running PHP {$a}. Update PHP before installing or upgrading Self-selection Advanced.';
 $string['errpointsonly'] = 'This activity grades in points; scales are not supported because penalties and awards are arithmetic.';
 $string['errpositiveint'] = 'This value must be a whole number of at least 1.';
 $string['errquotanobound'] = 'A value rule needs a minimum, a maximum, or both.';
@@ -1141,12 +1142,6 @@ $string['refusalcutoffpassed'] = 'The formation deadline ({$a}) has passed.';
 $string['refusaldiscardfrozen'] = 'The course group cannot be discarded while the team is frozen — the next synchronisation would simply create it again. Release the team first.';
 $string['refusaleoidisabled'] = 'Team listing is not enabled in this activity.';
 $string['refusaleoidup'] = 'You already have a pending interest in this team.';
-// Retained, not emitted. Since 1.20.1 the expression-of-interest seams ask the
-// one guide authority instead of testing remaining capacity themselves, so a
-// full guide is now refused with refusalguidecap (or refusalguideunavailable in
-// students-approach mode) and no code path reaches this key. It is kept for one
-// release so a site that has customised or translated it is not silently
-// stripped, and it is recorded here rather than left to look like live text.
 $string['refusaleoifull'] = 'This guide has no remaining guiding capacity.';
 $string['refusaleoigroupfull'] = 'This team already holds its maximum number of waitlisted guides.';
 $string['refusaleoimax'] = 'You already hold {$a} open interests, the maximum allowed. Wait for a leader to decide, or withdraw one.';

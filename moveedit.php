@@ -179,7 +179,7 @@ if ($data = $form->get_data()) {
                 $activity,
                 'move',
                 (int) $move->id,
-                ['rulesbypassed' => implode(',', array_map('clean_param_alphaext', (array) $data->bypass))],
+                ['rulesbypassed' => implode(',', array_map('selfselectadvanced_clean_param_alphaext', (array) $data->bypass))],
                 (int) $USER->id
             );
         }
@@ -238,9 +238,14 @@ echo $OUTPUT->footer();
 /**
  * Clean one bypass rule code.
  *
+ * Frankenstyle-prefixed deliberately. The former name, clean_param_alphaext(),
+ * was a global function sitting in core's own clean_param_* naming space, so
+ * any core or plugin declaring that name would have collided fatally with it.
+ * Reported by the plugins directory review (issue 2, 2026-07-30).
+ *
  * @param string $code raw code
  * @return string cleaned code
  */
-function clean_param_alphaext(string $code): string {
+function selfselectadvanced_clean_param_alphaext(string $code): string {
     return clean_param($code, PARAM_ALPHANUM);
 }

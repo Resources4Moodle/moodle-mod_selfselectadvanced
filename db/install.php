@@ -27,6 +27,13 @@
  * Create the Group Coordinator role on a fresh install.
  */
 function xmldb_selfselectadvanced_install(): void {
+    // PHP 8.4 floor, asserted before anything is created. Moodle offers no
+    // version.php field for a PHP minimum, so the plugin has to say it itself.
+    // db/upgrade.php makes the same check for an existing site.
+    if (version_compare(PHP_VERSION, '8.4.0', '<')) {
+        throw new moodle_exception('errorphptoolow', 'mod_selfselectadvanced', '', PHP_VERSION);
+    }
+
     // Core registers db/access.php AFTER this hook runs, so the
     // capabilities the role needs do not exist yet on a fresh
     // install - register them first (idempotent; core's own later

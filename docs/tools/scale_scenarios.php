@@ -76,7 +76,7 @@ $probes = [];
  * @param callable $fn the step
  * @return mixed the step's return value
  */
-function probe(string $label, callable $fn) {
+function selfselectadvanced_probe(string $label, callable $fn) {
     global $DB, $probes;
     $r0 = $DB->perf_get_reads();
     $w0 = $DB->perf_get_writes();
@@ -102,7 +102,7 @@ function probe(string $label, callable $fn) {
  *
  * @return string
  */
-function scale_plugin_release(): string {
+function selfselectadvanced_scale_plugin_release(): string {
     global $CFG;
 
     $plugin = new stdClass();
@@ -162,7 +162,7 @@ $depts = ['SCOPE', 'SENSE', 'SMEC', 'SCE', 'SELECT', 'SCHEME', 'SBST'];
 $subs = ['SCOPE' => ['BCE', 'BIT', 'BAI'], 'SENSE' => ['BEC'], 'SMEC' => ['BME'],
     'SCE' => ['BCL'], 'SELECT' => ['BEE'], 'SCHEME' => ['BCM'], 'SBST' => ['BBT']];
 
-probe('seed: 10k users + enrolments + attributes', function () use (
+selfselectadvanced_probe('seed: 10k users + enrolments + attributes', function () use (
     $DB,
     $CFG,
     $hash,
@@ -286,7 +286,7 @@ cli_writeln("Activity cmid {$cm->id}");
 // Students were seeded round-robin across 7 departments, so taking
 // them in seeded order per group of five yields the compliant mix
 // (2 x SCOPE arrives via index arithmetic below).
-probe("seed: {$ngroups} groups of five (raw)", function () use (
+selfselectadvanced_probe("seed: {$ngroups} groups of five (raw)", function () use (
     $DB,
     $activity,
     $studentids,
@@ -397,7 +397,7 @@ sort($groupids);
 $listedids = array_slice($groupids, 0, 1500);
 
 // Pending interests spread over listed teams (2 guides on many teams).
-probe('seed: 2500 pending guide interests (raw)', function () use ($DB, $activity, $listedids, $guideids, $now) {
+selfselectadvanced_probe('seed: 2500 pending guide interests (raw)', function () use ($DB, $activity, $listedids, $guideids, $now) {
     $rows = [];
     foreach ($listedids as $index => $groupid) {
         for ($j = 0; $j < ($index % 3 === 0 ? 2 : 1) && count($rows) < 2500; $j++) {
@@ -435,11 +435,11 @@ $groupless = array_values(array_diff($groupless, $invitereserve));
 $movesreserve = array_splice($groupless, 0, 25);
 $freshleader = (int) array_shift($groupless);
 
-$freshgroup = probe('service: create_group (cascade check inside)', function () use ($api, $freshleader) {
+$freshgroup = selfselectadvanced_probe('service: create_group (cascade check inside)', function () use ($api, $freshleader) {
     return $api->create_group($freshleader, 'Probe team', 'T', '<p>b</p>', FORMAT_HTML);
 });
 
-probe('service: 10 gate refusals + 4 x invite + accept', function () use (
+selfselectadvanced_probe('service: 10 gate refusals + 4 x invite + accept', function () use (
     $api,
     $activity,
     $freshgroup,
@@ -481,7 +481,14 @@ probe('service: 10 gate refusals + 4 x invite + accept', function () use (
     return "refused {$refused}, accepted {$done}";
 });
 
-probe('service: cascade - accept with 5 rival invites', function () use ($api, $activity, $DB, &$groupless, $groupids, $now) {
+selfselectadvanced_probe('service: cascade - accept with 5 rival invites', function () use (
+    $api,
+    $activity,
+    $DB,
+    &$groupless,
+    $groupids,
+    $now
+) {
     $star = (int) array_shift($groupless);
     $stardept = $DB->get_field('selfselectadvanced_userattr', 'department', ['userid' => $star]);
     // Rivals come from the HEAD of the list — the seat-plan-compliant
@@ -524,7 +531,7 @@ probe('service: cascade - accept with 5 rival invites', function () use ($api, $
     return true;
 });
 
-probe('service: 10 x eoi::express (groupmax + caps)', function () use ($activity, $listedids, $guideids, $DB) {
+selfselectadvanced_probe('service: 10 x eoi::express (groupmax + caps)', function () use ($activity, $listedids, $guideids, $DB) {
     $done = 0;
     for ($i = 0; $i < 10; $i++) {
         try {
@@ -544,7 +551,7 @@ probe('service: 10 x eoi::express (groupmax + caps)', function () use ($activity
     return $done;
 });
 
-probe('service: 100 x eoi::queue_position', function () use ($DB, $activity) {
+selfselectadvanced_probe('service: 100 x eoi::queue_position', function () use ($DB, $activity) {
     $rows = $DB->get_records('selfselectadvanced_eoi', ['activityid' => $activity->id(),
         'status' => 'pending'], 'id ASC', 'id, groupid', 0, 100);
     foreach ($rows as $row) {
@@ -558,7 +565,7 @@ probe('service: 100 x eoi::queue_position', function () use ($DB, $activity) {
 $PAGE->set_url(new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]));
 $PAGE->set_context($activity->context());
 
-probe('table: pickteam_table page of 50 (1500 listed)', function () use ($activity, $cm) {
+selfselectadvanced_probe('table: pickteam_table page of 50 (1500 listed)', function () use ($activity, $cm) {
     $table = new \mod_selfselectadvanced\table\pickteam_table(
         'scaleprobe1',
         $activity,
@@ -574,7 +581,7 @@ probe('table: pickteam_table page of 50 (1500 listed)', function () use ($activi
     return strlen($html);
 });
 
-probe('table: groups_table page of 50', function () use ($activity, $gatekeeper, $cm) {
+selfselectadvanced_probe('table: groups_table page of 50', function () use ($activity, $gatekeeper, $cm) {
     $table = new \mod_selfselectadvanced\table\groups_table(
         'scaleprobe2',
         $activity,
@@ -590,7 +597,12 @@ probe('table: groups_table page of 50', function () use ($activity, $gatekeeper,
     return strlen($html);
 });
 
-probe('table: groups_table DOWNLOAD cost (col_size x all rows)', function () use ($activity, $gatekeeper, $cm, $DB) {
+selfselectadvanced_probe('table: groups_table DOWNLOAD cost (col_size x all rows)', function () use (
+    $activity,
+    $gatekeeper,
+    $cm,
+    $DB
+) {
     // The download dumps every row through the table's OWN query, so
     // the preloaded seat aggregates ride along (RCA-1). Walk every row
     // through the real column callback, exactly as the export does.
@@ -616,26 +628,32 @@ probe('table: groups_table DOWNLOAD cost (col_size x all rows)', function () use
     return $rows;
 });
 
-probe('report: flagged anomalies build_rows', function () use ($activity, $gatekeeper) {
+selfselectadvanced_probe('report: flagged anomalies build_rows', function () use ($activity, $gatekeeper) {
     return count(\mod_selfselectadvanced\table\flagged_anomalies_table::build_rows(
         $activity,
         $gatekeeper->resolver()
     ));
 });
 
-probe('report: gridreport build_rows', function () use ($activity) {
+selfselectadvanced_probe('report: gridreport build_rows', function () use ($activity) {
     return count(\mod_selfselectadvanced\table\gridreport_table::build_rows($activity, 5, ''));
 });
 
-probe('report: evaluator compliance_for_activity (all groups)', function () use ($activity, $groupids) {
+selfselectadvanced_probe('report: evaluator compliance_for_activity (all groups)', function () use ($activity, $groupids) {
     return count(evaluator::compliance_for_activity($activity, $groupids));
 });
 
-probe('report: guides with_load (200 guides)', function () use ($activity, $gatekeeper) {
+selfselectadvanced_probe('report: guides with_load (200 guides)', function () use ($activity, $gatekeeper) {
     return count(guides::with_load($activity, $gatekeeper->resolver(), true));
 });
 
-probe('service: stage 20 moves + validate_set', function () use ($api, $activity, $DB, &$movesreserve, $groupids) {
+selfselectadvanced_probe('service: stage 20 moves + validate_set', function () use (
+    $api,
+    $activity,
+    $DB,
+    &$movesreserve,
+    $groupids
+) {
     $moveids = [];
     $targets = array_slice($groupids, (int) (count($groupids) / 2), 20);
     foreach ($targets as $tindex => $target) {
@@ -669,7 +687,7 @@ probe('service: stage 20 moves + validate_set', function () use ($api, $activity
 // other probes mutate): join-request targets 700-899, placement
 // targets 900-1019, transfer sources 1550-1589 / targets 1020-1059,
 // leader-move sources 1600-1639 / targets 1060-1099.
-probe('seed: 200 join requests (raw)', function () use ($DB, $activity, &$groupless, $groupids, $now) {
+selfselectadvanced_probe('seed: 200 join requests (raw)', function () use ($DB, $activity, &$groupless, $groupids, $now) {
     $requesters = array_splice($groupless, 0, 200);
     if (count($requesters) < 200) {
         throw new coding_exception('groupless pool too small for the join-request fixture');
@@ -692,7 +710,7 @@ probe('seed: 200 join requests (raw)', function () use ($DB, $activity, &$groupl
     return count($rows);
 });
 
-probe('inbox: joinrequest answer tab, staff view (1500+ teams, 200 waiting)', function () use ($DB, $activity) {
+selfselectadvanced_probe('inbox: joinrequest answer tab, staff view (1500+ teams, 200 waiting)', function () use ($DB, $activity) {
     // Mirrors joinrequest.php:204-282 staff branch, today's shape: all
     // teams loaded, one waiting_for_group() per team, then one user
     // fetch and one fit gate per waiting request.
@@ -722,7 +740,13 @@ probe('inbox: joinrequest answer tab, staff view (1500+ teams, 200 waiting)', fu
     return $rendered . ' rows';
 });
 
-probe('seed: 200 pending moves, mixed flags (raw)', function () use ($DB, $activity, &$groupless, $groupids, $now) {
+selfselectadvanced_probe('seed: 200 pending moves, mixed flags (raw)', function () use (
+    $DB,
+    $activity,
+    &$groupless,
+    $groupids,
+    $now
+) {
     $rows = [];
     // Group (a): 120 placements of groupless students, 20 of them
     // makeleader + replaceleader, which exercises L3 and the consent
@@ -793,7 +817,7 @@ probe('seed: 200 pending moves, mixed flags (raw)', function () use ($DB, $activ
     return count($rows);
 });
 
-probe('page: moves list assembly (pre-T-15 shape, >=200 pending)', function () use ($api, $activity, $DB) {
+selfselectadvanced_probe('page: moves list assembly (pre-T-15 shape, >=200 pending)', function () use ($api, $activity, $DB) {
     // Mirrors moves.php:82-130, today's shape (validate_set over the
     // whole set + per-row user and group loads). The 20 moves from the
     // stage-20 probe ride along: assert >=200, never ==200.
@@ -819,7 +843,7 @@ probe('page: moves list assembly (pre-T-15 shape, >=200 pending)', function () u
     return $rows . ' rows';
 });
 
-probe('page: moves list assembly (paged)', function () use ($api, $activity, $DB) {
+selfselectadvanced_probe('page: moves list assembly (paged)', function () use ($api, $activity, $DB) {
     // The T-15 shape of the same page (D6-8): ONE page fetched with
     // limitfrom/limitnum, validate_set over that page only, and two
     // batched label queries instead of three lookups per row. The
@@ -872,7 +896,7 @@ probe('page: moves list assembly (paged)', function () use ($api, $activity, $DB
     return count($pending) . ' of ' . $total . ' rows';
 });
 
-probe('service: validate_set alone (>=200 mixed moves)', function () use ($api, $activity, $DB) {
+selfselectadvanced_probe('service: validate_set alone (>=200 mixed moves)', function () use ($api, $activity, $DB) {
     $ids = array_map('intval', $DB->get_fieldset_select(
         'selfselectadvanced_move',
         'id',
@@ -893,7 +917,7 @@ probe('service: validate_set alone (>=200 mixed moves)', function () use ($api, 
     return count($verdicts->permove) . ' verdict sets';
 });
 
-probe('service: handover propose + accept', function () use ($api, $activity, $DB, $groupids, $guideids) {
+selfselectadvanced_probe('service: handover propose + accept', function () use ($api, $activity, $DB, $groupids, $guideids) {
     $gid = (int) $groupids[(int) (count($groupids) / 3)];
     $DB->set_field('selfselectadvanced_group', 'state', 'pending_guide', ['id' => $gid]);
     $DB->set_field('selfselectadvanced_group', 'guideid', (int) $guideids[0], ['id' => $gid]);
@@ -907,7 +931,13 @@ probe('service: handover propose + accept', function () use ($api, $activity, $D
 // 1.15.0 probes (RCA docs/audits/rca-core-sync-caps-prefix.md): the
 // core push, the good-neighbour membership audit, the deleted-account
 // roster cleanup, and the manager-controlled id prefix.
-probe('service: freeze - push 5 members to core groups', function () use ($DB, $activity, $groupids, $guideids, $now) {
+selfselectadvanced_probe('service: freeze - push 5 members to core groups', function () use (
+    $DB,
+    $activity,
+    $groupids,
+    $guideids,
+    $now
+) {
     $gid = (int) $groupids[10];
     $DB->set_field('selfselectadvanced_group', 'state', 'firm', ['id' => $gid]);
     $DB->set_field('selfselectadvanced_group', 'guideid', (int) $guideids[2], ['id' => $gid]);
@@ -921,7 +951,13 @@ probe('service: freeze - push 5 members to core groups', function () use ($DB, $
     return 'coregroup ' . $frozen->coregroupid;
 });
 
-probe('service: freeze audit refusal at lowered cap', function () use ($DB, $activity, $groupids, $guideids, $now) {
+selfselectadvanced_probe('service: freeze audit refusal at lowered cap', function () use (
+    $DB,
+    $activity,
+    $groupids,
+    $guideids,
+    $now
+) {
     $gid = (int) $groupids[11];
     $DB->set_field('selfselectadvanced_group', 'state', 'firm', ['id' => $gid]);
     $DB->set_field('selfselectadvanced_group', 'guideid', (int) $guideids[3], ['id' => $gid]);
@@ -947,7 +983,7 @@ probe('service: freeze audit refusal at lowered cap', function () use ($DB, $act
     return 'refused as designed, cap restored to ' . $origcap;
 });
 
-probe('observer: delete a frozen member account', function () use ($DB, $activity, $groupids) {
+selfselectadvanced_probe('observer: delete a frozen member account', function () use ($DB, $activity, $groupids) {
     $gid = (int) $groupids[10];
     $member = $DB->get_record_sql(
         "SELECT u.*
@@ -971,7 +1007,7 @@ probe('observer: delete a frozen member account', function () use ($DB, $activit
     return 'roster and snapshot clean';
 });
 
-probe('service: uidprefix stamps new groups', function () use ($DB, $activity, &$groupless) {
+selfselectadvanced_probe('service: uidprefix stamps new groups', function () use ($DB, $activity, &$groupless) {
     $DB->set_field('selfselectadvanced', 'uidprefix', 'VIT', ['id' => $activity->id()]);
     $freshactivity = activity::from_instance($activity->id());
     $group = (new api($freshactivity))->create_group(
@@ -989,7 +1025,7 @@ probe('service: uidprefix stamps new groups', function () use ($DB, $activity, &
     return $group->pluginuid;
 });
 
-probe('service: name_taken course-wide at ~1900 groups', function () use ($activity) {
+selfselectadvanced_probe('service: name_taken course-wide at ~1900 groups', function () use ($activity) {
     // 1.16.0: uniqueness widened from the activity to the course. The
     // check must stay a single indexed probe, not a scan.
     if (!groups::name_taken($activity, 'Scale team 0042')) {
@@ -1002,7 +1038,7 @@ probe('service: name_taken course-wide at ~1900 groups', function () use ($activ
     return 'both verdicts correct';
 });
 
-probe('service: project id template renders', function () use ($DB, $activity, &$groupless) {
+selfselectadvanced_probe('service: project id template renders', function () use ($DB, $activity, &$groupless) {
     $DB->set_field('selfselectadvanced', 'uidformat', '{prefix}/{number}', ['id' => $activity->id()]);
     $freshactivity = activity::from_instance($activity->id());
     if (!$groupless) {
@@ -1023,7 +1059,13 @@ probe('service: project id template renders', function () use ($DB, $activity, &
     return $group->pluginuid;
 });
 
-probe('service: tickets - file 50 + queue + exclusivity', function () use ($DB, $activity, $groupids, $guideids, $now) {
+selfselectadvanced_probe('service: tickets - file 50 + queue + exclusivity', function () use (
+    $DB,
+    $activity,
+    $groupids,
+    $guideids,
+    $now
+) {
     // Fifty firm guided teams file composition-change requests; the
     // queue lists them FIFO; the claim stays exclusive under load.
     $tickets = [];
@@ -1068,7 +1110,11 @@ probe('service: tickets - file 50 + queue + exclusivity', function () use ($DB, 
     return count($queue) . ' queued, claim exclusive';
 });
 
-probe('service: guides selectable, students-approach (200 guides)', function () use ($DB, $activity, $gatekeeper) {
+selfselectadvanced_probe('service: guides selectable, students-approach (200 guides)', function () use (
+    $DB,
+    $activity,
+    $gatekeeper
+) {
     // The property under test is that students-approach mode filters
     // NOTHING by remaining capacity - omitting a full guide would
     // itself advertise their load. Compared against the same call with
@@ -1086,7 +1132,7 @@ probe('service: guides selectable, students-approach (200 guides)', function () 
     return "listed on={$on} off={$off} (no capacity filtering when students approach)";
 });
 
-probe('table: assignqueue page of 50 (awaiting a guide)', function () use ($activity, $cm) {
+selfselectadvanced_probe('table: assignqueue page of 50 (awaiting a guide)', function () use ($activity, $cm) {
     // 1.17.0 C1: the tab must cost the same at 1900 teams as at 19.
     $table = new \mod_selfselectadvanced\table\assignqueue_table(
         'probeassign',
@@ -1102,7 +1148,7 @@ probe('table: assignqueue page of 50 (awaiting a guide)', function () use ($acti
     return strlen($html) . ' bytes';
 });
 
-probe('table: assignqueue page of 50 (changing a guide)', function () use ($activity, $cm) {
+selfselectadvanced_probe('table: assignqueue page of 50 (changing a guide)', function () use ($activity, $cm) {
     $table = new \mod_selfselectadvanced\table\assignqueue_table(
         'probereassign',
         $activity,
@@ -1117,7 +1163,7 @@ probe('table: assignqueue page of 50 (changing a guide)', function () use ($acti
     return strlen($html) . ' bytes';
 });
 
-probe('service: guide search for a picker keystroke (200 guides)', function () use ($activity, $gatekeeper) {
+selfselectadvanced_probe('service: guide search for a picker keystroke (200 guides)', function () use ($activity, $gatekeeper) {
     // 1.18 B: the measurement the searchable pickers exist for. Every
     // keystroke in every picker costs this, so it has to stay flat -
     // the name filter runs BEFORE the per-guide override work, which
@@ -1133,7 +1179,7 @@ probe('service: guide search for a picker keystroke (200 guides)', function () u
     return count($hits) . ' hits, capped at 50';
 });
 
-probe('service: guide search miss (no match at 200 guides)', function () use ($activity, $gatekeeper) {
+selfselectadvanced_probe('service: guide search miss (no match at 200 guides)', function () use ($activity, $gatekeeper) {
     $hits = \mod_selfselectadvanced\local\guides::search($activity, $gatekeeper->resolver(), 'Zzyzx Nobody', 50);
     if ($hits !== []) {
         throw new coding_exception('a query nobody matches returned ' . count($hits) . ' rows');
@@ -1142,7 +1188,7 @@ probe('service: guide search miss (no match at 200 guides)', function () use ($a
     return '0 hits';
 });
 
-probe('table: guide loads page of 50, filtered (200 guides)', function () use ($activity, $gatekeeper, $cm) {
+selfselectadvanced_probe('table: guide loads page of 50, filtered (200 guides)', function () use ($activity, $gatekeeper, $cm) {
     // 1.18 F: filters and download joined the paging it got in 1.17.
     $rows = [];
     foreach (
@@ -1166,7 +1212,7 @@ probe('table: guide loads page of 50, filtered (200 guides)', function () use ($
     return count($rows) . ' guides, ' . strlen($html) . ' bytes';
 });
 
-probe('service: team search for a move-form keystroke (~1900 teams)', function () use ($activity) {
+selfselectadvanced_probe('service: team search for a move-form keystroke (~1900 teams)', function () use ($activity) {
     // 1.18.2 B: the move form carried TWO selects over every team, and
     // the override form an autocomplete filtered in the browser. Both
     // search now, and this is the cost of one keystroke in either.
@@ -1181,7 +1227,7 @@ probe('service: team search for a move-form keystroke (~1900 teams)', function (
     return count($hits) . ' hits, capped at 50';
 });
 
-probe('service: guidecap - file 20 + queue + grant', function () use ($activity, $guideids) {
+selfselectadvanced_probe('service: guidecap - file 20 + queue + grant', function () use ($activity, $guideids) {
     // 1.18 C: a ticket type with no team, through the whole queue.
     // The harness enrols students and guides and nobody else, so the
     // queue worker here is the site administrator - who holds the
@@ -1232,7 +1278,7 @@ probe('service: guidecap - file 20 + queue + grant', function () use ($activity,
     return '20 filed, 1 granted';
 });
 
-probe('service: contacts - 50 approaches + remaining', function () use ($DB, $activity, $groupids, $guideids) {
+selfselectadvanced_probe('service: contacts - 50 approaches + remaining', function () use ($DB, $activity, $groupids, $guideids) {
     $DB->set_field('selfselectadvanced', 'contactmax', 3, ['id' => $activity->id()]);
     $fresh = activity::from_instance($activity->id());
     $sent = 0;
@@ -1266,7 +1312,13 @@ probe('service: contacts - 50 approaches + remaining', function () use ($DB, $ac
 // the evidence T-12's (activityid, status, timecreated) index is
 // judged against. This block runs LAST on purpose: 100k history rows
 // must not inflate the earlier EOI-coupled probes.
-probe('seed: 100k EOI history + 40 stale pending (raw)', function () use ($DB, $activity, $listedids, $guideids, $now) {
+selfselectadvanced_probe('seed: 100k EOI history + 40 stale pending (raw)', function () use (
+    $DB,
+    $activity,
+    $listedids,
+    $guideids,
+    $now
+) {
     $statuses = ['accepted', 'rejected', 'expired', 'withdrawn'];
     $rows = [];
     for ($i = 0; $i < 100000; $i++) {
@@ -1298,7 +1350,7 @@ probe('seed: 100k EOI history + 40 stale pending (raw)', function () use ($DB, $
     return '100040 rows';
 });
 
-probe('cron: eoi::expire_due over deep history', function () use ($DB, $activity) {
+selfselectadvanced_probe('cron: eoi::expire_due over deep history', function () use ($DB, $activity) {
     $fresh = activity::from_instance($activity->id());
     $expired = eoi::expire_due($fresh);
     // Only the 40 stale pendings may expire: the 2,500 seeded and the
@@ -1337,7 +1389,7 @@ if (!empty($options['record'])) {
         'shortname' => $shortname,
         'timeutc' => gmdate('Y-m-d\TH:i:s\Z'),
         'pluginversion' => (string) get_config('mod_selfselectadvanced', 'version'),
-        'release' => scale_plugin_release(),
+        'release' => selfselectadvanced_scale_plugin_release(),
         'moodle' => $CFG->release,
         'php' => PHP_VERSION,
         'dbfamily' => $DB->get_dbfamily(),

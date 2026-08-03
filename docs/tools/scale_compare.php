@@ -82,7 +82,7 @@ Options:
  * @param string $path the JSON file
  * @return array label => stdClass probe record
  */
-function scale_compare_load(string $what, string $path): array {
+function selfselectadvanced_scale_compare_load(string $what, string $path): array {
     if (!is_readable($path)) {
         cli_error("{$what} file is not readable: {$path}");
     }
@@ -121,8 +121,8 @@ function scale_compare_load(string $what, string $path): array {
     return $map;
 }
 
-$baseline = scale_compare_load('baseline', (string) $options['baseline']);
-$run = scale_compare_load('run', (string) $options['run']);
+$baseline = selfselectadvanced_scale_compare_load('baseline', (string) $options['baseline']);
+$run = selfselectadvanced_scale_compare_load('run', (string) $options['run']);
 
 $verdict = compare::verdicts(
     $baseline,
