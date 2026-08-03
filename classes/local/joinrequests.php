@@ -118,7 +118,6 @@ class joinrequests {
         // The lock is on the person, because that is what the rule is
         // about: one live request each.
         $lock = locks::acquire('joinrequest:user:' . $userid);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -168,7 +167,7 @@ class joinrequests {
             $request->id = $DB->insert_record('selfselectadvanced_move', $request);
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $outermost, $e);
+            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -437,7 +436,6 @@ class joinrequests {
     ): stdClass {
         global $DB;
 
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
             $DB->update_record('selfselectadvanced_move', (object) [
@@ -455,7 +453,7 @@ class joinrequests {
             ])->trigger();
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $outermost, $e);
+            self::rollback($transaction ?? null, $e);
         }
 
         return self::get($activity, (int) $request->id);
@@ -514,7 +512,6 @@ class joinrequests {
             $resources[] = 'group:' . $gid;
         }
         $locks = locks::acquire_all($resources);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -665,7 +662,7 @@ class joinrequests {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $outermost, $e);
+            self::rollback($transaction ?? null, $e);
         } finally {
             locks::release_all($locks);
         }
@@ -697,7 +694,6 @@ class joinrequests {
         // acceptance racing each other resolve one way or the other and
         // never both (audit HIGH-TX-002).
         $lock = locks::acquire('joinrequest:' . $requestid);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -717,7 +713,7 @@ class joinrequests {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $outermost, $e);
+            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -810,19 +806,38 @@ class joinrequests {
     }
 
     /**
-     * Roll back and rethrow, but only when we opened the transaction.
+     * Roll back and rethrow, whoever opened the transaction.
      *
-     * Moodle wraps every PHPUnit test in a transaction of its own, and
-     * a nested rollback sets force_rollback and poisons the caller's.
-     * The same rule the ticket queue follows.
+     * UNCONDITIONAL since 1.20 wave 3E. This helper used to take an
+     * $outermost flag, read from $DB->is_transaction_started() before
+     * the lock, and skip the rollback whenever a caller already held a
+     * transaction. Both halves of that were wrong.
+     *
+     * The flag was not a fact about the method: advanced_testcase opens
+     * a delegated transaction before every test on PostgreSQL and none
+     * on MariaDB, so it was false on m5pg and true on m5my for the
+     * whole suite - one arm per engine, neither engine exercising the
+     * other.
+     *
+     * And skipping the rollback did not protect the caller, it broke
+     * it. rollback_delegated_transaction() (lib/dml/moodle_database.php)
+     * issues the physical ROLLBACK only for the frame on top of $DB's
+     * stack. Abandoning our frame leaves it there undisposed, so the
+     * caller's own rollback() fails that identity check, rethrows
+     * without rolling anything back, and its writes survive a refusal
+     * the caller believed it had unwound - after which
+     * commit_delegated_transaction() throws for every later commit in
+     * the request. do_accept() nests store::save() through
+     * save_for_new_move() on exactly that path. Rolling our frame back
+     * pops it, sets force_rollback, and lets the caller's rollback
+     * reach the bottom, which is the cascade core documents.
      *
      * @param \moodle_transaction|null $transaction the transaction, if one was started
-     * @param bool $outermost whether this call opened it
      * @param \Throwable $e what went wrong
      * @throws \Throwable always
      */
-    private static function rollback(?\moodle_transaction $transaction, bool $outermost, \Throwable $e): void {
-        if ($transaction !== null && $outermost) {
+    private static function rollback(?\moodle_transaction $transaction, \Throwable $e): void {
+        if ($transaction !== null && !$transaction->is_disposed()) {
             $transaction->rollback($e);
         }
 

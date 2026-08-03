@@ -20,6 +20,7 @@ use mod_selfselectadvanced\local\autogroup\engine;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\override\resolver;
 use mod_selfselectadvanced\local\override\store;
+use mod_selfselectadvanced\local\rules\gatekeeper;
 use mod_selfselectadvanced\local\state;
 
 /**
@@ -180,6 +181,61 @@ final class autogroup_test extends \advanced_testcase {
         // The last student is residue (alone, below minsize 2).
         $lastrun = $DB->get_records('selfselectadvanced_agrun', [], 'id DESC', '*', 0, 1);
         $this->assertSame(1, (int) reset($lastrun)->unplaced);
+    }
+
+    /**
+     * The cutoff SECOND belongs to the window, for the pool exactly as
+     * for the gate.
+     *
+     * effective_dates::is_open() and gatekeeper::check_window() both
+     * refuse only once `$now > $timecutoff`, so a student acting at
+     * exactly the cutoff second is still admitted. The pool asked
+     * `$timecutoff <= $now`, so that same student was simultaneously
+     * collected as having MISSED the window - free to create a team and
+     * being auto-placed into one in the same second. The existing pool
+     * cover uses now-100 and now+DAYSECS and never touches the
+     * boundary, which is why this stood.
+     */
+    public function test_cutoff_second_is_inside_the_window_for_pool_and_gate_alike(): void {
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        // A fixed instant: every comparison below is made with an
+        // explicit $now, so no assertion depends on the wall clock.
+        $cutoff = time() + DAYSECS;
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 2,
+            'maxsize' => 3,
+            'autogroup' => 2,
+            'timecutoff' => $cutoff,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+        $student = $generator->create_user();
+        $generator->enrol_user($student->id, $course->id, 'student');
+        $userid = (int) $student->id;
+        $resolver = new resolver($activity);
+        $gate = new gatekeeper($activity, $resolver);
+        $dates = $resolver->effective_dates($userid, null);
+
+        // A second before the cutoff: open, and nobody has missed it.
+        $this->assertTrue($dates->is_open($cutoff - 1));
+        $this->assertNull($gate->check_window($userid, null, $cutoff - 1));
+        $this->assertSame([], engine::pool($activity, $resolver, $cutoff - 1));
+
+        // AT the cutoff: the declared window and the gate both still
+        // admit this student, so the sweep must not pool them.
+        $this->assertTrue($dates->is_open($cutoff));
+        $this->assertNull($gate->check_window($userid, null, $cutoff));
+        $this->assertSame([], engine::pool($activity, $resolver, $cutoff));
+
+        // One second later: closed everywhere, and now pooled.
+        $this->assertFalse($dates->is_open($cutoff + 1));
+        $refusal = $gate->check_window($userid, null, $cutoff + 1);
+        $this->assertNotNull($refusal);
+        $this->assertSame('refusalcutoffpassed', $refusal->stringkey);
+        $this->assertSame([$userid], engine::pool($activity, $resolver, $cutoff + 1));
     }
 
     /**

@@ -49,15 +49,19 @@ class invite_form extends \moodleform {
             'ajax' => 'mod_selfselectadvanced/candidateselector',
             'noselectionstring' => get_string('invitenoselection', 'mod_selfselectadvanced'),
             // A placeholder must not promise a match the query will not
-            // make: while the activity protects contact details, a
-            // restricted inviter searches names only. Missing key means
-            // legacy behaviour (matching on both).
-            'placeholder' => get_string(
-                empty($this->_customdata['emailmatch']) && array_key_exists('emailmatch', $this->_customdata)
-                    ? 'inviteplaceholdername'
-                    : 'inviteplaceholder',
-                'mod_selfselectadvanced'
-            ),
+            // make, and there is now exactly one true answer for every
+            // viewer: NAMES ONLY. candidates::search() matches no
+            // address in either state of the contact-privacy switch
+            // (1.20.1 wave 3D), so the string is unconditional. It used
+            // to be chosen from an 'emailmatch' customdata flag that
+            // group.php computed from the switch and the viewer's
+            // capabilities - a condition that outlived the query it was
+            // meant to describe, and that made the legacy activity
+            // advertise "Search by name or email" over a names-only
+            // query. There is no per-viewer or per-activity case left:
+            // if this ever needs a condition again, the query has to
+            // grow one first.
+            'placeholder' => get_string('inviteplaceholdername', 'mod_selfselectadvanced'),
             'valuehtmlcallback' => function ($userid) {
                 $user = \core_user::get_user((int) $userid);
 

@@ -226,8 +226,15 @@ class gradebook {
         // Defaulter steps: one per missing membership.
         $minmembership = (int) $settings->minmembership;
         $penalty = (float) $settings->defaulterpenalty;
-        $effectivedue = $resolver->effective_dates($userid)->timedue;
-        if ($minmembership > 0 && $penalty > 0 && time() > (int) $effectivedue) {
+        // 0 is the plugin's "no deadline" sentinel for timedue
+        // (db/install.xml, and mod_form.php offers the field as
+        // optional, so unset is what a new activity carries).
+        // calculator::days_late() has always honoured it; without the
+        // > 0 test here every real timestamp is past 0, so an activity
+        // with no deadline at all docked the defaulter penalty from the
+        // moment it was created.
+        $effectivedue = (int) $resolver->effective_dates($userid)->timedue;
+        if ($minmembership > 0 && $penalty > 0 && $effectivedue > 0 && time() > $effectivedue) {
             for ($missing = count($rows) + 1; $missing <= $minmembership; $missing++) {
                 $position++;
                 $total = max(0.0, min($grademax, $total - $penalty));

@@ -1019,7 +1019,7 @@ final class narrowcaps_test extends \advanced_testcase {
 
     /**
      * (15) Auto-grouping still demands the FULL manage power, asserted
-     * against the source of the page that offers it.
+     * against the EXECUTABLE source of the page that offers it.
      *
      * This one is a source invariant and says so. manage.php is a page
      * script: PHPUnit cannot execute it, and the refusal direction of a
@@ -1027,14 +1027,40 @@ final class narrowcaps_test extends \advanced_testcase {
      * renders required_capability_exception through
      * core_renderer::fatal_error() and behat_session_trait's
      * look_for_exceptions() fails any step that lands on one. Between
-     * them that leaves DELETING this line invisible to every test in
-     * the suite - measured. A grep is a weak check; it is not a check
-     * that examined nothing, and it goes red the moment the line is
-     * removed or moved below the run it guards.
+     * them that leaves this line's removal invisible to every test in
+     * the suite - measured.
+     *
+     * COMMENTS ARE STRIPPED FIRST, and that is the whole point of this
+     * revision. Until 1.20.1 this test searched the RAW source, so it
+     * caught a DELETED line and missed a COMMENTED-OUT one - and
+     * commenting out is the edit a developer actually makes. Measured
+     * 2026-08-03 (mutation M23): with
+     *   // require_capability('mod/selfselectadvanced:manage', $context);
+     * in the runautogroup branch, the previous version of this test
+     * reported "Tests: 1 ... OK" on m5pg AND m5my, and this version
+     * fails on both. The docblock it replaces claimed the test "goes
+     * red the moment the line is removed or moved", which was true of
+     * one edit and false of the other. code_without_comments() is the
+     * same token_get_all() idiom contactreach_test and staffmessage_test
+     * use, and for the same reason.
+     *
+     * WHAT THIS GATE IS FOR: the page gate at the top of manage.php is
+     * a has_any_capability() that admits :assignguide as well as
+     * :manage, so this narrow re-assertion is the only thing standing
+     * between an :assignguide holder and a rewrite of the entire
+     * roster.
+     *
+     * WHY IT IS STILL A SOURCE CHECK. The stronger fix is a seam -
+     * autogroup\engine asking :manage itself, the way
+     * quota\slots::require_manage() does, which a real test could then
+     * drive. That change belongs to manage.php and
+     * local\autogroup\engine, neither of which this wave owns, so it is
+     * recorded here rather than smuggled in: a grep is a weak check,
+     * but a weak check that cannot be satisfied by a comment is worth
+     * more than a strong-sounding one that can.
      */
     public function test_autogrouping_still_demands_the_full_manage_power(): void {
-        $source = file_get_contents(__DIR__ . '/../manage.php');
-        $this->assertIsString($source);
+        $source = self::code_without_comments(__DIR__ . '/../manage.php');
 
         $branch = strpos($source, "\$action === 'runautogroup'");
         $this->assertNotFalse($branch, 'the runautogroup branch has moved; re-anchor this test');
@@ -1047,5 +1073,38 @@ final class narrowcaps_test extends \advanced_testcase {
             'auto-grouping rewrites the whole roster: it must re-assert :manage before it runs, '
                 . 'because the page gate above it also admits :assignguide'
         );
+    }
+
+    /**
+     * A PHP file's EXECUTABLE source, with every comment removed.
+     *
+     * A guard rail that a comment can satisfy is not a guard rail. The
+     * comments in this plugin's page scripts quote the very lines the
+     * source checks look for - explaining why they are there - so a
+     * search over the raw text answers "yes" to the explanation of a
+     * rule as readily as to the rule.
+     *
+     * @param string $path absolute path to the file
+     * @return string the source, comments stripped
+     */
+    private static function code_without_comments(string $path): string {
+        $source = file_get_contents($path);
+        if (!is_string($source)) {
+            throw new \coding_exception('unreadable: ' . $path);
+        }
+
+        $code = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+                $code .= $token[1];
+                continue;
+            }
+            $code .= $token;
+        }
+
+        return $code;
     }
 }

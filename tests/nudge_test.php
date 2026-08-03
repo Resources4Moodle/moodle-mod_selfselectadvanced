@@ -149,16 +149,21 @@ final class nudge_test extends \advanced_testcase {
 
         // Student 0 reaches the minimum (leads one group, joins a
         // second); students 1 and 2 have only their own led group, so
-        // both default.
+        // both default. Every team here is FIRM: the defaulter report
+        // counts the memberships the GRADE counts (defaulterbasis_test),
+        // and the generator's default state - forming - is not one of
+        // them.
         $plugingen->create_group([
             'activityid' => $activity->id(),
             'leaderid' => $students[0]->id,
             'name' => 'Alpha team',
+            'state' => state::FIRM,
         ]);
         $second = $plugingen->create_group([
             'activityid' => $activity->id(),
             'leaderid' => $students[1]->id,
             'name' => 'Bravo team',
+            'state' => state::FIRM,
         ]);
         $plugingen->create_member([
             'groupid' => $second->id,
@@ -169,6 +174,7 @@ final class nudge_test extends \advanced_testcase {
             'activityid' => $activity->id(),
             'leaderid' => $students[2]->id,
             'name' => 'Charlie team',
+            'state' => state::FIRM,
         ]);
 
         $ids = flagged_defaulters_table::recipient_ids($activity, 2, '');

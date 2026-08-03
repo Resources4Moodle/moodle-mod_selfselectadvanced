@@ -90,15 +90,20 @@ if ($isleaderforming) {
     // Each of the forms that can share this page names its own action
     // button, so the ids stay unique and stable whichever forms the
     // page happens to show.
+    // No emailmatch flag any more (1.20.1 wave 3D). This page used to
+    // compute a three-armed predicate here - switch off, OR an
+    // unrestricted viewer, OR :viewparticipantidentity - and hand it to
+    // the form so the placeholder could promise an address search to
+    // the viewers who got one. candidates::search() no longer matches
+    // an address for ANY viewer in EITHER switch state, so every arm of
+    // that predicate was answering a question the query stopped asking,
+    // and the two arms that returned true made the box promise a search
+    // it would not make. The predicate is not narrowed here, it is
+    // gone: a flag whose only correct value is a constant is a flag
+    // that will be widened again by the next reader who finds it.
     $inviteform = new \mod_selfselectadvanced\form\invite_form($baseurl->out(false), [
         'cmid' => $cm->id,
         'groupid' => (int) $group->id,
-        // Truthfulness in the placeholder: the same predicate
-        // candidates::search() uses, so the box never promises a match
-        // the query will not make.
-        'emailmatch' => !\mod_selfselectadvanced\local\contactprivacy::enabled($activity)
-            || \mod_selfselectadvanced\local\contactprivacy::is_unrestricted($activity, (int) $USER->id)
-            || has_capability('mod/selfselectadvanced:viewparticipantidentity', $context, (int) $USER->id),
     ]);
 }
 

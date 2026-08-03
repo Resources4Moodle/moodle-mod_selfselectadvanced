@@ -22,12 +22,16 @@ require_once($CFG->libdir . '/tablelib.php');
 
 use mod_selfselectadvanced\activity;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\state;
 
 /**
  * The flagged report's defaulters tab (audit round 6 item 6): core
  * table_sql over enrolled respond-capability holders, left joined to
- * a per-user confirmed-membership count, so the below-minimum test
- * and the name filter both run in SQL instead of a PHP array pass.
+ * a per-user count of the confirmed memberships the GRADE counts -
+ * those of firm or frozen groups, exactly gradebook::compute_activity()'s
+ * basis - so the below-minimum test and the name filter both run in SQL
+ * instead of a PHP array pass, and the report and the gradebook can
+ * never disagree about who is short of how many teams.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -213,6 +217,14 @@ class flagged_defaulters_table extends \table_sql {
         global $DB;
 
         [$enrolledsql, $params] = get_enrolled_sql($activity->context(), 'mod/selfselectadvanced:respond');
+        // The report and the GRADE must count the same memberships, or
+        // a student is docked a defaulter penalty by one surface while
+        // the other tells them they are fine. gradebook::compute_activity()
+        // counts confirmed memberships of FIRM or FROZEN groups only,
+        // so this counts those and no others; a membership of a forming
+        // or queued team is not yet a membership either surface credits.
+        [$statesql, $stateparams] = $DB->get_in_or_equal([state::FIRM, state::FROZEN], SQL_PARAMS_NAMED, 'dfst');
+        $params += $stateparams;
         $params['activityid'] = $activity->id();
         $params['confirmed'] = groups::STATUS_CONFIRMED;
         $params['minmembership'] = $minmembership;
@@ -224,6 +236,7 @@ class flagged_defaulters_table extends \table_sql {
                        FROM {selfselectadvanced_member} m
                        JOIN {selfselectadvanced_group} g ON g.id = m.groupid
                       WHERE g.activityid = :activityid AND m.status = :confirmed
+                        AND g.state $statesql
                    GROUP BY m.userid
                  ) mc ON mc.userid = u.id";
         $where = 'u.deleted = 0 AND COALESCE(mc.confirmedcount, 0) < :minmembership';

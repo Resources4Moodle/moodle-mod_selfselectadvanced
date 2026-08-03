@@ -321,6 +321,18 @@ final class joinrequests_test extends \advanced_testcase {
      */
     public function test_a_guide_cannot_release_what_staff_froze(): void {
         $this->resetAfterTest();
+        // THE preventResetByRollback() BELOW MUST COME FIRST (1.20
+        // wave 3E): the refusals driven here leave services that now
+        // roll their own delegated frame back UNCONDITIONALLY, and this
+        // test carries on committing afterwards. On PostgreSQL
+        // advanced_testcase holds a transaction underneath for the
+        // whole test, so that rollback is not the top level: it pops,
+        // leaves force_rollback set, and the next allow_commit() raises
+        // "Tried to commit transaction after lower level rollback". In
+        // production nothing is underneath, the rollback empties the
+        // stack and force_rollback is cleared - which is the cascade
+        // the fix restores.
+        $this->preventResetByRollback();
         $sink = $this->redirectMessages();
         [$activity, , $beta, , $guide, $coordinator, $manager] = $this->setup_world();
 
@@ -387,6 +399,10 @@ final class joinrequests_test extends \advanced_testcase {
      */
     public function test_withdrawing_ones_own_request(): void {
         $this->resetAfterTest();
+        // THE preventResetByRollback() BELOW MUST COME FIRST, for the
+        // reason given on the first test in this file that needed it
+        // (1.20 wave 3E).
+        $this->preventResetByRollback();
         $sink = $this->redirectMessages();
         [$activity, , $beta, $wanderer] = $this->setup_world();
 
@@ -721,6 +737,10 @@ final class joinrequests_test extends \advanced_testcase {
     public function test_a_source_left_between_asking_and_answering_is_refused_readably(): void {
         global $DB;
         $this->resetAfterTest();
+        // THE preventResetByRollback() BELOW MUST COME FIRST, for the
+        // reason given on the first test in this file that needed it
+        // (1.20 wave 3E).
+        $this->preventResetByRollback();
         $sink = $this->redirectMessages();
         [$activity, $alpha, $beta, $gamma, $wanderer] = $this->setup_multi_world();
 
@@ -795,6 +815,10 @@ final class joinrequests_test extends \advanced_testcase {
     public function test_a_target_joined_between_asking_and_answering_cannot_cost_the_source(): void {
         global $DB;
         $this->resetAfterTest();
+        // THE preventResetByRollback() BELOW MUST COME FIRST, for the
+        // reason given on the first test in this file that needed it
+        // (1.20 wave 3E).
+        $this->preventResetByRollback();
         $sink = $this->redirectMessages();
         // Cap 2: Alpha AND Beta together is a legal end state, which is
         // what makes the loss silent rather than a cap refusal.

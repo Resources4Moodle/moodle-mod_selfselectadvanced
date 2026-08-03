@@ -160,7 +160,6 @@ class store {
         // granted (the factory's static token map counts it up) and
         // then released once, leaving a phantom hold (T-04).
         $lock = $callerholdslock ? null : locks::acquire('override:' . $scope . ':' . $targetid);
-        $outermost = !$DB->is_transaction_started();
         $eventclass = null;
         $eventdata = [];
         try {
@@ -260,7 +259,21 @@ class store {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // UNCONDITIONAL since 1.20 wave 3E, and this seam is the
+            // one where it matters most: $callerholdslock is set by
+            // state::do_approve(), which calls this from INSIDE its own
+            // transition transaction, and joinrequests::do_accept()
+            // reaches it the same way through save_for_new_move(). The
+            // `$outermost &&` rider that stood here abandoned this
+            // method's frame on $DB's stack whenever a caller held a
+            // transaction, which makes the CALLER's rollback() fail its
+            // identity check in rollback_delegated_transaction() and
+            // rethrow without the physical ROLLBACK - the caller's
+            // half-finished transition then survives the refusal and
+            // every later commit in the request throws. It was also
+            // read from $DB->is_transaction_started(), which under
+            // PHPUnit answers for the harness, not for this method.
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;
@@ -674,7 +687,6 @@ class store {
         );
 
         $lock = locks::acquire('override:' . $existing->scope . ':' . $targetid);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -706,7 +718,9 @@ class store {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // Unconditional; see save() for why the $outermost gate was
+            // both engine-dependent and wrong when nested.
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;

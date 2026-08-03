@@ -671,7 +671,20 @@ final class contactprivacy_test extends \advanced_testcase {
         // str_contains rather than assertStringContainsString: the
         // haystack is a whole page script, and a failure message that
         // prints it is unreadable in a gate log.
-        $page = preg_replace('/\s+/', ' ', file_get_contents(__DIR__ . '/../flagged.php'));
+        //
+        // COMMENTS ARE STRIPPED FIRST (1.20.1 wave 3E). Until then this
+        // read the RAW page, and flagged.php's own paragraphs quote both
+        // of the call sites below while explaining why they differ - so
+        // the search could not tell an explanation of the rule from the
+        // rule. Measured (mutation M18): with the literal-false export
+        // cell wrapped in a block comment and a $showmobile call written
+        // under it - the edit a developer actually makes - this test
+        // reported "Tests: 1 ... OK" on m5pg and on m5my while the CSV
+        // carried numbers again. exportpins_test pins the same control
+        // and found it; this one now finds it too, because a guard rail
+        // that only one of two tests can see is a guard rail one commit
+        // away from being deleted as a duplicate.
+        $page = self::executable_source(__DIR__ . '/../flagged.php');
         $required = [
             'flagged.php must pass the gated flag to display_line(), never a literal' =>
                 'manager::display_line( $attrs[(int) $user->id] ?? null, $showmobile )',
@@ -694,6 +707,40 @@ final class contactprivacy_test extends \advanced_testcase {
         foreach ($required as $why => $fragment) {
             $this->assertTrue(str_contains($page, $fragment), $why . ' - missing: ' . $fragment);
         }
+    }
+
+    /**
+     * A page script's EXECUTABLE source, comments removed by token and
+     * whitespace collapsed to single spaces.
+     *
+     * The same idiom exportpins_test, contactreach_test,
+     * staffmessage_test and narrowcaps_test use, and for the same
+     * reason: a presence search over raw text FAILS OPEN on a comment,
+     * and commenting the old call out is how the edit this pin exists to
+     * catch is actually made.
+     *
+     * @param string $path absolute path to the file
+     * @return string the code, comment-free and whitespace-collapsed
+     */
+    private static function executable_source(string $path): string {
+        $source = file_get_contents($path);
+        if (!is_string($source)) {
+            throw new \coding_exception('unreadable: ' . $path);
+        }
+
+        $code = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+                $code .= $token[1];
+                continue;
+            }
+            $code .= $token;
+        }
+
+        return preg_replace('/\s+/', ' ', $code);
     }
 
     /**

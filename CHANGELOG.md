@@ -348,6 +348,105 @@
   transaction were open; there is no such hand-off and no such task —
   the work runs inline, and the comment now says what actually happens
   and why it is safe.
+- **A refusal no longer leaves behind the work it refused.** Sixteen
+  places in this plugin — approaching a guide, granting or removing an
+  exception, freezing and releasing a team, the join queue and the
+  request queue — do their work inside a database transaction and turn
+  a request down from inside it. Each of them decided whether to undo
+  that transaction by asking whether *it* had been the one to start the
+  outermost one, and simply walked away from its own when the answer was
+  no. Moodle undoes the innermost piece of work first and lets the undo
+  cascade outwards; a piece abandoned rather than undone blocks the
+  cascade, so the caller's own "undo everything" silently did nothing.
+  Two live paths run exactly that way — approving a team writes the
+  relief exception that goes with it, and accepting a join request mints
+  a rule exception for the move — and after a refusal on either, changes
+  the plugin believed it had discarded were still there, and every save
+  for the rest of that request failed. The scheduled sweep that
+  auto-approves teams catches each team separately and carries on, so
+  one refusal could leave the rest of a run writing nothing while the log
+  filled with plausible "skipped" lines. Every one of the sixteen now
+  undoes its own work, whoever started the transaction. The switch that
+  decided this was also invisible to testing — under the test harness it
+  answers for the harness rather than for the code being tested, and it
+  answers differently on PostgreSQL and MariaDB, so each of the sixteen
+  took one path per database and the path that was broken was never
+  taken by either. It is gone, and the tests now force both paths
+  explicitly on both databases and check the result by reading the row
+  back out of the database after the undo.
+- **A deadline you never set no longer costs marks.** The penalty for
+  belonging to fewer teams than the activity asks for checked only
+  whether the deadline had passed — and an activity with no deadline
+  stores it as zero, which every moment of every day is past. Leaving
+  the deadline empty is the ordinary setting on a new activity, so every
+  student below the minimum was docked that penalty from the day the
+  activity was created: 90.00 instead of 100.00 on a 100-point activity
+  asking for two teams, published to the real gradebook and not merely
+  shown on a report. The penalty now waits for a deadline that exists. A
+  deadline already past still applies exactly as before, and one still to
+  come still does not.
+- **The defaulters report and the defaulter penalty now count the same
+  teams.** The report credited a student for every team they had
+  confirmed a place in, whatever state that team was in, while the grade
+  counted approved teams only. A student sitting in a team that was still
+  being formed was marked down for a shortfall the report told them they
+  did not have. Both now count approved teams and nothing else, so the
+  list a teacher reads and the marks a student receives now count the
+  same memberships. They still answer different questions, deliberately:
+  the report is a worklist of students short of approved teams at any
+  time, while the grade penalises only once a deadline exists and has
+  passed, so a student on an activity with no deadline set is listed and
+  is not penalised. Two further consequences follow and are deliberate: a
+  student whose only teams are still forming now appears on the
+  defaulters list, because they are indeed short of approved teams; and a
+  student in no team at all is listed but keeps an empty grade rather
+  than a penalised one, exactly as before.
+- **A student acting at the very second the deadline falls is no longer
+  grouped out from under themselves.** The formation window has always
+  included the cut-off second itself — at that instant the pages still
+  let a student create or join a team — but the automatic grouping sweep
+  treated that same instant as already missed, and would collect that
+  student for automatic placement while they were still free to act. The
+  sweep now agrees with the window it enforces: the cut-off second is
+  inside it, and automatic placement begins the second after. No
+  advertised window was shortened to achieve that; every other place in
+  the plugin that compares these three dates was checked and already
+  agreed.
+- **The invite box stops promising a search it will not make.** Its
+  placeholder reads "Search by name" for every viewer, in both states of
+  the contact-privacy switch, because matching by email address was
+  withdrawn earlier in this release and the box was still advertising it
+  on activities that are not protecting contact details. The group page
+  no longer works out who is allowed an address search: the flag is
+  removed rather than narrowed, because a flag whose only correct value
+  is a constant is one the next reader will widen again. The design notes
+  record the reversal and name the tests that hold it.
+- **The browser tests cover the picker again, and now cover what it
+  refuses.** The scenario that searched for an invitee by email address
+  had been failing on both databases since address matching was
+  withdrawn. It searches by name now and keeps every check it had,
+  including that the invitation really reaches the person. A second
+  scenario submits a full email address to the picker of an activity that
+  is *not* protecting contact details and requires that it finds nobody —
+  the case where re-adding the match would be easiest to defend and least
+  likely to be noticed.
+- **Guard rails that a comment could satisfy no longer can.** A check
+  that searches a file for a line it insists must be there will happily
+  find that line inside a comment — and commenting the old call out and
+  writing the new one under it is the edit a developer actually makes.
+  Two such checks were measured failing open, on PostgreSQL and MariaDB
+  alike: with the auto-grouping permission check commented out, and with
+  the flagged-students download's no-phone-numbers setting commented out
+  and replaced, both reported success while the thing they guard was
+  gone. Every check in the test suite that reads a source file now strips
+  its comments first — the two above, the participant search's promise
+  never to touch the address column, and the newly added pin on the
+  flagged-students download — and each has been watched failing against
+  the edit it exists to catch before being trusted. The counterweight is
+  pinned too, so a later hardening pass cannot quietly delete the
+  disclosure the design requires: the flagged report's on-screen line
+  must still show a number to a confirmed connection whose owner
+  consented, which is the specification and not an oversight.
 
 ## 1.20.0 (2026-07-31)
 

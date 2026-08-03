@@ -80,7 +80,6 @@ class contacts {
         }
 
         $lock = locks::acquire('group:' . $group->id);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -132,7 +131,20 @@ class contacts {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // UNCONDITIONAL since 1.20 wave 3E. The `$outermost &&`
+            // rider that stood here was read from
+            // $DB->is_transaction_started() before the lock, which
+            // under PHPUnit answers for the harness rather than for
+            // this method - true on m5my, false on m5pg - and on the
+            // nested path it selected the WRONG arm: leaving this
+            // method's undisposed frame on top of $DB's stack makes the
+            // caller's own rollback() fail the identity check in
+            // rollback_delegated_transaction() and rethrow WITHOUT
+            // issuing the physical ROLLBACK, so the caller's writes
+            // survive a refusal and every later commit in the request
+            // throws. Rolling our own frame back pops it and lets the
+            // cascade reach the bottom. Same idiom as state::submit().
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;
@@ -196,7 +208,6 @@ class contacts {
         // state is per group.
         $guidelock = locks::acquire('eoiguide:' . $userid);
         $lock = locks::acquire('group:' . $contact->groupid);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -236,7 +247,9 @@ class contacts {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            // Unconditional; see send() for why the $outermost gate was
+            // both engine-dependent and wrong when nested.
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;

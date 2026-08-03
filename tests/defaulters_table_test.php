@@ -64,12 +64,16 @@ final class defaulters_table_test extends \advanced_testcase {
         }
 
         // The first student holds a confirmed membership, so only the
-        // other two are below the minimum.
+        // other two are below the minimum. FIRM, because the report
+        // counts the memberships the GRADE counts (defaulterbasis_test)
+        // and a forming team is not one of them; the generator's default
+        // state is forming, so this has to be said.
         $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
         $plugingen->create_group([
             'activityid' => $activity->id(),
             'leaderid' => $students[0]->id,
             'name' => 'Has a group',
+            'state' => \mod_selfselectadvanced\local\state::FIRM,
         ]);
 
         return [$activity, $students];

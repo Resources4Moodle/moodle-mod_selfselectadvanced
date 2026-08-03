@@ -94,6 +94,18 @@ final class contacts_test extends \advanced_testcase {
     public function test_approach_gates(): void {
         global $DB;
         $this->resetAfterTest();
+        // THE preventResetByRollback() BELOW MUST COME FIRST (1.20
+        // wave 3E): the refusals driven here leave services that now
+        // roll their own delegated frame back UNCONDITIONALLY, and this
+        // test carries on committing afterwards. On PostgreSQL
+        // advanced_testcase holds a transaction underneath for the
+        // whole test, so that rollback is not the top level: it pops,
+        // leaves force_rollback set, and the next allow_commit() raises
+        // "Tried to commit transaction after lower level rollback". In
+        // production nothing is underneath, the rollback empties the
+        // stack and force_rollback is cleared - which is the cascade
+        // the fix restores.
+        $this->preventResetByRollback();
         $this->redirectMessages();
         [$activity, $group, $leader, $guides] = $this->setup_world();
 

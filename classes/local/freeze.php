@@ -172,7 +172,11 @@ class freeze {
         // reported as one number by the gate and any test that forgot
         // the opt-in preventResetByRollback() passed vacuously on
         // PostgreSQL. What a routine DOES must never depend on ambient
-        // transaction state; only how it unwinds may ($outermost).
+        // transaction state - and since 1.20 wave 3E neither does how
+        // it UNWINDS: the `$outermost` riders that once gated the
+        // rollback arms in this file were read from the same predicate
+        // and are gone. No production line in this class asks
+        // $DB->is_transaction_started() any more.
         //
         // What the removal costs, stated rather than glossed: a caller
         // with a transaction open now performs the core group writes
@@ -620,7 +624,6 @@ class freeze {
 
         $gatekeeper = new rules\gatekeeper($activity, new override\resolver($activity));
 
-        $outermost = !$DB->is_transaction_started();
         $lock = locks::acquire('group:' . $group->id);
         $violators = [];
         // Declared OUT here so it is still readable after the lock
@@ -725,7 +728,11 @@ class freeze {
             // Before this the exception escaped with the transaction
             // still open, and guide.php's bulk loop swallowed it and
             // carried on into the next group (D7-E1).
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            //
+            // UNCONDITIONAL since 1.20 wave 3E: see unfreeze() for why
+            // the `$outermost &&` rider was both engine-dependent and,
+            // when a caller held a transaction, the wrong arm.
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;
@@ -839,7 +846,6 @@ class freeze {
         global $CFG, $DB;
         require_once($CFG->dirroot . '/group/lib.php');
 
-        $outermost = !$DB->is_transaction_started();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -1038,7 +1044,20 @@ class freeze {
             // in - throws from INSIDE the transaction, so without this
             // a refused release left a dangling delegated transaction
             // (T-02 R3; the refusalwrongstate path had it already).
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            //
+            // UNCONDITIONAL since 1.20 wave 3E. The `$outermost &&`
+            // rider was decided by $DB->is_transaction_started() read
+            // before the lock, which under PHPUnit answers for the
+            // harness rather than for this method - false on m5pg, true
+            // on m5my, so neither engine ever tried the other arm - and
+            // the arm it chose when nested was the wrong one: an
+            // undisposed frame left on top of $DB's stack makes the
+            // CALLER's rollback() fail its identity check in
+            // rollback_delegated_transaction() and rethrow without
+            // issuing the physical ROLLBACK, so the caller's writes
+            // survive a refusal and every later commit in the request
+            // throws. Same idiom as state::submit().
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;
@@ -1128,7 +1147,6 @@ class freeze {
             throw new \moodle_exception('refusaldiscardfrozen', 'mod_selfselectadvanced');
         }
 
-        $outermost = !$DB->is_transaction_started();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -1149,7 +1167,10 @@ class freeze {
             // The refusalnodiscardtarget throw is user-reachable and
             // comes from INSIDE the transaction, so without this a
             // refused discard leaves the transaction open.
-            if ($outermost && isset($transaction) && !$transaction->is_disposed()) {
+            //
+            // Unconditional; see unfreeze() for why the $outermost gate
+            // was both engine-dependent and wrong when nested.
+            if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
             throw $e;

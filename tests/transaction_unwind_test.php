@@ -17,9 +17,13 @@
 namespace mod_selfselectadvanced;
 
 use mod_selfselectadvanced\local\api;
+use mod_selfselectadvanced\local\contacts;
 use mod_selfselectadvanced\local\eoi;
+use mod_selfselectadvanced\local\freeze;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\joinrequests;
 use mod_selfselectadvanced\local\notifier;
+use mod_selfselectadvanced\local\override\store as overridestore;
 use mod_selfselectadvanced\local\state;
 use mod_selfselectadvanced\local\tickets;
 
@@ -58,17 +62,28 @@ use mod_selfselectadvanced\local\tickets;
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \mod_selfselectadvanced\local\api
+ * @covers     \mod_selfselectadvanced\local\contacts
  * @covers     \mod_selfselectadvanced\local\eoi
+ * @covers     \mod_selfselectadvanced\local\freeze
  * @covers     \mod_selfselectadvanced\local\handover
  * @covers     \mod_selfselectadvanced\local\invitations
+ * @covers     \mod_selfselectadvanced\local\joinrequests
  * @covers     \mod_selfselectadvanced\local\moves
  * @covers     \mod_selfselectadvanced\local\notifier
+ * @covers     \mod_selfselectadvanced\local\override\store
  * @covers     \mod_selfselectadvanced\local\state
  * @covers     \mod_selfselectadvanced\local\succession
+ * @covers     \mod_selfselectadvanced\local\tickets
  */
 final class transaction_unwind_test extends \advanced_testcase {
     /** @var string[] Seams whose refusal left a transaction behind. */
     private array $leftopen = [];
+
+    /** @var string[] Seams whose refusal survived the CALLER's rollback. */
+    private array $notunwound = [];
+
+    /** @var int Marker-row sequence, so every probe reads back its own row. */
+    private int $markerseq = 0;
 
     /**
      * A course, an activity, the cast, and one FORMING team.
@@ -239,6 +254,154 @@ final class transaction_unwind_test extends \advanced_testcase {
             $this->leftopen,
             $what . ': these refusals left the delegated transaction open (the physical transaction'
                 . ' survives the request, and every later write is discarded when the connection closes)'
+        );
+    }
+
+    /**
+     * THE QUESTION C1 IS ABOUT: drive one refusal with a transaction
+     * the TEST owns, having first written a row through it, and ask
+     * whether the CALLER's own rollback still reaches the DATABASE.
+     *
+     * probe_nested_refusal() above asks half of this - it checks that
+     * $DB's transaction stack is empty afterwards. That is necessary
+     * and it is not sufficient: a stack can be emptied by
+     * force_transaction_rollback() in a shutdown handler long after the
+     * request decided what it had written. The MARKER ROW is the other
+     * half, and it is the half a site notices. It is written by the
+     * caller, inside the caller's transaction, before the callee is
+     * ever entered; if the caller's rollback reached the database the
+     * row is gone, and if it did not the row is still there.
+     *
+     * MECHANISM, read in core (lib/dml/moodle_database.php):
+     * rollback_delegated_transaction() issues the physical ROLLBACK
+     * only for the frame on top of $DB's stack, and only when that
+     * frame is the LAST one - an inner frame pops, sets force_rollback
+     * and lets the cascade continue downwards. A callee that ABANDONS
+     * its frame leaves it on top, undisposed, so the caller's
+     * rollback() fails the identity check, takes the "better just
+     * rethrow" branch, and never rolls anything back. The caller's
+     * marker row survives a refusal the caller believes it unwound, and
+     * commit_delegated_transaction() throws for every later commit in
+     * the request.
+     *
+     * NEITHER ENGINE CHOOSES ANYTHING HERE. The nested arm is forced by
+     * opening the transaction in the test, so the service is genuinely
+     * nested on m5pg and on m5my alike, and preventResetByRollback() is
+     * required of every caller: without it advanced_testcase holds a
+     * third frame underneath on PostgreSQL, no rollback in the chain is
+     * ever the last one, and the probe would report a failure the code
+     * did not commit.
+     *
+     * RECORDED rather than asserted on the spot, for the reason
+     * probe_refusal() gives: a verdict that names one seam out of five
+     * is not evidence about the other four.
+     *
+     * @param string $label what is being driven, for the verdict
+     * @param string $errorcode the refusal expected (coding_exception
+     *        raises 'codingerror')
+     * @param callable $fn the call that must refuse
+     */
+    private function probe_nested_marker(string $label, string $errorcode, callable $fn): void {
+        global $DB;
+
+        $this->assertFalse(
+            $DB->is_transaction_started(),
+            $label . ': this probe must start from an empty transaction stack'
+        );
+
+        // A table no seam under test reads or writes: only
+        // local\attributes\depts touches the vocabulary, and none of
+        // these services goes near it. The row is the caller's own
+        // write, which is the whole point - it is what a cron sweep
+        // would have lost.
+        $marker = 'unwind-marker-' . (++$this->markerseq);
+        $now = time();
+        $DB->insert_record('selfselectadvanced_dept', (object) [
+            'name' => $marker,
+            'kind' => 'dept',
+            'parent' => 0,
+            'depth' => 1,
+            'path' => '/0',
+            'sortorder' => 0,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        $outer = $DB->start_delegated_transaction();
+        $inside = $DB->insert_record('selfselectadvanced_dept', (object) [
+            'name' => $marker . '-inside',
+            'kind' => 'dept',
+            'parent' => 0,
+            'depth' => 1,
+            'path' => '/0',
+            'sortorder' => 0,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        unset($inside);
+        $this->assertTrue(
+            $DB->record_exists('selfselectadvanced_dept', ['name' => $marker . '-inside']),
+            $label . ': the caller must be able to see its own uncommitted write'
+        );
+
+        try {
+            $fn();
+            $this->fail($label . ': expected refusal ' . $errorcode . ', none was thrown');
+        } catch (\moodle_exception $e) {
+            $this->assertSame($errorcode, $e->errorcode, $label . ': wrong refusal');
+        }
+
+        // The callee must not dispose of what it does not own.
+        $this->assertTrue(
+            $DB->is_transaction_started(),
+            $label . ': the nested service disposed of the caller transaction'
+        );
+
+        $rethrown = null;
+        try {
+            $outer->rollback(new \Exception('caller unwinds'));
+        } catch (\Throwable $t) {
+            $rethrown = $t;
+        }
+        $this->assertInstanceOf(\Exception::class, $rethrown, $label . ': the caller rollback must rethrow');
+        $this->assertSame('caller unwinds', $rethrown->getMessage(), $label . ': wrong exception rethrown');
+
+        // Read BEFORE any cleanup: force_transaction_rollback() would
+        // itself remove the row and turn the defect into a pass.
+        $open = $DB->is_transaction_started();
+        $survived = $DB->record_exists('selfselectadvanced_dept', ['name' => $marker . '-inside']);
+        if ($open) {
+            $DB->force_transaction_rollback();
+        }
+        if ($open || $survived) {
+            $this->notunwound[] = $label
+                . ' (transaction still open: ' . ($open ? 'yes' : 'no')
+                . '; caller row survived its own rollback: ' . ($survived ? 'yes' : 'no') . ')';
+        }
+        // Scope control on the probe itself, asserted on every run: the
+        // row written BEFORE the caller transaction must still be
+        // there. Without it a probe that reported "marker gone" could
+        // be reporting a connection that lost everything, which is a
+        // different bug wearing the same result.
+        $this->assertTrue(
+            $DB->record_exists('selfselectadvanced_dept', ['name' => $marker]),
+            $label . ': the row written before the caller transaction must survive its rollback'
+        );
+        $DB->delete_records_select('selfselectadvanced_dept', 'name = ? OR name = ?', [$marker, $marker . '-inside']);
+    }
+
+    /**
+     * The verdict for a set of marker probes.
+     *
+     * @param string $what which family of seams was probed
+     */
+    private function assert_every_caller_rollback_landed(string $what): void {
+        $this->assertSame(
+            [],
+            $this->notunwound,
+            $what . ': the CALLER rolled back and the database did not hear about it. The callee abandoned its'
+                . ' delegated frame, so rollback_delegated_transaction() rethrew without issuing the physical'
+                . ' ROLLBACK: the caller kept writes it believed it had discarded, and every later commit in the'
+                . ' request throws.'
         );
     }
 
@@ -744,11 +907,447 @@ final class transaction_unwind_test extends \advanced_testcase {
     }
 
     /**
+     * THE TICKET QUEUE, both arms, for all five seams of tickets.php.
+     *
+     * Every one of them left through a private rollback() helper gated
+     * on an $outermost flag, so a caller that already held a
+     * transaction got its frame abandoned rather than rolled back
+     * (T-C1). guide_autoapprove.php:183 catches per group and carries
+     * on, which is how one refusal turned into a whole sweep that wrote
+     * nothing and logged plausible "skipped" lines.
+     *
+     * Negative control (RUN, both engines): restore
+     * `$outermost && ` in tickets::rollback() and every nested
+     * assertion here fails with the caller's row still visible after
+     * the caller rolled back. The outermost probes stay green under
+     * that revert - which is exactly why they were never enough.
+     */
+    public function test_nested_ticket_refusals_let_the_callers_rollback_reach_the_database(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+
+        [$activity, , $group, $leader, $member, , $guide1, $guide2, $manager] = $this->setup_world();
+
+        // The file() verb: a FORMING team has nothing to be released
+        // from, and the state is judged only on the row read INSIDE
+        // the lock and the transaction.
+        $file = fn() => tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_UNFREEZE,
+            'Please release us',
+            FORMAT_HTML,
+            (int) $leader->id
+        );
+        $this->probe_refusal('tickets::file (outermost)', 'refusalwrongstate', $file);
+        $this->probe_nested_marker('tickets::file (nested)', 'refusalwrongstate', $file);
+
+        // The file_guidecap() verb: one live team-limit request at a
+        // time, and the duplicate is looked for inside the
+        // transaction.
+        $DB->insert_record('selfselectadvanced_ticket', (object) [
+            'activityid' => $activity->id(),
+            'groupid' => 0,
+            'type' => tickets::TYPE_GUIDECAP,
+            'status' => tickets::STATUS_OPEN,
+            'requestedby' => (int) $guide1->id,
+            'request' => 'Four teams please',
+            'requestformat' => FORMAT_PLAIN,
+            'resolutionformat' => FORMAT_PLAIN,
+            'requested' => 4,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        $guidecap = fn() => tickets::file_guidecap(
+            $activity,
+            5,
+            'Five teams please',
+            FORMAT_PLAIN,
+            (int) $guide1->id
+        );
+        $this->probe_refusal('tickets::file_guidecap (outermost)', 'refusalticketduplicate', $guidecap);
+        $this->probe_nested_marker('tickets::file_guidecap (nested)', 'refusalticketduplicate', $guidecap);
+
+        // The withdraw() verb: only the requester may, and the
+        // requester is read inside the transaction.
+        $open = $DB->insert_record('selfselectadvanced_ticket', (object) [
+            'activityid' => $activity->id(),
+            'groupid' => (int) $group->id,
+            'type' => tickets::TYPE_COMPCHANGE,
+            'status' => tickets::STATUS_OPEN,
+            'requestedby' => (int) $leader->id,
+            'request' => 'Swap a member',
+            'requestformat' => FORMAT_PLAIN,
+            'resolutionformat' => FORMAT_PLAIN,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        $withdraw = fn() => tickets::withdraw($activity, (int) $open, (int) $member->id);
+        $this->probe_refusal('tickets::withdraw (outermost)', 'refusalticketnotyours', $withdraw);
+        $this->probe_nested_marker('tickets::withdraw (nested)', 'refusalticketnotyours', $withdraw);
+
+        // The close() verb: only a CLAIMED ticket closes, and the
+        // status is read inside the transaction. The one above is
+        // still open.
+        $close = fn() => tickets::close(
+            $activity,
+            (int) $open,
+            tickets::STATUS_RESOLVED,
+            'Done',
+            FORMAT_PLAIN,
+            (int) $manager->id
+        );
+        $this->probe_refusal('tickets::close (outermost)', 'refusalticketnotclaimed', $close);
+        $this->probe_nested_marker('tickets::close (nested)', 'refusalticketnotclaimed', $close);
+
+        // The claim() verb: somebody else already has it, which the
+        // re-read inside the transaction is what discovers.
+        $DB->update_record('selfselectadvanced_ticket', (object) [
+            'id' => $open,
+            'status' => tickets::STATUS_CLAIMED,
+            'claimedby' => (int) $guide2->id,
+            'timeclaimed' => time(),
+        ]);
+        $claim = fn() => tickets::claim($activity, (int) $open, (int) $manager->id);
+        $this->probe_refusal('tickets::claim (outermost)', 'refusalticketclaimed', $claim);
+        $this->probe_nested_marker('tickets::claim (nested)', 'refusalticketclaimed', $claim);
+
+        $this->assert_every_seam_closed_its_transaction('tickets (outermost)');
+        $this->assert_every_caller_rollback_landed('tickets (nested)');
+    }
+
+    /**
+     * THE JOIN QUEUE, both arms.
+     *
+     * do_accept() is the one that matters most in production: it opens
+     * at joinrequests.php:516 and reaches override\store::save()
+     * through save_for_new_move() with its own transaction still open,
+     * so BOTH ends of that call used to abandon their frames.
+     *
+     * NOT COVERED, and stated rather than counted: do_decline()'s
+     * transaction (the fourth $outermost site in this file) contains an
+     * update, an event and the commit and no refusal at all, so no
+     * single-threaded test can make it throw from inside. It was
+     * converted for symmetry with the other three; it is unverified,
+     * not proven.
+     *
+     * Negative control (RUN, both engines): restore `$outermost && ` in
+     * joinrequests::rollback() and both nested assertions fail.
+     */
+    public function test_nested_join_refusals_let_the_callers_rollback_reach_the_database(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+
+        [$activity, , $group, $leader, $member, $outsider] = $this->setup_world();
+
+        // One live request each, and the live one is looked for inside
+        // request()'s transaction.
+        $now = time();
+        $live = $DB->insert_record('selfselectadvanced_move', (object) [
+            'activityid' => $activity->id(),
+            'userid' => (int) $outsider->id,
+            'sourcegroupid' => null,
+            'targetgroupid' => (int) $group->id,
+            'makeleader' => 0,
+            'replaceleader' => 0,
+            'status' => joinrequests::STATUS_REQUESTED,
+            'reason' => 'Let me in',
+            'usermodified' => (int) $outsider->id,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        $request = fn() => joinrequests::request(
+            $activity,
+            (int) $group->id,
+            'Let me in twice',
+            (int) $outsider->id
+        );
+        $this->probe_refusal('joinrequests::request (outermost)', 'refusaljoinduplicate', $request);
+        $this->probe_nested_marker('joinrequests::request (nested)', 'refusaljoinduplicate', $request);
+
+        // The withdraw() verb: somebody else's request, judged on the
+        // row read inside the transaction.
+        $withdraw = fn() => joinrequests::withdraw($activity, (int) $live, (int) $member->id);
+        $this->probe_refusal('joinrequests::withdraw (outermost)', 'refusaljoinnotyours', $withdraw);
+        $this->probe_nested_marker('joinrequests::withdraw (nested)', 'refusaljoinnotyours', $withdraw);
+
+        // The do_accept() body, through respond(): respond() re-reads
+        // the target and hands it over WITHOUT asking whether it is
+        // frozen - that
+        // question is asked again inside do_accept()'s own transaction,
+        // on its own read, which is the refusal being driven here.
+        $DB->set_field('selfselectadvanced_group', 'state', state::FROZEN, ['id' => $group->id]);
+        $accept = fn() => joinrequests::respond($activity, (int) $live, true, 'Welcome', (int) $leader->id);
+        $this->probe_refusal('joinrequests::do_accept (outermost)', 'refusaljointargetfrozen', $accept);
+        $this->probe_nested_marker('joinrequests::do_accept (nested)', 'refusaljointargetfrozen', $accept);
+
+        $this->assert_every_seam_closed_its_transaction('joinrequests (outermost)');
+        $this->assert_every_caller_rollback_landed('joinrequests (nested)');
+    }
+
+    /**
+     * contacts.php's two seams and freeze.php's release and discard,
+     * both arms.
+     *
+     * NOT COVERED, and stated rather than counted: freeze_group()'s
+     * transaction (freeze.php's third $outermost site) is opened only
+     * AFTER every gate has passed and contains the state flip, the
+     * snapshot and the sync request, so no single-threaded test can
+     * make it throw from inside. Converted for symmetry; unverified,
+     * not proven.
+     *
+     * Negative control (RUN, both engines): restore `$outermost && ` in
+     * any one of the three covered catch arms and that seam's nested
+     * assertion fails.
+     */
+    public function test_nested_contact_and_freeze_refusals_reach_the_database(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+
+        [$activity, , $group, $leader, $member, , $guide1, , $manager] = $this->setup_world();
+
+        // The send() verb: the approach is the leader's to make, and
+        // the leader is read from the row under the lock, inside the
+        // transaction.
+        $send = fn() => contacts::send(
+            $activity,
+            $group,
+            (int) $guide1->id,
+            'Would you take us on?',
+            FORMAT_HTML,
+            (int) $member->id
+        );
+        $this->probe_refusal('contacts::send (outermost)', 'refusalnotleader', $send);
+        $this->probe_nested_marker('contacts::send (nested)', 'refusalnotleader', $send);
+
+        // The respond() verb: the fast path outside the locks asks
+        // only whose approach this is and whether it is still open.
+        // Whether the
+        // TEAM can still take a guide is asked only inside the
+        // transaction, and a team that has left FORMING cannot.
+        $contact = (object) [
+            'activityid' => $activity->id(),
+            'groupid' => (int) $group->id,
+            'guideid' => (int) $guide1->id,
+            'status' => contacts::STATUS_SENT,
+            'sentby' => (int) $leader->id,
+            'message' => 'Would you take us on?',
+            'messageformat' => FORMAT_HTML,
+            'reasonformat' => FORMAT_HTML,
+            'timecreated' => time(),
+        ];
+        $contact->id = $DB->insert_record('selfselectadvanced_contact', $contact);
+        $DB->set_field('selfselectadvanced_group', 'state', state::FIRM, ['id' => $group->id]);
+        $respond = fn() => contacts::respond(
+            $activity,
+            (int) $contact->id,
+            true,
+            'Happy to',
+            FORMAT_HTML,
+            (int) $guide1->id
+        );
+        $this->probe_refusal('contacts::respond (outermost)', 'refusalcontacthasguide', $respond);
+        $this->probe_nested_marker('contacts::respond (nested)', 'refusalcontacthasguide', $respond);
+
+        // The unfreeze() verb: the transaction is opened first and
+        // the state is read inside it, so a FIRM team's refusal is
+        // thrown from within.
+        $unfreeze = fn() => freeze::unfreeze($activity, $group, (int) $manager->id, 'Release it');
+        $this->probe_refusal('freeze::unfreeze (outermost)', 'refusalwrongstate', $unfreeze);
+        $this->probe_nested_marker('freeze::unfreeze (nested)', 'refusalwrongstate', $unfreeze);
+
+        // The discard_core_group() verb: the pre-lock gate asks only
+        // whether the team is frozen. "There is no mirror to discard"
+        // is asked on the row read inside the transaction.
+        $discard = fn() => freeze::discard_core_group($activity, $group, (int) $manager->id);
+        $this->probe_refusal('freeze::discard_core_group (outermost)', 'refusalnodiscardtarget', $discard);
+        $this->probe_nested_marker('freeze::discard_core_group (nested)', 'refusalnodiscardtarget', $discard);
+
+        $this->assert_every_seam_closed_its_transaction('contacts + freeze (outermost)');
+        $this->assert_every_caller_rollback_landed('contacts + freeze (nested)');
+    }
+
+    /**
+     * override\store::save(), the seam with the LIVE nested production
+     * callers - state::do_approve() opens at state.php:566 and calls
+     * save(..., callerholdslock: true) at :582, and
+     * joinrequests::do_accept() reaches it through save_for_new_move()
+     * with its own transaction open - plus state::submit() as the
+     * PASSING CONTROL that proves the marker assertion discriminates.
+     *
+     * HOW save() IS MADE TO THROW, stated plainly because it is not a
+     * refusal: save() contains no user-reachable refusal INSIDE its
+     * transaction. Its two throws (unknown scope, field not in the
+     * scope's B5 set) and the conflict-of-interest guard all fire
+     * BEFORE start_delegated_transaction(), and a refusal raised before
+     * the transaction exists would satisfy every assertion here while
+     * proving nothing. So the failure is injected where the
+     * transaction's only write is: an object handed to a scalar column
+     * makes core's own detect_objects() raise a coding_exception from
+     * inside insert_record(), on both engines, before any SQL is sent -
+     * which is what the catch arm is there for, since it catches
+     * \Throwable, not \moodle_exception.
+     *
+     * store::delete() - the second $outermost site in store.php - is
+     * NOT covered: its only in-transaction throw is a MUST_EXIST re-read
+     * whose criteria are identical to the read it already did before
+     * the lock, so a single-threaded test cannot make the second one
+     * fail while the first succeeds. Converted for symmetry with
+     * save(); unverified, not proven.
+     *
+     * Negative control (RUN, both engines): restore `$outermost && ` in
+     * store::save()'s catch arm and the save assertion fails while the
+     * state::submit() control stays green - submit() has used the
+     * unconditional form since wave 3D.
+     */
+    public function test_a_nested_override_save_failure_lets_the_callers_rollback_land(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+
+        [$activity, $api, $group, $leader, , , $guide1, , $manager] = $this->setup_world();
+
+        // THE CONTROL, FIRST: state::submit() already rolls back
+        // unconditionally, so this probe must pass before the fix as
+        // well as after it. If it ever fails, the probe is broken and
+        // nothing else it reports means anything.
+        $DB->set_field('selfselectadvanced_group', 'state', state::FIRM, ['id' => $group->id]);
+        $firm = groups::get($activity, (int) $group->id);
+        $this->probe_nested_marker(
+            'state::submit (PASSING CONTROL)',
+            'refusalwrongstate',
+            fn() => $api->lifecycle()->submit($firm, (int) $guide1->id, (int) $leader->id)
+        );
+        $this->assertSame(
+            [],
+            $this->notunwound,
+            'the control failed: state::submit() has rolled back unconditionally since wave 3D, so a failure here'
+                . ' means the probe is measuring something other than the seam'
+        );
+
+        // A move-scope row: guard::blockers() and consistency::
+        // violations() both return early for that scope, so the object
+        // reaches the write untouched and nothing casts it on the way.
+        $save = fn() => overridestore::save(
+            $activity,
+            'move',
+            424242,
+            ['rulesbypassed' => new \stdClass()],
+            (int) $manager->id
+        );
+        $this->probe_refusal('override\store::save (outermost)', 'codingerror', $save);
+        $this->probe_nested_marker('override\store::save (nested)', 'codingerror', $save);
+
+        $this->assert_every_seam_closed_its_transaction('override\store (outermost)');
+        $this->assert_every_caller_rollback_landed('override\store (nested)');
+    }
+
+    /**
+     * The pin behind C1: after this wave, notifier::send()'s opt-in
+     * strict check is the ONLY line of production code in the plugin
+     * that reads $DB->is_transaction_started().
+     *
+     * WHY THIS IS ASSERTED ON THE SOURCE. Sixteen seams read that
+     * predicate to decide how to UNWIND, and the predicate answers for
+     * the harness under PHPUnit - true on m5my, false on m5pg - so each
+     * of them took one arm per engine and the suite stayed green on
+     * both while the nested arm was never executed anywhere. No
+     * behavioural test can see a branch that neither engine takes; the
+     * only durable guard is that the branch is not there.
+     *
+     * COMMENTS ARE STRIPPED with token_get_all() before matching. Half
+     * the files in this plugin now carry a paragraph explaining why the
+     * predicate is gone, and a grep those paragraphs satisfy is not a
+     * check - that mistake has been made in this codebase three times.
+     *
+     * SCOPE: the whole plugin except tests/. Tests are allowed to read
+     * the predicate - that is how the arms above are forced - and
+     * every production file, page and task is in, so a read added to a
+     * top-level page or a scheduled task is caught too, not only one
+     * added under classes/.
+     */
+    public function test_only_the_notifier_reads_the_ambient_transaction_state(): void {
+        $root = dirname(__DIR__);
+        $found = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $file) {
+            if (!$file->isFile() || $file->getExtension() !== 'php') {
+                continue;
+            }
+            $path = str_replace($root . '/', '', $file->getPathname());
+            if (str_starts_with($path, 'tests/') || str_starts_with($path, '.')) {
+                continue;
+            }
+            if (str_contains($this->code_without_comments($file->getPathname()), 'is_transaction_started')) {
+                $found[] = $path;
+            }
+        }
+        sort($found);
+
+        $this->assertSame(
+            ['classes/local/notifier.php'],
+            $found,
+            'production code reads $DB->is_transaction_started() again. Under PHPUnit that predicate answers'
+                . ' for advanced_testcase, not for the method asking it - true on MariaDB, false on PostgreSQL -'
+                . ' so any branch keyed on it is one arm per engine and neither engine tries the other.'
+                . ' notifier::send() is the one permitted reader: opt-in, default off, and its setter refuses'
+                . ' outside PHPUNIT_TEST.'
+        );
+    }
+
+    /**
+     * PHP source with every comment removed.
+     *
+     * Modelled on contactreach_test::code_without_comments(), for the
+     * same reason: a source-text assertion that a COMMENT can satisfy
+     * is not an assertion.
+     *
+     * @param string $path the file to read
+     * @return string the code, comments stripped
+     */
+    private function code_without_comments(string $path): string {
+        $source = file_get_contents($path);
+        $this->assertIsString($source, 'unreadable: ' . $path);
+
+        $code = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+                $code .= $token[1];
+                continue;
+            }
+            $code .= $token;
+        }
+
+        return $code;
+    }
+
+    /**
      * notifier::send()'s strict transaction check is the ONE production
-     * read of $DB->is_transaction_started() this wave kept, and it is
-     * kept because the engine never chooses its branch: it is opt-in,
-     * test-only, and off by default precisely because advanced_testcase
-     * holds a transaction on one engine and not the other.
+     * read of $DB->is_transaction_started() left in the tree - and
+     * since 1.20 wave 3E that sentence is true. It was not true when it
+     * was first written here: sixteen other production reads stood in
+     * contacts.php, override/store.php, freeze.php, joinrequests.php
+     * and tickets.php at the time, each gating a rollback arm, and they
+     * are what C1 removed. This test is the behavioural half of the
+     * pin; test_only_the_notifier_reads_the_ambient_transaction_state()
+     * is the source-text half.
+     *
+     * The notifier's read is kept because the engine never chooses its
+     * branch: it is opt-in, test-only, and off by default precisely
+     * because advanced_testcase holds a transaction on one engine and
+     * not the other.
      *
      * All three reachable cells are forced here, so the behaviour is
      * pinned rather than inherited from whichever engine is running.

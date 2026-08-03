@@ -189,9 +189,36 @@ final class search_participants_test extends \advanced_testcase {
      * later edit can print - or confirm - what was never fetched. Zero
      * occurrences, not one: the gated LIKE that used to justify the
      * single occurrence is gone (maintainer decision 24).
+     *
+     * ASSERTED ON EXECUTABLE SOURCE, and on the WORD rather than on one
+     * alias (1.20.1 wave 3E). Searching the raw file for 'u.email' was
+     * wrong in both directions at once. It was too NARROW - a re-added
+     * match written as `usr.email`, `u2.email` or a bare 'email' in a
+     * field list satisfied it - and it was brittle in the other
+     * direction, because the class's own comments discuss the address
+     * at length and one of them acquiring the two characters `u.` would
+     * have turned a documentation edit into a red gate. Comments are not
+     * the code: strip them, then require that the executable text does
+     * not mention an address at all.
      */
     public function test_the_address_column_is_never_touched(): void {
         $source = file_get_contents(__DIR__ . '/../classes/external/search_participants.php');
-        $this->assertSame(0, substr_count($source, 'u.email'));
+        $this->assertIsString($source, 'search_participants.php could not be read');
+
+        $code = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+                $code .= $token[1];
+                continue;
+            }
+            $code .= $token;
+        }
+        // The stripper must have left something to examine: a check that
+        // examined nothing would report "0 occurrences" for ever.
+        $this->assertStringContainsString('function execute', $code, 'the comment stripper ate the class');
+        $this->assertSame(0, substr_count($code, 'email'), 'the participant search touched the address column');
     }
 }

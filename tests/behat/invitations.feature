@@ -18,11 +18,17 @@ Feature: Invitation-only joining with reserved seats
       | student1 | C1     | student |
       | student2 | C1     | student |
       | student3 | C1     | student |
-    # contactprivacy 0 (legacy): the selector scenario below searches by
-    # address, which is a privilege of viewers the identity gate admits
-    # once contact details are protected - and a student leader is not
-    # one. The protected behaviour is pinned in contactprivacy.feature
-    # and in external_search_test::test_email_match_gated_when_private.
+    # contactprivacy 0 (LEGACY), and that is what makes the two selector
+    # scenarios below worth running rather than an accident of the
+    # fixture. Wave 3D withdrew address MATCHING from
+    # candidates::search for every viewer in BOTH states of the switch,
+    # so this activity - the one with nothing to protect - is where a
+    # re-added match would be easiest to defend and least likely to be
+    # noticed. The switch-ON half of the same property is pinned by
+    # contactprivacy.feature ("The invite picker promises only a name
+    # search and matches only names"); the service and web-service
+    # levels are pinned in both states by
+    # external_search_test::test_email_match_gated_when_private.
     And the following "activities" exist:
       | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership | contactprivacy |
       | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 3       | 1       | 1             | 0              |
@@ -76,11 +82,40 @@ Feature: Invitation-only joining with reserved seats
     Then I should see "Sam One" in the ".selfselectadvanced-pendinginvites" "css_element"
     And I should see "Declined" in the ".selfselectadvanced-pendinginvites" "css_element"
 
+  # The purpose this scenario has always had: a leader can find a course
+  # peer in the native selector and the invitation really reaches them.
+  # It used to search by ADDRESS and was red on both engines from wave
+  # 3D onwards, because candidates.php stopped matching addresses and
+  # the option therefore no longer existed. The needle is now a name;
+  # the assertions after it are unchanged, and the last one can only be
+  # satisfied by an invitation that was actually created.
   @javascript
-  Scenario: The leader finds an invitee by email in the native selector
+  Scenario: The leader finds an invitee by name in the native selector
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
     And I follow "Team Blue"
-    And I set the field "Invite members" to "student3@example.com"
+    And I set the field "Invite members" to "Uma Three"
     And I press "Send invitations"
     Then I should see "1 invitation(s) sent."
     And I should see "Uma Three" in the ".selfselectadvanced-pendinginvites" "css_element"
+
+  # THE REMOVED ORACLE, TURNED INTO A PINNED PROPERTY. Nothing at
+  # browser level stopped anybody putting `u.email` back into
+  # candidates::search - the one feature that would have noticed was the
+  # scenario above, and it REQUIRED the match. An oracle leaks without
+  # rendering anything: submit a full address, get exactly one person
+  # back, and the searcher has confirmed which named account owns that
+  # address, one query at a time, where no review can see it. Both halves
+  # are asserted - the promise the box makes (the placeholder) and the
+  # answer the query gives - because a truthful label over a matching
+  # query and a lying label over a names-only query are different
+  # defects and only the pair pins the behaviour.
+  @javascript
+  Scenario: An email address finds nobody in the native selector
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
+    And I follow "Team Blue"
+    Then "//input[@placeholder='Search by name']" "xpath_element" should exist
+    And "//input[@placeholder='Search by name or email']" "xpath_element" should not exist
+    When I click on "//input[@placeholder='Search by name']" "xpath_element"
+    And I type "student3@example.com"
+    Then I should see "No suggestions"
+    And I should not see "Uma Three"

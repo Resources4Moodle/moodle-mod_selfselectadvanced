@@ -79,7 +79,15 @@ class engine {
                 continue;
             }
             $dates = $resolver->effective_dates($userid, null);
-            if ($dates->timecutoff && $dates->timecutoff <= $now) {
+            // STRICTLY less than, because the cutoff second is INSIDE
+            // the window: effective_dates::is_open() and
+            // gatekeeper::check_window() both refuse only once
+            // `$now > $timecutoff`. Asking `<= $now` here pooled a
+            // student at exactly the cutoff second while the gate was
+            // still admitting them. Tightening the gate to `>=` instead
+            // would shorten every advertised window by a second, which
+            // students can see.
+            if ($dates->timecutoff && $dates->timecutoff < $now) {
                 $pool[] = $userid;
             }
         }

@@ -305,6 +305,15 @@ if ($tab === 'defaulters' && $action === 'nudgedefaulters') {
         $buckets = [];
         foreach ($recipients as $userid) {
             $due = (int) $resolver->effective_dates($userid)->timedue;
+            // 0 is the plugin's "no deadline" sentinel. msgreminderbody
+            // reads "The penalty-free deadline is {$a->due}", so a
+            // recipient with no deadline was being told their deadline
+            // was 1 January 1970. You cannot remind somebody of a date
+            // that does not exist: they stay on the report - it is a
+            // worklist, not a penalty ledger - but they are not nudged.
+            if ($due <= 0) {
+                continue;
+            }
             $buckets[$due][] = $userid;
         }
         foreach ($buckets as $due => $bucketids) {

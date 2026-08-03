@@ -101,7 +101,6 @@ class tickets {
         }
 
         $lock = locks::acquire('group:' . $group->id);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -167,7 +166,7 @@ class tickets {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $outermost, $e);
+            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -225,7 +224,6 @@ class tickets {
         // Serialised on the guide, not on a team: two requests from the
         // same guide race each other and nothing else.
         $lock = locks::acquire('guidecap:' . $userid);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -267,7 +265,7 @@ class tickets {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $outermost, $e);
+            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -384,7 +382,6 @@ class tickets {
         global $DB;
 
         $lock = locks::acquire('ticket:' . $ticketid);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -411,7 +408,7 @@ class tickets {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $outermost, $e);
+            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -499,7 +496,6 @@ class tickets {
         }
 
         $lock = locks::acquire('ticket:' . $ticketid);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -548,7 +544,7 @@ class tickets {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $outermost, $e);
+            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -614,7 +610,6 @@ class tickets {
         self::require_queue_authority($activity, $userid);
 
         $lock = locks::acquire('ticket:' . $ticketid);
-        $outermost = !$DB->is_transaction_started();
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -657,7 +652,7 @@ class tickets {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            self::rollback($transaction ?? null, $outermost, $e);
+            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -1078,20 +1073,36 @@ class tickets {
      * refusals in this class are thrown from inside their transactions
      * by design, so they all leave through here.
      *
-     * Only the OUTERMOST transaction is rolled back. When a caller has
-     * already opened one of its own, rolling back a nested transaction
-     * would poison the connection for the rest of that caller's work
-     * ("tried to commit after lower level rollback"); the exception
-     * still propagates, and closing the transaction is the outer
-     * owner's business, exactly as Moodle intends.
+     * EVERY frame this class opens is rolled back, whoever owns the one
+     * underneath. Until 1.20 wave 3E an $outermost flag - read from
+     * $DB->is_transaction_started() before the lock - skipped the
+     * rollback whenever a caller already held a transaction, and the
+     * paragraph that stood here said that was "exactly as Moodle
+     * intends". It is the opposite of what core does.
+     *
+     * rollback_delegated_transaction() (lib/dml/moodle_database.php)
+     * disposes the frame it is given, sets force_rollback, and issues
+     * the physical ROLLBACK only for the frame on TOP of $DB's stack;
+     * an inner frame simply pops and lets the cascade continue
+     * downwards. Abandoning our frame instead leaves it on top and
+     * undisposed, so the CALLER's rollback() fails that identity check,
+     * takes the "better just rethrow" branch, and never rolls anything
+     * back: the caller's writes survive a refusal it believed it had
+     * unwound, and commit_delegated_transaction() then throws for every
+     * later commit in the request. The "poisons the connection" fear
+     * was force_rollback doing its documented job.
+     *
+     * The flag was also not a fact about this class:
+     * advanced_testcase opens a transaction before every test on
+     * PostgreSQL and none on MariaDB, so it read false on m5pg and true
+     * on m5my and neither engine ever tried the other arm.
      *
      * @param \moodle_transaction|null $transaction the transaction, if it was reached
-     * @param bool $outermost whether this class opened the outermost transaction
      * @param \Throwable $e the exception on its way out
      * @throws \Throwable always - $e, after any rollback
      */
-    private static function rollback(?\moodle_transaction $transaction, bool $outermost, \Throwable $e): void {
-        if ($outermost && $transaction !== null && !$transaction->is_disposed()) {
+    private static function rollback(?\moodle_transaction $transaction, \Throwable $e): void {
+        if ($transaction !== null && !$transaction->is_disposed()) {
             // Re-throws $e itself.
             $transaction->rollback($e);
         }
