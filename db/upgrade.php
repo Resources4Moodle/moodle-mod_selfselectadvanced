@@ -1290,5 +1290,54 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073190, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073200) {
+        // 1.20.0 release serial.
+        //
+        // THERE IS GENUINELY NOTHING TO MIGRATE. Everything that landed
+        // after savepoint 2026073190 changed BEHAVIOUR only: db/install.xml,
+        // db/access.php, db/messages.php and db/tasks.php are byte-identical
+        // to the tree that shipped that savepoint, so this step performs no
+        // schema, capability, message-provider or data work of any kind.
+        //
+        // Why the serial exists at all: without a version.php number above
+        // the one an existing site has recorded, Moodle never detects the
+        // update, so none of that behaviour ever reaches the site.
+        //
+        // Why the block is NOT merely a savepoint. Core's upgrade_plugins()
+        // writes $plugin->version into config_plugins itself once this
+        // function returns, so an installed version of 2026073200 proves
+        // only that version.php moved - it does NOT prove that any step in
+        // THIS file ran. /srv/ci/ops/savepoint-tip.sh compares version.php
+        // against the MAXIMUM savepoint here, which catches a lowered number
+        // and is blind to a re-used or unreachable one, and --reinit builds
+        // the test sites from db/install.xml, where no upgrade step runs at
+        // all. The upgrade_log() row below is therefore the only artefact
+        // that can distinguish "this step executed" from "this step was
+        // skipped and nobody noticed"; versionbump_test asserts on it after
+        // driving a real upgrade from 2026073190.
+        //
+        // {upgrade_log} is a CORE table and no plugin class is called here,
+        // so the upgrade-safety rule holds trivially.
+        //
+        // The info column is char(255) and upgrade_log() swallows the insert
+        // exception, so a long message logs NOTHING AT ALL (measured on
+        // PostgreSQL 18 while writing the 2026073190 block). Headline in
+        // $info, everything else in $details, which is TEXT.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.0 (2026073200). Behaviour changes only: no schema, capability '
+                . 'or message-provider change in this step.',
+            'This step migrates nothing; it carries the release serial so that an existing '
+                . 'site detects 1.20.0 at all. It is deliberately observable: this row is '
+                . 'written if and only if the step actually executed, which is what '
+                . 'distinguishes a reachable upgrade path from a savepoint number that was '
+                . 'merely written down. Everything 1.20.0 changes lives in the plugin code, '
+                . 'not in its tables.'
+        );
+
+        upgrade_mod_savepoint(true, 2026073200, 'selfselectadvanced');
+    }
+
     return true;
 }

@@ -223,37 +223,37 @@ final class quota_test extends \advanced_testcase {
             'value' => 'Female',
             'mincount' => 1,
             'maxcount' => null,
-        ]);
+        ], (int) get_admin()->id);
         $r2 = store::save($activity, (object) [
             'rtype' => 'distinct',
             'dimension' => 'department',
             'value' => null,
             'mincount' => 2,
             'maxcount' => null,
-        ]);
+        ], (int) get_admin()->id);
         $r3 = store::save($activity, (object) [
             'rtype' => 'value',
             'dimension' => 'department',
             'value' => 'Civil',
             'mincount' => null,
             'maxcount' => 3,
-        ]);
+        ], (int) get_admin()->id);
 
         $this->assertSame([1, 2, 3], array_map(fn($r) => (int) $r->priority, store::get_all($activity)));
 
         // Move the last rule up twice: order r3, r1, r2; priorities unique 1..n.
-        store::move($activity, (int) $r3->id, -1);
-        store::move($activity, (int) $r3->id, -1);
+        store::move($activity, (int) $r3->id, -1, (int) get_admin()->id);
+        store::move($activity, (int) $r3->id, -1, (int) get_admin()->id);
         $all = store::get_all($activity);
         $this->assertSame([(int) $r3->id, (int) $r1->id, (int) $r2->id], array_map(fn($r) => (int) $r->id, $all));
         $this->assertSame([1, 2, 3], array_map(fn($r) => (int) $r->priority, $all));
 
         // Moving the top rule up is a no-op.
-        store::move($activity, (int) $r3->id, -1);
+        store::move($activity, (int) $r3->id, -1, (int) get_admin()->id);
         $this->assertSame((int) $r3->id, (int) store::get_all($activity)[0]->id);
 
         // Delete the middle rule: gap closes.
-        store::delete($activity, (int) $r1->id);
+        store::delete($activity, (int) $r1->id, (int) get_admin()->id);
         $all = store::get_all($activity);
         $this->assertSame([(int) $r3->id, (int) $r2->id], array_map(fn($r) => (int) $r->id, $all));
         $this->assertSame([1, 2], array_map(fn($r) => (int) $r->priority, $all));

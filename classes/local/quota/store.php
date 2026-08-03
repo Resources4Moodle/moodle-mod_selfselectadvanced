@@ -33,6 +33,46 @@ use stdClass;
  */
 class store {
     /**
+     * @var string Configure rules, quotas and dates. The authority
+     * behind every write in this class.
+     */
+    public const MANAGE = 'mod/selfselectadvanced:manage';
+
+    /**
+     * Refuse unless this actor may configure this activity's quotas.
+     *
+     * AUTHORISED HERE (audit D7-b), not by quotas.php - the same repair
+     * {@see slots::require_manage()} carries, for the same reason and
+     * now in the same shape. Counting rules decide whether a team is
+     * quota-compliant, and compliance decides whether a leader may
+     * submit at all (gatekeeper::can_submit()), so editing this table
+     * moves who can proceed across the whole activity. Until now the
+     * only thing that had ever asked about the actor was a
+     * require_capability at the top of one page: save(), delete() and
+     * move() took no actor argument, so nothing reaching them by any
+     * other route was checked at all, and no test could prove
+     * otherwise because there was no parameter to prove it with.
+     *
+     * The actor is passed EXPLICITLY, never read from $USER, and the
+     * parameter is required rather than defaulted, for the reason
+     * slots.php and authority.php both give: a default of "the current
+     * user" is silently wrong in every context that has no current
+     * user - cron, an adhoc task, a CLI seed - and would turn a missing
+     * argument into a capability answer about whoever happened to be
+     * logged in.
+     *
+     * Asked BEFORE the transaction opens, so a refusal writes nothing
+     * and leaves no frame on the transaction stack.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the person acting
+     * @throws \required_capability_exception when the capability is not effective
+     */
+    private static function require_manage(activity $activity, int $actorid): void {
+        require_capability(self::MANAGE, $activity->context(), $actorid);
+    }
+
+    /**
      * All rules of the activity in priority order.
      *
      * @param activity $activity the activity
@@ -53,10 +93,14 @@ class store {
      *
      * @param activity $activity the activity
      * @param stdClass $data dimension, rtype, value, mincount, maxcount (+id to update)
+     * @param int $actorid the acting manager
      * @return stdClass the stored row
+     * @throws \required_capability_exception when the actor may not manage this activity
      */
-    public static function save(activity $activity, stdClass $data): stdClass {
+    public static function save(activity $activity, stdClass $data, int $actorid): stdClass {
         global $DB;
+
+        self::require_manage($activity, $actorid);
 
         $transaction = $DB->start_delegated_transaction();
 
@@ -99,9 +143,13 @@ class store {
      *
      * @param activity $activity the activity
      * @param int $ruleid the rule
+     * @param int $actorid the acting manager
+     * @throws \required_capability_exception when the actor may not manage this activity
      */
-    public static function delete(activity $activity, int $ruleid): void {
+    public static function delete(activity $activity, int $ruleid, int $actorid): void {
         global $DB;
+
+        self::require_manage($activity, $actorid);
 
         $transaction = $DB->start_delegated_transaction();
         $DB->delete_records('selfselectadvanced_quota', ['id' => $ruleid, 'activityid' => $activity->id()]);
@@ -116,9 +164,13 @@ class store {
      * @param activity $activity the activity
      * @param int $ruleid the rule to move
      * @param int $direction -1 = up (higher priority), 1 = down
+     * @param int $actorid the acting manager
+     * @throws \required_capability_exception when the actor may not manage this activity
      */
-    public static function move(activity $activity, int $ruleid, int $direction): void {
+    public static function move(activity $activity, int $ruleid, int $direction, int $actorid): void {
         global $DB;
+
+        self::require_manage($activity, $actorid);
 
         $transaction = $DB->start_delegated_transaction();
 

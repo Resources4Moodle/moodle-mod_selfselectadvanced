@@ -221,7 +221,16 @@ final class eoi_test extends \advanced_testcase {
             fn() => eoi::express($activity3, (int) $groupb->id, $guide3, '', FORMAT_HTML)
         );
 
-        // Zero remaining commitment capacity: maxguided 1, one guided group.
+        // Zero remaining commitment capacity: maxguided 1, one guided
+        // group. The KEY CHANGED with audit C5 and the change is the
+        // point: express() no longer decides capacity from
+        // remaining_capacity()'s arithmetic, it asks
+        // gatekeeper::can_take_guide() - the same authority
+        // state::submit(), handover and contacts::respond() ask - which
+        // answers refusalguidecap here and refusalnotaguide for a guide
+        // the administrator prohibited. The ceiling itself is unmoved:
+        // the same effective maxguided against the same commitment
+        // count, as this maxguided=1 fixture still proves.
         [$activity4, $students4, $guides4] = $this->setup_activity(['maxguided' => 1]);
         $guide4 = (int) $guides4[0]->id;
         $this->plugingen()->create_group([
@@ -233,7 +242,7 @@ final class eoi_test extends \advanced_testcase {
         ]);
         $groupfull = $this->listed_group($activity4, (int) $students4[1]->id, 'Full');
         $this->assert_refusal(
-            'refusaleoifull',
+            'refusalguidecap',
             fn() => eoi::express($activity4, (int) $groupfull->id, $guide4, '', FORMAT_HTML)
         );
     }

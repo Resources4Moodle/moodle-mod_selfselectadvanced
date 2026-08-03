@@ -2,10 +2,12 @@
 
 ## 1.20.1 (2026-08-01)
 
-> `$plugin->release` still reads `1.20.0`. The code comments and this
-> section name 1.20.1 because that is the release these changes belong
-> to, but the release string is owned elsewhere in this cycle and is
-> deliberately not touched here.
+> `$plugin->release` still reads `1.20.0`, deliberately. The version
+> serial in `version.php` did move — see **The update is now one an
+> existing site can actually see** at the end of this section — because
+> that is the number Moodle compares to decide whether a site needs
+> upgrading at all. The human-readable release string is a separate
+> decision and is left where 1.20.0 put it.
 
 - **A guide reaches the team they are assigned to without having to see
   every team.** Until now the team page asked one question at the door:
@@ -447,6 +449,82 @@
   disclosure the design requires: the flagged report's on-screen line
   must still show a number to a confirmed connection whose owner
   consented, which is the specification and not an oversight.
+- **Accepting a guide's expression of interest could install a guide the
+  administrator had forbidden.** Four places in this plugin let somebody
+  take charge of a team, and three of them asked whether that person is
+  allowed to be a guide. The fourth — a leader accepting an expression of
+  interest — asked only how much room the guide had left, which is a
+  number and not an answer. So a `Guide teams` permission set to
+  *Prohibit* was honoured everywhere except the one line that writes the
+  guide onto the team: the team was handed to somebody the site had
+  barred, then found every later step refused, with no way back that did
+  not need staff. Expressing an interest and accepting one now both ask
+  the same authority the other three seams ask. Nothing about capacity
+  changed; a guide who is simply full is now turned away with the same
+  wording the rest of the plugin already used.
+- **Counting rules could be created, edited, reordered and deleted
+  without any check on who was doing it.** The service behind the
+  composition screen took no account of the acting user at all — the only
+  gate was the permission check at the top of that one page, so anything
+  that reached the service by any other route was not checked, and no
+  test could show otherwise because there was nothing to test with.
+  Counting rules decide whether a team is allowed to submit, so this
+  reached across the whole activity. All three operations now require
+  the Manage permission at the service itself, asked before any database
+  work starts, so a refusal changes nothing.
+- **The update is now one an existing site can actually see.** The
+  plugin's version serial had not moved since the previous step, and
+  Moodle decides whether a plugin needs upgrading by comparing that
+  number with the one your site has recorded. Until it moved, none of
+  this release could reach an installed site. The new step migrates
+  nothing — the database schema, the permissions, the message providers
+  and the scheduled tasks are unchanged — and it says so in your site's
+  upgrade log, which is also how an administrator can tell an upgrade
+  that genuinely ran from one that was skipped.
+- **The demonstration seeder builds its course again.** The maintainer
+  tool that creates the guided how-to course had been failing in three
+  separate ways: it left the students-approach setting at its database
+  default, which produced the one combination the activity's own settings
+  form rejects and stopped the run at the first guide action; it never
+  supplied an ID-number field, so every run printed a PHP warning from
+  core; and it had been left behind by the permission repair above, so it
+  died with a missing-argument error immediately after creating the
+  activity and before a single team existed. All three are fixed, the
+  tool now runs end to end, and the five demonstration teams are created
+  in their intended states so the how-to screenshots can be retaken.
+- **A maintainer tool that nothing runs can no longer be broken in
+  silence.** The failure above was invisible to every check this project
+  has: a syntax check cannot see a wrong number of arguments, and no test
+  executes a command-line tool. A new check reads the tools' source and,
+  for every call they write as a direct class-and-method call into this
+  plugin's code, compares the arguments against the real signature — so
+  a service that grows a parameter can no longer leave those call sites
+  behind unnoticed. Its reach is stated rather than implied: calls made
+  through an object variable are not resolved, and the tools contain
+  twenty-six of those. None of them is mismatched today, and closing
+  that half is recorded as the next step.
+- **The participant search's promise never to touch the address column
+  is now checked against the query it really sends.** The old check read
+  the source and counted a word; a single call that widens the selected
+  fields would have put the address column into the query without the
+  word appearing anywhere, and the check would still have reported
+  success. That was measured, not supposed. The endpoint itself is
+  unchanged; what changed is the evidence. A new test captures the
+  statements the search actually sends to the database and requires the
+  address column to be absent from them, so the guarantee now rests on
+  the query that runs rather than on a word in the source.
+- **The Manage exemption on phone numbers was re-examined and kept, and
+  is now fenced in.** Staff who manage an activity still see a consenting
+  participant's number on screen, which is what the plugin promises that
+  participant when they switch sharing on. It is now pinned to the two
+  places that are allowed to ask for it, so it cannot quietly spread to a
+  third. The Manage permission is granted to the manager role as well as
+  to the editing teacher, and those two cannot be told apart by asking
+  for the permission. That is deliberate and has been confirmed as such:
+  both are trusted with a participant's details. The audiences the
+  setting exists to exclude are guides and the participant's peers, and
+  they remain excluded unless a connection or the participant's own
+  consent admits them.
 
 ## 1.20.0 (2026-07-31)
 

@@ -200,6 +200,21 @@ final class search_participants_test extends \advanced_testcase {
      * have turned a documentation edit into a red gate. Comments are not
      * the code: strip them, then require that the executable text does
      * not mention an address at all.
+     *
+     * AND ON THE CONSTRUCTION, not only on the word (1.20.1 wave 3F).
+     * The word check is necessary and not sufficient, because the SELECT
+     * list is built by a core helper and there is a way to widen that
+     * helper without the six characters 'email' appearing anywhere in
+     * this file. Measured 2026-08-03, m5pg: appending
+     * `->with_identity($context, false)` to the for_name() call put
+     * `SELECT u.id, u.email, ...` into the query the endpoint actually
+     * ran, and this test still reported "OK, Assertions: 3" - every
+     * 'email' in search_participants.php is inside a comment, and
+     * comments are exactly what the stripper above removes. So the
+     * identity-field API surface is named and refused here, and
+     * test_the_executed_query_never_touches_the_address_column() below
+     * asks the same question of the executed SQL, where no spelling and
+     * no helper can walk around it.
      */
     public function test_the_address_column_is_never_touched(): void {
         $source = file_get_contents(__DIR__ . '/../classes/external/search_participants.php');
@@ -220,5 +235,126 @@ final class search_participants_test extends \advanced_testcase {
         // examined nothing would report "0 occurrences" for ever.
         $this->assertStringContainsString('function execute', $code, 'the comment stripper ate the class');
         $this->assertSame(0, substr_count($code, 'email'), 'the participant search touched the address column');
+
+        // The columns come from the NAME fields, and the endpoint never
+        // reaches for the identity set. Identity fields are chosen by a
+        // SITE setting (showuseridentity), so a plugin that expands them
+        // has handed a cardinal-rule guarantee to a checkbox in another
+        // part of the admin tree - which is the reason this is refused
+        // outright rather than gated.
+        // assertTrue/assertFalse on str_contains rather than the string
+        // assertions: the haystack is a whole class, and a failure
+        // message that prints it fills a gate log with the file the
+        // reader already has.
+        $this->assertTrue(
+            str_contains($code, 'fields::for_name()'),
+            'the participant search no longer builds its columns from the name fields'
+        );
+        foreach (['with_identity', 'for_identity', 'get_identity_fields', 'showuseridentity'] as $widener) {
+            $this->assertFalse(
+                str_contains($code, $widener),
+                "the participant search reached for the identity field set via {$widener}(): on a site whose "
+                    . 'showuseridentity includes the address that fetches it, and a column that is fetched is a '
+                    . 'column a later edit can print'
+            );
+        }
+    }
+
+    /**
+     * The same question asked of the SQL THE ENDPOINT ACTUALLY RUNS.
+     *
+     * Every check above this one reads source text, and source text is
+     * one indirection away from being wrong about itself: the columns
+     * are assembled by \core_user\fields, so what is fetched is decided
+     * by a helper call and a site setting rather than by anything a
+     * reader of this file can see. This test does not read the file. It
+     * turns on the DML layer's own debug hook, runs the endpoint, and
+     * examines every statement that reached the database.
+     *
+     * That form survives all four ways the older pin could be walked
+     * around at once - a different alias (`usr.email`, `u2.email`), a
+     * bare `email` in a field list, a comment that happens to contain
+     * the fragment, and a widening helper call that never spells the
+     * word - because it looks at the finished statement.
+     *
+     * Measured 2026-08-03 on both engines: zero occurrences of 'email'
+     * across the WHOLE capture, core's enrolled-users subquery
+     * included, so the count below is not absorbing a background of
+     * unrelated matches.
+     */
+    public function test_the_executed_query_never_touches_the_address_column(): void {
+        $generator = $this->getDataGenerator();
+        $this->resetAfterTest();
+
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id, 'minsize' => 1,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+        $cmid = (int) $activity->cm()->id;
+
+        // The address is deliberately one that does not contain the
+        // string being counted, so searching FOR it cannot make the
+        // assertion below fail on its own parameter.
+        $target = $generator->create_user([
+            'firstname' => 'Tara', 'lastname' => 'Gett', 'email' => 'tara.gett@example.com',
+        ]);
+        $generator->enrol_user($target->id, $course->id, 'student');
+
+        // The most privileged viewer there is. If the column is fetched
+        // for anybody, it is fetched for this one.
+        $this->setAdminUser();
+
+        // Warm the context and capability caches first, so the captured
+        // run is the endpoint's own work and not a cold context build.
+        $this->assertCount(1, search_participants::execute($cmid, 'Gett'));
+
+        $byname = self::captured_sql(static function () use ($cmid): void {
+            search_participants::execute($cmid, 'Gett');
+        });
+        $byaddress = self::captured_sql(static function () use ($cmid): void {
+            search_participants::execute($cmid, 'tara.gett@example.com');
+        });
+
+        // POSITIVE CONTROLS. A capture that caught nothing would report
+        // "0 occurrences" for ever and look identical to a pass.
+        foreach (['by name' => $byname, 'by address' => $byaddress] as $how => $captured) {
+            $this->assertNotSame('', trim($captured), "no SQL at all was captured for the search $how");
+            $this->assertTrue(
+                str_contains($captured, 'firstname'),
+                "the capture for the search $how did not contain the participant query"
+            );
+        }
+
+        foreach (['by name' => $byname, 'by address' => $byaddress] as $how => $captured) {
+            $this->assertSame(
+                0,
+                substr_count(strtolower($captured), 'email'),
+                "the participant search $how sent the address column to the database - it must be neither "
+                    . 'matched nor selected, for any role, in either state of the contact-privacy switch'
+            );
+        }
+    }
+
+    /**
+     * Run something with DML debugging on and return everything the
+     * database layer printed: each statement, and its parameters.
+     *
+     * @param callable $run the work whose queries are wanted
+     * @return string the captured statements, empty if nothing ran
+     */
+    private static function captured_sql(callable $run): string {
+        global $DB;
+
+        ob_start();
+        $DB->set_debug(true);
+        try {
+            $run();
+        } finally {
+            $DB->set_debug(false);
+            $captured = ob_get_clean();
+        }
+
+        return is_string($captured) ? $captured : '';
     }
 }

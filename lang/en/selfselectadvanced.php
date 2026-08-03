@@ -1141,6 +1141,12 @@ $string['refusalcutoffpassed'] = 'The formation deadline ({$a}) has passed.';
 $string['refusaldiscardfrozen'] = 'The course group cannot be discarded while the team is frozen — the next synchronisation would simply create it again. Release the team first.';
 $string['refusaleoidisabled'] = 'Team listing is not enabled in this activity.';
 $string['refusaleoidup'] = 'You already have a pending interest in this team.';
+// Retained, not emitted. Since 1.20.1 the expression-of-interest seams ask the
+// one guide authority instead of testing remaining capacity themselves, so a
+// full guide is now refused with refusalguidecap (or refusalguideunavailable in
+// students-approach mode) and no code path reaches this key. It is kept for one
+// release so a site that has customised or translated it is not silently
+// stripped, and it is recorded here rather than left to look like live text.
 $string['refusaleoifull'] = 'This guide has no remaining guiding capacity.';
 $string['refusaleoigroupfull'] = 'This team already holds its maximum number of waitlisted guides.';
 $string['refusaleoimax'] = 'You already hold {$a} open interests, the maximum allowed. Wait for a leader to decide, or withdraw one.';

@@ -21,6 +21,12 @@
  *
  * GET renders; every mutation is a sesskey-protected POST.
  *
+ * The require_capability below admits the VISITOR to the page. It is no
+ * longer the only thing that decides a write: both services this page
+ * drives - quota\slots and, since audit D7-b, quota\store - take the
+ * actor explicitly and ask mod/selfselectadvanced:manage themselves, so
+ * a caller that never came through this page is checked too.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -46,7 +52,7 @@ $PAGE->set_heading(format_string($course->fullname));
 
 if (($action === 'moveup' || $action === 'movedown') && data_submitted() && confirm_sesskey()) {
     $ruleid = required_param('rule', PARAM_INT);
-    \mod_selfselectadvanced\local\quota\store::move($activity, $ruleid, $action === 'moveup' ? -1 : 1);
+    \mod_selfselectadvanced\local\quota\store::move($activity, $ruleid, $action === 'moveup' ? -1 : 1, (int) $USER->id);
     redirect($baseurl);
 }
 
@@ -95,7 +101,7 @@ if ($action === 'slotdelete' && data_submitted() && confirm_sesskey()) {
 
 if ($action === 'delete' && data_submitted() && confirm_sesskey()) {
     $ruleid = required_param('rule', PARAM_INT);
-    \mod_selfselectadvanced\local\quota\store::delete($activity, $ruleid);
+    \mod_selfselectadvanced\local\quota\store::delete($activity, $ruleid, (int) $USER->id);
     redirect(
         $baseurl,
         get_string('quotaruledeleted', 'mod_selfselectadvanced'),
@@ -141,7 +147,7 @@ if ($action === 'edit') {
         } else {
             [$save->dimension, $save->value] = explode('|', $data->dimensionvalue, 2);
         }
-        \mod_selfselectadvanced\local\quota\store::save($activity, $save);
+        \mod_selfselectadvanced\local\quota\store::save($activity, $save, (int) $USER->id);
         redirect(
             $baseurl,
             get_string('quotarulesaved', 'mod_selfselectadvanced'),

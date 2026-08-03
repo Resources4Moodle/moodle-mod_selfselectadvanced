@@ -123,8 +123,27 @@ class eoi {
                     throw new \moodle_exception('refusaleoigroupfull', 'mod_selfselectadvanced');
                 }
             }
-            if (self::remaining_capacity($activity, $guideid) < 1) {
-                throw new \moodle_exception('refusaleoifull', 'mod_selfselectadvanced');
+            // AUTHORITY, NOT A NUMBER (audit C5).
+            // remaining_capacity() answers "how many more teams could
+            // this person hold"; it has never answered "may this person
+            // hold a team at all", and an arithmetic answer is not an
+            // authority. gatekeeper::can_take_guide() asks both, in that
+            // order: mod/selfselectadvanced:guide first, then the same
+            // effective-maxguided ceiling against the same commitment
+            // count remaining_capacity() computed (count_guiding plus
+            // forming pre-assignments), so the ceiling behaves exactly
+            // as before and only the capability question is new.
+            //
+            // It is what state::submit(), handover::propose(),
+            // handover::accept() and contacts::respond() already call,
+            // so all four "take a team" seams now ask the one authority.
+            // Before this, an administrator's CAP_PROHIBIT on :guide was
+            // honoured everywhere EXCEPT here - the interest was
+            // accepted, the guideid was written, and the team then found
+            // every downstream verb refused with no way back that did
+            // not need staff.
+            if ($refusal = (new api($activity))->gatekeeper()->can_take_guide($guideid)) {
+                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();
@@ -152,10 +171,11 @@ class eoi {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
-            // Six refusals - not-listed, duplicate, the per-guide open
-            // cap, the per-group waitlist cap and the capacity ceiling
-            // - are all judged on rows read INSIDE the locks and throw
-            // from INSIDE the transaction. guide.php catches
+            // Five refusals - not-listed, duplicate, the per-guide open
+            // cap, the per-group waitlist cap and the gatekeeper's
+            // verdict (:guide, then the capacity ceiling) - are all
+            // judged on rows read INSIDE the locks and throw from
+            // INSIDE the transaction. guide.php catches
             // moodle_exception and redirects with a notification, so a
             // caught refusal never reaches Moodle's exception handler
             // and nothing else would roll this back: the delegated
@@ -327,8 +347,15 @@ class eoi {
                 if ($group->state !== state::FORMING || !empty($group->guideid)) {
                     throw new \moodle_exception('refusaleoinotlisted', 'mod_selfselectadvanced');
                 }
-                if (self::remaining_capacity($activity, (int) $row->guideid) < 1) {
-                    throw new \moodle_exception('refusaleoifull', 'mod_selfselectadvanced');
+                // The same authority express() asks, asked again about
+                // the SAME guide at the moment the row is written: an
+                // interest can sit pending for days, and the guide's
+                // capability, their overrides and their load can all
+                // have moved since. This is the line that installs a
+                // guide, so this is where :guide has to be true.
+                // See express() for why a number was never enough.
+                if ($refusal = (new api($activity))->gatekeeper()->can_take_guide((int) $row->guideid)) {
+                    throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
                 }
                 $DB->set_field('selfselectadvanced_group', 'guideid', $row->guideid, ['id' => $group->id]);
                 $DB->set_field('selfselectadvanced_group', 'timemodified', time(), ['id' => $group->id]);
@@ -352,7 +379,8 @@ class eoi {
         } catch (\Throwable $e) {
             // Everything this method refuses - not-pending, not-leader,
             // the self-accept guard, require_uninvolved(), not-listed
-            // and the capacity ceiling - throws from INSIDE the
+            // and the gatekeeper's verdict on the guide being installed
+            // (:guide, then the capacity ceiling) - throws from INSIDE the
             // transaction, on rows re-read inside the two locks.
             // Unconditional - see express().
             if (isset($transaction) && !$transaction->is_disposed()) {

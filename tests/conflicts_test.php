@@ -72,14 +72,14 @@ final class conflicts_test extends \advanced_testcase {
             'value' => 'SCOPE',
             'mincount' => 2,
             'maxcount' => 2,
-        ]);
+        ], (int) get_admin()->id);
         quotastore::save($activity, (object) [
             'dimension' => 'department',
             'rtype' => 'distinct',
             'value' => null,
             'mincount' => 4,
             'maxcount' => null,
-        ]);
+        ], (int) get_admin()->id);
 
         $this->assertSame([], conflicts::detect($activity));
     }
@@ -100,7 +100,7 @@ final class conflicts_test extends \advanced_testcase {
                 'value' => $school,
                 'mincount' => 2,
                 'maxcount' => null,
-            ]);
+            ], (int) get_admin()->id);
         }
         quotastore::save($activity, (object) [
             'dimension' => 'department',
@@ -108,7 +108,7 @@ final class conflicts_test extends \advanced_testcase {
             'value' => null,
             'mincount' => 4,
             'maxcount' => null,
-        ]);
+        ], (int) get_admin()->id);
 
         $clashes = conflicts::detect($activity);
         $this->assertNotEmpty($clashes);
@@ -131,7 +131,7 @@ final class conflicts_test extends \advanced_testcase {
             'value' => null,
             'mincount' => 5,
             'maxcount' => null,
-        ]);
+        ], (int) get_admin()->id);
         $this->assertSame([], conflicts::detect($activity));
 
         quotastore::save($activity, (object) [
@@ -140,7 +140,7 @@ final class conflicts_test extends \advanced_testcase {
             'value' => 'SCOPE',
             'mincount' => 2,
             'maxcount' => null,
-        ]);
+        ], (int) get_admin()->id);
         $this->assertNotEmpty(conflicts::detect($activity));
     }
 
@@ -159,7 +159,7 @@ final class conflicts_test extends \advanced_testcase {
             'value' => null,
             'mincount' => 6,
             'maxcount' => null,
-        ]);
+        ], (int) get_admin()->id);
 
         $clashes = conflicts::detect($activity);
         $this->assertNotEmpty($clashes);

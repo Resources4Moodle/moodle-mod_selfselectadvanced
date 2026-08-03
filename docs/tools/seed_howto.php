@@ -288,6 +288,34 @@ cli_writeln('Ingested participant attributes for all eight students');
 // the demonstration's eight students can populate five groups across
 // every lifecycle state without inventing a larger cohort; a solo
 // leader is still a legal team.
+//
+// GUIDE MODE - studentapproach MUST be 0 here, and is passed
+// explicitly. The deck this course exists to photograph shows guides
+// volunteering a capacity, guides expressing interest in listed teams,
+// a leader accepting one of those interests, and a guide reviewing a
+// submission. Students-approach mode (strategy 1.16 A) refuses the
+// first two outright - volunteering::set() and eoi::express() both
+// throw 'refusalstudentapproach' - so it is not a mode this course can
+// be in. Dropping the volunteering and interest calls instead would
+// delete the frames the deck is FOR, which is why the setting moves
+// rather than the calls.
+//
+// It has to be passed rather than left out: the column's DB default is
+// 1 (db/install.xml), and add_moduleinfo() bypasses the mod form, so
+// omitting it silently built an activity in a combination the form's
+// own validator rejects - studentapproach=1 with eoienabled=1 and
+// guidevolunteer=1 are errstudentapproacheoi and
+// errstudentapproachvolunteer in settings_validator. The script then
+// died at the first volunteering::set() and the five named groups were
+// never created, which is what blocked capture_howto.php.
+//
+// cmidnumber: supplied for the same reason a real form submission
+// supplies it. add_moduleinfo() -> edit_module_post_actions() reads
+// $moduleinfo->cmidnumber unconditionally when the module has a grade
+// item (grade => 100 below gives it one), so leaving it out emitted
+// "Undefined property: stdClass::$cmidnumber" from course/modlib.php
+// on every run. Empty string is what the form's ID number field sends
+// when a person leaves it blank.
 $module = $DB->get_record('modules', ['name' => 'selfselectadvanced'], '*', MUST_EXIST);
 $moduleinfo = add_moduleinfo((object) [
     'modulename' => 'selfselectadvanced',
@@ -300,7 +328,9 @@ $moduleinfo = add_moduleinfo((object) [
         . 'one member from Computer Science and needs at least one Female member; list your team once '
         . "it is forming and a guide may pick it before you submit.</p>",
     'introformat' => FORMAT_HTML,
+    'cmidnumber' => '',
     'grade' => 100,
+    'studentapproach' => 0,
     'minsize' => 1,
     'maxsize' => 4,
     'maxlead' => 1,
@@ -336,13 +366,25 @@ $activity = activity::from_instance($instanceid);
 $api = new api($activity);
 
 // The counting rule (spec 8.2): at least one Female member per team.
+//
+// The actor is passed explicitly, exactly as slots::create() below
+// needs it. quota\store::save() gained a REQUIRED third argument in
+// 1.20.1 (audit D7-b) so that the manage capability is asked at the
+// service instead of only at quotas.php, and this call site was the one
+// caller outside the plugin's own pages. Omitting it is not a warning:
+// it is "Too few arguments to function ... exactly 3 expected", thrown
+// from store.php:100, which kills the whole seed run right after the
+// activity is created and before a single team exists. Measured on the
+// dev site 2026-08-03; php -l cannot see it, and a source-text pin over
+// this file cannot see it either, because the file is syntactically
+// perfect either way.
 quotastore::save($activity, (object) [
     'dimension' => 'gender',
     'rtype' => 'value',
     'value' => 'Female',
     'mincount' => 1,
     'maxcount' => null,
-]);
+], (int) $admin->id);
 // The seat plan (spec 4.7): at least one member from Computer Science.
 // A single-slot plan is deliberate: the booking algorithm assigns each
 // member to at most ONE slot (spec: greedy, in slot order), so a

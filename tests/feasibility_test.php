@@ -171,7 +171,7 @@ final class feasibility_test extends \advanced_testcase {
             'value' => 'Physics',
             'mincount' => null,
             'maxcount' => 1,
-        ]);
+        ], (int) get_admin()->id);
         $leader = (int) $students['p1']->id;
         $group = $api->create_group($leader, 'Capped', 'T', '<p>b</p>', FORMAT_HTML);
 
@@ -254,7 +254,7 @@ final class feasibility_test extends \advanced_testcase {
             'value' => 'Female',
             'mincount' => 3,
             'maxcount' => null,
-        ]);
+        ], (int) get_admin()->id);
         $males = [];
         for ($i = 0; $i < 5; $i++) {
             $user = $generator->create_user();
