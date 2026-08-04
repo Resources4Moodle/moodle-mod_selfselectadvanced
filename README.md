@@ -10,14 +10,17 @@ downstream activity can use.
 
 ## Requirements
 
-- **Moodle 5.2 only** · **PHP 8.4 or later** · MariaDB or PostgreSQL
+**Moodle 5.2 on PHP 8.4 or later — ONLY.** MariaDB or PostgreSQL.
 
-The Moodle range was narrowed from "4.5 LTS or 5.x" in 1.20.1. The plugin is
-developed and gated against Moodle 5.2 on PHP 8.4 and nothing else, so a wider
-claim was a promise nobody had tested. `version.php` declares
-`supported = [502, 502]`; the PHP floor is asserted on install and on upgrade,
-because Moodle's `version.php` has no field for a PHP minimum.
-  (equal support; XMLDB only)
+That is a promise narrowed on purpose, not by drift. The plugin was
+previously declared for "4.5 LTS or 5.x", but it is developed, gated and
+CI-tested against Moodle 5.2 on PHP 8.4 and nothing else, and promising
+four branches while verifying one is a claim the project cannot stand
+behind — the same reasoning `version.php` itself records beside
+`supported = [502, 502]`. The PHP 8.4 floor is asserted at runtime on
+install and on upgrade (`db/install.php`, `db/upgrade.php`), because
+Moodle's `version.php` format has no field for a PHP minimum; a site
+below the floor is refused before anything is created or migrated.
 
 ## Features
 
@@ -78,9 +81,9 @@ because Moodle's `version.php` has no field for a PHP minimum.
 
 ## Installation
 
-Copy to `mod/selfselectadvanced` (4.x) or `public/mod/selfselectadvanced`
-(5.x split layout) and run the upgrade. No configuration is required;
-all settings are per activity instance.
+Copy to `public/mod/selfselectadvanced` (Moodle 5.x split layout) and
+run the upgrade. No configuration is required; all settings are per
+activity instance.
 
 ## Capabilities
 
@@ -345,8 +348,11 @@ holder. While it is on:
   `mod/selfselectadvanced:viewparticipantidentity`, which no role holds
   by default.
 
-Backups exclude auto-grouping logs and pending staged moves
-(operational/transient state). Uninstalling drops the plugin's own
+Backups exclude auto-grouping logs, pending staged moves and the queued
+digest notifications (operational/transient state; the digest queue
+joined the exclusions in 1.20.4 — a restored queue row carried a deep
+link to the original activity and payload text resolved on the source
+site). Uninstalling drops the plugin's own
 tables, configuration and capabilities. Two things are deliberately
 left behind: previously frozen core course groups, which are course
 data by then, and the Group Coordinators role when anybody is still

@@ -71,6 +71,10 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
                 'ssavolunteer',
                 '/activity/selfselectadvanced/volunteers/volunteer'
             );
+            // Registered although 1.20.4 backups no longer write it:
+            // archives made by 1.8.0-1.20.3 carry a digestqueue subtree,
+            // and the path element is what routes those rows to the
+            // processor that explicitly drops them (BACKUP-001).
             $paths[] = new restore_path_element(
                 'ssadigestitem',
                 '/activity/selfselectadvanced/digestqueue/digestitem'
@@ -322,24 +326,23 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
     }
 
     /**
-     * Restore a queued digest notification. Transient per-user data
-     * (spec 14.11): the stored contexturl and JSON payload are carried
-     * over as backed up, without deep-remapping any ids they embed,
-     * exactly like the volunteer table's own restore.
+     * A queued digest notification from a pre-1.20.4 archive: dropped,
+     * deliberately and in the open (BACKUP-001). The queue is
+     * operational state of the site that wrote the backup, not course
+     * data. Restoring a row used to plant a notification whose deep
+     * link pointed at the ORIGINAL activity - or, after core's link
+     * encoder had been at the archive, at a literal
+     * $@SELFSELECTADVANCEDVIEWBYID*n@$ token this plugin never
+     * registered a decoder for - and whose payload text named people
+     * by their backed-up names. A duplicate on the same site also
+     * doubled every recipient's pending digest. Nothing a restored
+     * course needs lives in this table: the running site's own events
+     * queue fresh rows the moment something digest-worthy happens.
      *
      * @param array $data the row
      */
     protected function process_ssadigestitem($data) {
-        global $DB;
-
-        $data = (object) $data;
-        $data->activityid = $this->get_new_parentid('selfselectadvanced');
-        $data->userid = $this->get_mappingid('user', $data->userid);
-        if (!$data->userid) {
-            return;
-        }
-        $data->groupid = $data->groupid ? ($this->get_mappingid('ssagroup', $data->groupid) ?: null) : null;
-        $DB->insert_record('selfselectadvanced_digestq', $data);
+        // Intentionally empty: the row is consumed and discarded.
     }
 
     /**

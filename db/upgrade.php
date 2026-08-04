@@ -1476,5 +1476,33 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073240, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073250) {
+        // 1.20.4 wave 2 - authority and atomicity. Every public write
+        // service asks its actor's authority itself; the guide-notes
+        // write and the return-comment format joined their services'
+        // transactions; coordinators gained workbench cards; a departed
+        // guide's teams are released or ticketed and a departed
+        // nominee's handover lapses with notice; the privacy provider's
+        // export gaps closed; the digest queue left backup. Seven new
+        // event classes and their strings, two new privacy strings -
+        // no schema, capability or message-provider change.
+        //
+        // Marker discipline as above: versionbump_test matches
+        // '%(2026073250)%', serial inside the parentheses.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.4 (2026073250). Authority into every write service, atomic '
+                . 'review writes, guide-departure handling, privacy-export completeness; new '
+                . 'event classes and language strings.',
+            'This step migrates nothing. It carries the release serial so an installed '
+                . 'site rebuilds its caches and the new event and notification strings '
+                . 'render. It is deliberately observable: this row is written if and only '
+                . 'if the step actually executed.'
+        );
+
+        upgrade_mod_savepoint(true, 2026073250, 'selfselectadvanced');
+    }
+
     return true;
 }

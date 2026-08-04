@@ -197,4 +197,149 @@ final class backup_restore_files_test extends \advanced_testcase {
         $this->assertNotEmpty($restored, 'The guide-scope override did not restore');
         $this->assertEquals(1, $restored->guidehidden, 'A hidden guide became visible again after restore');
     }
+
+    /**
+     * BACKUP-001: the pending digest queue is operational state of the
+     * running site, not course data, and stays out of the archive. A
+     * restored queue row carried the ORIGINAL activity's deep link (or
+     * a literal restore token nothing ever decoded) and payload text
+     * resolved on the source site, and a same-site duplicate doubled
+     * every recipient's pending digest. The roundtrip must complete
+     * without error and produce ZERO queue rows on the restored side.
+     */
+    public function test_digest_queue_stays_out_of_the_backup(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $admin = get_admin();
+
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', ['course' => $course->id]);
+        $cm = get_coursemodule_from_instance('selfselectadvanced', $instance->id, $course->id, false, MUST_EXIST);
+
+        $recipient = $generator->create_user();
+        $generator->enrol_user($recipient->id, $course->id, 'teacher');
+        $DB->insert_record('selfselectadvanced_digestq', (object) [
+            'activityid' => $instance->id,
+            'userid' => $recipient->id,
+            'groupid' => null,
+            'provider' => 'guidequeue',
+            'subjectkey' => 'msghandoverproposedsubject',
+            'bodykey' => 'msghandoverproposedbody',
+            'payload' => json_encode(['group' => 'Original Team', 'activity' => 'Original Activity']),
+            'contexturl' => 'https://source.invalid/mod/selfselectadvanced/guide.php?id=' . $cm->id,
+            'timecreated' => time(),
+        ]);
+        $this->assertSame(1, $DB->count_records('selfselectadvanced_digestq', ['activityid' => $instance->id]));
+
+        $newcm = $this->roundtrip($course, $cm, (int) $admin->id);
+
+        $this->assertSame(
+            0,
+            $DB->count_records('selfselectadvanced_digestq', ['activityid' => $newcm->instance]),
+            'A queued digest notification travelled with the backup'
+        );
+        // The recipient's own pending digest on the SOURCE activity is
+        // untouched: the exclusion is about the archive, not the queue.
+        $this->assertSame(1, $DB->count_records('selfselectadvanced_digestq', ['activityid' => $instance->id]));
+    }
+
+    /**
+     * The control for the surgery above: with a digest row queued
+     * beside them, the group, its member, the volunteer row and the
+     * user-scope override all still make the trip - proof the cut
+     * removed the queue and nothing else. The volunteer table matters
+     * most here: it sits immediately beside the removed subtree in the
+     * backup structure and was the pattern the queue's backup was
+     * copied from.
+     */
+    public function test_the_other_user_tables_still_roundtrip(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $admin = get_admin();
+
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', ['course' => $course->id]);
+        $cm = get_coursemodule_from_instance('selfselectadvanced', $instance->id, $course->id, false, MUST_EXIST);
+
+        $leader = $generator->create_user();
+        $member = $generator->create_user();
+        $volunteer = $generator->create_user();
+        $generator->enrol_user($leader->id, $course->id, 'student');
+        $generator->enrol_user($member->id, $course->id, 'student');
+        $generator->enrol_user($volunteer->id, $course->id, 'teacher');
+
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $group = $plugingen->create_group([
+            'activityid' => $instance->id,
+            'leaderid' => $leader->id,
+            'name' => 'Travelling Team',
+        ]);
+        $plugingen->create_member([
+            'groupid' => $group->id,
+            'userid' => $member->id,
+            'invitedby' => $leader->id,
+        ]);
+        $now = time();
+        $DB->insert_record('selfselectadvanced_volunteer', (object) [
+            'activityid' => $instance->id,
+            'userid' => $volunteer->id,
+            'capacity' => 3,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        $DB->insert_record('selfselectadvanced_override', (object) [
+            'activityid' => $instance->id,
+            'scope' => 'user',
+            'userid' => $member->id,
+            'maxmembership' => 4,
+            'status' => 'active',
+            'usermodified' => $admin->id,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        $DB->insert_record('selfselectadvanced_digestq', (object) [
+            'activityid' => $instance->id,
+            'userid' => $volunteer->id,
+            'groupid' => null,
+            'provider' => 'guidequeue',
+            'subjectkey' => 'msghandoverproposedsubject',
+            'bodykey' => 'msghandoverproposedbody',
+            'payload' => json_encode(['group' => 'Travelling Team']),
+            'contexturl' => 'https://source.invalid/mod/selfselectadvanced/guide.php?id=' . $cm->id,
+            'timecreated' => $now,
+        ]);
+
+        $newcm = $this->roundtrip($course, $cm, (int) $admin->id);
+
+        $newgroup = $DB->get_record('selfselectadvanced_group', [
+            'activityid' => $newcm->instance,
+            'name' => 'Travelling Team',
+        ], '*', MUST_EXIST);
+        $this->assertSame(
+            2,
+            $DB->count_records('selfselectadvanced_member', ['groupid' => $newgroup->id]),
+            'The roster did not survive the digest-queue exclusion'
+        );
+        $this->assertSame(
+            1,
+            $DB->count_records('selfselectadvanced_volunteer', ['activityid' => $newcm->instance]),
+            'The volunteer row beside the removed subtree did not survive'
+        );
+        $this->assertSame(
+            1,
+            $DB->count_records('selfselectadvanced_override', ['activityid' => $newcm->instance]),
+            'The user-scope override did not survive'
+        );
+        $this->assertSame(
+            0,
+            $DB->count_records('selfselectadvanced_digestq', ['activityid' => $newcm->instance]),
+            'The queue travelled after all - the control found the cut in the wrong place'
+        );
+    }
 }

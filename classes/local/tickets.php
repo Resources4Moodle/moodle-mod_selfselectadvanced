@@ -50,6 +50,15 @@ class tickets {
      */
     public const TYPE_GUIDECAP = 'guidecap';
 
+    /**
+     * @var string A firm or frozen team's guide was deleted or lost their
+     *      last enrolment (OBS-001): the team keeps its state, and a
+     *      coordinator resolves the succession deliberately. Filed by the
+     *      observers, never by a person, so requestedby records the actor
+     *      whose deletion or unenrolment caused it.
+     */
+    public const TYPE_GUIDEGONE = 'guidegone';
+
     /** @var string Waiting in the queue. */
     public const STATUS_OPEN = 'open';
 
@@ -271,6 +280,132 @@ class tickets {
         }
 
         self::notify_workers($activity, $ticket, null);
+
+        return $ticket;
+    }
+
+    /**
+     * File a guide-succession ticket for a firm or frozen team whose
+     * guide was deleted or fully unenrolled (OBS-001).
+     *
+     * Filed by the observers, not by a person: the team keeps its
+     * state and its guideid - a frozen roster is never mutated behind
+     * the coordinators' backs - and this ticket is what makes the
+     * succession a deliberate act instead of a stale row nobody owns.
+     * The claimant resolves it with the existing assign-guide tool and
+     * closes it with a note, like every other ticket.
+     *
+     * Idempotent where file() refuses: both observers can fire for one
+     * removal (core unenrols before it deletes), so a live guidegone
+     * ticket for the team is returned as-is rather than thrown at the
+     * observer as a duplicate. And it declines to file at all when the
+     * team re-read under the lock no longer names the gone guide, or
+     * has left the firm/frozen states - the succession already
+     * happened, and a ticket would be work already done.
+     *
+     * @param activity $activity the activity
+     * @param int $groupid the firm or frozen team
+     * @param int $goneguideid the guide who no longer exists here
+     * @param string $reason 'deleted' or 'unenrolled'
+     * @param int $actorid whose act removed the guide; recorded as the
+     *        requester, which every notification path expects to be a
+     *        real user
+     * @return stdClass|null the open (or already live) ticket, or null
+     *         when the fresh row no longer warrants one
+     * @throws \coding_exception on an unknown reason
+     */
+    public static function file_guidegone(
+        activity $activity,
+        int $groupid,
+        int $goneguideid,
+        string $reason,
+        int $actorid
+    ): ?stdClass {
+        global $DB;
+
+        if (!in_array($reason, ['deleted', 'unenrolled'], true)) {
+            throw new \coding_exception('Unknown guide-gone reason ' . $reason);
+        }
+
+        $ticket = null;
+        $lock = locks::acquire('group:' . $groupid);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            // Judged on the row read INSIDE the lock (house rule A7):
+            // a coordinator's reassignment or an unfreeze landing
+            // before this lock was granted decides the question.
+            // IGNORE_MISSING rather than groups::get(), because the
+            // caller is a system observer and a team dissolved while
+            // we waited is a reason to file nothing, not to abort the
+            // user deletion that brought us here.
+            $group = $DB->get_record('selfselectadvanced_group', [
+                'id' => $groupid,
+                'activityid' => $activity->id(),
+            ]);
+            if (
+                !$group
+                || (int) $group->guideid !== $goneguideid
+                || !in_array($group->state, [state::FIRM, state::FROZEN], true)
+            ) {
+                $transaction->allow_commit();
+                return null;
+            }
+
+            $live = $DB->get_record_select(
+                'selfselectadvanced_ticket',
+                "groupid = :groupid AND type = :type AND status IN (:open, :claimed)",
+                [
+                    'groupid' => (int) $group->id,
+                    'type' => self::TYPE_GUIDEGONE,
+                    'open' => self::STATUS_OPEN,
+                    'claimed' => self::STATUS_CLAIMED,
+                ]
+            );
+            if ($live) {
+                $transaction->allow_commit();
+                return $live;
+            }
+
+            $gone = \core_user::get_user($goneguideid);
+            $now = time();
+            $ticket = (object) [
+                'activityid' => $activity->id(),
+                'groupid' => (int) $group->id,
+                'type' => self::TYPE_GUIDEGONE,
+                'status' => self::STATUS_OPEN,
+                'requestedby' => $actorid,
+                'request' => get_string(
+                    'ticketguidegone' . $reason,
+                    'mod_selfselectadvanced',
+                    $gone ? fullname($gone) : $goneguideid
+                ),
+                'requestformat' => FORMAT_PLAIN,
+                'timecreated' => $now,
+                'timemodified' => $now,
+            ];
+            $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
+
+            // Payload built INSIDE the critical section, dispatched
+            // after the commit AND the release below - the binding
+            // rule for new code (docs/architecture.md, "Events under a
+            // lock"; store::save() is the worked example).
+            $event = \mod_selfselectadvanced\event\ticket_filed::create([
+                'objectid' => $ticket->id,
+                'context' => $activity->context(),
+                'other' => ['type' => self::TYPE_GUIDEGONE, 'pluginuid' => $group->pluginuid],
+            ]);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
+        } finally {
+            $lock->release();
+        }
+
+        $event->trigger();
+
+        self::notify_workers($activity, $ticket, $group);
 
         return $ticket;
     }

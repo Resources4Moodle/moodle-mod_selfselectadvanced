@@ -33,11 +33,15 @@ use core_privacy\local\request\writer;
  * guide's expressions of interest in listed teams (1.11.0).
  *
  * Deletion keeps group structure (course data) but removes the user's
- * member rows and de-links ids; a deletion that blanks a leader routes
- * the group to the flagged report via its empty leaderid (review item
- * M1). Snapshots are scrubbed of the user; agrun logs are
- * pseudonymised. Queued digest rows are deleted outright: they hold no
- * audit value once the recipient is gone.
+ * member rows and de-links ids - including every modifier/grantor
+ * column (group, override, move and attribute usermodified, agrun
+ * triggeredby); a deletion that blanks a leader routes the group to
+ * the flagged report via its empty leaderid (review item M1).
+ * Snapshots are scrubbed of the user; agrun logs are pseudonymised
+ * type-aware, by the log's own shape. Queued digest rows are deleted
+ * outright - the recipient's own, and any other recipient's row whose
+ * resolved payload names the erased person: they hold no audit value
+ * once either party is gone.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -83,6 +87,7 @@ class provider implements
             'shareconsent' => 'privacy:metadata:userattr:shareconsent',
             'seatlocation' => 'privacy:metadata:userattr:seatlocation',
             'program' => 'privacy:metadata:userattr:program',
+            'usermodified' => 'privacy:metadata:userattr:usermodified',
         ], 'privacy:metadata:userattr');
         $collection->add_database_table('selfselectadvanced_override', [
             'userid' => 'privacy:metadata:override:userid',
@@ -97,6 +102,7 @@ class provider implements
             'successorid' => 'privacy:metadata:move:successorid',
             'reason' => 'privacy:metadata:move:reason',
             'responsenote' => 'privacy:metadata:move:responsenote',
+            'usermodified' => 'privacy:metadata:move:usermodified',
         ], 'privacy:metadata:move');
         $collection->add_database_table('selfselectadvanced_snapshot', [
             'roster' => 'privacy:metadata:snapshot:roster',
@@ -196,18 +202,61 @@ class provider implements
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_contact} ct
                          WHERE ct.activityid = a.id
-                           AND (ct.guideid = :userid15 OR ct.sentby = :userid16))";
+                           AND (ct.guideid = :userid15 OR ct.sentby = :userid16))
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_agrun} ag
+                         WHERE ag.activityid = a.id AND ag.triggeredby = :userid17)
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_member} mi
+                          JOIN {selfselectadvanced_group} gi ON gi.id = mi.groupid
+                         WHERE gi.activityid = a.id AND mi.invitedby = :userid18)
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_snapshot} sn
+                          JOIN {selfselectadvanced_group} gs ON gs.id = sn.groupid
+                         WHERE gs.activityid = a.id AND sn.takenby = :userid19)
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_group} gm
+                         WHERE gm.activityid = a.id AND gm.usermodified = :userid20)
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_override} om
+                         WHERE om.activityid = a.id AND om.usermodified = :userid21)
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_move} mm
+                         WHERE mm.activityid = a.id AND mm.usermodified = :userid22)";
+        // The last six clauses close the reverse asymmetry the
+        // get_users_in_context() comment describes: whoever triggered a
+        // grouping run, sent an invitation, took a roster snapshot or is
+        // recorded as a modifier/grantor was erasable through an
+        // administrator's userlist deletion, while the SAME person's own
+        // request found no context at all. One residual is documented
+        // rather than closed: a user whose ONLY trace is a bare id
+        // inside an agrun log body (possible only once every other row
+        // of theirs is already gone) is not SQL-discoverable without a
+        // digits-substring match that would list near-every context for
+        // near-every user; the log body itself is pseudonymised whenever
+        // any discovered context brings the scrub to the activity, and
+        // the context-wide purge deletes it outright.
         $contextlist->add_from_sql($sql, [
             'modlevel' => CONTEXT_MODULE,
             'userid1' => $userid, 'userid2' => $userid, 'userid3' => $userid, 'userid4' => $userid,
             'userid5' => $userid, 'userid6' => $userid, 'userid7' => $userid, 'userid8' => $userid,
             'userid9' => $userid, 'userid10' => $userid, 'userid11' => $userid,
             'userid12' => $userid, 'userid13' => $userid, 'userid14' => $userid,
-            'userid15' => $userid, 'userid16' => $userid,
+            'userid15' => $userid, 'userid16' => $userid, 'userid17' => $userid,
+            'userid18' => $userid, 'userid19' => $userid, 'userid20' => $userid,
+            'userid21' => $userid, 'userid22' => $userid,
         ]);
 
         global $DB;
-        if ($DB->record_exists('selfselectadvanced_userattr', ['userid' => $userid])) {
+        // Their own attribute row, or attribute rows they are recorded
+        // as having edited: either one makes the system context theirs.
+        if (
+            $DB->record_exists_select(
+                'selfselectadvanced_userattr',
+                'userid = ? OR usermodified = ?',
+                [$userid, $userid]
+            )
+        ) {
             $contextlist->add_system_context();
         }
 
@@ -223,6 +272,12 @@ class provider implements
         $context = $userlist->get_context();
         if ($context instanceof \context_system) {
             $userlist->add_from_sql('userid', 'SELECT userid FROM {selfselectadvanced_userattr}', []);
+            // The staff who edited attribute records are held here too.
+            $userlist->add_from_sql(
+                'userid',
+                'SELECT usermodified AS userid FROM {selfselectadvanced_userattr} WHERE usermodified > 0',
+                []
+            );
 
             return;
         }
@@ -380,6 +435,42 @@ class provider implements
               WHERE s.takenby IS NOT NULL",
             $params
         );
+
+        // Whoever hand-triggered a grouping run, and everyone recorded
+        // as a modifier or grantor. All four columns default to 0 for
+        // "nobody", which the > 0 guards keep out of the IN () list.
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT ag.triggeredby AS userid
+               FROM {selfselectadvanced_agrun} ag
+               JOIN {course_modules} cm ON cm.instance = ag.activityid AND cm.id = :cmid
+              WHERE ag.triggeredby > 0",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT g.usermodified AS userid
+               FROM {selfselectadvanced_group} g
+               JOIN {course_modules} cm ON cm.instance = g.activityid AND cm.id = :cmid
+              WHERE g.usermodified > 0",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT o.usermodified AS userid
+               FROM {selfselectadvanced_override} o
+               JOIN {course_modules} cm ON cm.instance = o.activityid AND cm.id = :cmid
+              WHERE o.usermodified > 0",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT mv.usermodified AS userid
+               FROM {selfselectadvanced_move} mv
+               JOIN {course_modules} cm ON cm.instance = mv.activityid AND cm.id = :cmid
+              WHERE mv.usermodified > 0",
+            $params
+        );
     }
 
     /**
@@ -394,24 +485,38 @@ class provider implements
         foreach ($contextlist->get_contexts() as $context) {
             if ($context instanceof \context_system) {
                 $attr = $DB->get_record('selfselectadvanced_userattr', ['userid' => $userid]);
-                if ($attr) {
+                // A staff member who edited OTHER people's attribute
+                // records is held in this context through usermodified
+                // alone; their export says so without naming whose rows
+                // those were (the subjects' identities are the subjects'
+                // data, not the editor's).
+                $edited = $DB->count_records_select(
+                    'selfselectadvanced_userattr',
+                    'usermodified = ? AND userid <> ?',
+                    [$userid, $userid]
+                );
+                if ($attr || $edited) {
+                    $export = (object) [
+                        'attributerecordsyouedited' => $edited,
+                    ];
+                    if ($attr) {
+                        $export->gender = $attr->gender;
+                        $export->department = $attr->department;
+                        $export->subdepartment = $attr->subdepartment;
+                        $export->mobile = $attr->mobile;
+                        $export->shareconsent = (int) ($attr->shareconsent ?? 0);
+                        // Both are written by the attribute importer
+                        // and one of them is a physical location, yet
+                        // neither was declared or exported. They are
+                        // correctly erased, so this was a disclosure
+                        // gap rather than a retention one.
+                        $export->seatlocation = $attr->seatlocation;
+                        $export->program = $attr->program;
+                    }
                     writer::with_context($context)->export_data(
                         [get_string('pluginname', 'mod_selfselectadvanced'),
                             get_string('participantattributes', 'mod_selfselectadvanced')],
-                        (object) [
-                            'gender' => $attr->gender,
-                            'department' => $attr->department,
-                            'subdepartment' => $attr->subdepartment,
-                            'mobile' => $attr->mobile,
-                            'shareconsent' => (int) ($attr->shareconsent ?? 0),
-                            // Both are written by the attribute importer
-                            // and one of them is a physical location, yet
-                            // neither was declared or exported. They are
-                            // correctly erased, so this was a disclosure
-                            // gap rather than a retention one.
-                            'seatlocation' => $attr->seatlocation,
-                            'program' => $attr->program,
-                        ]
+                        $export
                     );
                 }
                 continue;
@@ -444,8 +549,9 @@ class provider implements
             }
             $rows = $DB->get_records_sql(
                 "SELECT m.id, g.name, g.pluginuid, g.title, g.brief, g.briefformat, g.state,
-                        g.returncomment, g.guidenotes, m.status, m.isleader,
-                        m.timeinvited, m.timeresponded, m.leaverequested, p.penaltyvalue
+                        g.returncomment, g.guidenotes, m.status, m.isleader, m.invitedby,
+                        m.timeinvited, m.timeresponded, m.leaverequested, p.penaltyvalue,
+                        p.dayslate, p.award, p.waived, p.waivereason
                    FROM {selfselectadvanced_member} m
                    JOIN {selfselectadvanced_group} g ON g.id = m.groupid
               LEFT JOIN {selfselectadvanced_penalty} p ON p.groupid = g.id
@@ -476,17 +582,70 @@ class provider implements
                     // about, who is entitled to see what is held on them.
                     'returncomment' => $row->returncomment,
                     'guidenotes' => $row->guidenotes,
+                    // Who invited this person is part of this person's
+                    // own membership history, and it was declared in the
+                    // metadata without ever being exported.
+                    'invitedby' => $row->invitedby !== null ? (int) $row->invitedby : null,
                     'grouppenalty' => $row->penaltyvalue,
+                    // The rest of the penalty row: declared since the
+                    // ledger existed, exported never.
+                    'penaltydayslate' => $row->dayslate !== null ? (int) $row->dayslate : null,
+                    'penaltyaward' => $row->award,
+                    'penaltywaived' => $row->waived !== null ? transform::yesno($row->waived) : null,
+                    'penaltywaivereason' => $row->waivereason,
                 ];
             }
-            $overrides = $DB->get_records('selfselectadvanced_override', [
+            $overrides = $DB->get_records_sql(
+                "SELECT o.*, g.name AS groupname
+                   FROM {selfselectadvanced_override} o
+              LEFT JOIN {selfselectadvanced_group} g ON g.id = o.groupid
+                  WHERE o.activityid = :activityid AND o.userid = :userid",
+                ['activityid' => $cm->instance, 'userid' => $userid]
+            );
+            // Moves this person was the subject or successor of, plus
+            // the ones they staged or answered for someone else: the
+            // stager's id sits on the row too, so the row belongs in
+            // their export as much as in the subject's.
+            $moves = $DB->get_records_sql(
+                "SELECT mv.*, sg.name AS sourcename, tg.name AS targetname
+                   FROM {selfselectadvanced_move} mv
+              LEFT JOIN {selfselectadvanced_group} sg ON sg.id = mv.sourcegroupid
+              LEFT JOIN {selfselectadvanced_group} tg ON tg.id = mv.targetgroupid
+                  WHERE mv.activityid = :activityid
+                    AND (mv.userid = :u1 OR mv.successorid = :u2 OR mv.usermodified = :u3)",
+                ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid, 'u3' => $userid]
+            );
+            // Invitations this person SENT. The receiving side already
+            // sits in the memberships dataset; without this one, a user
+            // whose only footprint is inviting others had a discovered
+            // context and an empty export.
+            $sentinvites = $DB->get_records_sql(
+                "SELECT m.id, g.name, g.pluginuid, m.status, m.timeinvited
+                   FROM {selfselectadvanced_member} m
+                   JOIN {selfselectadvanced_group} g ON g.id = m.groupid
+                  WHERE g.activityid = :activityid AND m.invitedby = :userid AND m.userid <> :userid2",
+                ['activityid' => $cm->instance, 'userid' => $userid, 'userid2' => $userid]
+            );
+            // Grouping runs this person hand-triggered (agrun was in the
+            // metadata and in no export dataset at all).
+            $agruns = $DB->get_records('selfselectadvanced_agrun', [
                 'activityid' => $cm->instance,
-                'userid' => $userid,
-            ]);
-            $moves = $DB->get_records_select(
-                'selfselectadvanced_move',
-                'activityid = :activityid AND (userid = :u1 OR successorid = :u2)',
-                ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid]
+                'triggeredby' => $userid,
+            ], 'timestarted ASC');
+            // Teams and overrides where this person is recorded as the
+            // last modifier or the grantor - the columns are declared as
+            // their personal data, so their export names the rows.
+            $modifiedgroups = $DB->get_records(
+                'selfselectadvanced_group',
+                ['activityid' => $cm->instance, 'usermodified' => $userid],
+                'id ASC',
+                'id, name, pluginuid, timemodified'
+            );
+            $grantedoverrides = $DB->get_records(
+                'selfselectadvanced_override',
+                ['activityid' => $cm->instance, 'usermodified' => $userid],
+                'id ASC',
+                'id, scope, status, timecreated'
             );
             $volunteer = $DB->get_record('selfselectadvanced_volunteer', [
                 'activityid' => $cm->instance,
@@ -573,19 +732,82 @@ class provider implements
                         'timecreated' => transform::datetime($eo->timecreated),
                         'timeresponded' => $eo->timeresponded ? transform::datetime($eo->timeresponded) : null,
                     ], $eois)),
+                    // The whole override row, not the seven fields an
+                    // earlier version happened to pick: every column of
+                    // an exception held against this person is held
+                    // about this person, and the three window stamps
+                    // are dates, so they read as dates.
                     'overrides' => array_values(array_map(static fn($o) => (object) [
                         'scope' => $o->scope,
-                        'timeopen' => $o->timeopen,
-                        'timedue' => $o->timedue,
-                        'timecutoff' => $o->timecutoff,
+                        'status' => $o->status,
+                        'group' => $o->groupname !== null ? format_string($o->groupname) : null,
+                        'timeopen' => $o->timeopen ? transform::datetime($o->timeopen) : null,
+                        'timedue' => $o->timedue ? transform::datetime($o->timedue) : null,
+                        'timecutoff' => $o->timecutoff ? transform::datetime($o->timecutoff) : null,
+                        'minsize' => $o->minsize,
+                        'maxsize' => $o->maxsize,
                         'maxlead' => $o->maxlead,
                         'maxmembership' => $o->maxmembership,
                         'maxguided' => $o->maxguided,
+                        'quotaexempt' => $o->quotaexempt !== null ? transform::yesno($o->quotaexempt) : null,
+                        'penaltywaived' => $o->penaltywaived !== null ? transform::yesno($o->penaltywaived) : null,
+                        'guidehidden' => $o->guidehidden !== null ? transform::yesno($o->guidehidden) : null,
+                        'rulesbypassed' => $o->rulesbypassed,
+                        'timecreated' => transform::datetime($o->timecreated),
+                        'timemodified' => transform::datetime($o->timemodified),
                     ], $overrides)),
+                    // Reason and responsenote were declared in the
+                    // metadata and dropped from the export; the rest of
+                    // the row says what the move actually was.
                     'moves' => array_values(array_map(static fn($m) => (object) [
                         'status' => $m->status,
+                        'sourcegroup' => $m->sourcename !== null ? format_string($m->sourcename) : null,
+                        'targetgroup' => $m->targetname !== null ? format_string($m->targetname) : null,
+                        'wassubject' => transform::yesno((int) $m->userid === $userid),
+                        'wassuccessor' => transform::yesno((int) ($m->successorid ?? 0) === $userid),
+                        'stagedbyyou' => transform::yesno((int) $m->usermodified === $userid),
+                        'makeleader' => transform::yesno($m->makeleader),
+                        // The subject and the successor get the full
+                        // prose, exactly as before the query widened -
+                        // the move is ABOUT them. The WIDENED arm is
+                        // the one that needs the line (wave-2 blind
+                        // audit, low 4): a row reached only through
+                        // usermodified exports the stager's OWN words
+                        // (reason) but not the subject's response - the
+                        // export is the stager's data, not a copy of
+                        // somebody else's.
+                        'reason' => $m->reason,
+                        'responsenote' => ((int) $m->userid === $userid
+                            || (int) ($m->successorid ?? 0) === $userid)
+                            ? $m->responsenote
+                            : null,
                         'timecreated' => transform::datetime($m->timecreated),
+                        'timecommitted' => $m->timecommitted ? transform::datetime($m->timecommitted) : null,
                     ], $moves)),
+                    'invitationssent' => array_values(array_map(static fn($i) => (object) [
+                        'group' => format_string($i->name),
+                        'pluginuid' => $i->pluginuid,
+                        'status' => $i->status,
+                        'timeinvited' => $i->timeinvited ? transform::datetime($i->timeinvited) : null,
+                    ], $sentinvites)),
+                    'autogroupruns' => array_values(array_map(static fn($r) => (object) [
+                        'triggeredbyyou' => transform::yesno(true),
+                        'timestarted' => transform::datetime($r->timestarted),
+                        'timefinished' => $r->timefinished ? transform::datetime($r->timefinished) : null,
+                        'groupsformed' => (int) $r->groupsformed,
+                        'placed' => (int) $r->placed,
+                        'unplaced' => (int) $r->unplaced,
+                    ], $agruns)),
+                    'groupsmodified' => array_values(array_map(static fn($g) => (object) [
+                        'group' => format_string($g->name),
+                        'pluginuid' => $g->pluginuid,
+                        'timemodified' => transform::datetime($g->timemodified),
+                    ], $modifiedgroups)),
+                    'overridesgranted' => array_values(array_map(static fn($o) => (object) [
+                        'scope' => $o->scope,
+                        'status' => $o->status,
+                        'timecreated' => transform::datetime($o->timecreated),
+                    ], $grantedoverrides)),
                     'approaches' => array_values(array_map(static fn($c) => (object) [
                         'group' => format_string($c->name),
                         'pluginuid' => $c->pluginuid,
@@ -748,6 +970,14 @@ class provider implements
         $DB->set_field('selfselectadvanced_group', 'guideid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'successorid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'guidesuccessorid', null, ['activityid' => $cm->instance]);
+        // The group structure stays (course data), but the prose a
+        // guide wrote about the people being purged is declared
+        // personal content, and the modifier column is somebody's id.
+        // This unconditional path used to blank the four role ids above
+        // and keep all three of these.
+        $DB->set_field('selfselectadvanced_group', 'guidenotes', null, ['activityid' => $cm->instance]);
+        $DB->set_field('selfselectadvanced_group', 'returncomment', null, ['activityid' => $cm->instance]);
+        $DB->set_field('selfselectadvanced_group', 'usermodified', 0, ['activityid' => $cm->instance]);
 
         // Empty every mirror of every plugin-owned membership. The cost
         // per group equals the roster being purged - unavoidable, and
@@ -780,6 +1010,10 @@ class provider implements
         foreach ($contextlist->get_contexts() as $context) {
             if ($context instanceof \context_system) {
                 \mod_selfselectadvanced\local\attributes\manager::delete_for_user($userid);
+                // Their id also sits on every attribute record they
+                // edited for someone else; the record is the subject's
+                // data and stays, the editor's id does not.
+                $DB->set_field('selfselectadvanced_userattr', 'usermodified', 0, ['usermodified' => $userid]);
                 continue;
             }
             if (!$context instanceof \context_module) {
@@ -799,10 +1033,15 @@ class provider implements
      * @param approved_userlist $userlist approved users
      */
     public static function delete_data_for_users(approved_userlist $userlist): void {
+        global $DB;
+
         $context = $userlist->get_context();
         foreach ($userlist->get_userids() as $userid) {
             if ($context instanceof \context_system) {
                 \mod_selfselectadvanced\local\attributes\manager::delete_for_user((int) $userid);
+                // Same de-link as the contextlist path: the records they
+                // edited stay with their subjects, minus the editor's id.
+                $DB->set_field('selfselectadvanced_userattr', 'usermodified', 0, ['usermodified' => (int) $userid]);
                 continue;
             }
             if ($context instanceof \context_module) {
@@ -958,6 +1197,16 @@ class provider implements
             'activityid = :activityid AND (userid = :u1 OR successorid = :u2)',
             ['activityid' => $activityid, 'u1' => $userid, 'u2' => $userid]
         );
+        // Moves they staged or answered for OTHER students are those
+        // students' records and stay; the erased stager's id on them
+        // does not. Same shape as the override/group grantor de-links
+        // above - this was the one modifier column nothing scrubbed.
+        $DB->set_field(
+            'selfselectadvanced_move',
+            'usermodified',
+            0,
+            ['activityid' => $activityid, 'usermodified' => $userid]
+        );
         $DB->delete_records_select(
             'selfselectadvanced_override',
             "activityid = :activityid AND scope IN ('user', 'guide') AND userid = :userid",
@@ -965,6 +1214,26 @@ class provider implements
         );
         $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $activityid, 'userid' => $userid]);
         $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $activityid, 'userid' => $userid]);
+        // A digest queued for ANOTHER recipient can carry the erased
+        // person's name: the payload is the already-resolved
+        // placeholder object, with fullname() baked in at queue time.
+        // Such a row narrates the erased person's own action, so it is
+        // deleted whole rather than scrubbed - excising a name from a
+        // one-line notification leaves nonsense, and the queue is
+        // transient. The match is a plain substring on the rendered
+        // name; over-deleting a pending notification is the cheap side
+        // of that trade, a kept name the expensive one. Core keeps the
+        // name fields on a deleted account, so the lookup works on
+        // either path; a vanished record simply has no name to match.
+        $erased = \core_user::get_user($userid);
+        if ($erased && trim(fullname($erased)) !== '') {
+            $erasedname = fullname($erased);
+            foreach ($DB->get_records('selfselectadvanced_digestq', ['activityid' => $activityid]) as $qrow) {
+                if (strpos((string) $qrow->payload, $erasedname) !== false) {
+                    $DB->delete_records('selfselectadvanced_digestq', ['id' => $qrow->id]);
+                }
+            }
+        }
         // The interest history is the guide's own personal content
         // (remarks) and identity; deleted outright, exactly like a
         // member row, rather than de-linked (nothing else references
@@ -1008,16 +1277,57 @@ class provider implements
             ['activityid' => $activityid, 'userid' => $userid]
         );
 
-        // Pseudonymise agrun logs.
+        // Pseudonymise agrun logs, type-aware (PRIV-002). The log's own
+        // shape says which leaves are userids: 'pool' and 'residue' are
+        // arrays of them, and each 'groups' entry carries a 'leaderid'
+        // and a 'members' array. Nothing else is one - 'bypassedrules'
+        // holds quota-rule ids and 'pluginuid' is a string. The old
+        // code int-cast EVERY leaf and zeroed any numeric equal to the
+        // erased id, so erasing user 7 falsified a trail that had
+        // merely relaxed rule 7, and erasing user 42 turned a '0042'
+        // uid into the integer 0. Only integer-typed values in the
+        // identity positions are replaced now; a colliding rule id or
+        // digit-led string passes through untouched, and a log with
+        // nothing to replace is not rewritten at all.
         foreach ($DB->get_records('selfselectadvanced_agrun', ['activityid' => $activityid]) as $agrun) {
-            $log = $agrun->log;
-            if ($log && strpos($log, (string) $userid) !== false) {
-                $decoded = json_decode($log, true) ?: [];
-                array_walk_recursive($decoded, static function (&$value) use ($userid) {
-                    if ((int) $value === $userid) {
-                        $value = 0;
+            if (!$agrun->log) {
+                continue;
+            }
+            $decoded = json_decode($agrun->log, true);
+            if (!is_array($decoded)) {
+                continue;
+            }
+            $changed = false;
+            $zeroids = static function (array $ids) use ($userid, &$changed): array {
+                foreach ($ids as $key => $value) {
+                    if (is_int($value) && $value === $userid) {
+                        $ids[$key] = 0;
+                        $changed = true;
                     }
-                });
+                }
+
+                return $ids;
+            };
+            foreach (['pool', 'residue'] as $listkey) {
+                if (isset($decoded[$listkey]) && is_array($decoded[$listkey])) {
+                    $decoded[$listkey] = $zeroids($decoded[$listkey]);
+                }
+            }
+            if (isset($decoded['groups']) && is_array($decoded['groups'])) {
+                foreach ($decoded['groups'] as $index => $grouplog) {
+                    if (!is_array($grouplog)) {
+                        continue;
+                    }
+                    if (is_int($grouplog['leaderid'] ?? null) && $grouplog['leaderid'] === $userid) {
+                        $decoded['groups'][$index]['leaderid'] = 0;
+                        $changed = true;
+                    }
+                    if (isset($grouplog['members']) && is_array($grouplog['members'])) {
+                        $decoded['groups'][$index]['members'] = $zeroids($grouplog['members']);
+                    }
+                }
+            }
+            if ($changed) {
                 $DB->set_field('selfselectadvanced_agrun', 'log', json_encode($decoded), ['id' => $agrun->id]);
             }
         }

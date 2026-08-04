@@ -247,11 +247,12 @@ cli_writeln('Created personas: howto.admin, howto.teacher, howto.guide, howto.gu
 
 // Site-wide, 2-level department vocabulary (spec 1.1.0): the CSV
 // importer and the quota/slot value pickers only offer values from
-// this tree once it is non-empty. depts::ensure() is idempotent.
-depts::ensure('Computer Science', 'AI');
-depts::ensure('Computer Science', 'Systems');
-depts::ensure('Data Science', 'Analytics');
-depts::ensure('Data Science', 'Engineering');
+// this tree once it is non-empty. depts::ensure() is idempotent, and
+// the acting administrator is stated explicitly (AUTH-001).
+depts::ensure('Computer Science', 'AI', (int) $admin->id);
+depts::ensure('Computer Science', 'Systems', (int) $admin->id);
+depts::ensure('Data Science', 'Analytics', (int) $admin->id);
+depts::ensure('Data Science', 'Engineering', (int) $admin->id);
 cli_writeln('Department vocabulary: Computer Science (AI, Systems), Data Science (Analytics, Engineering)');
 
 // Participant attributes: gender, department, sub-department, mobile,

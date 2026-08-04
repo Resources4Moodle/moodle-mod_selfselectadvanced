@@ -31,8 +31,15 @@ class observer {
      * has already dropped their core-group rows itself, so each
      * affected FROZEN group gets a fresh snapshot recording the true
      * roster - otherwise a later unfreeze or re-freeze reconciliation
-     * would resurrect the deleted account. A deleted leader or guide
-     * is surfaced by the existing flagged reports.
+     * would resurrect the deleted account. A deleted leader is
+     * surfaced by the existing flagged reports.
+     *
+     * A deleted GUIDE is handled here too (OBS-001): guides are not
+     * members, so the member scan below never sees them, and until
+     * 1.20.4 a group's guideid simply kept naming the dead account -
+     * which the frozen mirror's expected set went on demanding, one
+     * refused sync and one capaudit mail per run, for ever. See
+     * guide_gone() for the policy.
      *
      * @param \core\event\user_deleted $event the core event
      */
@@ -127,6 +134,13 @@ class observer {
                 $lock->release();
             }
         }
+
+        // Groups this account GUIDED, in any course - a different
+        // involvement from the member rows above, and both can be true
+        // of one group at once (a guide who was also confirmed as a
+        // member): the member flip has already run, and this runs once
+        // more for the guide half.
+        self::guide_gone($userid, $actorid, 'deleted');
     }
 
     /**
@@ -140,9 +154,14 @@ class observer {
      * so a multi-instance unenrolment (a second manual or cohort
      * enrolment still standing) must eject nobody.
      *
-     * A removed leader or guide is NOT auto-reassigned: the existing
-     * flagged reports surface leaderless and guideless groups, and a
-     * removed guide simply stops being part of the expected mirror.
+     * A removed leader is NOT auto-reassigned: the existing flagged
+     * reports surface leaderless groups.
+     *
+     * A removed GUIDE is handled by guide_gone() below (OBS-001):
+     * guides are not members, so the member scan here never saw them,
+     * and the old claim that "a removed guide simply stops being part
+     * of the expected mirror" was false - freeze's expected set keeps
+     * demanding guideid until something clears it, and nothing did.
      *
      * @param \core\event\user_enrolment_deleted $event the core event
      */
@@ -178,7 +197,18 @@ class observer {
                 'invited' => local\groups::STATUS_INVITED,
             ]
         );
-        if (!$rows) {
+        $guidedanywhere = $DB->record_exists_sql(
+            "SELECT 1
+               FROM {selfselectadvanced_group} g
+               JOIN {selfselectadvanced} s ON s.id = g.activityid AND s.course = :courseid
+              WHERE g.guideid = :userid",
+            ['courseid' => $courseid, 'userid' => $userid]
+        );
+        if (!$rows && !$guidedanywhere) {
+            // No membership AND no guided team: the early-out that
+            // used to run on the member rows alone, which is exactly
+            // how a guide-only involvement slipped past this observer
+            // (OBS-001).
             return;
         }
 
@@ -221,6 +251,191 @@ class observer {
         // users - and an inline sync per affected group per user would
         // add a lock pair, a membership read and core writes to each,
         // inside the enrolment task.
+
+        if ($guidedanywhere) {
+            self::guide_gone($userid, $actorid, 'unenrolled', $courseid);
+        }
+    }
+
+    /**
+     * The OBS-001 policy for a guide who was deleted or lost their
+     * last enrolment, decided by the fresh row's lifecycle state:
+     *
+     * - FORMING and PENDING_GUIDE teams lose the guide the way a
+     *   return releases one: guideid cleared - and with it any pending
+     *   handover, whose nomination belonged to the guide who just left
+     *   (state::return_group()'s rule) - under the group lock on a
+     *   re-read row, guide_removed fired after commit and release, the
+     *   leader told through the notifier. A cleared PENDING_GUIDE team
+     *   lands in the manager's assignment queue, which is the page
+     *   built for it.
+     * - FIRM and FROZEN teams keep their state AND their guideid: a
+     *   frozen roster is never mutated behind the coordinators' backs.
+     *   A guidegone ticket is filed instead, so a coordinator resolves
+     *   the succession deliberately with the assign-guide tool. Until
+     *   then the mirror's refused adds stay loud on purpose - they are
+     *   the repeating alarm, and the ticket is the off switch.
+     *
+     * Idempotent across the double fire (core unenrols before it
+     * deletes): a cleared guideid no longer matches, and a live ticket
+     * is returned rather than duplicated.
+     *
+     * @param int $userid the gone guide
+     * @param int $actorid whose act removed them
+     * @param string $reason 'deleted' or 'unenrolled'
+     * @param int $courseid restrict to one course's activities, 0 for all
+     */
+    private static function guide_gone(int $userid, int $actorid, string $reason, int $courseid = 0): void {
+        global $DB;
+
+        // BOTH roles the departed user can hold on a group row: the
+        // ASSIGNED guide, and the NOMINATED successor of a pending
+        // handover (wave-2 blind audit, the medium: a deleted successor
+        // left the handover dangling - the proposing guide waited on an
+        // acceptance that could never come). The loop below re-reads
+        // under the lock and treats the two cases on their own terms.
+        $sql = "SELECT g.id, g.activityid
+                  FROM {selfselectadvanced_group} g
+                  JOIN {selfselectadvanced} s ON s.id = g.activityid
+                 WHERE g.guideid = :userid OR g.guidesuccessorid = :userid2";
+        $params = ['userid' => $userid, 'userid2' => $userid];
+        if ($courseid) {
+            $sql .= " AND s.course = :courseid";
+            $params['courseid'] = $courseid;
+        }
+
+        foreach ($DB->get_records_sql($sql, $params) as $row) {
+            $activity = self::activity_or_null((int) $row->activityid);
+
+            $cleared = null;
+            $ticketwanted = false;
+            $handoverlapsed = null;
+            $lock = local\locks::acquire('group:' . (int) $row->id);
+            try {
+                $transaction = $DB->start_delegated_transaction();
+                $group = $DB->get_record('selfselectadvanced_group', ['id' => (int) $row->id]);
+                if ($group && (int) ($group->guidesuccessorid ?? 0) === $userid) {
+                    // The departed user is the NOMINATED successor: the
+                    // pending handover can never be accepted, so it is
+                    // cancelled - successor and nomination time cleared,
+                    // the assigned guide (who proposed it and keeps the
+                    // team either way) left in place. If the same user
+                    // is somehow both guide and successor, the guide
+                    // branch below still runs on this same re-read row.
+                    $group->guidesuccessorid = null;
+                    $group->timeguidenominated = null;
+                    $group->usermodified = $actorid;
+                    $group->timemodified = time();
+                    $DB->update_record('selfselectadvanced_group', $group);
+                    if ((int) $group->guideid > 0 && (int) $group->guideid !== $userid) {
+                        // Tell the proposer AFTER the release, below:
+                        // they were waiting on an acceptance that can
+                        // never come now, and silence here is exactly
+                        // the waiting-for-ever the audit named.
+                        $handoverlapsed = $group;
+                    }
+                }
+                if ($group && (int) $group->guideid === $userid) {
+                    if (in_array($group->state, [local\state::FIRM, local\state::FROZEN], true)) {
+                        // The row is deliberately untouched; the
+                        // ticket is filed after the release, under the
+                        // filing helper's own lock.
+                        $ticketwanted = true;
+                    } else {
+                        $group->guideid = null;
+                        $group->guidesuccessorid = null;
+                        $group->timeguidenominated = null;
+                        $group->usermodified = $actorid;
+                        $group->timemodified = time();
+                        $DB->update_record('selfselectadvanced_group', $group);
+                        $cleared = $group;
+                    }
+                }
+                $transaction->allow_commit();
+            } catch (\Throwable $e) {
+                if (isset($transaction) && !$transaction->is_disposed()) {
+                    $transaction->rollback($e);
+                }
+                throw $e;
+            } finally {
+                $lock->release();
+            }
+
+            if ($activity === null) {
+                // The instance or its course module has gone: the row
+                // write above still ran, but there is no context to
+                // fire against and nobody to tell.
+                continue;
+            }
+
+            if ($handoverlapsed !== null) {
+                // The proposing guide learns the truth: the nominee's
+                // account is gone and the handover lapsed. Sent after
+                // the release like every message here; the return is
+                // consumed the MSG-001 way (send() records refusals
+                // durably; nothing gates on delivery).
+                local\notifier::send(
+                    $activity,
+                    'guidechanged',
+                    (int) $handoverlapsed->guideid,
+                    'msghandoverlapsedsubject',
+                    'msghandoverlapsedbody',
+                    (object) [
+                        'group' => $handoverlapsed->name,
+                        'pluginuid' => $handoverlapsed->pluginuid,
+                        'activity' => $activity->name(),
+                        'reason' => $reason,
+                    ],
+                    new \moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $activity->cm()->id]),
+                    $handoverlapsed->name
+                );
+            }
+
+            if ($cleared !== null) {
+                // After the commit AND the release (the binding rule
+                // for new code; store::save() is the worked example).
+                \mod_selfselectadvanced\event\guide_removed::create([
+                    'objectid' => (int) $cleared->id,
+                    'context' => $activity->context(),
+                    'userid' => $actorid,
+                    'relateduserid' => $userid,
+                    'other' => ['pluginuid' => $cleared->pluginuid, 'reason' => $reason],
+                ])->trigger();
+
+                // The return is consumed (MSG-001): nothing here gates
+                // state on delivery, so a refusal needs no retry - but
+                // it must not vanish into a discarded bool either.
+                // send() has already recorded it durably
+                // (notification_refused); the debugging() is the
+                // development-run echo of that record.
+                $submitted = local\notifier::send(
+                    $activity,
+                    'guidechanged',
+                    (int) $cleared->leaderid,
+                    'msgguideremovedsubject',
+                    'msgguideremovedbody',
+                    (object) [
+                        'group' => format_string($cleared->name),
+                        'activity' => $activity->name(),
+                    ],
+                    new \moodle_url('/mod/selfselectadvanced/group.php', [
+                        'id' => $activity->cm()->id,
+                        'g' => (int) $cleared->id,
+                    ]),
+                    format_string($cleared->name)
+                );
+                if (!$submitted) {
+                    debugging(
+                        'mod_selfselectadvanced: the guide-removed notice to leader '
+                        . (int) $cleared->leaderid . ' was refused by messaging; the refusal is'
+                        . ' recorded as a notification_refused event.',
+                        DEBUG_DEVELOPER
+                    );
+                }
+            } else if ($ticketwanted) {
+                local\tickets::file_guidegone($activity, (int) $row->id, $userid, $reason, $actorid);
+            }
+        }
     }
 
     /**

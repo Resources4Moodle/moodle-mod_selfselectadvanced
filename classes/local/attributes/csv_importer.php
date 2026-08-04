@@ -225,7 +225,7 @@ class csv_importer {
                     'value' => $sub !== '' ? $dept . ' / ' . $sub : $dept,
                 ]);
                 if ($commit) {
-                    depts::ensure($dept, $sub);
+                    depts::ensure($dept, $sub, $actorid);
                 }
             }
             $program = isset($map['program']) ? $get('program') : '';
@@ -235,7 +235,7 @@ class csv_importer {
                     'value' => $program,
                 ]);
                 if ($commit) {
-                    depts::ensure_program($program);
+                    depts::ensure_program($program, $actorid);
                 }
             }
 

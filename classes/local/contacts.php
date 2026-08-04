@@ -60,6 +60,7 @@ class contacts {
      * @param int $userid the acting user (the leader)
      * @return stdClass the contact row
      * @throws \moodle_exception when a gate refuses
+     * @throws \required_capability_exception when the actor may not lead here
      */
     public static function send(
         activity $activity,
@@ -95,6 +96,13 @@ class contacts {
             if (!empty($group->guideid)) {
                 throw new \moodle_exception('refusalcontacthasguide', 'mod_selfselectadvanced');
             }
+
+            // The ACTOR'S authority, asked in-service like eoi::set_listed's
+            // LIST half: approaching a guide is a publication on the team's
+            // behalf, and under decision 38 a leader whose :creategroup was
+            // prohibited remains the leader of record - so owning the row
+            // above cannot answer this question (AUTH-001, 1.20.4).
+            authority::require_lead($activity, $userid);
 
             $used = $DB->count_records('selfselectadvanced_contact', ['groupid' => $group->id]);
             if ($used >= $max) {

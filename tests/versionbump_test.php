@@ -68,10 +68,10 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026073240;
+    private const CURRENT = 2026073250;
 
     /** @var int The serial 1.20 shipped before it, i.e. what an upgrading site has recorded. */
-    private const PREVIOUS = 2026073230;
+    private const PREVIOUS = 2026073240;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
     private const RELEASE = '1.20.4';

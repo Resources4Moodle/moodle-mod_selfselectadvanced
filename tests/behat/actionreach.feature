@@ -209,3 +209,48 @@ Feature: Every authority this activity grants has a control that spends it
     And I should see "New team"
     And I should see "Notification templates"
     And "Run auto-grouping now" "button" should exist
+
+  # ---------------------------------------------------------------- NAV-001
+  # The coordinator role carries :assignguide and :managecomposition,
+  # manage.php and moves.php admit those capabilities at their doors -
+  # and neither the coordinator dashboard nor the navigation ever said
+  # so, leaving the powers reachable only by typed URL. The dashboard
+  # now carries one card per narrow power, each rendered from its
+  # TARGET PAGE's own predicate, and each card is walked through to the
+  # page that admits it - so no other surface has to provide the route.
+  Scenario: A coordinator reaches both narrow intervention pages from their dashboard
+    When I am on the "Lab groups" "mod_selfselectadvanced > coordinator" page logged in as coordteacher
+    Then I should see "Assign or change guide"
+    And I should see "Change team composition"
+    # No :manage, so the full-dashboard link stays absent.
+    And I should not see "Manager dashboard"
+    When I follow "Assign or change guide"
+    Then I should see "Manager dashboard"
+    And I should see "Awaiting a guide"
+    When I am on the "Lab groups" "mod_selfselectadvanced > coordinator" page
+    And I follow "Change team composition"
+    Then I should see "Pending moves"
+
+  # The narrow arm withdrawn: the cards vanish with the authority,
+  # while the tools whose doors the coordinator still passes remain.
+  Scenario: With the narrow powers withdrawn the coordinator loses only those cards
+    Given the following "permission overrides" exist:
+      | capability                               | permission | role             | contextlevel | reference |
+      | mod/selfselectadvanced:assignguide       | Prevent    | groupcoordinator | Course       | C1        |
+      | mod/selfselectadvanced:managecomposition | Prevent    | groupcoordinator | Course       | C1        |
+    When I am on the "Lab groups" "mod_selfselectadvanced > coordinator" page logged in as coordteacher
+    Then I should not see "Assign or change guide"
+    And I should not see "Change team composition"
+    And I should see "Ticket queue"
+    And I should see "Overrides"
+    And I should see "Flagged report"
+
+  # The other arm of both conditional doors (wave 1 got two of these
+  # wrong): a manager holds neither narrow capability by name, and each
+  # card must render for them because its target page's door names
+  # :manage as its first arm.
+  Scenario: A manager visiting the coordinator dashboard keeps both cards through the manage arm
+    When I am on the "Lab groups" "mod_selfselectadvanced > coordinator" page logged in as teacher1
+    Then I should see "Assign or change guide"
+    And I should see "Change team composition"
+    And I should see "Manager dashboard"

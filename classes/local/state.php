@@ -417,13 +417,27 @@ final class state {
      * comment; the guide's L5 slot is released immediately (guideid
      * cleared, decision A11).
      *
+     * The comment's text FORMAT travels with the text (DATA-002): both
+     * are written in this transaction and both ride the event payload,
+     * so no caller is left writing a companion field after the commit.
+     * review.php's editor passes FORMAT_HTML; guide.php's plain
+     * queue-return textarea takes the default, which matches the
+     * schema's own default for legacy rows (db/install.xml,
+     * returncommentformat DEFAULT 2).
+     *
      * @param stdClass $group group row
      * @param string $comment the mandatory return comment
      * @param int $actorid the acting guide
+     * @param int $commentformat text format of the comment
      * @return stdClass the updated group row
      * @throws \moodle_exception when a gate refuses or the comment is empty
      */
-    public function return_group(stdClass $group, string $comment, int $actorid): stdClass {
+    public function return_group(
+        stdClass $group,
+        string $comment,
+        int $actorid,
+        int $commentformat = FORMAT_PLAIN
+    ): stdClass {
         global $DB;
 
         if (trim($comment) === '') {
@@ -448,6 +462,7 @@ final class state {
             $fresh->guidesuccessorid = null;
             $fresh->timeguidenominated = null;
             $fresh->returncomment = trim($comment);
+            $fresh->returncommentformat = $commentformat;
             $fresh->usermodified = $actorid;
             $fresh->timemodified = $now;
             $DB->update_record('selfselectadvanced_group', $fresh);
@@ -456,7 +471,11 @@ final class state {
                 'objectid' => $fresh->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => (int) $fresh->leaderid,
-                'other' => ['pluginuid' => $fresh->pluginuid, 'comment' => trim($comment)],
+                'other' => [
+                    'pluginuid' => $fresh->pluginuid,
+                    'comment' => trim($comment),
+                    'commentformat' => $commentformat,
+                ],
             ])->trigger();
 
             // Reset via the preferences API, not raw deletes - a

@@ -255,7 +255,9 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
             $parentid = (int) $DB->get_field('selfselectadvanced_dept', 'id', ['name' => $record->parent], MUST_EXIST);
         }
 
-        return \mod_selfselectadvanced\local\attributes\depts::create($record->name, $parentid);
+        // The fixture's actor is the admin, stated explicitly: the
+        // service refuses an unstated actor by design (AUTH-001).
+        return \mod_selfselectadvanced\local\attributes\depts::create($record->name, $parentid, (int) get_admin()->id);
     }
 
     /**

@@ -350,7 +350,7 @@ class eoi {
             if ((int) $row->guideid !== $guideid || $row->status !== self::STATUS_PENDING) {
                 throw new \moodle_exception('refusaleoinotpending', 'mod_selfselectadvanced');
             }
-            self::transition($activity, $row, self::STATUS_WITHDRAWN);
+            self::transition($activity, $row, self::STATUS_WITHDRAWN, $guideid);
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -720,7 +720,7 @@ class eoi {
                 if ($fresh->status !== self::STATUS_PENDING) {
                     continue;
                 }
-                self::transition($activity, $fresh, self::STATUS_EXPIRED);
+                self::transition($activity, $fresh, self::STATUS_EXPIRED, 0);
                 $expired[] = $fresh;
             } finally {
                 $lock->release();
@@ -948,12 +948,20 @@ class eoi {
     /**
      * Move one interest to a new status and fire the update event.
      *
+     * The actor is REQUIRED, never defaulted (AUTH-001 residual,
+     * 1.20.4): the old `= 0` let a forgetful caller book a human's
+     * decision as the system's, and the event then dropped the actor
+     * entirely, so the log answered "who decided this?" with whoever
+     * happened to be in the session. Every caller now states its
+     * actor - 0 is the expiry sweep's explicit signature - and a human
+     * actor is recorded on the event.
+     *
      * @param activity $activity the activity
      * @param stdClass $row the interest row
      * @param string $status the new status
      * @param int $actorid who caused it, 0 for the system
      */
-    private static function transition(activity $activity, stdClass $row, string $status, int $actorid = 0): void {
+    private static function transition(activity $activity, stdClass $row, string $status, int $actorid): void {
         global $DB;
 
         $DB->update_record('selfselectadvanced_eoi', (object) [
@@ -961,12 +969,16 @@ class eoi {
             'status' => $status,
             'timeresponded' => time(),
         ]);
-        \mod_selfselectadvanced\event\eoi_updated::create([
+        $data = [
             'objectid' => (int) $row->id,
             'context' => $activity->context(),
             'relateduserid' => (int) $row->guideid,
             'other' => ['groupid' => (int) $row->groupid, 'status' => $status],
-        ])->trigger();
+        ];
+        if ($actorid > 0) {
+            $data['userid'] = $actorid;
+        }
+        \mod_selfselectadvanced\event\eoi_updated::create($data)->trigger();
     }
 
     /**

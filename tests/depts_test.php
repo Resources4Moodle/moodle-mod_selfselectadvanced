@@ -53,15 +53,16 @@ final class depts_test extends \advanced_testcase {
      */
     public function test_tree_and_menus(): void {
         $this->resetAfterTest();
+        $admin = (int) get_admin()->id;
 
         $this->assertFalse(depts::is_configured());
-        $eng = depts::create('Engineering');
-        $sci = depts::create('Science');
-        $mech = depts::create('Mechanical', (int) $eng->id);
-        $civil = depts::create('Civil', (int) $eng->id);
-        $physics = depts::create('Physics', (int) $sci->id);
+        $eng = depts::create('Engineering', 0, $admin);
+        $sci = depts::create('Science', 0, $admin);
+        $mech = depts::create('Mechanical', (int) $eng->id, $admin);
+        $civil = depts::create('Civil', (int) $eng->id, $admin);
+        $physics = depts::create('Physics', (int) $sci->id, $admin);
         // A third level is allowed by the format.
-        $thermo = depts::create('Thermodynamics', (int) $mech->id);
+        $thermo = depts::create('Thermodynamics', (int) $mech->id, $admin);
 
         $this->assertTrue(depts::is_configured());
         $this->assertSame('/' . $eng->id . '/' . $mech->id, $mech->path);
@@ -80,7 +81,7 @@ final class depts_test extends \advanced_testcase {
 
         // Duplicate names: refused at the same level, fine elsewhere.
         $this->expectException(\moodle_exception::class);
-        depts::create('Mechanical', (int) $eng->id);
+        depts::create('Mechanical', (int) $eng->id, $admin);
     }
 
     /**
@@ -89,11 +90,12 @@ final class depts_test extends \advanced_testcase {
      */
     public function test_validate_pair(): void {
         $this->resetAfterTest();
+        $admin = (int) get_admin()->id;
 
-        $eng = depts::create('Engineering');
-        depts::create('Mechanical', (int) $eng->id);
-        $sci = depts::create('Science');
-        depts::create('Physics', (int) $sci->id);
+        $eng = depts::create('Engineering', 0, $admin);
+        depts::create('Mechanical', (int) $eng->id, $admin);
+        $sci = depts::create('Science', 0, $admin);
+        depts::create('Physics', (int) $sci->id, $admin);
 
         $this->assertNull(depts::validate_pair('', ''));
         $this->assertNull(depts::validate_pair('Engineering', ''));
@@ -109,34 +111,35 @@ final class depts_test extends \advanced_testcase {
      */
     public function test_delete_guards_rename_move(): void {
         $this->resetAfterTest();
+        $admin = (int) get_admin()->id;
 
-        $eng = depts::create('Engineering');
-        $mech = depts::create('Mechanical', (int) $eng->id);
+        $eng = depts::create('Engineering', 0, $admin);
+        $mech = depts::create('Mechanical', (int) $eng->id, $admin);
         $user = $this->getDataGenerator()->create_user();
         manager::set((int) $user->id, ['department' => 'Engineering', 'subdepartment' => 'Mechanical'], 2);
 
         try {
-            depts::delete((int) $eng->id);
+            depts::delete((int) $eng->id, $admin);
             $this->fail('children guard expected');
         } catch (\moodle_exception $e) {
             $this->assertStringContainsString('sub-categories', $e->getMessage());
         }
         try {
-            depts::delete((int) $mech->id);
+            depts::delete((int) $mech->id, $admin);
             $this->fail('in-use guard expected');
         } catch (\moodle_exception $e) {
             $this->assertStringContainsString('attributes use this value', $e->getMessage());
         }
 
         manager::set((int) $user->id, ['department' => 'Engineering', 'subdepartment' => ''], 2);
-        depts::delete((int) $mech->id);
+        depts::delete((int) $mech->id, $admin);
         $this->assertSame([], depts::subdepartments_grouped());
 
-        depts::rename((int) $eng->id, 'Engg');
+        depts::rename((int) $eng->id, 'Engg', $admin);
         $this->assertSame(['Engg'], array_values(depts::departments_menu()));
 
-        $sci = depts::create('Science');
-        depts::move((int) $sci->id, -1);
+        $sci = depts::create('Science', 0, $admin);
+        depts::move((int) $sci->id, -1, $admin);
         $this->assertSame(['Science', 'Engg'], array_values(depts::departments_menu()));
     }
 
@@ -159,8 +162,9 @@ final class depts_test extends \advanced_testcase {
 
         // 1.3.0 policy: the ingest runs at ADMIN level, so unknown
         // vocabulary is CREATED (warned), never rejected.
-        $eng = depts::create('Engineering');
-        depts::create('Mechanical', (int) $eng->id);
+        $admin = (int) get_admin()->id;
+        $eng = depts::create('Engineering', 0, $admin);
+        depts::create('Mechanical', (int) $eng->id, $admin);
         $report = csv_importer::run($this->reader($header . "alpha,,,F,Alchemy,Potions,\n"), 2, true);
         $this->assertSame([], $report->rejected);
         $this->assertNotEmpty(array_filter(
@@ -182,8 +186,8 @@ final class depts_test extends \advanced_testcase {
 
         // A sub-department under a different parent becomes a NEW
         // child of that parent (same name may live under two parents).
-        $sci = depts::create('Science');
-        depts::create('Physics', (int) $sci->id);
+        $sci = depts::create('Science', 0, $admin);
+        depts::create('Physics', (int) $sci->id, $admin);
         $report = csv_importer::run($this->reader($header . "alpha,,,F,Engineering,Physics,\n"), 2, true);
         $this->assertSame([], $report->rejected);
         $this->assertNull(depts::validate_pair('Engineering', 'Physics'));

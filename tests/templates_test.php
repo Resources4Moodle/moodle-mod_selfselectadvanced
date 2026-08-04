@@ -79,7 +79,8 @@ final class templates_test extends \advanced_testcase {
             $activity,
             'msginvitationbody',
             'Namaste {$a->firstname}!',
-            'Group {$a->group} calls you, {$a->fullname}. Go to {$a->url} now.'
+            'Group {$a->group} calls you, {$a->fullname}. Go to {$a->url} now.',
+            (int) get_admin()->id
         );
 
         $group = $api->create_group((int) $leader->id, 'Alpha', 'T', '<p>b</p>', FORMAT_HTML);
@@ -96,14 +97,14 @@ final class templates_test extends \advanced_testcase {
 
         // Catalog guard.
         try {
-            templates::save($activity, 'nosuchkey', 's', 'b');
+            templates::save($activity, 'nosuchkey', 's', 'b', (int) get_admin()->id);
             $this->fail('catalog guard expected');
         } catch (\moodle_exception $e) {
             $this->assertStringContainsString('Unknown message template', $e->getMessage());
         }
 
         // Reset: back to the default language string.
-        templates::reset($activity, 'msginvitationbody');
+        templates::reset($activity, 'msginvitationbody', (int) get_admin()->id);
         $sink = $this->redirectMessages();
         $api->invitations()->send($group, (int) $invitee2->id, (int) $leader->id);
         $messages = $sink->get_messages();

@@ -133,14 +133,19 @@ if ($action === 'savenotes' && data_submitted() && confirm_sesskey()) {
         redirect($baseurl, $gradingrefusal->get_message(), null, \core\output\notification::NOTIFY_ERROR);
     }
     // Guide notes: rich text the guide keeps before accepting (1.3.0).
+    // The actor travels WITH the write, exactly as the award branch
+    // below: the page's own $maygradeteam check above is defence in
+    // depth, and the service locks the team, re-reads it through this
+    // activity and asks can_grade_team() about the actor itself
+    // (AUTH-002) - so a POST built on a stale page cannot overwrite
+    // the notes of a guide assigned since.
     $notes = optional_param('guidenotes', '', PARAM_RAW);
     $notesformat = optional_param('guidenotesformat', FORMAT_HTML, PARAM_INT);
-    $DB->update_record('selfselectadvanced_group', (object) [
-        'id' => $group->id,
-        'guidenotes' => $notes,
-        'guidenotesformat' => $notesformat,
-        'timemodified' => time(),
-    ]);
+    try {
+        \mod_selfselectadvanced\local\guidenotes::save($activity, $group, $notes, $notesformat, (int) $USER->id);
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
     redirect(
         $baseurl,
         get_string('guidenotessaved', 'mod_selfselectadvanced'),
@@ -178,21 +183,21 @@ if ($action === 'saveaward' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'returngroup' && data_submitted() && confirm_sesskey()) {
-    // Rich-text return comment (editor element, maxfiles=0): the comment
-    // itself still goes through the core lifecycle gate in state.php, and
-    // its text format is saved as a companion field here, the same
-    // two-step pattern already used for guide notes above.
+    // Rich-text return comment (editor element, maxfiles=0): the text
+    // and its format travel INTO the lifecycle service together, so
+    // both land in one transaction and one event payload (DATA-002).
+    // The companion write that used to follow the service call here is
+    // gone with the comment that named it: a crash between the two
+    // left the new comment rendering under the previous format, and a
+    // later plain-text return through guide.php kept this door's HTML
+    // format against its own PARAM_TEXT comment.
     $comment = required_param('comment', PARAM_RAW);
     $commentformat = optional_param('commentformat', FORMAT_HTML, PARAM_INT);
     try {
-        $api->lifecycle()->return_group($group, $comment, (int) $USER->id);
+        $api->lifecycle()->return_group($group, $comment, (int) $USER->id, $commentformat);
     } catch (\moodle_exception $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
-    $DB->update_record('selfselectadvanced_group', (object) [
-        'id' => $group->id,
-        'returncommentformat' => $commentformat,
-    ]);
     redirect(
         $queueurl,
         get_string('groupreturnednotice', 'mod_selfselectadvanced', $group->pluginuid),

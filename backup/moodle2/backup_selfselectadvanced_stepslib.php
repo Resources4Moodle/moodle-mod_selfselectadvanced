@@ -21,18 +21,24 @@
  * team-listing/EOI settings, previously missing from this list); with
  * userinfo also groups (now carrying returncommentformat, listed and
  * timelisted), members, snapshots, user/group/guide-scope overrides,
- * volunteered guiding capacity (1.7.0), penalties, queued digest
- * notifications (1.8.0), guide expressions of interest keyed to
- * their group (1.11.0) and queue tickets (1.16.0). EXCLUDED by design and documented (review item
+ * volunteered guiding capacity (1.7.0), penalties, guide expressions
+ * of interest keyed to their group (1.11.0) and queue tickets
+ * (1.16.0). EXCLUDED by design and documented (review item
  * M2): agrun logs (operational) and staged moves (transient manager
  * state - a restore must never replay half-staged edits). Site-wide
  * participant attributes are not course data and are never in course
  * backups.
  *
- * The queued digest rows are transient per-user data, carried across
- * exactly like the volunteer table: the stored contexturl and JSON
- * payload are not deep-remapped (any embedded ids stay as backed up),
- * matching this table's throwaway, soon-flushed nature.
+ * The queued digest notifications (selfselectadvanced_digestq) joined
+ * the exclusion list in 1.20.4 (BACKUP-001). They were backed up from
+ * 1.8.0 with their contexturl and resolved JSON payload copied
+ * verbatim, on the theory that a throwaway queue needed no remapping -
+ * but a queue row is a notification IN FLIGHT: its deep link names the
+ * ORIGINAL activity (or decodes to a restore token), its payload names
+ * people by their old names, and a same-site duplicate doubled every
+ * recipient's pending digest. Operational queue state belongs to the
+ * running site, not to the course; the restore step ignores any
+ * digestitem an old archive still carries.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -107,10 +113,6 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $volunteer = new backup_nested_element('volunteer', ['id'], [
             'userid', 'capacity', 'timecreated', 'timemodified',
         ]);
-        $digestqueue = new backup_nested_element('digestqueue');
-        $digestitem = new backup_nested_element('digestitem', ['id'], [
-            'userid', 'groupid', 'provider', 'subjectkey', 'bodykey', 'payload', 'contexturl', 'timecreated',
-        ]);
         $eois = new backup_nested_element('eois');
         $eoi = new backup_nested_element('eoi', ['id'], [
             'guideid', 'status', 'remarks', 'remarksformat', 'timecreated', 'timeresponded',
@@ -158,8 +160,9 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $overrides->add_child($override);
         $activity->add_child($volunteers);
         $volunteers->add_child($volunteer);
-        $activity->add_child($digestqueue);
-        $digestqueue->add_child($digestitem);
+        // No digestqueue subtree since 1.20.4: the pending-notification
+        // queue is operational state of the running site, not course
+        // data (BACKUP-001, doc block above).
         // Tickets sit under the activity, after the groups subtree, so
         // a restore already holds the ssagroup mapping their groupid
         // needs.
@@ -189,7 +192,6 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
                 [backup::VAR_PARENTID]
             );
             $volunteer->set_source_table('selfselectadvanced_volunteer', ['activityid' => backup::VAR_PARENTID]);
-            $digestitem->set_source_table('selfselectadvanced_digestq', ['activityid' => backup::VAR_PARENTID]);
             $joinrequest->set_source_sql(
                 "SELECT * FROM {selfselectadvanced_move}
                   WHERE activityid = ? AND status = 'requested'",
@@ -210,7 +212,6 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $snapshot->annotate_ids('user', 'takenby');
         $override->annotate_ids('user', 'userid');
         $volunteer->annotate_ids('user', 'userid');
-        $digestitem->annotate_ids('user', 'userid');
         $eoi->annotate_ids('user', 'guideid');
         $joinrequest->annotate_ids('user', 'userid');
         $joinrequest->annotate_ids('user', 'usermodified');

@@ -65,7 +65,8 @@ class volunteering {
      * @param activity $activity the activity
      * @param int $userid the guide declaring capacity
      * @param int $capacity groups volunteered for; 0 withdraws
-     * @throws \moodle_exception when capacity is outside 0..N
+     * @throws \moodle_exception when the actor is not a guide here or
+     *         capacity is outside 0..N
      */
     public static function set(activity $activity, int $userid, int $capacity): void {
         global $DB;
@@ -74,6 +75,22 @@ class volunteering {
         // volunteering a capacity is refused outright (strategy 1.16 A).
         if (!empty($activity->settings()->studentapproach)) {
             throw new \moodle_exception('refusalstudentapproach', 'mod_selfselectadvanced');
+        }
+
+        // The actor's authority, asked INSIDE the service (AUTH-001,
+        // 1.20.4): until now the page was the only gate, so a direct
+        // caller from whom :guide had been prohibited still wrote a
+        // capacity the pickers then advertised. The row is the actor's
+        // own - that is the record relationship - and the capability is
+        // the authority to be advertised as a guide at all.
+        //
+        // ON THE RAISE HALF ONLY (F3, the same split eoi::set_listed
+        // wears): capacity zero is a WITHDRAWAL, and an actor is never
+        // blocked from making themselves less visible. A guide whose
+        // :guide was prohibited mid-advertisement must still be able to
+        // take themselves off the board (wave-2 blind audit, low 2).
+        if ($capacity > 0 && !has_capability('mod/selfselectadvanced:guide', $activity->context(), $userid)) {
+            throw new \moodle_exception('refusalnotaguide', 'mod_selfselectadvanced');
         }
 
         $ceiling = (new resolver($activity))->guide_capacity_ceiling($userid)->value;

@@ -27,6 +27,35 @@ closed by execution on both engines with mutation-red proofs:
   arm, including the conditional doors (tickets: `:manage` outright or
   `:coordinate`), with Behat pinning both directions.
 
+Wave 2 of the same release (serial `2026073250`) closes the authority and
+atomicity register:
+
+- **Every public write service asks its actor's authority itself** —
+  contacts, volunteering, templates, department vocabulary, programme
+  deletion — with the acting user a required parameter (a service that
+  guesses its actor is the defect), a direct-call negative test per method,
+  and an audit event per state change. Retreating verbs stay open on
+  ownership alone (F3): a withdrawal is never blocked by a lost capability.
+- **The review page's last two direct writes joined their services**: guide
+  notes save through a locking, re-reading service; the return comment's
+  text, format and transition commit in one transaction and one event.
+- **Coordinators can find their own powers**: workbench cards for guide
+  assignment and composition changes, drawn from the target pages' own
+  doors.
+- **A departed guide no longer leaves stale assignments**: forming teams
+  are released with the leader notified; firm and frozen teams file a
+  guide-succession ticket for a coordinator to resolve deliberately; a
+  departed *nominee*'s pending handover lapses and the proposing guide is
+  told.
+- **The privacy provider covers what it stores** — the enumerated context,
+  export and deletion gaps closed; pseudonymisation no longer corrupts
+  innocent numeric values; and prose in exported rows travels with its
+  author, not with every id on the row.
+- **The transient digest queue left backup/restore** — a restored course
+  no longer replays stale notifications.
+- **Requirements stated plainly**: Moodle 5.2 on PHP 8.4 or later, in
+  README as in version.php — a promise narrowed on purpose.
+
 ## 1.20.3 — authority follows the service (2026-08-04)
 
 > No schema, capability, message-provider or scheduled-task change:

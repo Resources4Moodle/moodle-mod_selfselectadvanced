@@ -42,7 +42,7 @@ if ($action === 'bulk') {
         redirect($baseurl);
     }
     if ($data = $form->get_data()) {
-        $report = \mod_selfselectadvanced\local\attributes\depts::bulk_add($data->tree);
+        $report = \mod_selfselectadvanced\local\attributes\depts::bulk_add($data->tree, (int) $USER->id);
         redirect(
             $baseurl,
             get_string('deptbulkresult', 'mod_selfselectadvanced', $report),
@@ -74,9 +74,9 @@ if ($action === 'add' || $action === 'rename') {
     }
     if ($data = $form->get_data()) {
         if ($action === 'add') {
-            depts::create($data->name, (int) ($data->parent ?? 0));
+            depts::create($data->name, (int) ($data->parent ?? 0), (int) $USER->id);
         } else {
-            depts::rename($id, $data->name);
+            depts::rename($id, $data->name, (int) $USER->id);
         }
         redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
     }
@@ -88,27 +88,23 @@ if ($action === 'add' || $action === 'rename') {
 }
 
 if ($action === 'progadd' && data_submitted() && confirm_sesskey()) {
-    \mod_selfselectadvanced\local\attributes\depts::ensure_program(required_param('progname', PARAM_TEXT));
+    try {
+        depts::create_program(required_param('progname', PARAM_TEXT), (int) $USER->id);
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
     redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 if ($action === 'progdelete' && data_submitted() && confirm_sesskey()) {
+    // The delete itself - the guard, the write and the audit event -
+    // lives in the service, CALLED here, not transcribed (AUTH-003).
     $pid = required_param('d', PARAM_INT);
-    $prog = $DB->get_record('selfselectadvanced_dept', ['id' => $pid, 'kind' => 'program'], '*', MUST_EXIST);
-    $inuse = $DB->record_exists_select(
-        'selfselectadvanced_userattr',
-        $DB->sql_equal('program', ':name', false),
-        ['name' => $prog->name]
-    );
-    if ($inuse) {
-        redirect(
-            $baseurl,
-            get_string('errdeptinuse', 'mod_selfselectadvanced', $prog->name),
-            null,
-            \core\output\notification::NOTIFY_ERROR
-        );
+    try {
+        depts::delete_program($pid, (int) $USER->id);
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
-    $DB->delete_records('selfselectadvanced_dept', ['id' => $pid]);
     redirect($baseurl);
 }
 
@@ -123,12 +119,12 @@ if (
     $id = required_param('d', PARAM_INT);
     if ($action === 'delete') {
         try {
-            depts::delete($id);
+            depts::delete($id, (int) $USER->id);
         } catch (moodle_exception $e) {
             redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
     } else {
-        depts::move($id, $action === 'up' ? -1 : 1);
+        depts::move($id, $action === 'up' ? -1 : 1, (int) $USER->id);
     }
     redirect($baseurl);
 }

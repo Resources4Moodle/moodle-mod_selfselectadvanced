@@ -304,7 +304,13 @@ final class digest_scale_test extends \advanced_testcase {
 
         // A real override, so the lookup being memoised is one that
         // finds something and changes the text that goes out.
-        templates::save($this->activity, 'msgqueuedbody', 'Queued: {$a->group}', 'About {$a->pluginuid}');
+        templates::save(
+            $this->activity,
+            'msgqueuedbody',
+            'Queued: {$a->group}',
+            'About {$a->pluginuid}',
+            (int) get_admin()->id
+        );
         get_config('mod_selfselectadvanced', 'digestbatch');
 
         // Warm-up run, identical in shape to the measured one.

@@ -88,15 +88,40 @@ echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('coordinatordashboard', 'mod_selfselectadvanced'));
 echo html_writer::div(get_string('coordinatorintro', 'mod_selfselectadvanced'), 'alert alert-info');
 
-// The tools that are theirs. Manager-only pages are deliberately absent.
-$links = [['tickets.php', 'tickets'], ['overrides.php', 'overrides'], ['flagged.php', 'flaggedreport']];
-if ($canmanage) {
-    $links[] = ['manage.php', 'managerdashboard'];
-}
+// The tools that are theirs - each drawn only for an actor its TARGET
+// PAGE would admit, using that page's own door as the predicate (the
+// manage.php pattern; UI-001, and NAV-001 for the two workbench cards).
+// Manager-only pages are deliberately absent unless :manage is held.
+//
+// The two intervention cards are the NAV-001 closure: the coordinator
+// role carries :assignguide and :managecomposition, manage.php and
+// moves.php admit those capabilities at their doors, and nothing on
+// this dashboard or in the navigation ever said so - the powers were
+// reachable only by typed URL. Every conditional door lists BOTH of
+// its arms, because each direction of that mistake has already
+// happened once (wave 1: the narrow-only Tickets arm cost managers
+// their link; the toolbox rendered whole offered dead ends).
+$links = [
+    ['tickets.php', 'tickets', ['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:coordinate'], []],
+    ['overrides.php', 'overrides', ['mod/selfselectadvanced:override'], []],
+    ['flagged.php', 'flaggedreport', ['mod/selfselectadvanced:viewall'], []],
+    // The manage.php door itself (manage.php:48), straight to the
+    // assignment queue tab that is the work this power names.
+    ['manage.php', 'coordinatorassignguide',
+        ['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:assignguide'],
+        ['assigntab' => 'unassigned'], ],
+    // The moves.php door itself (moves.php:58); moveedit.php shares it.
+    ['moves.php', 'coordinatorcomposition',
+        ['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:managecomposition'], [], ],
+    ['manage.php', 'managerdashboard', ['mod/selfselectadvanced:manage'], []],
+];
 $linkhtml = '';
-foreach ($links as [$file, $stringkey]) {
+foreach ($links as [$file, $stringkey, $caps, $extraparams]) {
+    if (!has_any_capability($caps, $context)) {
+        continue;
+    }
     $linkhtml .= html_writer::link(
-        new moodle_url('/mod/selfselectadvanced/' . $file, ['id' => $cm->id]),
+        new moodle_url('/mod/selfselectadvanced/' . $file, ['id' => $cm->id] + $extraparams),
         get_string($stringkey, 'mod_selfselectadvanced'),
         ['class' => 'btn btn-outline-primary me-2 mb-2']
     );

@@ -62,9 +62,9 @@ if ($msgkey !== '') {
     }
     if ($data = $form->get_data()) {
         if (!empty($data->resetdefault)) {
-            templates::reset($activity, $msgkey);
+            templates::reset($activity, $msgkey, (int) $USER->id);
         } else {
-            templates::save($activity, $msgkey, trim($data->subject), trim($data->body));
+            templates::save($activity, $msgkey, trim($data->subject), trim($data->body), (int) $USER->id);
         }
         redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
     }

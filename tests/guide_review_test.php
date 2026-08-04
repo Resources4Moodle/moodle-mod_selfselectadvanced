@@ -216,7 +216,14 @@ final class guide_review_test extends \advanced_testcase {
         $this->assertSame(state::FORMING, $fresh->state);
         $this->assertNull($fresh->guideid);
         $this->assertSame('Please add a second member.', $fresh->returncomment);
+        // DATA-002: the format is written in the same transaction as
+        // the text - the plain queue-return door passes no format, so
+        // the default must be the schema's own plain-text default -
+        // and it rides the event payload beside the comment. Both
+        // sides cast, because Moodle's FORMAT_* constants are strings.
+        $this->assertSame((int) FORMAT_PLAIN, (int) $fresh->returncommentformat);
         $this->assertSame('Please add a second member.', $returned[0]->get_data()['other']['comment']);
+        $this->assertSame((int) FORMAT_PLAIN, (int) $returned[0]->get_data()['other']['commentformat']);
         // Slot released immediately (spec 4A.5, decision A11).
         $this->assertSame(0, groups::count_guiding($activity, $guide));
         // The leader received the comment.
@@ -286,6 +293,39 @@ final class guide_review_test extends \advanced_testcase {
         ]);
         $secondrow = groups::get($activity2, (int) $second->id);
         $this->assertSame('refusalguidecap', $api2->gatekeeper()->can_approve($secondrow, $guide)?->stringkey);
+    }
+
+    /**
+     * DATA-002's two-door interleave, pinned: a rich-text return
+     * through the review door stores FORMAT_HTML with its comment, and
+     * a later plain return through the queue door replaces BOTH text
+     * and format - the stale-format mismatch the old companion write
+     * left behind (an HTML format surviving against a PARAM_TEXT
+     * comment) can no longer occur, because there is no second write
+     * for a crash or an interleave to split from the first.
+     */
+    public function test_return_comment_format_travels_with_the_text(): void {
+        $this->resetAfterTest();
+        $messagesink = $this->redirectMessages();
+
+        [$activity, $api, $students, $guideusers] = $this->setup_activity(['maxlead' => 1, 'maxmembership' => 2]);
+        $leader = (int) $students[0]->id;
+        $guide = (int) $guideusers[0]->id;
+        $group = $api->create_group($leader, 'Formats', 'T', '<p>b</p>', FORMAT_HTML);
+        $group = $api->lifecycle()->submit(groups::get($activity, (int) $group->id), $guide, $leader);
+
+        // Door one: review.php's editor passes FORMAT_HTML explicitly.
+        $fresh = $api->lifecycle()->return_group($group, '<p>Use <em>fewer</em> words.</p>', $guide, FORMAT_HTML);
+        $this->assertSame('<p>Use <em>fewer</em> words.</p>', $fresh->returncomment);
+        $this->assertSame((int) FORMAT_HTML, (int) $fresh->returncommentformat);
+
+        // Door two: guide.php's queue return is PARAM_TEXT and passes
+        // nothing, taking the plain default. Text AND format move.
+        $fresh = $api->lifecycle()->submit($fresh, $guide, $leader);
+        $fresh = $api->lifecycle()->return_group($fresh, 'Shorter now <ok>.', $guide);
+        $this->assertSame('Shorter now <ok>.', $fresh->returncomment);
+        $this->assertSame((int) FORMAT_PLAIN, (int) $fresh->returncommentformat);
+        $messagesink->close();
     }
 
     /**

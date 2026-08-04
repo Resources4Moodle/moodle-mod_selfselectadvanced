@@ -124,18 +124,35 @@ class templates {
     /**
      * Create or update an override.
      *
+     * The actor and their authority are asked INSIDE the service
+     * (AUTH-001, 1.20.4): what a notification says to every recipient
+     * of an activity is :manage authority, and until now only the page
+     * asked, so any direct caller rewrote the words the plugin speaks
+     * with. The actor is always stated by the caller - a service that
+     * guesses its actor from $USER answers for the session, not for
+     * the request.
+     *
      * @param activity $activity the activity
      * @param string $msgkey body lang key (must be in the catalog)
      * @param string $subject custom subject
      * @param string $body custom body
+     * @param int $actorid the acting user
      * @return stdClass the stored record
+     * @throws \required_capability_exception when the actor lacks :manage here
      */
-    public static function save(activity $activity, string $msgkey, string $subject, string $body): stdClass {
+    public static function save(
+        activity $activity,
+        string $msgkey,
+        string $subject,
+        string $body,
+        int $actorid
+    ): stdClass {
         global $DB;
 
         if (!isset(self::CATALOG[$msgkey])) {
             throw new \moodle_exception('errtemplatekey', 'mod_selfselectadvanced');
         }
+        require_capability('mod/selfselectadvanced:manage', $activity->context(), $actorid);
         $now = time();
         $record = self::get($activity, $msgkey);
         if ($record) {
@@ -155,22 +172,50 @@ class templates {
             $record->id = $DB->insert_record('selfselectadvanced_template', $record);
         }
 
+        // A saved template is a state change an operator audits, so it
+        // leaves an event (LOG-001, 1.20.4). No lock or transaction is
+        // open here - a single-row upsert per (activity, msgkey)
+        // carries no cross-row invariant - so triggering after the
+        // write satisfies the after-commit-and-release rule trivially.
+        \mod_selfselectadvanced\event\template_updated::create([
+            'objectid' => (int) $record->id,
+            'context' => $activity->context(),
+            'userid' => $actorid,
+            'other' => ['msgkey' => $msgkey],
+        ])->trigger();
+
         return $record;
     }
 
     /**
      * Remove an override so the kind falls back to the language string.
      *
+     * Same in-service authority as save(): removing the custom text
+     * changes what every future notification of the kind says, and it
+     * is audited the same way (AUTH-001/LOG-001, 1.20.4). A kind with
+     * no stored override is a no-op and leaves no event.
+     *
      * @param activity $activity the activity
      * @param string $msgkey body lang key
+     * @param int $actorid the acting user
+     * @throws \required_capability_exception when the actor lacks :manage here
      */
-    public static function reset(activity $activity, string $msgkey): void {
+    public static function reset(activity $activity, string $msgkey, int $actorid): void {
         global $DB;
 
-        $DB->delete_records('selfselectadvanced_template', [
-            'activityid' => $activity->id(),
-            'msgkey' => $msgkey,
-        ]);
+        require_capability('mod/selfselectadvanced:manage', $activity->context(), $actorid);
+        $record = self::get($activity, $msgkey);
+        if (!$record) {
+            return;
+        }
+        $DB->delete_records('selfselectadvanced_template', ['id' => $record->id]);
+
+        \mod_selfselectadvanced\event\template_deleted::create([
+            'objectid' => (int) $record->id,
+            'context' => $activity->context(),
+            'userid' => $actorid,
+            'other' => ['msgkey' => $msgkey],
+        ])->trigger();
     }
 
     /**
