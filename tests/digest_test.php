@@ -189,7 +189,10 @@ final class digest_test extends \advanced_testcase {
         $this->assertSame(3, $DB->count_records('selfselectadvanced_digestq'));
 
         $sink = $this->redirectMessages();
-        $this->expectOutputRegex('/sent a digest/');
+        // The verb is "submitted", not "sent": message_send() promises
+        // submission to Moodle messaging, never delivery, and the log
+        // now says only what it knows (DIGEST-001).
+        $this->expectOutputRegex('/submitted a digest/');
         (new send_digests())->execute();
         $messages = $sink->get_messages();
         $sink->close();

@@ -51,6 +51,15 @@ class freeze {
     /** @var int How many groups one bulk-freeze request freezes inline before queueing the rest. */
     public const BULK_FREEZE_INLINE_MAX = 20;
 
+    /** @var string release_refusal(): a coordinate-only actor involved with this very team. */
+    public const RELEASE_CONFLICT = 'conflict';
+
+    /** @var string release_refusal(): the team's guide, on a freeze staff enforced. */
+    public const RELEASE_STAFFFROZE = 'stafffroze';
+
+    /** @var string release_refusal(): nobody in particular - no capability, not the guide. */
+    public const RELEASE_CAPABILITY = 'capability';
+
     /**
      * The set every core write and every drift check agrees on:
      * confirmed member userids UNION the assigned guide (decision 7).
@@ -601,6 +610,126 @@ class freeze {
     }
 
     /**
+     * Refuse unless this actor may freeze THIS team.
+     *
+     * The whole authority half of freeze_group(), lifted out of it
+     * verbatim so that the pages offering the button ask the service's
+     * own question instead of guessing at it. freeze_group() calls
+     * this; group.php's action gate calls this; group_page.php and
+     * groups_table go through may_freeze_team() below, which is this
+     * method and nothing else. There is one copy.
+     *
+     * WHY IT HAD TO COME OUT (this wave, findings ACT-002/ACT-003).
+     * Both surfaces asked authority::may_freeze() - the bare :freeze
+     * capability - and db/access.php grants :freeze to the non-editing
+     * teacher archetype alone. So the two populations this method's
+     * on-behalf branch exists for could not reach it:
+     *  - the MANAGER, who holds :manage and not :freeze: the page gate
+     *    refused the POST and the button was never drawn, while the
+     *    service would have admitted them all along;
+     *  - the GROUP COORDINATOR, who holds :coordinate (and, through the
+     *    role this plugin creates, :freeze as well - so the capability
+     *    check passed and the CONTROL was still never offered, because
+     *    group_page.php also required them to be the team's assigned
+     *    guide and the coordinator dashboard's table had no Freeze
+     *    column at all).
+     * A capability nobody can spend and a service nobody can reach are
+     * the same defect seen from the two ends.
+     *
+     * STATE IS NOT ASKED HERE. This is authority; whether the team is
+     * FIRM is rules\gatekeeper::can_freeze(), which freeze_group()
+     * asks first and the callers ask alongside this. Keeping the two
+     * apart is what lets a page say "you may freeze, but not yet".
+     *
+     * Read-time only: no lock, no transaction, no write, no event -
+     * safe to call per row while rendering. Costs no query for a
+     * :manage holder (require_uninvolved() exempts them before it
+     * reads) and at most one indexed membership read for anybody else.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the group row (must carry guideid, and
+     *        guidesuccessorid for the conflict-of-interest guard)
+     * @param int $actorid the person acting
+     * @throws \moodle_exception refusalnotassignedguide or
+     *         refusalcoiinvolved, or \required_capability_exception
+     */
+    public static function require_freeze_team(activity $activity, stdClass $group, int $actorid): void {
+        // WHICH BRANCH, decided by the plugin's one answer to
+        // "is this THEIR team?" (audit D5). This line read
+        // `(int) $fresh->guideid !== $actorid` until 1.20.1 -
+        // the last raw transcription of teamaccess::
+        // is_assigned_guide() on a lifecycle write, sitting
+        // directly above the comment A-01 wrote about ownership
+        // not being a grant.
+        //
+        // It CHOOSES a branch rather than admitting anybody, so
+        // it was never a hole; what it was, was a second answer
+        // to a question that has a home, and the one direction
+        // it can move an actor is towards the STRICTER branch:
+        // a guide for whom :viewassignedteams has been
+        // prohibited - who is already refused their own team's
+        // page, its review page and its proposal file, and
+        // since 1.20.2 its approval and its return - now
+        // needs :manage or :coordinate to freeze it, instead of
+        // being the single surface left that still treated them
+        // as its guide.
+        if (!teamaccess::is_assigned_guide($activity, $group, $actorid)) {
+            // Strategy 1.16 D: a manager or Group Coordinator
+            // may freeze on the guide's behalf - the
+            // coordinator subject to the conflict-of-interest
+            // guard (they must not be involved in the group).
+            $context = $activity->context();
+            $onbehalf = has_capability('mod/selfselectadvanced:manage', $context, $actorid)
+                || has_capability('mod/selfselectadvanced:coordinate', $context, $actorid);
+            if (!$onbehalf) {
+                throw new \moodle_exception('refusalnotassignedguide', 'mod_selfselectadvanced');
+            }
+            tickets::require_uninvolved($activity, $group, $actorid);
+
+            return;
+        }
+        // The assigned guide's OWN freeze, and the one branch
+        // of this method that asked for no capability at all
+        // (A-01). Being named in guideid is ownership of the
+        // record; :freeze is the authority to act on it, and
+        // an administrator who prohibits the capability is
+        // saying this person may no longer freeze anything -
+        // including the teams they still guide. The
+        // on-behalf branch above keeps its own authority
+        // (:manage / :coordinate) unchanged: that is a
+        // different grant, documented as such, and not one
+        // this check may quietly widen.
+        authority::require_freeze($activity, $actorid);
+    }
+
+    /**
+     * Whether this actor may freeze THIS team - the same question,
+     * answered without an exception.
+     *
+     * Implemented AS the refusal above rather than beside it. A boolean
+     * twin written out longhand is a second answer waiting to disagree
+     * with the first, which is precisely how the button and the service
+     * came to admit different people; run through the thrower, it
+     * cannot drift, and a test of one is a test of both.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the group row
+     * @param int $actorid the person acting
+     * @return bool
+     */
+    public static function may_freeze_team(activity $activity, stdClass $group, int $actorid): bool {
+        try {
+            self::require_freeze_team($activity, $group, $actorid);
+        } catch (\moodle_exception $e) {
+            // A required_capability_exception IS a moodle_exception, so
+            // both refusal shapes land here and nothing else does.
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * T5: freeze a firm group its assigned guide reviews (spec 12).
      *
      * The envelope, in order: lock, gates, ONE transaction holding only
@@ -641,51 +770,12 @@ class freeze {
                 if ($refusal = $gatekeeper->can_freeze($fresh)) {
                     throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
                 }
-                // WHICH BRANCH, decided by the plugin's one answer to
-                // "is this THEIR team?" (audit D5). This line read
-                // `(int) $fresh->guideid !== $actorid` until 1.20.1 -
-                // the last raw transcription of teamaccess::
-                // is_assigned_guide() on a lifecycle write, sitting
-                // directly above the comment A-01 wrote about ownership
-                // not being a grant.
-                //
-                // It CHOOSES a branch rather than admitting anybody, so
-                // it was never a hole; what it was, was a second answer
-                // to a question that has a home, and the one direction
-                // it can move an actor is towards the STRICTER branch:
-                // a guide for whom :viewassignedteams has been
-                // prohibited - who is already refused their own team's
-                // page, its review page and its proposal file, and
-                // since this wave its approval and its return - now
-                // needs :manage or :coordinate to freeze it, instead of
-                // being the single surface left that still treated them
-                // as its guide.
-                if (!teamaccess::is_assigned_guide($activity, $fresh, $actorid)) {
-                    // Strategy 1.16 D: a manager or Group Coordinator
-                    // may freeze on the guide's behalf - the
-                    // coordinator subject to the conflict-of-interest
-                    // guard (they must not be involved in the group).
-                    $context = $activity->context();
-                    $onbehalf = has_capability('mod/selfselectadvanced:manage', $context, $actorid)
-                        || has_capability('mod/selfselectadvanced:coordinate', $context, $actorid);
-                    if (!$onbehalf) {
-                        throw new \moodle_exception('refusalnotassignedguide', 'mod_selfselectadvanced');
-                    }
-                    tickets::require_uninvolved($activity, $fresh, $actorid);
-                } else {
-                    // The assigned guide's OWN freeze, and the one branch
-                    // of this method that asked for no capability at all
-                    // (A-01). Being named in guideid is ownership of the
-                    // record; :freeze is the authority to act on it, and
-                    // an administrator who prohibits the capability is
-                    // saying this person may no longer freeze anything -
-                    // including the teams they still guide. The
-                    // on-behalf branch above keeps its own authority
-                    // (:manage / :coordinate) unchanged: that is a
-                    // different grant, documented as such, and not one
-                    // this check may quietly widen.
-                    authority::require_freeze($activity, $actorid);
-                }
+                // The authority question, asked of the row re-read under
+                // this method's own lock. It is CALLED, not written out
+                // here, because the pages that offer the button have to
+                // ask the same question and a transcription is how they
+                // came to ask a different one.
+                self::require_freeze_team($activity, $fresh, $actorid);
                 // Good-neighbour membership audit (RCA Q3): freezing
                 // is the moment this plugin pushes into the course's
                 // groups/grouping mechanism, so a roster carrying a
@@ -814,6 +904,144 @@ class freeze {
     }
 
     /**
+     * WHO MAY RELEASE THIS TEAM - the one home of the unfreeze door
+     * (UX-001), as a value.
+     *
+     * Until 1.20.2 this question had four answers in four files, and
+     * no two of them agreed:
+     *
+     *  - unfreeze() itself: the authoritative one, three clauses read
+     *    under the group lock;
+     *  - group.php's action gate: capability, OR the guide of a team
+     *    staff did not freeze - the conflict-of-interest clause missing,
+     *    so an involved coordinator reached the confirmation page, typed
+     *    a reason and was refused on submit;
+     *  - output\group_page: the capability ALONE - so the guide the
+     *    maintainer gave the release to (strategy 1.19 C) was never
+     *    offered it on their own team's page, while an involved
+     *    coordinator was;
+     *  - table\groups_table: nothing at all beyond the state, so the
+     *    coordinator dashboard offered Unfreeze on every frozen row
+     *    including the coordinator's own team.
+     *
+     * The DECISION IS UNCHANGED - this method states exactly what
+     * unfreeze() enforced, in the same order, so an actor's answer here
+     * and their answer at the service are the same answer. What changes
+     * is that the three UI sites now ask it instead of describing it.
+     *
+     * Order matters and is the service's: the conflict of interest is
+     * judged first (a coordinator who guides this team is refused for
+     * THAT reason, not for a missing capability), then the guide of a
+     * staff-enforced freeze, then the plain capability.
+     *
+     * STATE IS NOT ASKED HERE. "Is this team frozen?" is lifecycle, and
+     * unfreeze() asks it first, on the row it reads under the lock;
+     * callers offering a control already know the state they rendered.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the group row - guideid, guidesuccessorid
+     *        and frozenbystaff are all read, so a partial row is
+     *        refused rather than silently judged on absent fields
+     * @param int $actorid the person who would release it
+     * @return string|null null when they may, otherwise one of the
+     *         RELEASE_* reasons
+     */
+    public static function release_refusal(activity $activity, stdClass $group, int $actorid): ?string {
+        foreach (['guideid', 'guidesuccessorid', 'frozenbystaff'] as $field) {
+            if (!property_exists($group, $field)) {
+                // A row selected without these fields would answer
+                // "no conflict, no staff freeze" for everybody, which
+                // is the permissive direction - the one a silent
+                // default must never take.
+                throw new \coding_exception(
+                    "freeze::release_refusal() needs \$group->$field; the caller selected a partial row"
+                );
+            }
+        }
+
+        // Strategy 1.16 D, as unfreeze() applies it: the rule restrains
+        // the NEW coordinate authority only, so it is asked only of an
+        // actor who holds :coordinate, and tickets::involvement()
+        // exempts :manage exactly as tickets::require_uninvolved() does.
+        if (
+            has_capability('mod/selfselectadvanced:coordinate', $activity->context(), $actorid)
+            && tickets::involvement($activity, $group, $actorid) !== null
+        ) {
+            return self::RELEASE_CONFLICT;
+        }
+
+        // The identity test is RAW here, as it is in unfreeze(), and for
+        // the reason recorded there: this clause RESTRAINS, so routing
+        // it through teamaccess::is_assigned_guide() would let a
+        // prohibited :viewassignedteams lift the restraint.
+        if (
+            (int) $group->guideid === $actorid
+            && !empty($group->frozenbystaff)
+            && !authority::may_unfreeze($activity, $actorid)
+        ) {
+            return self::RELEASE_STAFFFROZE;
+        }
+
+        if ((int) $group->guideid !== $actorid && !authority::may_unfreeze($activity, $actorid)) {
+            return self::RELEASE_CAPABILITY;
+        }
+
+        return null;
+    }
+
+    /**
+     * May this actor release this frozen team? The boolean face of
+     * release_refusal(), for the pages that OFFER the control.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the group row
+     * @param int $actorid the person who would release it
+     * @return bool
+     */
+    public static function may_unfreeze_team(activity $activity, stdClass $group, int $actorid): bool {
+        return self::release_refusal($activity, $group, $actorid) === null;
+    }
+
+    /**
+     * Refuse unless this actor may release this frozen team, with the
+     * message that names WHICH of the three rules refused them.
+     *
+     * Each branch delegates to the thrower that owns its message, so
+     * the wording, the $a detail and the exception CLASS are all
+     * unchanged from the clauses this replaced.
+     *
+     * Every branch then throws on its own account as well. Those
+     * throws are unreachable while the predicate and the thrower agree
+     * - and they are the same call in both cases - but a branch that
+     * was CHOSEN as a refusal and returned anyway would be a silent
+     * admission, which is the one outcome this method must not have.
+     * Refusing twice costs nothing; admitting once costs the rule.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the group row
+     * @param int $actorid the person releasing it
+     * @throws \moodle_exception refusalcoiinvolved or refusalreleasestafffroze
+     * @throws \required_capability_exception when the capability is not effective
+     */
+    public static function require_unfreeze_team(activity $activity, stdClass $group, int $actorid): void {
+        switch (self::release_refusal($activity, $group, $actorid)) {
+            case self::RELEASE_CONFLICT:
+                tickets::require_uninvolved($activity, $group, $actorid);
+                throw new \moodle_exception('refusalcoiinvolved', 'mod_selfselectadvanced');
+            case self::RELEASE_STAFFFROZE:
+                throw new \moodle_exception('refusalreleasestafffroze', 'mod_selfselectadvanced');
+            case self::RELEASE_CAPABILITY:
+                authority::require_unfreeze($activity, $actorid);
+                throw new \required_capability_exception(
+                    $activity->context(),
+                    authority::UNFREEZE,
+                    'nopermissions',
+                    ''
+                );
+        }
+    }
+
+    /**
      * T6: unfreeze (manager action): restore the roster to the LATEST
      * snapshot exactly (A6), state back to firm - even if current
      * limits would now reject the roster (grandfathering, spec 4A.8).
@@ -855,103 +1083,30 @@ class freeze {
                 throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
             }
 
-            // Both guards judge the team as it is NOW. Read before the
-            // lock, a coordinator's unfreeze/re-freeze in the window
-            // between the guide's page load and their click was
-            // invisible: frozenbystaff is written from the CURRENT
-            // actor at freeze time, so the flag legitimately flips
-            // under an open page (T-02 R3).
+            // THE DOOR, asked of the row read under the lock and
+            // nowhere else in this method: freeze::release_refusal()
+            // holds all three clauses now - the coordinator's conflict
+            // of interest (strategy 1.16 D), the one restraint on a
+            // guide releasing a staff-enforced freeze (strategy 1.19 C,
+            // with the identity test deliberately raw), and the
+            // positive capability gate that audit A-2 found missing.
             //
-            // Strategy 1.16 D: the conflict-of-interest rule restrains
-            // the NEW coordinate authority only. An actor who could
-            // already unfreeze before 1.16.0 - a manager, or a team's
-            // own guide holding the unfreeze capability - keeps exactly
-            // the authority they had; adding the coordinator role to a
-            // site must never quietly take authority away. A
-            // coordinator whose own team it is asks through the ticket
-            // queue instead.
-            if (has_capability('mod/selfselectadvanced:coordinate', $activity->context(), $actorid)) {
-                tickets::require_uninvolved($activity, $fresh, $actorid);
-            }
-
-            // A guide releasing their own team (strategy 1.19 C). They
-            // do not hold the unfreeze capability, so without this they
-            // can only ask and wait - and a team cannot be re-composed
-            // while it is frozen, which made every ordinary change
-            // staff work.
+            // It is asked HERE, after the lock and the re-read, for the
+            // reason the clauses it replaced carried: every guard judges
+            // the team as it is NOW. Read before the lock, a
+            // coordinator's unfreeze/re-freeze in the window between the
+            // guide's page load and their click was invisible -
+            // frozenbystaff is written from the CURRENT actor at freeze
+            // time, so the flag legitimately flips under an open page
+            // (T-02 R3).
             //
-            // The limit is the one the maintainer set: a guide releases
-            // until an editing teacher or a coordinator has enforced a
-            // freeze. After that the freeze is meant to hold, and the
-            // existing unfreeze request is the only way through.
-            // The guard restrains the NEW authority and nothing else.
-            // This service has always trusted its callers on the
-            // capability - the pages enforce it, and every existing
-            // caller relies on that. Adding a blanket requirement here
-            // took authority away from actors who had it, which is the
-            // exact mistake 1.16 and 1.17 each made once and this file
-            // records for next time.
-            //
-            // So only the new case is refused: a guide releasing a team
-            // an editing teacher or coordinator froze. That freeze is
-            // meant to hold, and the unfreeze request is the way
-            // through it.
-            //
-            // AND THE IDENTITY TEST STAYS RAW HERE, deliberately (audit
-            // D5). Everywhere else in the plugin `guideid === actorid`
-            // ADMITS, so routing it through teamaccess::
-            // is_assigned_guide() can only narrow. This one RESTRAINS:
-            // it is the sole clause that refuses. Asking a capability
-            // inside it would mean prohibiting :viewassignedteams
-            // LIFTED the restraint and handed the guide back a release
-            // the maintainer's rule takes away - a predicate whose home
-            // is a read gate must never be load-bearing in that
-            // direction.
-            if (
-                (int) $fresh->guideid === $actorid
-                && !empty($fresh->frozenbystaff)
-                && !authority::may_unfreeze($activity, $actorid)
-            ) {
-                throw new \moodle_exception('refusalreleasestafffroze', 'mod_selfselectadvanced');
-            }
-
-            // THE POSITIVE GATE, and until 1.20.1 there was none (audit
-            // A-2). Everything above this line is CONDITIONAL: the
-            // frozen-state check, the coordinator's conflict of
-            // interest, the one restraint on a guide releasing a
-            // staff-enforced freeze. An actor matching no branch -
-            // holding :unfreeze no more than they hold :coordinate or
-            // :manage, and named in no team's guideid - fell through
-            // all three into the roster restore and the state flip. The
-            // service's own docblock calls this a "manager action" and
-            // the parameter is literally named "the acting manager";
-            // the authority behind that sentence was asked by group.php
-            // and by nothing else, which made it a property of ONE
-            // route rather than of the operation.
-            //
-            // The gate is the page's door, moved to where the row is
-            // read under the lock: hold :unfreeze, or BE the team's
-            // assigned guide (whom the clause above has already
-            // restrained to teams staff did not freeze). Deliberately
-            // no wider - matching group.php exactly is what makes this
-            // a MOVE of the check rather than a new rule, so nobody who
-            // could release a team before this release cannot now:
-            //
-            // - editing teacher, manager: :unfreeze by archetype;
-            // - Group Coordinator: :unfreeze is in the role this
-            // plugin creates (coordinatorrole::capabilities()), and
-            // they still pass the conflict-of-interest guard above;
-            // - assigned guide, strategy 1.19 C: admitted by identity
-            // on their own team, exactly as before.
-            //
-            // The identity half stays raw for the reason recorded
-            // above: routing it through teamaccess::is_assigned_guide()
-            // would let a prohibited :viewassignedteams turn an ADMIT
-            // into a refusal on the ONE branch where that costs a guide
-            // the release the maintainer granted them.
-            if ((int) $fresh->guideid !== $actorid) {
-                authority::require_unfreeze($activity, $actorid);
-            }
+            // The three pages that OFFER the control ask the same
+            // method for a boolean (UX-001). That is the whole point of
+            // moving it: before, group.php, output\group_page and
+            // table\groups_table each carried a different description
+            // of this decision, and all three were wrong in one
+            // direction or the other.
+            self::require_unfreeze_team($activity, $fresh, $actorid);
 
             $snapshot = self::latest_snapshot((int) $fresh->id);
             if (!$snapshot) {

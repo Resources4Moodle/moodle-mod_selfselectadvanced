@@ -316,6 +316,104 @@ class api {
     }
 
     /**
+     * Revise a forming team's title and brief (audit item 21).
+     *
+     * AUTHORITY, ASKED WHERE THE WRITE IS (AUTH-003). groupedit.php's
+     * edit branch used to be the whole gate, and the gate it applied
+     * was the raw leaderid: under decision 38 a leader whose
+     * :creategroup has been prohibited is STILL the leader of record,
+     * so an administrator's Prohibit stopped them creating a team and
+     * left them free to keep rewriting the title and brief of the one
+     * they already had - the two texts every guide browsing listed
+     * teams reads before deciding.
+     *
+     * The page-level capability check was moved BELOW the branch in
+     * D6-4 for a real reason: :creategroup is a STUDENT capability that
+     * an editing teacher does not hold, so demanding it above the
+     * branch made the staff repair path unreachable. That reason is
+     * respected here - the capability is asked of the LEADER path only,
+     * and staff are authorised by :manage exactly as they were.
+     *
+     * @param stdClass $group group row
+     * @param string $title the revised title
+     * @param string $brief the revised brief
+     * @param int $briefformat text format of the brief
+     * @param int $actorid the acting user
+     * @return stdClass the group row as written
+     * @throws \moodle_exception when the actor does not own the row, or
+     *         the team has moved on from forming
+     * @throws \required_capability_exception when a leader does not hold
+     *         :creategroup
+     */
+    public function update_group_details(
+        stdClass $group,
+        string $title,
+        string $brief,
+        int $briefformat,
+        int $actorid
+    ): stdClass {
+        global $DB;
+
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            // Re-read inside the lock: leadership can be transferred
+            // and the team can be submitted between the form being
+            // drawn and being saved, and both decide this question.
+            $group = groups::get($this->activity, (int) $group->id);
+            $isstaff = has_capability('mod/selfselectadvanced:manage', $this->activity->context(), $actorid);
+            if (!$isstaff) {
+                if ((int) $group->leaderid !== $actorid) {
+                    throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+                }
+                authority::require_lead($this->activity, $actorid);
+            }
+            if ($group->state !== state::FORMING) {
+                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+            }
+
+            $now = time();
+            $DB->update_record('selfselectadvanced_group', (object) [
+                'id' => $group->id,
+                'title' => $title,
+                'brief' => $brief,
+                'briefformat' => $briefformat,
+                'usermodified' => $actorid,
+                'timemodified' => $now,
+            ]);
+
+            // Payload built INSIDE the critical section, dispatched
+            // after the commit AND the release below (the binding rule
+            // for new code - docs/architecture.md, "Events under a
+            // lock"; EVT-001).
+            $event = \mod_selfselectadvanced\event\group_details_updated::create([
+                'objectid' => $group->id,
+                'context' => $this->activity->context(),
+                'userid' => $actorid,
+                'other' => ['pluginuid' => $group->pluginuid],
+            ]);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Ownership, authority and state all throw from INSIDE the
+            // transaction on a row read INSIDE the lock, so a refused
+            // edit cannot have written the row. Unconditional - see
+            // eoi::express().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+        }
+
+        $event->trigger();
+
+        return groups::get($this->activity, (int) $group->id);
+    }
+
+    /**
      * Delete a forming group (transition T7).
      *
      * Confirmed members are notified (provider 'groupdeleted'), the

@@ -158,7 +158,8 @@ $groupstable = new \mod_selfselectadvanced\table\groups_table(
     $api->gatekeeper(),
     new moodle_url($tableurl, ['perpage' => $perpage]),
     $statefilter,
-    false
+    false,
+    (int) $USER->id
 );
 $groupstable->out($perpage, true);
 

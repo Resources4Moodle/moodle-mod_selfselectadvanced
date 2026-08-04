@@ -57,7 +57,8 @@
         "showrespond": false,
         "eoienabled": true,
         "listed": true,
-        "showeoitoggle": true,
+        "showeoilist": false,
+        "showeoiunlist": true,
         "showeoipanel": true,
         "caneoirespond": true,
         "eoiassigned": false,
@@ -126,7 +127,7 @@
             <h4>{{#str}} eoisettings, mod_selfselectadvanced {{/str}}</h4>
             {{#listed}}
                 <span class="badge bg-success">{{#str}} eoilistedbadge, mod_selfselectadvanced {{/str}}</span>
-                {{#showeoitoggle}}
+                {{#showeoiunlist}}
                     <form method="post" action="{{actionurl}}" class="d-inline ms-2">
                         <input type="hidden" name="id" value="{{cmid}}">
                         <input type="hidden" name="g" value="{{groupid}}">
@@ -136,10 +137,10 @@
                             {{#str}} eoiunlisttoggle, mod_selfselectadvanced {{/str}}
                         </button>
                     </form>
-                {{/showeoitoggle}}
+                {{/showeoiunlist}}
             {{/listed}}
             {{^listed}}
-                {{#showeoitoggle}}
+                {{#showeoilist}}
                     <form method="post" action="{{actionurl}}" class="d-inline">
                         <input type="hidden" name="id" value="{{cmid}}">
                         <input type="hidden" name="g" value="{{groupid}}">
@@ -149,7 +150,7 @@
                             {{#str}} eoilisttoggle, mod_selfselectadvanced {{/str}}
                         </button>
                     </form>
-                {{/showeoitoggle}}
+                {{/showeoilist}}
             {{/listed}}
 
             {{#eoiinterestline}}

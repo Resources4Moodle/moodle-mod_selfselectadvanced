@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.20.3 — authority follows the service (2026-08-04)
+
+> No schema, capability, message-provider or scheduled-task change:
+> `db/install.xml`, `db/access.php`, `db/messages.php` and `db/tasks.php` are
+> untouched. It carries a version serial — `2026073230` / `1.20.3` — because it
+> adds five language strings, three event classes and two service classes, and
+> Moodle's string and class caches are rebuilt only by an upgrade.
+
+This release closes the ten findings of the independent 1.20.2 evaluation that
+survived confirmation (eight High, two Medium), plus what our own blind audit
+of the work found. The pattern applied to those ten paths — and claimed for
+**those ten paths, not for the whole plugin**: each state change asks a
+service, and each of those screens offers only what its service would allow.
+Known paths still outside the pattern (the guide-notes write on the review
+page, the return-comment format companion write, and the caller-trusting
+services listed in the 1.20.4 backlog) are tracked, not hidden.
+
+- **Four writes authorised on record ownership now ask authority, not
+  identity** (AUTH-001..004): listing a team for guide interest, uploading or
+  retracting the proposal document, editing the team's title and brief, and
+  deciding an expression of interest. Each now runs through a service —
+  `eoi::set_listed()`, `proposal::save()`, `api::update_group_details()` — with
+  a lock, a re-read, a transaction and an event. A leader whose `:creategroup`
+  has been prohibited keeps only the retreating verbs: unlisting the team and
+  removing their own proposal.
+- **Four reachability gaps closed** (ACT-001..004): the review screen admits
+  every actor its own predicate names (`may_review_team()`), managers can
+  freeze, coordinators have a Freeze action they can see, and `:assignguide`
+  holders can decide interests through the interface — not just the service.
+- **The interest decision is offered only to those the service would let
+  decide.** The whole ladder — capability, self-dealing, involvement — lives
+  in `eoi::decide_refusal()`, one copy, consumed by the page door, the
+  renderer and `eoi::respond()` itself. Accepting an interest is also now
+  refused while `studentapproach` is on or `eoienabled` is off, the same
+  belt-and-braces `express()` always wore; rejecting stays open so a pending
+  interest is always clearable.
+- **Unfreeze controls are capability-aware** (UX-001): the group table draws
+  Unfreeze from the same policy the endpoint applies, so no role sees a
+  button that can only refuse.
+- **The digest task is bounded** (PERF-001): recipients are processed in
+  batches ordered by oldest queued row, with a per-run cap; a recipient who
+  is not due costs the run nothing.
+- Partial-row reads in the involvement rule now fail loudly instead of
+  answering permissively, and two comments that had drifted from the code
+  they describe were corrected.
+
 ## 1.20.2 — finding a guide (2026-08-04)
 
 > No schema, capability, message-provider or scheduled-task change:

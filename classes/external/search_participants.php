@@ -144,8 +144,10 @@ class search_participants extends external_api {
         // without it, which made it false in two places (wave-3B audit,
         // G-3). What the switch does NOT reach, by decision rather than
         // by oversight: the invitation candidate search
-        // ({@see \mod_selfselectadvanced\local\candidates}) matches and
-        // labels the address again once the switch is OFF, which is
+        // ({@see \mod_selfselectadvanced\local\candidates}) LABELS the
+        // address again once the switch is OFF - the match itself is
+        // names-only in BOTH states, because a substring match leaks
+        // the string it matches (candidates.php, S6) - which is
         // what the setting is for; and the two staff imports
         // ({@see \mod_selfselectadvanced\local\coordinatorimport} and
         // {@see \mod_selfselectadvanced\local\attributes\csv_importer})

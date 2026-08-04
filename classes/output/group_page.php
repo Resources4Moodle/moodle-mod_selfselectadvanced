@@ -19,6 +19,7 @@ namespace mod_selfselectadvanced\output;
 use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\eoi;
+use mod_selfselectadvanced\local\freeze;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\state;
 use mod_selfselectadvanced\local\teamaccess;
@@ -125,7 +126,7 @@ class group_page implements renderable, templatable {
         // the dimension columns and the mobile column are that team's
         // participant data. Before 1.20.1 the group.php entry gate
         // happened to hide the difference; it no longer does.
-        $isguide = \mod_selfselectadvanced\local\teamaccess::is_assigned_guide(
+        $isguide = teamaccess::is_assigned_guide(
             $activity,
             $this->group,
             $this->userid
@@ -374,19 +375,35 @@ class group_page implements renderable, templatable {
         // shape that produced A-05 - two transcriptions that agreed
         // until one was edited.
         //
-        // BOTH halves are calls now. F-6 replaced the capability half
-        // and left the identity half transcribed one line above it,
-        // which is the same defect wearing the other hat: "is this
-        // THEIR team?" is teamaccess::is_assigned_guide() everywhere
-        // else in the plugin. No viewer changes hands by this edit -
-        // group.php's entry gate is teamaccess::may_open_team(), which
-        // admits a non-member guide by that very predicate, so a viewer
-        // it would newly refuse could not have reached this page.
+        // BOTH halves were calls after D5 - and both were still the
+        // WRONG halves (ACT-002/ACT-003). "is this their team AND do
+        // they hold :freeze" is one of the two branches the service
+        // admits, not the whole of it, so this line drew the button for
+        // the assigned guide alone and for nobody else: not the
+        // manager, whose page this also is and who does not hold
+        // :freeze by archetype at all, and not the coordinator, who
+        // freezes on the guide's behalf by :coordinate. The question is
+        // now the service's own - freeze::may_freeze_team(), which IS
+        // freeze_group()'s gate run without an exception - so the
+        // button and the POST it leads to cannot admit different
+        // people. State stays here, beside it: authority and
+        // eligibility are different questions and only one of them
+        // belongs to the actor.
         $canfreeze = $this->group->state === state::FIRM
-            && teamaccess::is_assigned_guide($activity, $this->group, $this->userid)
-            && authority::may_freeze($activity, $this->userid);
+            && freeze::may_freeze_team($activity, $this->group, $this->userid);
+        // The same treatment, for the same reason, on the other
+        // direction of the same pair (UX-001). This line asked the
+        // CAPABILITY alone, which is neither of the two branches
+        // unfreeze() admits: it hid the button from the assigned guide
+        // releasing a team no member of staff froze - the release
+        // strategy 1.19 C exists to give them, on the page it belongs
+        // on - and drew it for a Group Coordinator involved with this
+        // very team, whom the service refuses on conflict of interest.
+        // freeze::may_unfreeze_team() IS unfreeze()'s door run without
+        // an exception, so the button and the POST admit one set of
+        // people. State stays here beside it, as above.
         $canunfreeze = $this->group->state === state::FROZEN
-            && has_capability('mod/selfselectadvanced:unfreeze', $context, $this->userid);
+            && freeze::may_unfreeze_team($activity, $this->group, $this->userid);
         // Mirror maintenance (T-16). Resync is offered whenever there is
         // something to converge - including a frozen team whose course
         // group has gone, which is what the resync mints. Discard is the
@@ -414,9 +431,42 @@ class group_page implements renderable, templatable {
         $canmanage = has_capability('mod/selfselectadvanced:manage', $context, $this->userid);
         $eoienabled = !empty($activity->settings()->eoienabled);
         $listed = !empty($this->group->listed);
-        $showeoitoggle = $isleader && $isforming && $eoienabled;
+        // THE TWO HALVES OF THE LISTING TOGGLE ARE NOT THE SAME CONTROL
+        // (AUTH-001). One flag used to draw both buttons from the raw
+        // leaderid, so a PROHIBITED leader - still the leader of record
+        // under decision 38 - was shown a live "List this team for
+        // guides" button that no crafted POST was needed to press.
+        //
+        // eoi::set_listed() asks for leader authority on the LISTING
+        // half only, because listing publishes the team to every guide
+        // and unlisting takes it back down; F3 says an actor is never
+        // blocked from making themselves less visible. The flags mirror
+        // that exactly, so the prohibited leader keeps the button that
+        // still works and loses the one that would refuse them.
+        $showeoilist = $isleader && $isforming && $eoienabled && $maylead;
+        $showeoiunlist = $isleader && $isforming && $eoienabled;
         $showeoipanel = $eoienabled && ($isleader || $canviewall || $canmanage);
-        $caneoirespond = $isleader || $canmanage;
+        // The :assignguide capability decides an interest as well as
+        // :manage - the same pair group.php's eoirespond gate and
+        // eoi::respond() ask (ACT-004). Until this wave only the
+        // service half was written: the capability described as "assign
+        // or reassign a team's guide, AND DECIDE EXPRESSIONS OF
+        // INTEREST" reached eoi::respond() from a test and from nowhere
+        // a person could click. The holder that matters is the Group
+        // Coordinator, who carries :assignguide and :viewall and NOT
+        // :manage - so they were shown the panel, shown the pending
+        // interests, and shown no way to answer them.
+        //
+        // Drawn from the SERVICE'S refusal ladder, not from a local
+        // capability test (blind audit 1.20.3, finding 1): a
+        // narrow-authority coordinator with an interest of their own
+        // pending here - or an involvement with this team - was
+        // offered Accept/Decline that eoi::respond() then refused.
+        // The service owns the predicate; this renderer and group.php's
+        // door both consume it, so no button is drawn that can only
+        // error. The leader/:manage arms and AUTH-004's $maylead all
+        // live inside decide_refusal().
+        $caneoirespond = eoi::decide_refusal($activity, $this->group, $this->userid) === null;
         $eoiassigned = $isforming && !empty($this->group->guideid);
         $eoiinterestline = '';
         $eoirows = [];
@@ -517,7 +567,8 @@ class group_page implements renderable, templatable {
         return (object) [
             'eoienabled' => $eoienabled,
             'listed' => $listed,
-            'showeoitoggle' => $showeoitoggle,
+            'showeoilist' => $showeoilist,
+            'showeoiunlist' => $showeoiunlist,
             'showeoipanel' => $showeoipanel,
             'caneoirespond' => $caneoirespond,
             'eoiassigned' => $eoiassigned,

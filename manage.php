@@ -104,7 +104,8 @@ $groupstable = new \mod_selfselectadvanced\table\groups_table(
     $api->gatekeeper(),
     new moodle_url($tableurl, ['perpage' => $perpage]),
     $statefilter,
-    $download !== ''
+    $download !== '',
+    (int) $USER->id
 );
 if ($download !== '' && optional_param('assigntab', 'teams', PARAM_ALPHA) === 'teams') {
     $groupstable->is_downloading($download, \mod_selfselectadvanced\local\exporter::stamp('groups'));
@@ -128,24 +129,35 @@ $loadroom = optional_param('loadroom', 0, PARAM_BOOL);
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('managerdashboard', 'mod_selfselectadvanced'));
 
-// Tool links.
+// Tool links - each drawn only for an actor its TARGET PAGE would
+// admit, using that page's own door as the predicate (1.20.3 closure
+// evaluation, UI-001: this page's door admits a narrow :assignguide
+// holder for the guide-assignment action alone, and rendering the
+// whole manager toolbox for them offered thirteen dead ends).
 $links = [
-    ['quotas.php', 'composition'],
-    ['moves.php', 'pendingmoves'],
-    ['tickets.php', 'tickets'],
-    ['coordinators.php', 'coordinators'],
-    ['moveedit.php', 'movestudents'],
-    ['groupedit.php', 'newteam'],
-    ['overrides.php', 'overrides'],
-    ['ledger.php', 'penaltyledger'],
-    ['flagged.php', 'flaggedreport'],
-    ['templates.php', 'notificationtemplates'],
-    ['guidelist.php', 'guidelist'],
-    ['roster.php', 'roster'],
-    ['gridreport.php', 'gridreport'],
+    ['quotas.php', 'composition', ['mod/selfselectadvanced:manage']],
+    ['moves.php', 'pendingmoves', ['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:managecomposition']],
+    ['tickets.php', 'tickets', ['mod/selfselectadvanced:coordinate']],
+    ['coordinators.php', 'coordinators', ['mod/selfselectadvanced:manage']],
+    ['moveedit.php', 'movestudents', ['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:managecomposition']],
+    // The groupedit door is conditional: students enter under
+    // :creategroup, staff under :manage (D6-4 - :creategroup is a
+    // student capability an editing teacher never held). Both arms,
+    // or the staff-after-cutoff journey loses its entry point.
+    ['groupedit.php', 'newteam', ['mod/selfselectadvanced:creategroup', 'mod/selfselectadvanced:manage']],
+    ['overrides.php', 'overrides', ['mod/selfselectadvanced:override']],
+    ['ledger.php', 'penaltyledger', ['mod/selfselectadvanced:viewall']],
+    ['flagged.php', 'flaggedreport', ['mod/selfselectadvanced:viewall']],
+    ['templates.php', 'notificationtemplates', ['mod/selfselectadvanced:manage']],
+    ['guidelist.php', 'guidelist', ['mod/selfselectadvanced:viewall']],
+    ['roster.php', 'roster', ['mod/selfselectadvanced:viewall']],
+    ['gridreport.php', 'gridreport', ['mod/selfselectadvanced:viewall']],
 ];
 $linkhtml = '';
-foreach ($links as [$file, $stringkey]) {
+foreach ($links as [$file, $stringkey, $caps]) {
+    if (!has_any_capability($caps, $context)) {
+        continue;
+    }
     $linkhtml .= html_writer::link(
         new moodle_url('/mod/selfselectadvanced/' . $file, ['id' => $cm->id]),
         get_string($stringkey, 'mod_selfselectadvanced'),
@@ -155,28 +167,33 @@ foreach ($links as [$file, $stringkey]) {
 echo html_writer::div($linkhtml, 'selfselectadvanced-toollinks mb-3');
 
 // Manual auto-grouping trigger with the latest run summary (spec 9.1).
-$lastrun = $DB->get_records('selfselectadvanced_agrun', ['activityid' => $activity->id()], 'id DESC', '*', 0, 1);
-$runsummary = $lastrun
-    ? get_string('autogrouplastrun', 'mod_selfselectadvanced', reset($lastrun))
-    : get_string('autogroupnorun', 'mod_selfselectadvanced');
-echo html_writer::start_div('selfselectadvanced-autogroup mb-3');
-echo html_writer::span($runsummary, 'me-3');
-echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false), 'class' => 'd-inline']);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'runautogroup']);
-echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
-echo html_writer::empty_tag('input', [
-    'type' => 'submit',
-    'value' => get_string('autogrouprun', 'mod_selfselectadvanced'),
-    'class' => 'btn btn-outline-primary btn-sm',
-]);
-echo html_writer::end_tag('form');
-echo ' ' . html_writer::link(
-    new moodle_url('/mod/selfselectadvanced/autogrouphistory.php', ['id' => $cm->id]),
-    get_string('agrunhistory', 'mod_selfselectadvanced'),
-    ['class' => 'btn btn-outline-secondary btn-sm']
-);
-echo html_writer::end_div();
+// Rendered for :manage only - the POST it submits requires :manage
+// above, and a form whose submission is guaranteed to refuse must not
+// be drawn (UI-001; the same rule the group page's controls follow).
+if (has_capability('mod/selfselectadvanced:manage', $context)) {
+    $lastrun = $DB->get_records('selfselectadvanced_agrun', ['activityid' => $activity->id()], 'id DESC', '*', 0, 1);
+    $runsummary = $lastrun
+        ? get_string('autogrouplastrun', 'mod_selfselectadvanced', reset($lastrun))
+        : get_string('autogroupnorun', 'mod_selfselectadvanced');
+    echo html_writer::start_div('selfselectadvanced-autogroup mb-3');
+    echo html_writer::span($runsummary, 'me-3');
+    echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false), 'class' => 'd-inline']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'runautogroup']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    echo html_writer::empty_tag('input', [
+        'type' => 'submit',
+        'value' => get_string('autogrouprun', 'mod_selfselectadvanced'),
+        'class' => 'btn btn-outline-primary btn-sm',
+    ]);
+    echo html_writer::end_tag('form');
+    echo ' ' . html_writer::link(
+        new moodle_url('/mod/selfselectadvanced/autogrouphistory.php', ['id' => $cm->id]),
+        get_string('agrunhistory', 'mod_selfselectadvanced'),
+        ['class' => 'btn btn-outline-secondary btn-sm']
+    );
+    echo html_writer::end_div();
+}
 
 $tabs = [];
 foreach (

@@ -418,6 +418,15 @@ selfselectadvanced_probe('seed: 2500 pending guide interests (raw)', function ()
 // Measured scenarios: the real services and table classes.
 $api = new api($activity);
 $gatekeeper = $api->gatekeeper();
+// The viewer the staff-dashboard table probes are measured FOR. A CLI
+// script has no logged-in user, and groups_table's action column is
+// built per viewer since it started offering Freeze - measuring it as
+// nobody would measure a table with no actions in it, which is not the
+// page anybody loads. The admin is the cheapest staff viewer (:manage
+// exempts them from the conflict-of-interest read), so this figure is
+// the FLOOR: a coordinator pays at most one extra indexed read per
+// firm row on the page.
+$probeviewer = (int) get_admin()->id;
 // Reserve users for the moves probe BEFORE the invite churn consumes
 // the leftover pool (RCA-3). Ordered by userid: students were seeded
 // round-robin across departments, so consecutive leftovers rotate
@@ -581,14 +590,15 @@ selfselectadvanced_probe('table: pickteam_table page of 50 (1500 listed)', funct
     return strlen($html);
 });
 
-selfselectadvanced_probe('table: groups_table page of 50', function () use ($activity, $gatekeeper, $cm) {
+selfselectadvanced_probe('table: groups_table page of 50', function () use ($activity, $gatekeeper, $cm, $probeviewer) {
     $table = new \mod_selfselectadvanced\table\groups_table(
         'scaleprobe2',
         $activity,
         $gatekeeper,
         new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]),
         '',
-        false
+        false,
+        $probeviewer
     );
     ob_start();
     $table->out(50, false);
@@ -601,7 +611,8 @@ selfselectadvanced_probe('table: groups_table DOWNLOAD cost (col_size x all rows
     $activity,
     $gatekeeper,
     $cm,
-    $DB
+    $DB,
+    $probeviewer
 ) {
     // The download dumps every row through the table's OWN query, so
     // the preloaded seat aggregates ride along (RCA-1). Walk every row
@@ -612,7 +623,8 @@ selfselectadvanced_probe('table: groups_table DOWNLOAD cost (col_size x all rows
         $gatekeeper,
         new moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cm->id]),
         '',
-        true
+        true,
+        $probeviewer
     );
     $rows = 0;
     $rs = $DB->get_recordset_sql(

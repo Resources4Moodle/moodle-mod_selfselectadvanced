@@ -170,8 +170,14 @@ $capabilities = [
 
     // Override composition/limit rules on a staff roster action (decision 6):
     // bypass L1-L4/QUOTA on a staged move, park a student with no
-    // destination, dissolve a dead-end team. Always with a typed reason
-    // and a logged event - never silent.
+    // destination, waive the rules on a dissolution. Always with a typed
+    // reason and a logged event - never silent.
+    //
+    // A MODIFIER, not an action (1.20.3 closure evaluation, CAP-001):
+    // it never authorises the underlying action by itself. Dissolving a
+    // dead-end team, in particular, requires :manage AND this - a
+    // coordinator holding only this capability cannot dissolve, and that
+    // is the intended shape, not an omission.
     'mod/selfselectadvanced:overriderules' => [
         'riskbitmask' => RISK_CONFIG | RISK_DATALOSS,
         'captype' => 'write',

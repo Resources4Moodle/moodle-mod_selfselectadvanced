@@ -162,7 +162,7 @@ final class capabilities_upgrade_test extends \advanced_testcase {
         // privacy -> 2026073190 least-privilege capabilities -> 2026073200 the
         // 1.20.0 release serial -> 2026073210 the 1.20.1 release serial ->
         // 2026073220 the 1.20.2 release serial).
-        $this->assertSame('2026073220', get_config('mod_selfselectadvanced', 'version'));
+        $this->assertSame('2026073230', get_config('mod_selfselectadvanced', 'version'));
 
         foreach ($roles as $role) {
             foreach (self::MANAGERCAPS as $capability) {

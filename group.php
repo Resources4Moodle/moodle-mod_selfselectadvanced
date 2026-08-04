@@ -326,54 +326,65 @@ if ($action === 'confirmleave' && data_submitted() && confirm_sesskey()) {
 }
 
 if (($action === 'eoilist' || $action === 'eoiunlist') && data_submitted() && confirm_sesskey()) {
-    // Leader's listing toggle (spec: EOI). A plain field update: no
-    // events, no cache to purge, listing survives a guide stepping out.
-    if (!$isleaderforming) {
-        redirect(
-            $baseurl,
-            get_string('refusalwrongstate', 'mod_selfselectadvanced'),
-            null,
-            \core\output\notification::NOTIFY_ERROR
+    // Leader's listing toggle (spec: EOI). CALLED, not transcribed
+    // (AUTH-001). This branch used to be the whole thing: four inline
+    // tests, an inline update_record() and no service to POST at
+    // directly or to test. Its only authority test was
+    // $isleaderforming - the raw leaderid and the state - which under
+    // decision 38 is exactly the test a PROHIBITED leader still
+    // passes, because leadership is transferred and never removed.
+    //
+    // eoi::set_listed() now owns all of it, and gates the two halves
+    // differently: listing PUBLISHES the team to every guide and asks
+    // for leader authority; unlisting RETRACTS it and does not, per
+    // F3. That asymmetry is the reason there is no require_lead() on
+    // this line - putting one here would close the retraction too.
+    try {
+        \mod_selfselectadvanced\local\eoi::set_listed(
+            $activity,
+            (int) $group->id,
+            $action === 'eoilist',
+            (int) $USER->id
         );
+        redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
-    if (!empty($activity->settings()->studentapproach)) {
-        redirect(
-            $baseurl,
-            get_string('refusalstudentapproach', 'mod_selfselectadvanced'),
-            null,
-            \core\output\notification::NOTIFY_ERROR
-        );
-    }
-    if (empty($activity->settings()->eoienabled)) {
-        redirect(
-            $baseurl,
-            get_string('refusaleoidisabled', 'mod_selfselectadvanced'),
-            null,
-            \core\output\notification::NOTIFY_ERROR
-        );
-    }
-    $listed = $action === 'eoilist' ? 1 : 0;
-    $update = (object) ['id' => $group->id, 'listed' => $listed];
-    if ($listed && empty($group->timelisted)) {
-        // Timelisted records only the FIRST time the team was listed.
-        $update->timelisted = time();
-    }
-    $DB->update_record('selfselectadvanced_group', $update);
-    redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 if ($action === 'eoirespond') {
-    // Leader (or a manage-capability holder) accepts or rejects one
-    // pending expression of interest. GET renders the confirmation
-    // page only; the decision itself arrives as the POST below.
+    // Leader (or a holder of :manage or :assignguide) accepts or
+    // rejects one pending expression of interest. GET renders the
+    // confirmation page only; the decision itself arrives as the POST
+    // below.
     $eoiid = required_param('eoiid', PARAM_INT);
     $decision = required_param('decision', PARAM_ALPHA);
     if (!in_array($decision, ['accept', 'reject'], true)) {
         redirect($baseurl);
     }
-    $ismanager = has_capability('mod/selfselectadvanced:manage', $context);
-    if ((int) $group->leaderid !== (int) $USER->id && !$ismanager) {
-        redirect($baseurl, get_string('refusalnotleader', 'mod_selfselectadvanced'), null, \core\output\notification::NOTIFY_ERROR);
+    // The :assignguide capability joined this door in 1.20.0 - on the
+    // SERVICE side only. eoi::respond() has admitted it ever since and
+    // narrowcaps_test pins that, while this page went on asking :manage
+    // by itself: so the one capability whose own description says
+    // "decide expressions of interest" could not decide one through the
+    // only screen that offers the choice. The Group Coordinator role
+    // carries :assignguide and not :manage, which made the role this
+    // plugin creates the population the omission fell on (ACT-004).
+    // AUTHORITY, NOT OWNERSHIP, on the leader arm (AUTH-004) - and the
+    // SERVICE'S OWN LADDER for the rest (blind audit 1.20.3, finding
+    // 1): capability alone admitted a narrow-authority coordinator to
+    // a decision eoi::respond() refuses as self-dealing, an interest
+    // of their own pending on this team or an involvement with it.
+    // One predicate, owned by the service; this door and the renderer
+    // that draws the buttons both consume it.
+    $deciderefusal = \mod_selfselectadvanced\local\eoi::decide_refusal($activity, $group, (int) $USER->id);
+    if ($deciderefusal !== null) {
+        redirect(
+            $baseurl,
+            get_string($deciderefusal->stringkey, 'mod_selfselectadvanced', $deciderefusal->a),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     // Ownership: the interest must belong to this group (IDOR rule, spec section 14.12).
     $eoirow = \mod_selfselectadvanced\local\eoi::get($activity, $eoiid);
@@ -409,10 +420,20 @@ if ($action === 'eoirespond') {
 
 if ($action === 'freeze') {
     // CALLED, not transcribed (audit F-6): the freeze predicate has a
-    // home in \local\authority and this page used to carry a fourth
-    // copy of it. Same answer today - which is exactly the condition
-    // under which A-05's copies drifted apart tomorrow.
-    \mod_selfselectadvanced\local\authority::require_freeze($activity, (int) $USER->id);
+    // home and this page used to carry a fourth copy of it.
+    //
+    // The call it makes changed this wave (ACT-002). It asked
+    // authority::require_freeze() - the bare :freeze capability, which
+    // db/access.php grants to the non-editing teacher archetype ALONE -
+    // while freeze_group() admits a :manage or :coordinate holder on
+    // its on-behalf branch. So the door was narrower than the room: a
+    // manager, holding :manage and :viewall, was named in
+    // teamaccess::may_open_team() as one of the audiences this page
+    // exists for, reached the team page, and was refused the moment
+    // they pressed Freeze by a capability nobody had told them they
+    // needed. freeze::require_freeze_team() IS the service's own gate,
+    // extracted so the page cannot ask a different question.
+    \mod_selfselectadvanced\local\freeze::require_freeze_team($activity, $group, (int) $USER->id);
     if (data_submitted() && confirm_sesskey()) {
         $frozen = \mod_selfselectadvanced\local\freeze::freeze_group($activity, $group, (int) $USER->id);
         $notice = get_string('groupfrozennotice', 'mod_selfselectadvanced', $group->pluginuid);
@@ -470,16 +491,15 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'unfreeze') {
-    // A guide may release a team they guide while no editing teacher or
-    // coordinator has enforced the freeze (strategy 1.19 C). The rule
-    // itself lives in the service, which re-checks on the row it reads
-    // under the lock; this is the page saying the same thing so the
-    // guide is not sent to a door that refuses them.
-    if (!has_capability('mod/selfselectadvanced:unfreeze', $context)) {
-        if ((int) $group->guideid !== (int) $USER->id || !empty($group->frozenbystaff)) {
-            require_capability('mod/selfselectadvanced:unfreeze', $context);
-        }
-    }
+    // The service's own door, asked at the page (UX-001). It used to be
+    // TRANSCRIBED here - capability, or the guide of a team no member of
+    // staff froze - and the transcription was missing the conflict of
+    // interest, so a coordinator who guides this very team reached the
+    // confirmation page, read the restore preview, typed a reason and
+    // was refused on submit. The service re-checks under its lock and
+    // stays authoritative; this call is the page saying the SAME thing
+    // so nobody is sent to a door that refuses them.
+    \mod_selfselectadvanced\local\freeze::require_unfreeze_team($activity, $group, (int) $USER->id);
     if (data_submitted() && confirm_sesskey()) {
         $unfreezereason = trim(optional_param('reason', '', PARAM_TEXT));
         try {
@@ -760,10 +780,32 @@ if ($action === 'discardcoregroup') {
 }
 
 if ($action === 'proposal') {
-    // Leader (or manager) uploads the written proposal for the group.
-    $ismanager = has_capability('mod/selfselectadvanced:manage', $context);
-    if ((int) $group->leaderid !== (int) $USER->id && !$ismanager) {
+    // Leader (or manager) uploads, replaces or removes the written
+    // proposal. CALLED, not transcribed (AUTH-002): the branch used to
+    // test the raw leaderid - which decision 38 leaves in place for a
+    // PROHIBITED leader - and then run file_save_draft_area_files()
+    // inline, with no service for a direct POST to be refused by and
+    // nothing a unit test could drive.
+    //
+    // The two doors below are the SAME predicates proposal::save()
+    // applies, so the form is offered exactly when the save will be
+    // accepted. They differ by one case on purpose: the leader of a
+    // forming team whose capability was withdrawn may still REMOVE
+    // their own proposal (F3), and may not upload a new one.
+    $maypublishproposal = \mod_selfselectadvanced\local\proposal::may_publish($activity, $group, (int) $USER->id);
+    $mayretractproposal = \mod_selfselectadvanced\local\proposal::may_retract($activity, $group, (int) $USER->id);
+    if (
+        (int) $group->leaderid !== (int) $USER->id
+        && !has_capability('mod/selfselectadvanced:manage', $context)
+    ) {
         throw new moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+    }
+    if (!$maypublishproposal && !$mayretractproposal) {
+        // The leader of a team that has moved past forming. Refused for
+        // WHEN they asked, not for who they are - see proposal::save()
+        // for why the leader's window closes at submission and staff's
+        // does not.
+        throw new moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
     }
     $fileoptions = [
         'maxfiles' => 1,
@@ -781,20 +823,23 @@ if ($action === 'proposal') {
         redirect($baseurl);
     }
     if ($data = $form->get_data()) {
-        file_save_draft_area_files(
-            $data->proposal,
-            $context->id,
-            'mod_selfselectadvanced',
-            'proposal',
-            (int) $group->id,
-            $fileoptions
-        );
-        redirect(
-            $baseurl,
-            get_string('proposalsaved', 'mod_selfselectadvanced'),
-            null,
-            \core\output\notification::NOTIFY_SUCCESS
-        );
+        try {
+            $kept = \mod_selfselectadvanced\local\proposal::save(
+                $activity,
+                (int) $group->id,
+                (int) $data->proposal,
+                $fileoptions,
+                (int) $USER->id
+            );
+            redirect(
+                $baseurl,
+                get_string($kept > 0 ? 'proposalsaved' : 'proposalremoved', 'mod_selfselectadvanced'),
+                null,
+                \core\output\notification::NOTIFY_SUCCESS
+            );
+        } catch (moodle_exception $e) {
+            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        }
     }
     echo $OUTPUT->header();
     echo $OUTPUT->heading(get_string('proposal', 'mod_selfselectadvanced'));
@@ -897,17 +942,32 @@ if (!$proposalhtml) {
         ? get_string('proposalmissingrequired', 'mod_selfselectadvanced')
         : get_string('proposalmissing', 'mod_selfselectadvanced'));
 }
-if ((int) $group->leaderid === (int) $USER->id || has_capability('mod/selfselectadvanced:manage', $context)) {
-    if ($group->state === \mod_selfselectadvanced\local\state::FORMING) {
-        $proposalhtml .= $OUTPUT->single_button(
-            new moodle_url('/mod/selfselectadvanced/groupedit.php', ['id' => $cm->id, 'g' => $group->id]),
-            get_string('editgroup', 'mod_selfselectadvanced'),
-            'get'
-        );
-    }
+// THE CONTROL AND THE SERVICE AGREE. Both buttons below used to hang
+// off one raw-leaderid test, so a PROHIBITED leader - still the leader
+// of record under decision 38 - was offered an Edit form that
+// api::update_group_details() now refuses and an Upload form that
+// proposal::save() now refuses. A button that always errors is its own
+// defect, so each is drawn from the predicate its own service applies.
+$isleaderofrecord = (int) $group->leaderid === (int) $USER->id;
+$mayeditdetails = ($isleaderofrecord && $maylead)
+    || has_capability('mod/selfselectadvanced:manage', $context);
+if ($mayeditdetails && $group->state === \mod_selfselectadvanced\local\state::FORMING) {
+    $proposalhtml .= $OUTPUT->single_button(
+        new moodle_url('/mod/selfselectadvanced/groupedit.php', ['id' => $cm->id, 'g' => $group->id]),
+        get_string('editgroup', 'mod_selfselectadvanced'),
+        'get'
+    );
+}
+// The one place the two halves of the proposal verb are visibly
+// different. A prohibited leader keeps the control only while there is
+// something of their own to take down (F3), and it says so.
+$maypublishproposal = \mod_selfselectadvanced\local\proposal::may_publish($activity, $group, (int) $USER->id);
+$mayretractproposal = \mod_selfselectadvanced\local\proposal::may_retract($activity, $group, (int) $USER->id)
+    && !empty($proposalfiles);
+if ($maypublishproposal || $mayretractproposal) {
     $proposalhtml .= $OUTPUT->single_button(
         new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $group->id, 'action' => 'proposal']),
-        get_string('proposalupload', 'mod_selfselectadvanced'),
+        get_string($maypublishproposal ? 'proposalupload' : 'proposalretract', 'mod_selfselectadvanced'),
         'get'
     );
 }

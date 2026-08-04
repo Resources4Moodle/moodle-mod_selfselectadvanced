@@ -390,10 +390,27 @@ class notifier {
      * @param string $subjectkey lang key for the subject
      * @param string $bodykey lang key for the body
      * @param \stdClass $a resolved placeholder values
+     * @param array|null $overrides this activity's overrides, msgkey-keyed
+     *        as templates::get_all() returns them, when the CALLER has
+     *        already loaded them. Null means look it up, which is one
+     *        query - fine for a single message, and once per queued
+     *        ITEM for the digest task, which is why that task now
+     *        loads them once per activity and passes them in
+     *        (PERF-001). The RULE is unchanged either way: an override
+     *        wins over the language string, and a missing key is an
+     *        absent override, exactly as templates::get() reports it.
      * @return string[] [subject, body]
      */
-    public static function resolve_text(activity $activity, string $subjectkey, string $bodykey, \stdClass $a): array {
-        $custom = templates::get($activity, $bodykey);
+    public static function resolve_text(
+        activity $activity,
+        string $subjectkey,
+        string $bodykey,
+        \stdClass $a,
+        ?array $overrides = null
+    ): array {
+        $custom = $overrides === null
+            ? templates::get($activity, $bodykey)
+            : ($overrides[$bodykey] ?? null);
         if ($custom) {
             return [templates::render($custom->subject, $a), templates::render($custom->body, $a)];
         }

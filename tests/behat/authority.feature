@@ -266,3 +266,97 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     Then I should see "Team Bay"
     And I should not see "Submit to guide"
     And I should not see "Invite members"
+
+  # AUTH-002 and AUTH-003 (external review, 1.20.2). Two more controls
+  # drawn from the raw leaderid, which decision 38 leaves in place for a
+  # prohibited leader: "Edit title and brief", whose write was an inline
+  # update_record() on groupedit.php, and "Upload or replace the
+  # proposal", whose write was an inline file_save_draft_area_files() on
+  # group.php. Neither had a service; both do now, and both services
+  # refuse the actor the buttons were being offered to.
+  #
+  # The upload control goes ENTIRELY here rather than turning into
+  # "Remove the proposal", because this team has no proposal to remove:
+  # the F3 exception keeps a control only while there is something of
+  # the actor's own to take down.
+  Scenario: A prohibited leader is offered neither the edit nor the proposal control
+    Given the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name       | title  | leader   |
+      | ssa1               | Team Larch | Optics | student1 |
+    When I am on the "Lab groups > Team Larch" "mod_selfselectadvanced > group" page logged in as student1
+    Then I should see "Edit title and brief"
+    And I should see "Upload or replace the proposal"
+    Given the following "permission overrides" exist:
+      | capability                         | permission | role    | contextlevel    | reference |
+      | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa1      |
+    When I am on the "Lab groups > Team Larch" "mod_selfselectadvanced > group" page logged in as student1
+    # Still their team and still forming: the only thing that moved is
+    # the administrator's decision.
+    Then I should see "Optics"
+    And I should not see "Edit title and brief"
+    And I should not see "Upload or replace the proposal"
+    # The staff repair path is untouched, which is the regression this
+    # fix had to avoid: :creategroup is a STUDENT capability an editing
+    # teacher never held, and demanding it above the branch is what made
+    # the manager path unreachable in the first place (D6-4).
+    When I am on the "Lab groups > Team Larch" "mod_selfselectadvanced > group" page logged in as teacher1
+    Then I should see "Edit title and brief"
+    And I should see "Upload or replace the proposal"
+
+  # AUTH-001, and the one scenario in this file where a control
+  # deliberately SURVIVES the prohibition. Listing a team PUBLISHES it
+  # to every guide in the activity; withdrawing the listing takes it
+  # back down, and F3 says an actor is never blocked from making
+  # themselves less visible. One flag used to draw both buttons, so the
+  # fix had to split them rather than gate them - and a blanket gate
+  # here would strand a published team on a page full of guides with
+  # nobody but staff able to withdraw it.
+  Scenario: The listing button goes and the withdrawal button stays
+    Given the following "activities" exist:
+      | activity           | course | name          | idnumber | minsize | maxsize | maxlead | maxmembership | maxguided | eoienabled |
+      | selfselectadvanced | C1     | Interest lab  | ssa2     | 1       | 4       | 2       | 2             | 5         | 1          |
+    And the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name      | title  | leader   |
+      | ssa2               | Team Lime | Radar  | student1 |
+      | ssa2               | Team Leaf | Sonar  | student1 |
+    When I am on the "Interest lab > Team Lime" "mod_selfselectadvanced > group" page logged in as student1
+    And I press "List this team for guides"
+    Then I should see "Listed for guides"
+    And I should see "Withdraw from listing"
+    When I am on the "Interest lab > Team Leaf" "mod_selfselectadvanced > group" page logged in as student1
+    Then I should see "List this team for guides"
+    Given the following "permission overrides" exist:
+      | capability                         | permission | role    | contextlevel    | reference |
+      | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa2      |
+    When I am on the "Interest lab > Team Leaf" "mod_selfselectadvanced > group" page logged in as student1
+    Then I should not see "List this team for guides"
+    When I am on the "Interest lab > Team Lime" "mod_selfselectadvanced > group" page logged in as student1
+    Then I should see "Listed for guides"
+    And I should see "Withdraw from listing"
+
+  # AUTH-004: accepting an expression of interest INSTALLS a guide on
+  # the team and auto-declines every rival, so it is leader authority
+  # and eoi::respond() now asks for it. The interest itself stays on the
+  # screen - the leader still has to be able to see who is waiting on
+  # them, the same rule the invitation list follows.
+  Scenario: A prohibited leader is offered no decision on an expression of interest
+    Given the following "activities" exist:
+      | activity           | course | name          | idnumber | minsize | maxsize | maxlead | maxmembership | maxguided | eoienabled |
+      | selfselectadvanced | C1     | Interest lab  | ssa2     | 1       | 4       | 2       | 2             | 5         | 1          |
+    And the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name      | title  | leader   |
+      | ssa2               | Team Lily | Lasers | student1 |
+    And the following "mod_selfselectadvanced > eois" exist:
+      | selfselectadvanced | ssagroup  | guide  | status  |
+      | ssa2               | Team Lily | guide1 | pending |
+    When I am on the "Interest lab > Team Lily" "mod_selfselectadvanced > group" page logged in as student1
+    Then I should see "Gina Guide" in the ".selfselectadvanced-eoirows" "css_element"
+    And I should see "Accept" in the ".selfselectadvanced-eoirows" "css_element"
+    And I should see "Decline" in the ".selfselectadvanced-eoirows" "css_element"
+    Given the following "permission overrides" exist:
+      | capability                         | permission | role    | contextlevel    | reference |
+      | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa2      |
+    When I am on the "Interest lab > Team Lily" "mod_selfselectadvanced > group" page logged in as student1
+    Then I should see "Gina Guide" in the ".selfselectadvanced-eoirows" "css_element"
+    And I should not see "Accept" in the ".selfselectadvanced-eoirows" "css_element"
+    And I should not see "Decline" in the ".selfselectadvanced-eoirows" "css_element"

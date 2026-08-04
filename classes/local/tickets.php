@@ -762,28 +762,68 @@ class tickets {
      * @throws \moodle_exception refusalcoiinvolved when refused
      */
     public static function require_uninvolved(activity $activity, stdClass $group, int $userid): void {
+        $involvement = self::involvement($activity, $group, $userid);
+        if ($involvement !== null) {
+            throw new \moodle_exception('refusalcoiinvolved', 'mod_selfselectadvanced', '', $involvement);
+        }
+    }
+
+    /**
+     * The SAME question require_uninvolved() asks, as a value rather
+     * than an exception: how is this actor involved with this group, if
+     * they are at all?
+     *
+     * Extracted (UX-001) because a page deciding whether to OFFER a
+     * conflicted action needs the answer without the refusal - and the
+     * only alternative on offer was a second copy of the rule in the
+     * renderer, which is how two of this plugin's predicates drifted
+     * apart already (A-05, F-6). require_uninvolved() is now this
+     * method plus a throw, so the offered control and the refusal can
+     * no longer disagree.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the group row; guideid and, where it
+     *        exists, guidesuccessorid must be present on it
+     * @param int $userid the actor
+     * @return string|null the localised involvement, or null when the
+     *         actor is uninvolved (which a :manage holder always is,
+     *         by exemption)
+     */
+    public static function involvement(activity $activity, stdClass $group, int $userid): ?string {
         global $DB;
 
         if (has_capability('mod/selfselectadvanced:manage', $activity->context(), $userid)) {
-            return;
+            return null;
         }
-        $involvement = null;
         if ((int) $group->guideid === $userid) {
-            $involvement = get_string('coiguide', 'mod_selfselectadvanced');
-        } else if ((int) ($group->guidesuccessorid ?? 0) === $userid) {
-            $involvement = get_string('coisuccessor', 'mod_selfselectadvanced');
-        } else if (
+            return get_string('coiguide', 'mod_selfselectadvanced');
+        }
+        if (!property_exists($group, 'guidesuccessorid')) {
+            // The docblock's contract, enforced the way
+            // freeze::release_refusal() enforces its own: a row
+            // selected without the column would answer "not the
+            // successor" for everybody - the permissive direction, the
+            // one a silent default must never take (blind audit
+            // 1.20.3, finding 4: may_freeze_team() reached this read
+            // with a partial row and was answered quietly).
+            throw new \coding_exception(
+                'tickets::involvement() needs $group->guidesuccessorid; the caller selected a partial row'
+            );
+        }
+        if ((int) ($group->guidesuccessorid ?? 0) === $userid) {
+            return get_string('coisuccessor', 'mod_selfselectadvanced');
+        }
+        if (
             $DB->record_exists('selfselectadvanced_member', [
             'groupid' => $group->id,
             'userid' => $userid,
             'status' => groups::STATUS_CONFIRMED,
             ])
         ) {
-            $involvement = get_string('coimember', 'mod_selfselectadvanced');
+            return get_string('coimember', 'mod_selfselectadvanced');
         }
-        if ($involvement !== null) {
-            throw new \moodle_exception('refusalcoiinvolved', 'mod_selfselectadvanced', '', $involvement);
-        }
+
+        return null;
     }
 
     /**

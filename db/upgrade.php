@@ -1415,5 +1415,37 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073220, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073230) {
+        // 1.20.3. Authority follows the service everywhere the external
+        // evaluation showed it did not (AUTH-001..004, ACT-001..004,
+        // UX-001, PERF-001), and every render predicate now consumes
+        // the same ladder its service enforces. Behaviour, five new
+        // language strings, three event classes and two service
+        // classes - no schema, capability or message-provider change
+        // in this step.
+        //
+        // The marker row is written for the same reason the 2026073220
+        // one is: core writes $plugin->version into config_plugins by
+        // itself once this function returns, so the recorded version
+        // cannot distinguish a step that RAN from a step that was
+        // skipped. This row can - and versionbump_test counts it by
+        // matching '%(2026073230)%', so the serial must stay inside
+        // the parentheses in the headline below.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.3 (2026073230). Behaviour, language strings and new event and '
+                . 'service classes only: no schema, capability or message-provider change in '
+                . 'this step.',
+            'This step migrates nothing. It carries the release serial so that an existing '
+                . 'site detects 1.20.3 and rebuilds its caches, without which the five new '
+                . 'language strings would render as [[...]] on an installed site. It is '
+                . 'deliberately observable: this row is written if and only if the step '
+                . 'actually executed.'
+        );
+
+        upgrade_mod_savepoint(true, 2026073230, 'selfselectadvanced');
+    }
+
     return true;
 }

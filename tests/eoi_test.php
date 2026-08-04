@@ -642,4 +642,90 @@ final class eoi_test extends \advanced_testcase {
         $this->assertNull(eoi::queue_position($activity, (int) $group->id, $first));
         $this->assertSame(1, eoi::queue_position($activity, (int) $group->id, $second));
     }
+
+    /**
+     * Switching eoienabled OFF after interests exist closes the ACCEPT
+     * half only (3C audit follow-up B): accepting would complete the
+     * guide-initiated assignment the setting forbids, while a pending
+     * interest must always stay clearable, so rejecting still works.
+     *
+     * MUTATIONS CAUGHT: dropping either new guard in respond()'s accept
+     * branch turns the refusal into a successful assignment and the
+     * first assertion fails.
+     *
+     * The reject half lives in its own method below: a refused
+     * respond() rolls back its delegated transaction, and on
+     * PostgreSQL that poisons the test's wrapping transaction for any
+     * LATER respond() in the same method - the commit-after-rollback
+     * trap the 1.20.3 provers measured. A positive control may not
+     * follow a negative in one method.
+     */
+    public function test_respond_accept_refused_once_eoi_disabled(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $students, $guides] = $this->setup_activity();
+        $leader = (int) $students[0]->id;
+        $group = $this->listed_group($activity, $leader, 'Latecomers');
+        $ida = eoi::express($activity, (int) $group->id, (int) $guides[0]->id, '', FORMAT_HTML);
+
+        $DB->set_field('selfselectadvanced', 'eoienabled', 0, ['id' => $activity->id()]);
+        // The settings() record is the one the object was built from,
+        // so the flipped value is only visible to a rebuilt activity.
+        $activity = activity::from_instance($activity->id());
+
+        $this->assert_refusal('refusaleoidisabled', function () use ($activity, $ida, $leader) {
+            eoi::respond($activity, $ida, true, $leader);
+        });
+        $this->assertSame(0, (int) groups::get($activity, (int) $group->id)->guideid);
+    }
+
+    /**
+     * The reject half of the pair above: a pending interest must
+     * always be clearable, so rejecting survives the eoienabled flip.
+     * No refusal precedes the positive here - see the docblock above
+     * for why the two halves cannot share a method.
+     */
+    public function test_respond_reject_stays_open_once_eoi_disabled(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $students, $guides] = $this->setup_activity();
+        $leader = (int) $students[0]->id;
+        $group = $this->listed_group($activity, $leader, 'Clearers');
+        $idb = eoi::express($activity, (int) $group->id, (int) $guides[1]->id, '', FORMAT_HTML);
+
+        $DB->set_field('selfselectadvanced', 'eoienabled', 0, ['id' => $activity->id()]);
+        $activity = activity::from_instance($activity->id());
+
+        eoi::respond($activity, $idb, false, $leader);
+        $row = $DB->get_record('selfselectadvanced_eoi', ['id' => $idb], '*', MUST_EXIST);
+        $this->assertSame(eoi::STATUS_REJECTED, $row->status);
+        $this->assertSame(0, (int) groups::get($activity, (int) $group->id)->guideid);
+    }
+
+    /**
+     * Switching studentapproach ON after interests exist refuses the
+     * accept for the same reason express() refuses the expression:
+     * "even a directly-flipped eoienabled cannot reopen guide-initiated
+     * interest in student-approach mode" - and neither may a pending
+     * row left over from before the flip.
+     */
+    public function test_respond_accept_refused_in_studentapproach_mode(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $students, $guides] = $this->setup_activity();
+        $leader = (int) $students[0]->id;
+        $group = $this->listed_group($activity, $leader, 'Approachers');
+        $ida = eoi::express($activity, (int) $group->id, (int) $guides[0]->id, '', FORMAT_HTML);
+
+        $DB->set_field('selfselectadvanced', 'studentapproach', 1, ['id' => $activity->id()]);
+        $activity = activity::from_instance($activity->id());
+
+        $this->assert_refusal('refusalstudentapproach', function () use ($activity, $ida, $leader) {
+            eoi::respond($activity, $ida, true, $leader);
+        });
+        $this->assertSame(0, (int) groups::get($activity, (int) $group->id)->guideid);
+    }
 }

@@ -197,13 +197,35 @@ class teamaccess {
     /**
      * Whether this person may open ONE team's review page.
      *
-     * review.php's own gate is :guide on the ACTIVITY and the team
-     * arrives in the URL, so the team-scoped question has to be asked
-     * separately or any :guide holder reads any team's roster, its
+     * The team arrives in review.php's URL, so the team-scoped question
+     * has to be asked or any :guide holder reads any team's roster, its
      * members' composition attributes and the assigned guide's private
      * notes by editing one number. Membership is deliberately NOT a
      * door here: the review page is the guide's decision surface, not
      * the team's.
+     *
+     * THIS IS NOW THE WHOLE OF THAT PAGE'S GATE (finding ACT-001).
+     * review.php also carried require_capability(':guide') on the
+     * ACTIVITY, above this call, and that line refused the one audience
+     * this predicate admits and the :guide archetype list does not
+     * reach: db/access.php grants :guide to the non-editing teacher
+     * alone, so a MANAGER - holding :viewall, named in the second arm
+     * below, linked here from the flagged report and the team page -
+     * was turned away at the door of a page documented as theirs.
+     *
+     * :guide MOVED INTO THE FIRST ARM rather than being deleted, and
+     * the difference matters. The capability's own string is "Appear in
+     * the guide list, review and approve groups": prohibit it and the
+     * guide dashboard, the approval and the return all close (audit
+     * D1), so the review page has to close with them or the plugin
+     * offers a judgement surface to somebody it will refuse the
+     * judgement. What the page-level check got wrong was its SCOPE, not
+     * its subject - it asked :guide of everybody, including the staff
+     * who reach this page without guiding anything. Asked here, of the
+     * arm it belongs to, both hold at once: the assigned guide needs
+     * both the assignment (:viewassignedteams, inside
+     * is_assigned_guide) and the authority to review it, and the staff
+     * arms need neither.
      *
      * @param activity $activity the activity
      * @param \stdClass $group the group row (must carry guideid)
@@ -211,11 +233,14 @@ class teamaccess {
      * @return bool
      */
     public static function may_review_team(activity $activity, \stdClass $group, int $userid): bool {
-        return self::is_assigned_guide($activity, $group, $userid)
+        $context = $activity->context();
+
+        return (self::is_assigned_guide($activity, $group, $userid)
+                && has_capability('mod/selfselectadvanced:guide', $context, $userid))
             || has_any_capability([
                 'mod/selfselectadvanced:manage',
                 'mod/selfselectadvanced:viewall',
-            ], $activity->context(), $userid);
+            ], $context, $userid);
     }
 
     /**

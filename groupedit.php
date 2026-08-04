@@ -57,6 +57,22 @@ if ($gid) {
     if ((int) $editgroup->leaderid !== (int) $USER->id && !$isstaff) {
         throw new moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
     }
+    // AUTHORITY, RESTORED WITHOUT RE-BREAKING STAFF (AUTH-003). The
+    // capability gate above answers the CREATE branch only, and moving
+    // it there in D6-4 was deliberate: :creategroup is a STUDENT
+    // capability an editing teacher does not hold, so demanding it of
+    // everybody made the manager repair path unreachable. The side
+    // effect nobody wrote down was that the EDIT branch then asked no
+    // capability at all - and under decision 38 the raw leaderid it
+    // asks instead is exactly what a PROHIBITED leader still owns.
+    //
+    // So the question is asked HERE, of the leader path only, leaving
+    // the staff path exactly as D6-4 left it.
+    // api::update_group_details() asks the same pair again at the
+    // write, because a page gate is not a gate: a direct POST skips it.
+    if (!$isstaff) {
+        \mod_selfselectadvanced\local\authority::require_lead($activity, (int) $USER->id);
+    }
     if ($editgroup->state !== \mod_selfselectadvanced\local\state::FORMING) {
         throw new moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
     }
@@ -88,15 +104,27 @@ if ($form->is_cancelled()) {
 
 if ($data = $form->get_data()) {
     if ($editgroup) {
-        global $DB;
-        $DB->update_record('selfselectadvanced_group', (object) [
-            'id' => $editgroup->id,
-            'title' => $data->title,
-            'brief' => $data->brief['text'],
-            'briefformat' => (int) $data->brief['format'],
-            'usermodified' => (int) $USER->id,
-            'timemodified' => time(),
-        ]);
+        // The write moved into api::update_group_details(), which asks
+        // the authority, takes the group lock, re-reads the row inside
+        // it and fires an event (AUTH-003). It used to be an inline
+        // update_record() here, reachable by a POST that never met the
+        // checks above.
+        try {
+            $api->update_group_details(
+                $editgroup,
+                $data->title,
+                $data->brief['text'],
+                (int) $data->brief['format'],
+                (int) $USER->id
+            );
+        } catch (moodle_exception $e) {
+            redirect(
+                new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $editgroup->id]),
+                $e->getMessage(),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        }
         redirect(
             new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $editgroup->id]),
             get_string('groupupdated', 'mod_selfselectadvanced'),

@@ -470,17 +470,34 @@ foreach ($mygroups as $group) {
         $queue[] = $row;
     } else if ($matchesfilters) {
         $row->groupid = (int) $group->id;
+        // The service's own gate, asked about THIS team (ACT-002). It
+        // asked authority::may_freeze() - the capability alone - which
+        // is the answer to a different question: a guide for whom
+        // :viewassignedteams has been prohibited still holds :freeze
+        // and is refused by freeze_group()'s branch, so this dashboard
+        // drew them a button that could only ever produce a refusal.
         $row->canfreeze = $group->state === \mod_selfselectadvanced\local\state::FIRM
-            && \mod_selfselectadvanced\local\authority::may_freeze($activity, (int) $USER->id);
+            && \mod_selfselectadvanced\local\freeze::may_freeze_team($activity, $group, (int) $USER->id);
         // Releasing a team this guide froze (strategy 1.19 C). A team
         // an editing teacher or coordinator froze is theirs to release,
         // and the guide is offered the unfreeze REQUEST instead - the
         // difference is stated here rather than discovered on refusal.
+        //
+        // ASKED, not described (UX-001). This was one of four
+        // descriptions of the unfreeze door and it was narrow in one
+        // case the service admits: a guide who ALSO holds :unfreeze
+        // releases their own team whoever froze it, and the dashboard
+        // hid the button from them. The note below still names the ONE
+        // refusal it is worded for; a guide refused for a conflict of
+        // interest (a coordinator guiding this very team) is offered
+        // neither, and works it through the queue their own dashboard
+        // shows them.
+        $releaserefusal = $group->state === \mod_selfselectadvanced\local\state::FROZEN
+            ? \mod_selfselectadvanced\local\freeze::release_refusal($activity, $group, (int) $USER->id)
+            : \mod_selfselectadvanced\local\freeze::RELEASE_CAPABILITY;
         $row->canrelease = $group->state === \mod_selfselectadvanced\local\state::FROZEN
-            && (int) $group->guideid === (int) $USER->id
-            && empty($group->frozenbystaff);
-        $row->stafffroze = $group->state === \mod_selfselectadvanced\local\state::FROZEN
-            && !empty($group->frozenbystaff);
+            && $releaserefusal === null;
+        $row->stafffroze = $releaserefusal === \mod_selfselectadvanced\local\freeze::RELEASE_STAFFFROZE;
         $row->releaseurl = (new moodle_url('/mod/selfselectadvanced/group.php', [
             'id' => $cm->id,
             'g' => $group->id,

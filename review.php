@@ -36,19 +36,32 @@ require_login($course, true, $cm);
 
 $activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
 $context = $activity->context();
-require_capability('mod/selfselectadvanced:guide', $context);
 
 $api = new \mod_selfselectadvanced\local\api($activity);
 $group = \mod_selfselectadvanced\local\groups::get($activity, $groupid);
 
-// Disclosure is decided here, not at the bottom of the page. The gate
-// above is :guide on the ACTIVITY and the team arrives in the URL, so
-// until 1.20.1 any :guide holder - which is every non-editing teacher
-// on a stock site, and the Group Coordinator role - could read any
-// team's roster, its members' composition attributes and the assigned
-// guide's private notes by editing one number. Writing was already
-// refused; reading was the breach. Managers and broad-read holders keep
-// their access unchanged.
+// ONE gate, and it is the team-scoped one.
+//
+// This page also carried require_capability(':guide') on the ACTIVITY,
+// ABOVE the predicate, until this wave. Nothing needed it and it was
+// never the door: every actor may_review_team() admits by :guide is the
+// team's ASSIGNED guide, whom the predicate names itself. What the
+// extra line did was refuse the one audience the predicate admits and
+// the capability list does not overlap - a holder of :viewall or
+// :manage who does not guide teams. On a stock site that is the MANAGER
+// archetype exactly: db/access.php grants :guide to the non-editing
+// teacher alone, so a manager held :viewall, was named in this page's
+// own predicate, was linked to it from the flagged report and the team
+// page - and was turned away at the door of a page documented as
+// theirs. A gate that refuses the population it was written for is not
+// a gate, it is a defect with a capability check in front of it.
+//
+// Disclosure is decided here, not at the bottom of the page: the team
+// arrives in the URL, so until 1.20.1 any :guide holder - which is
+// every non-editing teacher on a stock site, and the Group Coordinator
+// role - could read any team's roster, its members' composition
+// attributes and the assigned guide's private notes by editing one
+// number. Writing was already refused; reading was the breach.
 // The predicate is teamaccess::may_review_team() and is not
 // transcribed here, so a unit test of that function is a test of this
 // page's gate.
@@ -98,8 +111,10 @@ if ($action === 'approve') {
 
 // Guide notes and the award belong to the guide ASSIGNED to this team.
 //
-// The page gate above is require_capability(':guide') on the ACTIVITY,
-// and the team comes straight from the 'g' URL parameter - so until
+// The page gate above is may_review_team() (1.20.3; until then it was
+// require_capability(':guide') on the ACTIVITY, which was never the
+// protection here), and the team comes straight from the 'g' URL
+// parameter - so until
 // 1.19.1 any holder of :guide could post to this page naming any team
 // in the activity and rewrite another guide's notes or set that team's
 // gradebook award. Every non-editing teacher holds :guide, and so does
