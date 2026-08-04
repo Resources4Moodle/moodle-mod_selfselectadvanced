@@ -137,7 +137,12 @@ echo $OUTPUT->heading(get_string('managerdashboard', 'mod_selfselectadvanced'));
 $links = [
     ['quotas.php', 'composition', ['mod/selfselectadvanced:manage']],
     ['moves.php', 'pendingmoves', ['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:managecomposition']],
-    ['tickets.php', 'tickets', ['mod/selfselectadvanced:coordinate']],
+    // The tickets door is conditional too: :manage enters outright,
+    // everyone else needs :coordinate (tickets.php:44-47). Coordinate
+    // alone here cost ordinary managers their link (final build
+    // review, NEW-002 - the second conditional door this list got
+    // wrong; groupedit was the first).
+    ['tickets.php', 'tickets', ['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:coordinate']],
     ['coordinators.php', 'coordinators', ['mod/selfselectadvanced:manage']],
     ['moveedit.php', 'movestudents', ['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:managecomposition']],
     // The groupedit door is conditional: students enter under

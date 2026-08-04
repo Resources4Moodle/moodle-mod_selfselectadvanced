@@ -1447,5 +1447,34 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073230, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026073240) {
+        // 1.20.4 wave 1 - messaging reliability. A refused message_send()
+        // is now a fact the plugin records and acts on: notifier::send()
+        // returns the outcome and writes a notification_refused event
+        // (one new event class, one new language string), the reminder
+        // flag and the auto-approve escalation marker are written only
+        // after a send that reported true, and the digest task counts
+        // submissions, stale cleanup and failures as three different
+        // things. No schema, capability or message-provider change.
+        //
+        // Same marker discipline as every step above: core writes
+        // $plugin->version into config_plugins by itself once this
+        // function returns, so only this row can tell "ran" from
+        // "skipped" - versionbump_test matches '%(2026073240)%', so the
+        // serial stays inside the parentheses in the headline below.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.4 (2026073240). Messaging reliability: refused submissions '
+                . 'are recorded and retried; one new event class and language string.',
+            'This step migrates nothing. It carries the release serial so an installed '
+                . 'site rebuilds its caches and the new event name renders. It is '
+                . 'deliberately observable: this row is written if and only if the step '
+                . 'actually executed.'
+        );
+
+        upgrade_mod_savepoint(true, 2026073240, 'selfselectadvanced');
+    }
+
     return true;
 }

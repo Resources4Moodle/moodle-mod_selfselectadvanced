@@ -78,7 +78,7 @@ class deadline_reminder extends \core\task\scheduled_task {
                 if (get_user_preferences($prefkey, 0, $userid)) {
                     continue;
                 }
-                notifier::send(
+                $submitted = notifier::send(
                     $activity,
                     'deadlinereminder',
                     $userid,
@@ -88,7 +88,16 @@ class deadline_reminder extends \core\task\scheduled_task {
                     new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]),
                     $activity->name()
                 );
-                set_user_preference($prefkey, 1, $userid);
+                // The once-only flag follows the SEND (MSG-003): a
+                // refused submission leaves the user unflagged, so the
+                // next run retries instead of a refusal becoming a
+                // permanent silence. The inverse risk is accepted on
+                // purpose - a crash between the send and the flag
+                // re-sends one reminder on the next run, and a
+                // duplicate reminder beats a reminder nobody ever got.
+                if ($submitted) {
+                    set_user_preference($prefkey, 1, $userid);
+                }
             }
         }
     }

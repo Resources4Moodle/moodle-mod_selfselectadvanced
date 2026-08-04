@@ -94,6 +94,29 @@ class send_digests extends \core\task\scheduled_task {
     private const ITEMS = 100;
 
     /**
+     * @var int send_one_digest(): the digest message was submitted to
+     *      Moodle messaging. The only outcome $sent counts (NEW-001).
+     */
+    private const SUBMITTED = 0;
+
+    /**
+     * @var int send_one_digest(): nothing was sendable because every
+     *      row's activity has been deleted; no message was constructed.
+     *      The rows must still leave the queue, but as CLEANUP - never
+     *      as a submission, never in $sent, never in the log line that
+     *      claims one (NEW-001: a stale-only batch used to log
+     *      "submitted a digest" and could mask the all-failed
+     *      escalation).
+     */
+    private const STALE_DISCARDED = 1;
+
+    /**
+     * @var int send_one_digest(): message_send() refused the
+     *      submission; the rows must stay queued (DIGEST-001).
+     */
+    private const FAILED = 2;
+
+    /**
      * Localised task name.
      *
      * @return string
@@ -114,6 +137,8 @@ class send_digests extends \core\task\scheduled_task {
         $overrides = [];
         $sent = 0;
         $failed = 0;
+        $stale = 0;
+        $skippedrows = 0;
         $batch = (int) get_config('mod_selfselectadvanced', 'digestbatch');
         $batch = $batch > 0 ? $batch : self::BATCH;
         $itembatch = (int) get_config('mod_selfselectadvanced', 'digestitembatch');
@@ -195,18 +220,39 @@ class send_digests extends \core\task\scheduled_task {
             // deleted only when send_one_digest() says the message was
             // submitted - or when there was legitimately nothing to
             // send, because rows whose activity no longer exists must
-            // still leave the queue or they retry for ever.
+            // still leave the queue or they retry for ever. The two
+            // are not the same outcome and are not counted or logged
+            // as the same outcome (NEW-001).
             try {
-                if ($this->send_one_digest($userid, $rows, $activities, $overrides)) {
-                    $DB->delete_records_list('selfselectadvanced_digestq', 'id', array_keys($rows));
-                    $sent++;
-                    $more = (int) $candidate->queued - count($rows);
-                    mtrace("mod_selfselectadvanced: submitted a digest of " . count($rows) . " item(s) to user $userid"
-                        . ($more > 0 ? " ($more more queued for the next run)" : ''));
-                } else {
+                $skipped = 0;
+                $status = $this->send_one_digest($userid, $rows, $activities, $overrides, $skipped);
+                if ($status === self::FAILED) {
                     $failed++;
                     mtrace("mod_selfselectadvanced: messaging refused the digest for user $userid; "
                         . count($rows) . " row(s) left queued for the next run");
+                } else {
+                    $DB->delete_records_list('selfselectadvanced_digestq', 'id', array_keys($rows));
+                    if ($status === self::SUBMITTED) {
+                        if ($skipped > 0) {
+                            // Rows whose activity vanished inside an
+                            // otherwise sendable digest: they leave
+                            // the queue with the batch, but never
+                            // silently (MSG-002 r2).
+                            $skippedrows += $skipped;
+                            mtrace("mod_selfselectadvanced: dropped $skipped stale row(s) (activity gone)"
+                                . " from user $userid's digest");
+                        }
+                        $sent++;
+                        $more = (int) $candidate->queued - count($rows);
+                        mtrace("mod_selfselectadvanced: submitted a digest of " . (count($rows) - $skipped)
+                            . " item(s) to user $userid"
+                            . ($more > 0 ? " ($more more queued for the next run)" : ''));
+                    } else {
+                        $stale++;
+                        $skippedrows += $skipped;
+                        mtrace("mod_selfselectadvanced: discarded " . count($rows) . " stale digest row(s)"
+                            . " for user $userid (every activity gone); nothing was submitted");
+                    }
                 }
             } catch (\Throwable $e) {
                 $failed++;
@@ -219,13 +265,18 @@ class send_digests extends \core\task\scheduled_task {
         // look identical in the task log otherwise.
         mtrace("mod_selfselectadvanced: send_digests examined " . count($due) . " due recipient(s)"
             . " (caps: $batch recipients, $itembatch items each)"
+            . ($stale > 0 ? "; $stale stale batch(es) discarded" : '')
+            . ($skippedrows > 0 ? "; $skippedrows stale row(s) dropped in all" : '')
             . (count($due) >= $batch ? '; the cap was reached, more remain for the next run' : ''));
 
         if ($failed > 0 && $sent === 0) {
             // A scheduled task failing this run is not itself a
             // problem (the next pass tries again); only escalate when
             // NOTHING got through, so a genuinely broken run is still
-            // visible in the admin task log rather than failing silently.
+            // visible in the admin task log rather than failing
+            // silently. $sent counts SUBMITTED alone, so a run that
+            // merely swept stale rows cannot pass for one that
+            // delivered something (NEW-001).
             throw new \RuntimeException(
                 "mod_selfselectadvanced: send_digests could not deliver any of $failed queued digest(s)"
             );
@@ -235,13 +286,19 @@ class send_digests extends \core\task\scheduled_task {
     /**
      * Send one aggregated digest message listing every queued item.
      *
-     * Returns whether the caller may DELETE the queue rows: true when
-     * the message was submitted to Moodle messaging (submitted, not
-     * delivered - message_send() promises no more), or when there was
-     * legitimately nothing to send (every row's activity is gone, so
-     * the rows are stale and retrying them is pointless). False means
-     * message_send() reported a problem and the rows must stay queued
-     * (DIGEST-001).
+     * Returns what actually happened, in three states the caller must
+     * tell apart (NEW-001; the old bool overloaded "submitted" with
+     * "all rows stale, nothing sent", so cleanup was counted and
+     * logged as delivery):
+     *
+     *   - SUBMITTED: the message went to Moodle messaging (submitted,
+     *     not delivered - message_send() promises no more). The caller
+     *     may delete the rows and count a send.
+     *   - STALE_DISCARDED: every row's activity is gone; no message
+     *     was constructed. The caller must still delete the rows
+     *     (retrying them is pointless) but count and log CLEANUP.
+     *   - FAILED: message_send() reported a problem; the rows must
+     *     stay queued (DIGEST-001).
      *
      * @param int $userid the recipient
      * @param \stdClass[] $rows queued rows for this user, oldest first
@@ -252,8 +309,14 @@ class send_digests extends \core\task\scheduled_task {
      *        notifier::resolve_text() makes when it has to look them up
      *        itself (PERF-001). The overrides of an activity do not
      *        vary between two rows of the same digest.
+     * @param int $skipped out: rows omitted from the digest because
+     *        their activity has been deleted. Nonzero beside SUBMITTED
+     *        means the batch was sent short (MSG-002 r2); equal to
+     *        count($rows) beside STALE_DISCARDED.
+     * @return int one of self::SUBMITTED, self::STALE_DISCARDED,
+     *         self::FAILED
      */
-    private function send_one_digest(int $userid, array $rows, array &$activities, array &$overrides): bool {
+    private function send_one_digest(int $userid, array $rows, array &$activities, array &$overrides, int &$skipped): int {
         $items = [];
         $firsturl = '';
         foreach ($rows as $row) {
@@ -262,6 +325,10 @@ class send_digests extends \core\task\scheduled_task {
                 try {
                     $activities[$activityid] = activity::from_instance($activityid);
                 } catch (\moodle_exception $e) {
+                    // The activity behind this row is gone. The row is
+                    // COUNTED, not just passed over: an invisible skip
+                    // is how a deleted row leaves no trace (MSG-002 r2).
+                    $skipped++;
                     continue;
                 }
             }
@@ -287,8 +354,9 @@ class send_digests extends \core\task\scheduled_task {
         }
         if (!$items) {
             // Nothing sendable - every row's activity has been deleted.
-            // Stale rows must still leave the queue.
-            return true;
+            // Stale rows must still leave the queue, but as cleanup:
+            // nothing was submitted and nothing may claim to have been.
+            return self::STALE_DISCARDED;
         }
 
         $fullbody = get_string('digestintro', 'mod_selfselectadvanced') . "\n\n" . implode("\n\n", $items);
@@ -311,6 +379,6 @@ class send_digests extends \core\task\scheduled_task {
         // Moodle's message_send() reports failure by RETURN (false),
         // not only by throwing. Believing it is what keeps a refused
         // submission's rows in the queue.
-        return message_send($message) !== false;
+        return message_send($message) !== false ? self::SUBMITTED : self::FAILED;
     }
 }

@@ -264,10 +264,7 @@ class guide_autoapprove extends \core\task\scheduled_task {
             if (!$stage || (int) $group->remindstage >= $stage) {
                 continue;
             }
-            // The marker name is unchanged on purpose: submit(),
-            // assign_guide() and return_group() clear it by that name.
-            set_user_preference('mod_selfselectadvanced_gremind_' . $group->id, $stage, (int) $group->guideid);
-            \mod_selfselectadvanced\local\notifier::send(
+            $submitted = \mod_selfselectadvanced\local\notifier::send(
                 $activity,
                 'guidequeue',
                 (int) $group->guideid,
@@ -285,7 +282,23 @@ class guide_autoapprove extends \core\task\scheduled_task {
                 ]),
                 format_string($group->name)
             );
-            mtrace("selfselectadvanced: {$stage}% reminder for {$group->pluginuid}");
+            // The marker name is unchanged on purpose: submit(),
+            // assign_guide() and return_group() clear it by that name.
+            //
+            // And it is written only AFTER a send that reported
+            // submission (MSG-003): marker-before-send turned one
+            // refused reminder into a stage the guide never hears of,
+            // because the SQL above excludes marked rows for ever. The
+            // inverse risk is accepted on purpose - a crash between
+            // the send and the marker re-sends one reminder on the
+            // next run, and a duplicate beats a permanent silence.
+            if ($submitted) {
+                set_user_preference('mod_selfselectadvanced_gremind_' . $group->id, $stage, (int) $group->guideid);
+                mtrace("selfselectadvanced: {$stage}% reminder for {$group->pluginuid}");
+            } else {
+                mtrace("selfselectadvanced: {$stage}% reminder for {$group->pluginuid}"
+                    . " was refused by messaging; the marker is unwritten so the next run retries");
+            }
         }
     }
 }

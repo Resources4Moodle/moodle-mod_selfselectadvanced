@@ -155,6 +155,16 @@ class notifier {
      *        standard recipient placeholders are merged into the object)
      * @param \moodle_url $contexturl deep link target
      * @param string $contextname link label lang key rendered value
+     * @return bool whether the notification was SUBMITTED - handed to
+     *         Moodle messaging (which promises no more than that), or
+     *         queued for the recipient's digest. False means messaging
+     *         refused it outright (MSG-001), and the refusal has been
+     *         recorded durably here. A caller with NO outcome-dependent
+     *         state may ignore the return - page paths whose UX already
+     *         reflects the action, and announcement fan-outs like
+     *         guide_autoapprove's manager notices. A caller that GATES
+     *         state on delivery (a reminded flag, an escalation marker,
+     *         a queue deletion) must consume it.
      */
     public static function send(
         activity $activity,
@@ -165,7 +175,7 @@ class notifier {
         $a,
         \moodle_url $contexturl,
         string $contextname
-    ): void {
+    ): bool {
         global $DB;
 
         // House rule (the 1.15.0 lesson, restated by T-02): a message
@@ -215,7 +225,10 @@ class notifier {
                     'timecreated' => time(),
                 ]);
 
-                return;
+                // Queued counts as submitted: insert_record() reports
+                // failure by THROWING, so reaching here means the row
+                // is in the queue and the digest task owns it now.
+                return true;
             }
         }
 
@@ -256,7 +269,44 @@ class notifier {
                 . ' plugin version was raised so the upgrade re-read it.',
                 DEBUG_DEVELOPER
             );
+
+            // The DURABLE record (MSG-001): debugging() reaches nobody
+            // on a production site, so the refusal is written to the
+            // Moodle log as an event - when no lock is held; the
+            // held-lock path below has only error_log, and that
+            // conditionality is the price of the house rule, not an
+            // oversight. It is triggered HERE rather than
+            // handed back to forty call sites, and only when no plugin
+            // lock is held - the comment at the top of this method is
+            // the house rule that send() never runs under a lock, and
+            // that rule's own debugging() has already flagged any path
+            // that breaks it. On such a path the fallback is
+            // error_log(): a lock-holding caller must not have
+            // observers run under its lock, and the refusal still
+            // lands somewhere an operator can grep.
+            if (locks::held_count() === 0) {
+                \mod_selfselectadvanced\event\notification_refused::create([
+                    'context' => $activity->context(),
+                    'relateduserid' => $touserid,
+                    'other' => ['provider' => $provider, 'touserid' => $touserid],
+                ])->trigger();
+            } else {
+                // Suppressed sniff: debugging() is the sanctioned
+                // alternative, but it is exactly what this branch
+                // cannot rely on - it reaches nobody below
+                // DEBUG_DEVELOPER, which is the whole finding.
+                // phpcs:ignore moodle.PHP.ForbiddenFunctions.FoundWithAlternative
+                error_log(
+                    'mod_selfselectadvanced: message_send refused the "' . $provider
+                    . '" notification to user ' . $touserid . ' (recorded here because a'
+                    . ' plugin lock was held, which is itself a reported defect)'
+                );
+            }
+
+            return false;
         }
+
+        return true;
     }
 
     /**

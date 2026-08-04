@@ -423,6 +423,7 @@ $string['eventmovecancelled'] = 'Staged move cancelled';
 $string['eventmovecommitted'] = 'Staged move committed';
 $string['eventmoverulesoverridden'] = 'Move rules overridden';
 $string['eventmovestaged'] = 'Move staged';
+$string['eventnotificationrefused'] = 'Notification refused by messaging';
 $string['eventoverridecreated'] = 'Override created';
 $string['eventoverridedeleted'] = 'Override deleted';
 $string['eventoverrideupdated'] = 'Override updated';

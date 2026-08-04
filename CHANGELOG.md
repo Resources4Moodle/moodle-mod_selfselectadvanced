@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.20.4 — a refused message is a fact, not a shrug (2026-08-04)
+
+> No schema, capability, message-provider or scheduled-task change. Serial
+> `2026073240` / `1.20.4`: one new event class (`notification_refused`) and
+> one new language string need an installed site's caches rebuilt.
+
+Moodle's `message_send()` reports failure by returning false, and this plugin
+used to treat that as delivered. Four consequences of believing it, all
+closed by execution on both engines with mutation-red proofs:
+
+- **`notifier::send()` returns the outcome and records refusals durably** —
+  a `notification_refused` event in the Moodle log (or `error_log` on the
+  one defect path where a lock is held). Callers that gate state on delivery
+  consume the return; pure announcements may ignore it.
+- **A refused reminder no longer silences a user for ever**: the deadline
+  reminder's once-only flag and the auto-approve escalation marker are
+  written only after a send that reported true. A crash between send and
+  flag re-sends once — a duplicate beats a permanent silence, and the code
+  says so where it happens.
+- **The digest task counts three different things as three different
+  things**: submitted, stale-discarded, failed. Stale cleanup is logged as
+  cleanup, cannot be counted as a submission, and cannot mask the
+  every-recipient-failed escalation. Failed rows stay queued and retry.
+- **The manager dashboard offers only what each actor can use** on every
+  arm, including the conditional doors (tickets: `:manage` outright or
+  `:coordinate`), with Behat pinning both directions.
+
 ## 1.20.3 — authority follows the service (2026-08-04)
 
 > No schema, capability, message-provider or scheduled-task change:

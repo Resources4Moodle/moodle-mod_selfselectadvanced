@@ -790,4 +790,62 @@ final class autoapprove_test extends \advanced_testcase {
         $this->assertSame(state::FIRM, $this->state_of((int) $survivor->id));
         $this->assertStringContainsString('sweep failed for activity', $output);
     }
+
+    /**
+     * 14. The escalation marker follows the SEND (MSG-003).
+     *
+     * The marker used to be written BEFORE the send was attempted, and
+     * the escalation SQL excludes marked rows for ever - so one
+     * refused submission (message_send() returning false, forced here
+     * by unregistering the provider) became a stage the guide never
+     * hears of. Now a refusal leaves the marker unwritten, the next
+     * run retries, and a delivered retry marks the stage once.
+     */
+    public function test_reminder_marker_follows_the_send(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+
+        [$activity, , $guide, , $students] = $this->world();
+        $team = $this->overdue($activity, (int) $students[0]->id, (int) $guide->id, (int) (DAYSECS * 0.60));
+        $markername = 'mod_selfselectadvanced_gremind_' . (int) $team->id;
+
+        // The seam: for a notification, message_send() consults
+        // {message_providers} before the PHPUnit sink gets a say, so
+        // deleting the row forces the real false return even under
+        // redirectMessages(). It debugs once at DEBUG_NORMAL and
+        // notifier::send() once more; both are consumed below.
+        $provider = $DB->get_record(
+            'message_providers',
+            ['component' => 'mod_selfselectadvanced', 'name' => 'guidequeue'],
+            '*',
+            MUST_EXIST
+        );
+        $DB->delete_records('message_providers', ['id' => $provider->id]);
+
+        $output = $this->run_sweep();
+        $this->assertDebuggingCalledCount(2);
+
+        $this->assertSame(0, $this->reminders($sink));
+        $this->assertSame(
+            0,
+            (int) get_user_preferences($markername, 0, (int) $guide->id),
+            'a refused reminder was marked as delivered - the guide would never hear of this stage'
+        );
+        $this->assertStringContainsString('refused by messaging', $output);
+        $sink->clear();
+
+        // Provider restored: the retry delivers and marks the stage.
+        unset($provider->id);
+        $DB->insert_record('message_providers', $provider);
+
+        $this->run_sweep();
+        $this->assertSame(1, $this->reminders($sink));
+        $this->assertSame(50, (int) get_user_preferences($markername, 0, (int) $guide->id));
+        $sink->clear();
+
+        // Marked means once only, exactly as before.
+        $this->run_sweep();
+        $this->assertSame(0, $this->reminders($sink));
+    }
 }

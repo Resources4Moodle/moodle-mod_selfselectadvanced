@@ -104,8 +104,20 @@ class send_nudges extends adhoc_task {
                 // backend hiccup) must not abort the rest of a batch
                 // that can run into the thousands.
                 try {
-                    notifier::send($activity, $provider, $userid, $subjectkey, $bodykey, $a, $contexturl, $contextname);
-                    $sent++;
+                    if (notifier::send($activity, $provider, $userid, $subjectkey, $bodykey, $a, $contexturl, $contextname)) {
+                        $sent++;
+                    } else {
+                        // Counted on the RETURN, not on the mere
+                        // absence of a throw (MSG-001): message_send()
+                        // reports an outright refusal by returning
+                        // false, and counting non-throw as sent once
+                        // logged "sent N of N" through a run in which
+                        // every single submission was refused - and
+                        // kept the all-failed escalation below from
+                        // ever firing.
+                        $failed++;
+                        mtrace("mod_selfselectadvanced: messaging refused the nudge for user $userid");
+                    }
                 } catch (\Throwable $e) {
                     $failed++;
                     mtrace("mod_selfselectadvanced: send_nudges failed to notify user $userid: " . $e->getMessage());

@@ -155,3 +155,57 @@ Feature: Every authority this activity grants has a control that spends it
     Then I should see "Gina Guide"
     And "Accept" "link" should not exist in the ".selfselectadvanced-eoirows" "css_element"
     And "Decline" "link" should not exist in the ".selfselectadvanced-eoirows" "css_element"
+
+  # ---------------------------------------------------------------- NEW-002
+  # The manager dashboard's door admits a narrow :assignguide holder
+  # for the guide-assignment work alone (UI-001), so the page must show
+  # them that work and none of the manager toolbox - and the toolbox's
+  # conditional doors must keep admitting the actors their target pages
+  # admit. Both directions, because each has already broken once: the
+  # toolbox rendered whole for an assignguide-only actor (thirteen dead
+  # ends), and the Tickets arm asked :coordinate alone, which cost
+  # every ordinary manager their link (the final build review's
+  # NEW-002).
+  Scenario: An assignguide-only role is shown the assignment queue and no manager toolbox
+    Given the following "roles" exist:
+      | name         | shortname   | archetype |
+      | Guide finder | guidefinder |           |
+    And the following "users" exist:
+      | username | firstname | lastname | email          |
+      | finder1  | Fiona     | Finder   | ff@example.com |
+    And the following "course enrolments" exist:
+      | user    | course | role        |
+      | finder1 | C1     | guidefinder |
+    And the following "permission overrides" exist:
+      | capability                         | permission | role        | contextlevel | reference |
+      | mod/selfselectadvanced:assignguide | Allow      | guidefinder | Course       | C1        |
+    And the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name  | leader   | state         |
+      | ssa1               | Gamma | student3 | pending_guide |
+    When I am on the "Lab groups" "mod_selfselectadvanced > manage" page logged in as finder1
+    Then I should see "Manager dashboard"
+    And I should not see "Composition"
+    And I should not see "Ticket queue"
+    And I should not see "Group Coordinators"
+    And I should not see "Notification templates"
+    And "Run auto-grouping now" "button" should not exist
+    When I follow "Awaiting a guide"
+    Then I should see "Gamma"
+    And I should see "Assign guide"
+    And "Assign" "button" should exist
+
+  # The matched partner: the toolbox is still whole for the actor it
+  # exists for, INCLUDING the two conditional doors - Tickets, whose
+  # target page admits :manage outright (tickets.php), and New team,
+  # whose staff arm is :manage (D6-4). An editing teacher holds
+  # neither :coordinate nor :creategroup, so each link renders here
+  # because of its :manage arm and for no other reason.
+  Scenario: A manager keeps the whole toolbox, tickets door included
+    When I am on the "Lab groups" "mod_selfselectadvanced > manage" page logged in as teacher1
+    Then I should see "Manager dashboard"
+    And I should see "Ticket queue"
+    And I should see "Composition"
+    And I should see "Group Coordinators"
+    And I should see "New team"
+    And I should see "Notification templates"
+    And "Run auto-grouping now" "button" should exist
