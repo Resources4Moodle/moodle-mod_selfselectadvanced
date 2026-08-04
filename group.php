@@ -418,6 +418,58 @@ if ($action === 'eoirespond') {
     die;
 }
 
+if ($action === 'joinrespond' && data_submitted() && confirm_sesskey()) {
+    // Decision 53: the leader answers a request to join THIS team from
+    // the page the team already lives on, without having to discover
+    // joinrequest.php. Nothing about the workflow is duplicated - the
+    // decision goes to joinrequests::respond(), which is the same call
+    // the "Asked of my team" tab makes, so both surfaces run one move
+    // engine, one lock order, one audit trail.
+    $requestid = required_param('r', PARAM_INT);
+    $decision = required_param('decision', PARAM_ALPHA);
+    if (!in_array($decision, ['accept', 'decline'], true)) {
+        redirect($baseurl);
+    }
+    $joinnote = trim(optional_param('note', '', PARAM_TEXT));
+    // Ownership: the request must be one asked OF THIS TEAM (IDOR rule,
+    // spec section 14.12). respond() would refuse a request belonging to
+    // another team anyway - it re-reads the row and asks
+    // require_decider() about ITS target - but a leader of one team
+    // posting another team's request id is a crafted id and is answered
+    // as one, not with a workflow refusal that reads like bad luck.
+    $joinrequest = \mod_selfselectadvanced\local\joinrequests::get($activity, $requestid);
+    if ((int) $joinrequest->targetgroupid !== (int) $group->id) {
+        throw new moodle_exception('invalidparameter', 'debug');
+    }
+    try {
+        // DEFENCE IN DEPTH, not the gate. The gate is the identical
+        // call inside respond(), made under the joinrequest:{id} lock
+        // on the row read there - this one is made on a copy that can
+        // be minutes old. Asking it here as well means a crafted POST
+        // from somebody with no authority at all never reaches the
+        // service, and the panel that draws the buttons consumes the
+        // same predicate, so the control and the door admit one set of
+        // people: the target team's leader, and a coordinator or
+        // manager acting for an absent leader.
+        \mod_selfselectadvanced\local\joinrequests::require_decider($activity, $group, (int) $USER->id);
+        \mod_selfselectadvanced\local\joinrequests::respond(
+            $activity,
+            $requestid,
+            $decision === 'accept',
+            $joinnote,
+            (int) $USER->id
+        );
+        redirect(
+            $baseurl,
+            get_string($decision === 'accept' ? 'joinaccepted' : 'joindeclined', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
 if ($action === 'freeze') {
     // CALLED, not transcribed (audit F-6): the freeze predicate has a
     // home and this page used to carry a fourth copy of it.

@@ -92,7 +92,21 @@ class flagged_missingattrs_table extends \flexible_table {
         $this->pagesize($perpage, count($rows));
         foreach (array_slice($rows, $this->get_page_start(), $this->get_page_size()) as $row) {
             $this->add_data_keyed([
-                'fullname' => $row->fullname,
+                // Escaped with s(): fullname() interpolates first/last name
+                // into the display template and returns them unescaped,
+                // flexible_table emits a cell body verbatim, and this
+                // table's HTML reaches the page through a raw
+                // {{{missingattrstable}}}. A name carrying markup - which
+                // CSV upload, LDAP sync and the user web service can all
+                // set, unlike the tag-stripping profile form - would
+                // otherwise execute for the staff viewer (own review,
+                // 2026-08-04). The groupless list beside it escapes
+                // through {{fullname}}; flagged_anomalies_table did NOT
+                // and was fixed with this one, at source, because its
+                // cell carries deliberate markup. Every flexible_table
+                // cell is emitted verbatim - mustache or not - so a name
+                // reaching one is escaped where it is built.
+                'fullname' => s($row->fullname),
             ]);
         }
         $this->finish_output();

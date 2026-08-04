@@ -310,6 +310,93 @@ class notifier {
     }
 
     /**
+     * The needles that would find this name inside a stored digest
+     * payload, for a SQL pre-filter.
+     *
+     * The payload is json_encode() output, and json_encode() escapes
+     * every non-ASCII character to \uXXXX by default. A name whose
+     * letters carry accents is therefore stored with each of them as a
+     * six-character escape, and a LIKE for the name as a human types
+     * it matches nothing at all - the fault H-05 named, and the reason
+     * an ASCII-only test could not see it. Whoever encodes a
+     * format owns the questions asked of it, so the escaping lives
+     * here beside the encoder rather than being re-derived by the
+     * privacy provider.
+     *
+     * The result is a PRE-FILTER and nothing more: it may over-match
+     * (a name inside a longer name, a different person who shares it)
+     * and it never under-matches, which is the only property the
+     * caller may rely on. payload_names_user() decides.
+     *
+     * @param string $fullname the rendered full name to look for
+     * @return string[] distinct substrings, any one of which may match
+     */
+    public static function payload_needles(string $fullname): array {
+        $needles = [$fullname];
+        // A json_encode() of a bare string yields "..."; the quotes are
+        // the delimiters, not part of the needle.
+        $encoded = trim((string) json_encode($fullname), '"');
+        if ($encoded !== '' && $encoded !== $fullname) {
+            $needles[] = $encoded;
+        }
+
+        return array_values(array_unique(array_filter($needles, static fn($n) => $n !== '')));
+    }
+
+    /**
+     * Does a stored digest payload NAME this person?
+     *
+     * Decided on the DECODED payload, never on its text: the resolved
+     * placeholder object holds names as ordinary strings, and decoding
+     * undoes the \uXXXX escaping that made a substring test on the raw
+     * column silently wrong for every non-ASCII name. It also confines
+     * the question to string leaves, so a numeric placeholder that
+     * happens to look like part of a name - or like a userid - is not
+     * an answer.
+     *
+     * Substring rather than equality, deliberately: a payload renders
+     * a name inside a sentence ("Grace Guide accepted"), so the name
+     * is a fragment of the leaf and not the leaf. That is why two
+     * people with one name cannot be told apart here; the maintainer's
+     * decision on the erasure path is that over-deleting a pending
+     * notification is the cheap side of that trade.
+     *
+     * @param string|null $payload the stored payload column
+     * @param string $fullname the rendered full name to look for
+     * @return bool whether the payload names them
+     */
+    public static function payload_names_user(?string $payload, string $fullname): bool {
+        $payload = (string) $payload;
+        $fullname = trim($fullname);
+        if ($payload === '' || $fullname === '') {
+            return false;
+        }
+        $decoded = json_decode($payload, true);
+        if (!is_array($decoded)) {
+            // Not a payload this class wrote. Fall back to the raw
+            // text against every form the name could have been stored
+            // in, so an unreadable row is over-matched rather than
+            // silently exempted.
+            foreach (self::payload_needles($fullname) as $needle) {
+                if (str_contains($payload, $needle)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        $found = false;
+        array_walk_recursive($decoded, static function ($value) use ($fullname, &$found): void {
+            if (!$found && is_string($value) && str_contains($value, $fullname)) {
+                $found = true;
+            }
+        });
+
+        return $found;
+    }
+
+    /**
      * Split a body into paragraphs.
      *
      * Templates are written as sentences; a blank line, or a line

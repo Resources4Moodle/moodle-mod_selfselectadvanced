@@ -76,18 +76,7 @@ class handover {
             if (!in_array($group->state, self::STATES, true)) {
                 throw new \moodle_exception('refusalhandoverstate', 'mod_selfselectadvanced');
             }
-            // CALLED, not transcribed (audit D5). "Is this THEIR team?"
-            // is teamaccess::is_assigned_guide() and nothing else; this
-            // line and cancel()'s twin were the last two raw copies in
-            // the guide workflow. Neither was a hole - guide.php gates
-            // the page on :guide - but a second answer to a question
-            // with a home is how this plugin acquired four answers to
-            // the proposal question (A-05). The nominee's own authority
-            // is unchanged and is asked below by can_take_guide(),
-            // which requires :guide of them.
-            if (!teamaccess::is_assigned_guide($this->activity, $group, $actorid)) {
-                throw new \moodle_exception('refusalhandovernotguide', 'mod_selfselectadvanced');
-            }
+            $this->require_proposing_guide($group, $actorid);
             if ($nomineeid === $actorid) {
                 throw new \moodle_exception('refusalhandoverself', 'mod_selfselectadvanced');
             }
@@ -320,9 +309,7 @@ class handover {
             // The same predicate propose() asks, for the same reason
             // (audit D5): cancelling is the proposer taking their own
             // proposal back, so it answers to the same question.
-            if (!teamaccess::is_assigned_guide($this->activity, $group, $actorid)) {
-                throw new \moodle_exception('refusalhandovernotguide', 'mod_selfselectadvanced');
-            }
+            $this->require_proposing_guide($group, $actorid);
             if (empty($group->guidesuccessorid)) {
                 throw new \moodle_exception('refusalhandovernonominee', 'mod_selfselectadvanced');
             }
@@ -354,6 +341,56 @@ class handover {
             'activityid' => $this->activity->id(),
             'guidesuccessorid' => $guideid,
         ], 'timeguidenominated ASC');
+    }
+
+    /**
+     * Refuse unless this actor may act as the team's PROPOSING guide.
+     *
+     * Two questions, both asked here so propose() and cancel() cannot
+     * drift apart from each other or from the page (M-01, 1.20.5):
+     *
+     *  - "is this THEIR team?" is teamaccess::is_assigned_guide() and
+     *    nothing else (audit D5). Its capability is
+     *    :viewassignedteams, the narrow "the team I am responsible
+     *    for" authority every other team-scoped door of this plugin
+     *    asks;
+     *  - "may they work as a guide at all?" is :guide, which is what
+     *    guide.php requires of everybody who reaches the handover
+     *    block. The service asked only the first question, so a site
+     *    that had withdrawn :guide from a guide - leaving them
+     *    :viewassignedteams for the teams already on their name -
+     *    still let them nominate a successor and withdraw the
+     *    nomination through any direct caller, while the page that
+     *    renders those two buttons refused them at its own door. The
+     *    service is the authority (AUTH-001), so the service asks
+     *    both.
+     *
+     * accept() and decline() are deliberately NOT routed through here.
+     * accept() runs can_take_guide(), which already requires :guide of
+     * the accepting nominee - the stricter test, since it also checks
+     * their capacity. decline() is a RELEASE: it clears a nomination
+     * and hands the team back to the guide who already has it, so
+     * refusing it on a lapsed capability would strand the handover in
+     * exactly the state H-06 was raised about.
+     *
+     * Read-time predicate: no write, no event. It is called on the row
+     * both callers read INSIDE the lock and INSIDE the transaction,
+     * alongside their other refusals, so its throw unwinds through the
+     * same rollback arm they already carry - and, like theirs, it
+     * disposes the caller's delegated frame, so a test must never put
+     * a refused call and a later committing call in one method.
+     *
+     * @param stdClass $group the fresh group row, read under the lock
+     * @param int $actorid the acting user
+     * @throws \moodle_exception when the actor is not this team's guide
+     */
+    private function require_proposing_guide(stdClass $group, int $actorid): void {
+        if (
+            !teamaccess::is_assigned_guide($this->activity, $group, $actorid)
+            || !has_capability('mod/selfselectadvanced:guide', $this->activity->context(), $actorid)
+        ) {
+            throw new \moodle_exception('refusalhandovernotguide', 'mod_selfselectadvanced');
+        }
     }
 
     /**

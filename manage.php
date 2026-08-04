@@ -336,22 +336,30 @@ if ($assigntab === 'teams') {
     $assigntable->out($perpage, true);
 }
 
-echo html_writer::div(
-    html_writer::link(
+// The footer links follow the same rule as the toolbox above (own
+// review 2026-08-04): each is drawn only for an actor its target page
+// admits, so an :assignguide-only coordinator - who reaches this page
+// through its assignguide door but holds neither :override nor
+// :viewall - is not shown two dead ends. Back is unconditional.
+$footer = '';
+if (has_capability('mod/selfselectadvanced:override', $context)) {
+    $footer .= html_writer::link(
         new moodle_url('/mod/selfselectadvanced/overrides.php', ['id' => $cm->id]),
         get_string('overrides', 'mod_selfselectadvanced'),
         ['class' => 'btn btn-secondary me-2']
-    )
-    . html_writer::link(
+    );
+}
+if (has_capability('mod/selfselectadvanced:viewall', $context)) {
+    $footer .= html_writer::link(
         new moodle_url('/mod/selfselectadvanced/guidelist.php', ['id' => $cm->id]),
         get_string('guidelist', 'mod_selfselectadvanced'),
         ['class' => 'btn btn-secondary me-2']
-    )
-    . html_writer::link(
-        new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]),
-        get_string('back'),
-        ['class' => 'btn btn-secondary']
-    ),
-    'mt-3'
+    );
+}
+$footer .= html_writer::link(
+    new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]),
+    get_string('back'),
+    ['class' => 'btn btn-secondary']
 );
+echo html_writer::div($footer, 'mt-3');
 echo $OUTPUT->footer();

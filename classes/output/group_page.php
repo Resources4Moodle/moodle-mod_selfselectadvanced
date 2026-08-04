@@ -16,11 +16,14 @@
 
 namespace mod_selfselectadvanced\output;
 
+use mod_selfselectadvanced\activity;
 use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\eoi;
+use mod_selfselectadvanced\local\fit;
 use mod_selfselectadvanced\local\freeze;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\joinrequests;
 use mod_selfselectadvanced\local\state;
 use mod_selfselectadvanced\local\teamaccess;
 use renderable;
@@ -564,7 +567,134 @@ class group_page implements renderable, templatable {
             }
         }
 
+        // INCOMING JOIN REQUESTS, on the page the team already lives on
+        // (maintainer decision 53: "Messages, group count and
+        // composition has to be fixed" - a forming leader had to
+        // discover joinrequest.php to learn that anybody had asked).
+        //
+        // Nothing about the workflow is rebuilt here. The rows come
+        // from joinrequests::waiting_for_group(), the door is
+        // joinrequests::require_decider() - CALLED, never transcribed,
+        // so the panel and the POST that group.php routes to
+        // joinrequests::respond() admit exactly one set of people - and
+        // the verdict is fit::for_person(), the same call the "Asked of
+        // my team" tab makes.
+        //
+        // BOTH ARMS of that door matter and the try/catch is how both
+        // are asked at once: the leader, AND the coordinator or manager
+        // acting for an absent one. A local $isleader test here would
+        // have drawn the panel for one arm and left the other looking
+        // at a page that says nothing was asked (the wave-1 lesson).
+        //
+        // The authority question is asked FIRST because it is answered
+        // from the capability cache, so an ordinary member's page load
+        // does not pay for the query that follows.
+        $canjoindecide = $this->may_decide_joins($activity, $this->userid);
+        $joinrows = [];
+        if ($canjoindecide) {
+            $waiting = joinrequests::waiting_for_group($activity, (int) $this->group->id);
+            if ($waiting) {
+                $requesterids = array_values(array_unique(array_map(
+                    static fn(\stdClass $row): int => (int) $row->userid,
+                    $waiting
+                )));
+                // One bulk lookup each for the people and their
+                // attributes, chunked defensively - never a get_user()
+                // or a get_for_users() inside the loop.
+                $requesters = [];
+                foreach (array_chunk($requesterids, 1000) as $chunk) {
+                    $requesters += $DB->get_records_list('user', 'id', $chunk);
+                }
+                // The SHARED accessor, the one the roster above already
+                // uses. DEPARTMENT and SUB-DEPARTMENT only: they are
+                // COMPOSITION attributes, which is exactly what a
+                // leader is deciding with, and the cardinal rule is
+                // about contact details. No mobile number and no
+                // address is read here, for any viewer, in either state
+                // of the contact-privacy switch.
+                $requesterattrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users($requesterids);
+                // What the acceptance costs elsewhere, batched before
+                // the loop for the same reason the tab batches it.
+                $sourceids = [];
+                foreach ($waiting as $request) {
+                    if ($request->sourcegroupid) {
+                        $sourceids[(int) $request->sourcegroupid] = true;
+                    }
+                }
+                $sourcenames = $sourceids
+                    ? $DB->get_records_list(
+                        'selfselectadvanced_group',
+                        'id',
+                        array_keys($sourceids),
+                        '',
+                        'id, name'
+                    )
+                    : [];
+
+                foreach ($waiting as $request) {
+                    $userid = (int) $request->userid;
+                    // Shown, never used to hide the request: a leader
+                    // is entitled to accept somebody the rules would
+                    // refuse today, which is the rule fit's own
+                    // docblock is built around. Uncapped, and
+                    // deliberately so - this is ONE team's queue, where
+                    // the tab already carries every team in the
+                    // activity through the same call.
+                    $verdict = fit::for_person($activity, $this->group, $userid);
+                    $attr = $requesterattrs[$userid] ?? null;
+                    $department = (string) ($attr->department ?? '');
+                    $subdepartment = (string) ($attr->subdepartment ?? '');
+                    $joinrows[] = (object) [
+                        'requestid' => (int) $request->id,
+                        'fullname' => isset($requesters[$userid]) ? fullname($requesters[$userid]) : '',
+                        'reason' => shorten_text((string) $request->reason, 200),
+                        'department' => $department,
+                        'subdepartment' => $subdepartment,
+                        'hasdepartment' => $department !== '',
+                        'hassubdepartment' => $subdepartment !== '',
+                        'noattributes' => $department === '' && $subdepartment === '',
+                        'fits' => (bool) $verdict->fits,
+                        'caution' => (string) $verdict->caution,
+                        // The pending-invitation warning is the WHOLE
+                        // POINT of the rule that a pending invitation
+                        // no longer hard-blocks (decision 53): the
+                        // leader is told the maximum is only over
+                        // because of an invitation they can withdraw.
+                        // Dropping it here left this panel - the
+                        // surface that decision was made for - showing
+                        // a plain green fit with the reason to think
+                        // twice removed (blind audit, 1.20.5).
+                        'warnings' => array_values(array_map(
+                            static fn(string $w): array => ['text' => $w],
+                            $verdict->warnings ?? []
+                        )),
+                        'haswarnings' => !empty($verdict->warnings),
+                        'seatline' => $verdict->seat !== null
+                            ? get_string('joinfitseat', 'mod_selfselectadvanced', $verdict->seat)
+                            : '',
+                        'leavesline' => isset($sourcenames[(int) $request->sourcegroupid])
+                            ? get_string(
+                                'joinleaves',
+                                'mod_selfselectadvanced',
+                                format_string($sourcenames[(int) $request->sourcegroupid]->name)
+                            )
+                            : get_string('joinleavesnone', 'mod_selfselectadvanced'),
+                        'asked' => userdate((int) $request->timecreated),
+                    ];
+                }
+            }
+        }
+
         return (object) [
+            // NO EMPTY SCAFFOLDING: the panel exists when somebody has
+            // actually asked, and at no other time. A leader with an
+            // empty queue gets the page they had before this wave.
+            'showjoinpanel' => !empty($joinrows),
+            'joinrows' => $joinrows,
+            'joinallurl' => (new \moodle_url('/mod/selfselectadvanced/joinrequest.php', [
+                'id' => $cmid,
+                'tab' => 'answer',
+            ]))->out(false),
             'eoienabled' => $eoienabled,
             'listed' => $listed,
             'showeoilist' => $showeoilist,
@@ -692,6 +822,32 @@ class group_page implements renderable, templatable {
             ]))->out(false),
             'backurl' => (new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cmid]))->out(false),
         ];
+    }
+
+    /**
+     * Whether this viewer may answer a request to join this team.
+     *
+     * The SERVICE'S OWN DOOR, asked without an exception.
+     * joinrequests::require_decider() is the gate
+     * joinrequests::respond() applies under its lock, and it admits two
+     * arms: the target team's leader, and a coordinator or manager
+     * acting for an absent one. Transcribing either arm here would
+     * produce the defect wave 1 caught - a panel keyed on one arm while
+     * the POST behind it admits both - so the predicate is called and
+     * its refusal is turned into a boolean.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the viewer
+     * @return bool
+     */
+    private function may_decide_joins(activity $activity, int $userid): bool {
+        try {
+            joinrequests::require_decider($activity, $this->group, $userid);
+        } catch (\moodle_exception $e) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

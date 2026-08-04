@@ -162,6 +162,9 @@ class observer {
      * and the old claim that "a removed guide simply stops being part
      * of the expected mirror" was false - freeze's expected set keeps
      * demanding guideid until something clears it, and nothing did.
+     * A removed NOMINATED SUCCESSOR is handled there too, and reaching
+     * it needed the early-out below to ask about nominations as well
+     * (H-06).
      *
      * @param \core\event\user_enrolment_deleted $event the core event
      */
@@ -197,18 +200,37 @@ class observer {
                 'invited' => local\groups::STATUS_INVITED,
             ]
         );
-        $guidedanywhere = $DB->record_exists_sql(
+        // BOTH staff involvements guide_gone() knows how to end, asked
+        // as one question because the answer is used as one: the
+        // ASSIGNED guide of a team, and the NOMINATED SUCCESSOR of a
+        // pending handover.
+        //
+        // The successor arm is H-06, and it is a hole in this
+        // plugin's OWN previous fix. Wave 2 taught guide_gone() to
+        // lapse a handover whose nominee had gone, and the deletion
+        // observer reached it - but this method's early-out asked
+        // about memberships and guided teams only, so a user whose
+        // ONLY involvement was being somebody's nominated successor
+        // returned here and never reached the handling at all.
+        // Deletion closed the case; unenrolment left the proposing
+        // guide waiting for ever on an acceptance that could not
+        // come. The wave-2 test covered the deletion door only, which
+        // is how a fix and its test agreed with each other and both
+        // missed the second door.
+        $guideinvolvement = $DB->record_exists_sql(
             "SELECT 1
                FROM {selfselectadvanced_group} g
                JOIN {selfselectadvanced} s ON s.id = g.activityid AND s.course = :courseid
-              WHERE g.guideid = :userid",
-            ['courseid' => $courseid, 'userid' => $userid]
+              WHERE g.guideid = :userid OR g.guidesuccessorid = :userid2",
+            ['courseid' => $courseid, 'userid' => $userid, 'userid2' => $userid]
         );
-        if (!$rows && !$guidedanywhere) {
-            // No membership AND no guided team: the early-out that
-            // used to run on the member rows alone, which is exactly
-            // how a guide-only involvement slipped past this observer
-            // (OBS-001).
+        if (!$rows && !$guideinvolvement) {
+            // No membership, no guided team AND no nomination: the
+            // early-out that used to run on the member rows alone,
+            // which is exactly how a guide-only involvement slipped
+            // past this observer (OBS-001), and on guided teams
+            // alone, which is how a successor-only one slipped past
+            // it again (H-06).
             return;
         }
 
@@ -252,7 +274,10 @@ class observer {
         // add a lock pair, a membership read and core writes to each,
         // inside the enrolment task.
 
-        if ($guidedanywhere) {
+        if ($guideinvolvement) {
+            // Guide OR successor: guide_gone() re-reads each row under
+            // its lock and decides which of the two it is holding, so
+            // the caller does not have to know.
             self::guide_gone($userid, $actorid, 'unenrolled', $courseid);
         }
     }

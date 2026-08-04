@@ -251,7 +251,11 @@ class flagged_anomalies_table extends \flexible_table {
                     'membershipauditmember',
                     'mod_selfselectadvanced',
                     (object) [
-                        'fullname' => fullname($ocrow),
+                        // Escaped at source, for the reason given where
+                        // the member names are gathered below: this
+                        // string ends up inside a cell that carries
+                        // deliberate markup.
+                        'fullname' => s(fullname($ocrow)),
                         'current' => $overcap[(int) $ocrow->userid]->current,
                         'max' => $overcap[(int) $ocrow->userid]->max,
                     ]
@@ -396,7 +400,13 @@ class flagged_anomalies_table extends \flexible_table {
                 $flaggedparams
             );
             foreach ($memberrows as $memberrow) {
-                $membernamesbygroup[(int) $memberrow->groupid][] = fullname($memberrow);
+                // Escaped at source. This list is joined into $issuestext,
+                // which INTENTIONALLY carries markup (an html_writer span)
+                // and so reaches the cell verbatim - escaping the whole
+                // string later would show the span's tags, and escaping
+                // nothing shows a name's tags to the browser. The name is
+                // the only untrusted part, so the name is what is escaped.
+                $membernamesbygroup[(int) $memberrow->groupid][] = s(fullname($memberrow));
             }
         }
 

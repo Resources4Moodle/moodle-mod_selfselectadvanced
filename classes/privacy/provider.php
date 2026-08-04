@@ -228,14 +228,17 @@ class provider implements
         // grouping run, sent an invitation, took a roster snapshot or is
         // recorded as a modifier/grantor was erasable through an
         // administrator's userlist deletion, while the SAME person's own
-        // request found no context at all. One residual is documented
-        // rather than closed: a user whose ONLY trace is a bare id
-        // inside an agrun log body (possible only once every other row
-        // of theirs is already gone) is not SQL-discoverable without a
-        // digits-substring match that would list near-every context for
-        // near-every user; the log body itself is pseudonymised whenever
-        // any discovered context brings the scrub to the activity, and
-        // the context-wide purge deletes it outright.
+        // request found no context at all.
+        //
+        // The two OPAQUE stores - a userid buried in an agrun log body,
+        // a rendered name buried in a queued digest payload - are NOT
+        // in this statement, and the residue this comment used to
+        // record as unclosable is closed below instead (H-05). The
+        // earlier reasoning was that a digits-substring match "would
+        // list near-every context for near-every user", which is true
+        // of a substring match used as the ANSWER and false of one used
+        // as a pre-filter: the SQL narrows, and PHP decides on the
+        // decoded structure. See related_opaque_contexts().
         $contextlist->add_from_sql($sql, [
             'modlevel' => CONTEXT_MODULE,
             'userid1' => $userid, 'userid2' => $userid, 'userid3' => $userid, 'userid4' => $userid,
@@ -248,6 +251,15 @@ class provider implements
         ]);
 
         global $DB;
+        // The opaque stores (H-05): an auto-grouping log that names
+        // them as a participant, and a queued digest whose resolved
+        // payload renders their name for somebody else to read.
+        $opaque = self::related_opaque_contexts($userid);
+        if ($opaque) {
+            [$insql, $inparams] = $DB->get_in_or_equal($opaque, SQL_PARAMS_NAMED, 'opaquectx');
+            $contextlist->add_from_sql("SELECT c.id FROM {context} c WHERE c.id $insql", $inparams);
+        }
+
         // Their own attribute row, or attribute rows they are recorded
         // as having edited: either one makes the system context theirs.
         if (
@@ -264,11 +276,152 @@ class provider implements
     }
 
     /**
+     * The participants an auto-grouping log NAMES, read out of the
+     * log's own shape.
+     *
+     * The shape is the engine's, and this is the READING half of the
+     * knowledge scrub_user_in_activity() already carries in its
+     * pseudonymiser: 'pool' and 'residue' are arrays of userids, and
+     * each 'groups' entry has a 'leaderid' and a 'members' array.
+     * Nothing else in the log is one - 'bypassedrules' holds quota-rule
+     * ids and 'pluginuid' is a string - so a run that merely relaxed
+     * rule 7 does not name user 7, and a team whose uid is "0042" does
+     * not name user 42. Integer-typed leaves only, for exactly that
+     * reason; a string that spells the same digits is not an identity
+     * here any more than it is there.
+     *
+     * @param string|null $log the stored log column
+     * @return int[] distinct userids the log names, [] when it names none
+     */
+    private static function agrun_participants(?string $log): array {
+        if ($log === null || $log === '') {
+            return [];
+        }
+        $decoded = json_decode($log, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        $ids = [];
+        $collect = static function ($list) use (&$ids): void {
+            if (!is_array($list)) {
+                return;
+            }
+            foreach ($list as $value) {
+                if (is_int($value) && $value > 0) {
+                    $ids[$value] = $value;
+                }
+            }
+        };
+        $collect($decoded['pool'] ?? null);
+        $collect($decoded['residue'] ?? null);
+        foreach ($decoded['groups'] ?? [] as $grouplog) {
+            if (!is_array($grouplog)) {
+                continue;
+            }
+            if (is_int($grouplog['leaderid'] ?? null) && $grouplog['leaderid'] > 0) {
+                $ids[$grouplog['leaderid']] = $grouplog['leaderid'];
+            }
+            $collect($grouplog['members'] ?? null);
+        }
+
+        return array_values($ids);
+    }
+
+    /**
+     * Module contexts holding this person inside an OPAQUE column: an
+     * auto-grouping log body, or a queued digest payload (H-05).
+     *
+     * Both stores keep participant identity inside TEXT that no
+     * foreign key describes - a userid as a JSON integer in the one, a
+     * rendered full name as a JSON string in the other - so neither
+     * appeared in any discovery SQL, and a person whose only trace was
+     * one of them had their own subject-access request come back empty
+     * while the row sat there. A context this method misses is a
+     * context their erasure never reaches either, which is the worse
+     * half.
+     *
+     * TWO STAGES, and the split is the whole design. The SQL is a
+     * PRE-FILTER whose only guaranteed property is that it never
+     * misses: any log holding userid N as a JSON integer contains the
+     * decimal digits of N somewhere, and any payload naming a person
+     * contains one of notifier::payload_needles() somewhere. It is
+     * allowed to be generous - user 7 pre-matches a log that merely
+     * mentions rule 7 or team 17. PHP then DECIDES, on the decoded
+     * structure, where a userid is only a userid in an identity
+     * position and a name is only a name in a string leaf. So the
+     * cheap-and-wrong test never answers anything; it only limits what
+     * the exact test has to read.
+     *
+     * Both tables are small by construction - one row per grouping run
+     * and one per notification still waiting for its digest, which cron
+     * flushes daily or weekly - and this runs once per privacy request,
+     * off the web path.
+     *
+     * @param int $userid the person
+     * @return int[] distinct module context ids
+     */
+    private static function related_opaque_contexts(int $userid): array {
+        global $DB;
+
+        $contexts = [];
+        $joins = "JOIN {selfselectadvanced} a ON a.id = t.activityid
+                  JOIN {modules} md ON md.name = 'selfselectadvanced'
+                  JOIN {course_modules} cm ON cm.instance = a.id AND cm.module = md.id
+                  JOIN {context} ctx ON ctx.instanceid = cm.id AND ctx.contextlevel = :modlevel";
+
+        $sql = "SELECT t.id, t.log AS opaque, ctx.id AS contextid
+                  FROM {selfselectadvanced_agrun} t
+                  $joins
+                 WHERE " . $DB->sql_like('t.log', ':needle', false);
+        $rows = $DB->get_records_sql($sql, [
+            'modlevel' => CONTEXT_MODULE,
+            'needle' => '%' . $DB->sql_like_escape((string) $userid) . '%',
+        ]);
+        foreach ($rows as $row) {
+            if (in_array($userid, self::agrun_participants($row->opaque), true)) {
+                $contexts[(int) $row->contextid] = (int) $row->contextid;
+            }
+        }
+
+        // The digest half. A payload holds NAMES, never ids, so the
+        // needle is the rendered full name in both the plain and the
+        // JSON-escaped form the encoder may have written - the second
+        // is the one an ASCII-only test never needed and every accented
+        // name does. Core keeps the name fields on a deleted account,
+        // so this works after deletion too; an account with no name to
+        // render simply has no needle and is not searched for.
+        $erased = \core_user::get_user($userid);
+        $fullname = $erased ? trim(fullname($erased)) : '';
+        if ($fullname === '') {
+            return array_values($contexts);
+        }
+        foreach (\mod_selfselectadvanced\local\notifier::payload_needles($fullname) as $needle) {
+            $sql = "SELECT t.id, t.payload AS opaque, ctx.id AS contextid
+                      FROM {selfselectadvanced_digestq} t
+                      $joins
+                     WHERE " . $DB->sql_like('t.payload', ':needle', false);
+            $rows = $DB->get_records_sql($sql, [
+                'modlevel' => CONTEXT_MODULE,
+                'needle' => '%' . $DB->sql_like_escape($needle) . '%',
+            ]);
+            foreach ($rows as $row) {
+                if (\mod_selfselectadvanced\local\notifier::payload_names_user($row->opaque, $fullname)) {
+                    $contexts[(int) $row->contextid] = (int) $row->contextid;
+                }
+            }
+        }
+
+        return array_values($contexts);
+    }
+
+    /**
      * Users present in one context.
      *
      * @param userlist $userlist the userlist
      */
     public static function get_users_in_context(userlist $userlist): void {
+        global $DB;
+
         $context = $userlist->get_context();
         if ($context instanceof \context_system) {
             $userlist->add_from_sql('userid', 'SELECT userid FROM {selfselectadvanced_userattr}', []);
@@ -471,6 +624,52 @@ class provider implements
               WHERE mv.usermodified > 0",
             $params
         );
+
+        // The participants an auto-grouping log NAMES, not merely the
+        // manager who started the run (H-05). The log body is the
+        // authoritative record of who was placed where, and it was
+        // reachable from no direction at all: this method listed only
+        // triggeredby, so an administrator deleting everybody they
+        // could see in this context left the placements of everyone
+        // else intact.
+        //
+        // Read in PHP because the answer is inside a TEXT column: one
+        // pass over this ONE activity's runs, decoding each log by its
+        // own shape. No cross-activity scan and no substring guessing
+        // here - the context is already known, so the pre-filter
+        // related_opaque_contexts() needs is not wanted.
+        $participants = [];
+        $logs = $DB->get_recordset_sql(
+            "SELECT ag.id, ag.log
+               FROM {selfselectadvanced_agrun} ag
+               JOIN {course_modules} cm ON cm.instance = ag.activityid AND cm.id = :cmid",
+            $params
+        );
+        foreach ($logs as $log) {
+            foreach (self::agrun_participants($log->log) as $participant) {
+                $participants[$participant] = $participant;
+            }
+        }
+        $logs->close();
+        if ($participants) {
+            [$insql, $inparams] = $DB->get_in_or_equal($participants, SQL_PARAMS_NAMED, 'agrunuser');
+            $userlist->add_from_sql('id', "SELECT u.id FROM {user} u WHERE u.id $insql", $inparams);
+        }
+
+        // NOT closed here, and stated rather than left to be
+        // discovered: a person whose only trace in this activity is
+        // their NAME inside another recipient's queued digest payload
+        // cannot be listed by this method. The payload holds names and
+        // no ids, and there is no reverse from a rendered name to an
+        // account that does not mean reading every user on the site.
+        // Their own request finds the context perfectly well
+        // (related_opaque_contexts()), the context-wide purge deletes
+        // every queued row outright, and scrub_user_in_activity()
+        // deletes the naming rows for anybody who reaches the userlist
+        // by any other route. What remains is the narrow case of an
+        // administrator erasing a subset of a context's users: a
+        // pending notification naming a person listed by no other
+        // column survives until cron flushes the queue.
     }
 
     /**
@@ -1229,7 +1428,15 @@ class provider implements
         if ($erased && trim(fullname($erased)) !== '') {
             $erasedname = fullname($erased);
             foreach ($DB->get_records('selfselectadvanced_digestq', ['activityid' => $activityid]) as $qrow) {
-                if (strpos((string) $qrow->payload, $erasedname) !== false) {
+                // The SAME predicate discovery uses, not a plain
+                // strpos: the payload is JSON, so a name carrying a
+                // non-ASCII character is stored escaped (á) and a
+                // raw-name substring never matches it. Using the weaker
+                // test here made the two halves disagree - the person
+                // was DISCOVERED in the context and then NOT ERASED
+                // from it, which is the worst of both answers (blind
+                // audit, 1.20.5).
+                if (\mod_selfselectadvanced\local\notifier::payload_names_user((string) $qrow->payload, $erasedname)) {
                     $DB->delete_records('selfselectadvanced_digestq', ['id' => $qrow->id]);
                 }
             }

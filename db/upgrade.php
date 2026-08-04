@@ -1504,5 +1504,44 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026073250, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080100) {
+        // 1.20.5. The serial is also a CORRECTION: every serial from
+        // 2026073200 to 2026073250 encodes 2026-07-32, a day that does
+        // not exist - the scheme added its increment to 20260731 and
+        // carried into the day field instead of the month. Moodle only
+        // needs the number to rise, so nothing broke and no gate could
+        // see it; a human reading the version, or the plugins
+        // directory's validator, would. Fixed forward from here:
+        // 2026-08-01, increment 00. The published serials stay as they
+        // are - a landed savepoint is never rewritten.
+        //
+        // What the release itself carries: a pending invitation no
+        // longer HARD-refuses a join request (only confirmed members
+        // can put a maximum beyond reach); the fit verdict a leader
+        // reads and the acceptance the button performs now come from
+        // one predicate, so the column can no longer promise what the
+        // button refuses; requesters show their department and
+        // sub-department; a departed nominee's handover lapses on the
+        // unenrolment path as well as on deletion; the privacy provider
+        // discovers AND erases names held inside queued digests, with
+        // one predicate for both halves; and the vocabulary writes are
+        // serialised. No schema, capability or message-provider change.
+        //
+        // Marker discipline unchanged: versionbump_test matches
+        // '%(2026080100)%', so the serial stays inside the parentheses.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.5 (2026080100). Join-request composition honesty, guide-departure '
+                . 'completeness, privacy erasure parity; the serial scheme is corrected to a real '
+                . 'calendar date.',
+            'This step migrates nothing. It carries the release serial so an installed site '
+                . 'rebuilds its caches and the new language strings render. It is deliberately '
+                . 'observable: this row is written if and only if the step actually executed.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080100, 'selfselectadvanced');
+    }
+
     return true;
 }

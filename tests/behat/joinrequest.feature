@@ -172,6 +172,55 @@ Feature: Asking to join another team, and the guide releasing a settled one
     Then I should see "Your request has been withdrawn."
     And I should see "Team you want to join"
 
+  Scenario: The leader answers a request on their own team page
+    # Decision 53: a forming leader should not have to discover
+    # joinrequest.php to learn that somebody has asked. The panel shows
+    # the department and sub-department because those are COMPOSITION
+    # attributes - what the team is assembled by - and no contact
+    # detail at all.
+    Given the following "mod_selfselectadvanced > attributes" exist:
+      | user     | department | subdepartment |
+      | student3 | Science    | Physics       |
+    And the following "mod_selfselectadvanced > joinrequests" exist:
+      | selfselectadvanced | user     | ssagroup  | reason                 |
+      | ssa1               | student3 | Team Gold | Closer to my programme |
+    When I am on the "Lab groups > Team Gold" "mod_selfselectadvanced > group" page logged in as student2
+    Then I should see "Asked to join this team"
+    And I should see "Nina Three"
+    And I should see "Closer to my programme"
+    And I should see "Would leave Team Blue."
+    And I should see "1 of 4 seats filled"
+    When I set the field "A word back (optional)" to "Glad to have you"
+    And I click on "Accept" "button" in the "//div[contains(@class, 'selfselectadvanced-joinpanel')]" "xpath_element"
+    Then I should see "Accepted. The student has been moved and the team re-composed."
+    # The queue is empty, so the panel goes with it - no empty scaffolding.
+    And I should not see "Asked to join this team"
+    # The roster and the composition both moved: Nina is on Team Gold's
+    # roster now, with the two dimension columns her seat is judged by.
+    And I should see "2 of 4 seats filled"
+    And I should see "Science" in the "Three" "table_row"
+    And I should see "Physics" in the "Three" "table_row"
+
+  Scenario: A plain member of the asked team is offered no request panel
+    Given the following "mod_selfselectadvanced > members" exist:
+      | ssagroup  | user     | status    |
+      | Team Gold | student4 | confirmed |
+    And the following "mod_selfselectadvanced > joinrequests" exist:
+      | selfselectadvanced | user     | ssagroup  | reason                 |
+      | ssa1               | student3 | Team Gold | Closer to my programme |
+    When I am on the "Lab groups > Team Gold" "mod_selfselectadvanced > group" page logged in as student4
+    Then I should see "Team Gold"
+    And I should not see "Asked to join this team"
+    And I should not see "Closer to my programme"
+    # The other arm of the same door: a coordinator standing in for an
+    # absent leader answers from the same panel.
+    When I am on the "Lab groups > Team Gold" "mod_selfselectadvanced > group" page logged in as coord1
+    Then I should see "Asked to join this team"
+    And I should see "Nina Three"
+    When I click on "Decline" "button" in the "//div[contains(@class, 'selfselectadvanced-joinpanel')]" "xpath_element"
+    Then I should see "Declined, and the student has been told."
+    And I should not see "Asked to join this team"
+
   Scenario: A guide releases a team they froze, but not one staff froze
     Given the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   | guide  | state | timeapproved  |
@@ -220,3 +269,37 @@ Feature: Asking to join another team, and the guide releasing a settled one
   # it is an authority rule, and the capability archetypes make it
   # awkward to stage through the interface (an editing teacher does not
   # hold :freeze at all - that belongs to the non-editing teacher).
+
+  # Maintainer decision 53: the answering side reads the requester's
+  # department and sub-department - COMPOSITION attributes, which is
+  # what a team is assembled by - and reads no contact detail of anyone,
+  # in either state of the contact-privacy switch. It is also told what
+  # is CONFIRMED and what is merely PENDING, never one number that reads
+  # as the current roster; and the asking side is shown the same two
+  # attributes, so nobody has to guess what a leader sees of them.
+  Scenario: Both sides of the join page show the composition attributes and honest seat counts
+    Given the following "mod_selfselectadvanced > attributes" exist:
+      | user     | department | subdepartment | mobile     |
+      | student3 | Science    | Physics       | 9000000003 |
+    And the following "mod_selfselectadvanced > members" exist:
+      | ssagroup  | user     | status  |
+      | Team Gold | student4 | invited |
+    And the following "mod_selfselectadvanced > joinrequests" exist:
+      | selfselectadvanced | user     | ssagroup  | reason                 |
+      | ssa1               | student3 | Team Gold | Closer to my programme |
+    When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
+    Then I should see "What a team leader sees when they answer you"
+    And I should see "Department: Science"
+    And I should see "Sub-department: Physics"
+
+    When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student2
+    And I follow "Asked of my team"
+    Then I should see "Nina Three"
+    And I should see "Department: Science"
+    And I should see "Sub-department: Physics"
+    # One seat filled and one invitation out: two facts, kept apart.
+    And I should see "1 of 4 seats filled, 1 invitation(s) pending"
+    # The cardinal rule holds on this page for the leader, who is a peer
+    # and not a connection: no number, no address.
+    And I should not see "9000000003"
+    And I should not see "s3@example.com"

@@ -16,6 +16,7 @@
 
 namespace mod_selfselectadvanced\local\attributes;
 
+use mod_selfselectadvanced\local\locks;
 use moodle_exception;
 use stdClass;
 
@@ -36,11 +37,37 @@ use stdClass;
  * csv_importer::run() crosses. Until now the admin page was the only
  * gate and every one of these writes landed for any direct caller.
  *
+ * Every write is also SERIALISED and ATOMIC (M-06, 1.20.5). The
+ * vocabulary has no unique index behind it, so uniqueness was decided
+ * by a read that nothing stopped a second writer from overtaking: two
+ * administrators adding "Engineering" at the same instant each found
+ * no clash and each inserted one, and every subsequent lookup by name
+ * met two rows. The same read-then-write shape produced duplicate
+ * sortorder values (MAX + 1 computed twice) and let two move() calls
+ * on one pair of siblings interleave into a swap that lost an order.
+ * The house pattern applies unchanged: authority, then the lock, then
+ * the re-read and every refusal, then the transaction, then the write,
+ * with the audit event triggered after the commit AND the release.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class depts {
+    /**
+     * The one lock every vocabulary write takes.
+     *
+     * The vocabulary is site-wide and has no activity, so it takes the
+     * activity-rank lock on the reserved instance id 0: no real
+     * activity has id 0, so this key can never contend with a genuine
+     * activity lock, and nothing on these paths holds a second plugin
+     * lock, so it can never invert the global order either
+     * (locks::ORDER). One key for the whole tree rather than one per
+     * node, because the races are BETWEEN nodes - a duplicate name, a
+     * shared sortorder, a sibling swap.
+     */
+    private const LOCK = 'activity:0';
+
     /**
      * Refuse unless this actor holds the ingest authority.
      *
@@ -83,18 +110,18 @@ class depts {
     }
 
     /**
-     * The raw category insert: validation, tree placement, path.
+     * Judge a proposed node: the name, the parent's existence and the
+     * absence of a clash. Every refusal of the insert lives here so a
+     * caller can ask it under the lock but BEFORE opening a
+     * transaction, which is what keeps a refused create() from
+     * disposing anybody's delegated frame.
      *
-     * Internal on purpose. The public writes wrap this with the actor's
-     * authority and the audit event; bulk_add() and ensure() reuse it
-     * so the capability is asked once per call, not once per node, and
-     * so no event fires inside bulk_add()'s open transaction.
-     *
-     * @param string $name the name
+     * @param string $name the proposed name
      * @param int $parent parent category id, 0 for top level
-     * @return stdClass the new record
+     * @return array [trimmed name, parent record or null]
+     * @throws moodle_exception on an unusable name or a duplicate
      */
-    private static function insert_node(string $name, int $parent): stdClass {
+    private static function validate_node(string $name, int $parent): array {
         global $DB;
 
         $name = trim($name);
@@ -108,6 +135,24 @@ class depts {
         if ($DB->record_exists('selfselectadvanced_dept', ['parent' => $parent, 'name' => $name])) {
             throw new moodle_exception('errdeptduplicate', 'mod_selfselectadvanced', '', $name);
         }
+
+        return [$name, $parentrecord];
+    }
+
+    /**
+     * The raw category insert: tree placement and path, no judgement.
+     *
+     * Internal on purpose, and the WRITE half only - validate_node()
+     * has already spoken. The caller runs this inside its transaction.
+     *
+     * @param string $name the validated, trimmed name
+     * @param stdClass|null $parentrecord the parent row, null for top level
+     * @param int $parent parent category id, 0 for top level
+     * @return stdClass the new record
+     */
+    private static function write_node(string $name, ?stdClass $parentrecord, int $parent): stdClass {
+        global $DB;
+
         $now = time();
         $record = (object) [
             'name' => $name,
@@ -130,6 +175,22 @@ class depts {
     }
 
     /**
+     * Judge and insert in one step, for the callers that are already
+     * inside a transaction of their own (bulk_add(), ensure()) and
+     * report a refusal per line rather than by unwinding.
+     *
+     * @param string $name the name
+     * @param int $parent parent category id, 0 for top level
+     * @return stdClass the new record
+     * @throws moodle_exception on an unusable name or a duplicate
+     */
+    private static function insert_node(string $name, int $parent): stdClass {
+        [$name, $parentrecord] = self::validate_node($name, $parent);
+
+        return self::write_node($name, $parentrecord, $parent);
+    }
+
+    /**
      * Create a category.
      *
      * @param string $name the name
@@ -137,16 +198,49 @@ class depts {
      * @param int $actorid the acting user
      * @return stdClass the new record
      * @throws \required_capability_exception when the actor lacks the ingest authority
+     * @throws moodle_exception on an unusable name or a duplicate
      */
     public static function create(string $name, int $parent, int $actorid): stdClass {
+        global $DB;
+
+        // Authority BEFORE the lock, refusals before the transaction:
+        // a create nobody was entitled to make must not so much as
+        // queue for the lock, and a duplicate name must not dispose a
+        // delegated frame on its way out.
         self::require_ingest($actorid);
-        $record = self::insert_node($name, $parent);
+        $lock = locks::acquire(self::LOCK);
+        try {
+            [$name, $parentrecord] = self::validate_node($name, $parent);
+            $transaction = $DB->start_delegated_transaction();
+            // Insert and path fix-up are one write: a crash between
+            // them left a node with an empty path, which get_all()
+            // then sorted to the front of the whole tree.
+            $record = self::write_node($name, $parentrecord, $parent);
+            // Payload built inside, dispatched outside (the binding
+            // rule for new code; override\store::save() is the worked
+            // example).
+            $event = self::vocabulary_event(
+                \mod_selfselectadvanced\event\dept_created::class,
+                $record,
+                $actorid
+            );
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Unconditional, never gated on is_transaction_started():
+            // under PHPUnit that predicate answers for
+            // advanced_testcase (true on m5pg, false on m5my) rather
+            // than for this method. See handover::propose().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+        }
 
         // A vocabulary change is a state change an operator audits
-        // (LOG-001, 1.20.4). No lock or transaction is open on this
-        // path, so triggering after the write satisfies the
-        // after-commit-and-release rule trivially.
-        self::vocabulary_event(\mod_selfselectadvanced\event\dept_created::class, $record, $actorid)->trigger();
+        // (LOG-001, 1.20.4). After the commit AND the release.
+        $event->trigger();
 
         return $record;
     }
@@ -180,6 +274,17 @@ class depts {
      * per-line "created" warning in the report and the
      * attributes_imported event. The UI writes (create() and friends)
      * are the evented paths.
+     *
+     * Takes no lock either, and for the same reason: csv_importer::run()
+     * has a delegated transaction open around every call to this
+     * method, and acquiring a lock inside somebody else's transaction
+     * is how a lock ends up held for the whole of a long import and
+     * released only when that import commits. Stated rather than
+     * hidden, because it is a real residue: this method's
+     * find-then-insert can still lose a race with a concurrent
+     * create(). Closing it properly means the IMPORTER taking
+     * depts::LOCK before it opens its transaction, which is
+     * csv_importer's change to make, not this class's.
      *
      * @param string $department department name
      * @param string $subdepartment sub-department name ('' = none)
@@ -305,17 +410,43 @@ class depts {
         if ($program === '' || \core_text::strlen($program) > 100) {
             throw new moodle_exception('errdeptname', 'mod_selfselectadvanced');
         }
-        $record = self::insert_program($program);
-        if ($record === null) {
-            return $DB->get_record(
-                'selfselectadvanced_dept',
-                ['kind' => 'program', 'parent' => 0, 'name' => $program],
-                '*',
-                MUST_EXIST
-            );
+        $lock = locks::acquire(self::LOCK);
+        try {
+            // The existence test and the insert are ONE decision, so
+            // they are one transaction under one lock: taken apart,
+            // two administrators adding the same programme both read
+            // "absent" and both inserted, and programs_menu() - which
+            // keys by name - then silently hid one of the two rows
+            // while delete_program() could only ever remove the other.
+            $transaction = $DB->start_delegated_transaction();
+            $record = self::insert_program($program);
+            $event = $record === null
+                ? null
+                : self::vocabulary_event(\mod_selfselectadvanced\event\dept_created::class, $record, $actorid);
+            $existing = $record === null
+                ? $DB->get_record(
+                    'selfselectadvanced_dept',
+                    ['kind' => 'program', 'parent' => 0, 'name' => $program],
+                    '*',
+                    MUST_EXIST
+                )
+                : null;
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
         }
 
-        self::vocabulary_event(\mod_selfselectadvanced\event\dept_created::class, $record, $actorid)->trigger();
+        if ($record === null) {
+            // Idempotent: asking for a programme that is already there
+            // is not a change, so it leaves no audit event.
+            return $existing;
+        }
+        $event->trigger();
 
         return $record;
     }
@@ -327,6 +458,7 @@ class depts {
      * @param string $name new name
      * @param int $actorid the acting user
      * @throws \required_capability_exception when the actor lacks the ingest authority
+     * @throws moodle_exception on an unusable name or a clash with a sibling
      */
     public static function rename(int $id, string $name, int $actorid): void {
         global $DB;
@@ -336,19 +468,39 @@ class depts {
         if ($name === '' || \core_text::strlen($name) > 100) {
             throw new moodle_exception('errdeptname', 'mod_selfselectadvanced');
         }
-        $record = $DB->get_record('selfselectadvanced_dept', ['id' => $id], '*', MUST_EXIST);
-        $clash = $DB->get_record('selfselectadvanced_dept', ['parent' => $record->parent, 'name' => $name]);
-        if ($clash && (int) $clash->id !== $id) {
-            throw new moodle_exception('errdeptduplicate', 'mod_selfselectadvanced', '', $name);
+        $lock = locks::acquire(self::LOCK);
+        try {
+            // Re-read under the lock: the row and its siblings are read
+            // AFTER the lock is held, so the clash test judges the tree
+            // as it is now and not as it was when the form was drawn.
+            $record = $DB->get_record('selfselectadvanced_dept', ['id' => $id], '*', MUST_EXIST);
+            $clash = $DB->get_record('selfselectadvanced_dept', ['parent' => $record->parent, 'name' => $name]);
+            if ($clash && (int) $clash->id !== $id) {
+                throw new moodle_exception('errdeptduplicate', 'mod_selfselectadvanced', '', $name);
+            }
+            $transaction = $DB->start_delegated_transaction();
+            $DB->update_record('selfselectadvanced_dept', (object) [
+                'id' => $id,
+                'name' => $name,
+                'timemodified' => time(),
+            ]);
+            $record->name = $name;
+            $event = self::vocabulary_event(
+                \mod_selfselectadvanced\event\dept_updated::class,
+                $record,
+                $actorid
+            );
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
         }
-        $DB->update_record('selfselectadvanced_dept', (object) [
-            'id' => $id,
-            'name' => $name,
-            'timemodified' => time(),
-        ]);
 
-        $record->name = $name;
-        self::vocabulary_event(\mod_selfselectadvanced\event\dept_updated::class, $record, $actorid)->trigger();
+        $event->trigger();
     }
 
     /**
@@ -358,35 +510,56 @@ class depts {
      * @param int $id category id
      * @param int $actorid the acting user
      * @throws \required_capability_exception when the actor lacks the ingest authority
+     * @throws moodle_exception when the node has children or is still in use
      */
     public static function delete(int $id, int $actorid): void {
         global $DB;
 
         self::require_ingest($actorid);
-        $record = $DB->get_record('selfselectadvanced_dept', ['id' => $id], '*', MUST_EXIST);
-        if ($record->kind === 'program') {
-            // A programme row carries the schema-default depth 1, so the
-            // department/subdepartment field guess below would run the
-            // in-use check against the WRONG column and could delete a
-            // programme still referenced (wave-2 blind audit, low 3).
-            // Programmes have their own verb with their own guard.
-            throw new \coding_exception('depts::delete() refuses programme rows; use delete_program()');
+        $lock = locks::acquire(self::LOCK);
+        try {
+            // Under the lock, the two guards below are decisive: without
+            // it a create() could add the first child, or an import the
+            // first attribute row, between the check and the delete.
+            $record = $DB->get_record('selfselectadvanced_dept', ['id' => $id], '*', MUST_EXIST);
+            if ($record->kind === 'program') {
+                // A programme row carries the schema-default depth 1, so the
+                // department/subdepartment field guess below would run the
+                // in-use check against the WRONG column and could delete a
+                // programme still referenced (wave-2 blind audit, low 3).
+                // Programmes have their own verb with their own guard.
+                throw new \coding_exception('depts::delete() refuses programme rows; use delete_program()');
+            }
+            if ($DB->record_exists('selfselectadvanced_dept', ['parent' => $id])) {
+                throw new moodle_exception('errdeptchildren', 'mod_selfselectadvanced', '', $record->name);
+            }
+            $field = (int) $record->depth === 1 ? 'department' : 'subdepartment';
+            $inuse = $DB->record_exists_select(
+                'selfselectadvanced_userattr',
+                $DB->sql_equal($field, ':name', false),
+                ['name' => $record->name]
+            );
+            if ($inuse) {
+                throw new moodle_exception('errdeptinuse', 'mod_selfselectadvanced', '', $record->name);
+            }
+            $transaction = $DB->start_delegated_transaction();
+            $DB->delete_records('selfselectadvanced_dept', ['id' => $id]);
+            $event = self::vocabulary_event(
+                \mod_selfselectadvanced\event\dept_deleted::class,
+                $record,
+                $actorid
+            );
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
         }
-        if ($DB->record_exists('selfselectadvanced_dept', ['parent' => $id])) {
-            throw new moodle_exception('errdeptchildren', 'mod_selfselectadvanced', '', $record->name);
-        }
-        $field = (int) $record->depth === 1 ? 'department' : 'subdepartment';
-        $inuse = $DB->record_exists_select(
-            'selfselectadvanced_userattr',
-            $DB->sql_equal($field, ':name', false),
-            ['name' => $record->name]
-        );
-        if ($inuse) {
-            throw new moodle_exception('errdeptinuse', 'mod_selfselectadvanced', '', $record->name);
-        }
-        $DB->delete_records('selfselectadvanced_dept', ['id' => $id]);
 
-        self::vocabulary_event(\mod_selfselectadvanced\event\dept_deleted::class, $record, $actorid)->trigger();
+        $event->trigger();
     }
 
     /**
@@ -407,18 +580,40 @@ class depts {
         global $DB;
 
         self::require_ingest($actorid);
-        $record = $DB->get_record('selfselectadvanced_dept', ['id' => $id, 'kind' => 'program'], '*', MUST_EXIST);
-        $inuse = $DB->record_exists_select(
-            'selfselectadvanced_userattr',
-            $DB->sql_equal('program', ':name', false),
-            ['name' => $record->name]
-        );
-        if ($inuse) {
-            throw new moodle_exception('errdeptinuse', 'mod_selfselectadvanced', '', $record->name);
+        $lock = locks::acquire(self::LOCK);
+        try {
+            $record = $DB->get_record(
+                'selfselectadvanced_dept',
+                ['id' => $id, 'kind' => 'program'],
+                '*',
+                MUST_EXIST
+            );
+            $inuse = $DB->record_exists_select(
+                'selfselectadvanced_userattr',
+                $DB->sql_equal('program', ':name', false),
+                ['name' => $record->name]
+            );
+            if ($inuse) {
+                throw new moodle_exception('errdeptinuse', 'mod_selfselectadvanced', '', $record->name);
+            }
+            $transaction = $DB->start_delegated_transaction();
+            $DB->delete_records('selfselectadvanced_dept', ['id' => $id]);
+            $event = self::vocabulary_event(
+                \mod_selfselectadvanced\event\dept_deleted::class,
+                $record,
+                $actorid
+            );
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
         }
-        $DB->delete_records('selfselectadvanced_dept', ['id' => $id]);
 
-        self::vocabulary_event(\mod_selfselectadvanced\event\dept_deleted::class, $record, $actorid)->trigger();
+        $event->trigger();
     }
 
     /**
@@ -433,18 +628,47 @@ class depts {
         global $DB;
 
         self::require_ingest($actorid);
-        $record = $DB->get_record('selfselectadvanced_dept', ['id' => $id], '*', MUST_EXIST);
-        $siblings = $DB->get_records('selfselectadvanced_dept', ['parent' => $record->parent], 'sortorder, id');
-        $ids = array_keys($siblings);
-        $pos = array_search($id, $ids);
-        $swap = $ids[$pos + $direction] ?? null;
-        if ($swap === null) {
-            return;
+        $lock = locks::acquire(self::LOCK);
+        try {
+            // A swap is two writes that are only meaningful together.
+            // Unlocked and untransacted, two administrators reordering
+            // one sibling list read the same pair of sortorders and
+            // wrote them back interleaved, ending with BOTH rows
+            // carrying the same value - after which get_all()'s order
+            // fell back to the id and the buttons appeared to do
+            // nothing. The re-read is inside the lock for the same
+            // reason: the neighbour a page offered may not be the
+            // neighbour any more.
+            $record = $DB->get_record('selfselectadvanced_dept', ['id' => $id], '*', MUST_EXIST);
+            $siblings = $DB->get_records('selfselectadvanced_dept', ['parent' => $record->parent], 'sortorder, id');
+            $ids = array_keys($siblings);
+            $pos = array_search($id, $ids);
+            $swap = $ids[$pos + $direction] ?? null;
+            if ($swap === null) {
+                // Already at the end it was asked to move towards.
+                // Nothing to write, so no transaction is opened and no
+                // event is raised.
+                return;
+            }
+            $transaction = $DB->start_delegated_transaction();
+            $DB->set_field('selfselectadvanced_dept', 'sortorder', $siblings[$swap]->sortorder, ['id' => $id]);
+            $DB->set_field('selfselectadvanced_dept', 'sortorder', $record->sortorder, ['id' => $swap]);
+            $event = self::vocabulary_event(
+                \mod_selfselectadvanced\event\dept_updated::class,
+                $record,
+                $actorid
+            );
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
         }
-        $DB->set_field('selfselectadvanced_dept', 'sortorder', $siblings[$swap]->sortorder, ['id' => $id]);
-        $DB->set_field('selfselectadvanced_dept', 'sortorder', $record->sortorder, ['id' => $swap]);
 
-        self::vocabulary_event(\mod_selfselectadvanced\event\dept_updated::class, $record, $actorid)->trigger();
+        $event->trigger();
     }
 
     /**
@@ -461,52 +685,71 @@ class depts {
     public static function bulk_add(string $text, int $actorid): stdClass {
         global $DB;
 
-        // Authority BEFORE the transaction: a refused bulk add must
-        // never have opened a delegated frame at all.
+        // Authority BEFORE the lock and the transaction: a refused bulk
+        // add must never have queued for the lock or opened a delegated
+        // frame at all.
         self::require_ingest($actorid);
 
         $report = (object) ['created' => 0, 'existing' => 0, 'errors' => 0, 'errorlines' => []];
         $events = [];
-        $transaction = $DB->start_delegated_transaction();
-        foreach (preg_split('/\R/', $text) as $lineno => $line) {
-            $line = trim($line);
-            if ($line === '') {
-                continue;
-            }
-            $parts = array_map('trim', explode('/', $line));
-            $parentid = 0;
-            try {
-                foreach ($parts as $name) {
-                    if ($name === '' || \core_text::strlen($name) > 100) {
-                        throw new moodle_exception('errdeptname', 'mod_selfselectadvanced');
-                    }
-                    $existing = $DB->get_record('selfselectadvanced_dept', [
-                        'parent' => $parentid,
-                        'name' => $name,
-                    ]);
-                    if ($existing) {
-                        $report->existing++;
-                        $parentid = (int) $existing->id;
-                    } else {
-                        $created = self::insert_node($name, $parentid);
-                        $report->created++;
-                        $parentid = (int) $created->id;
-                        // Payload built inside the transaction,
-                        // dispatched after the commit below - the
-                        // binding rule for new code.
-                        $events[] = self::vocabulary_event(
-                            \mod_selfselectadvanced\event\dept_created::class,
-                            $created,
-                            $actorid
-                        );
-                    }
+        // The lock wraps the whole paste: every line's find-or-create
+        // is the same read-then-insert create() serialises, and a paste
+        // that raced a single create() produced exactly the duplicate
+        // pair described at the top of this class.
+        $lock = locks::acquire(self::LOCK);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+            foreach (preg_split('/\R/', $text) as $lineno => $line) {
+                $line = trim($line);
+                if ($line === '') {
+                    continue;
                 }
-            } catch (moodle_exception $e) {
-                $report->errors++;
-                $report->errorlines[] = ($lineno + 1) . ': ' . $line;
+                $parts = array_map('trim', explode('/', $line));
+                $parentid = 0;
+                try {
+                    foreach ($parts as $name) {
+                        if ($name === '' || \core_text::strlen($name) > 100) {
+                            throw new moodle_exception('errdeptname', 'mod_selfselectadvanced');
+                        }
+                        $existing = $DB->get_record('selfselectadvanced_dept', [
+                            'parent' => $parentid,
+                            'name' => $name,
+                        ]);
+                        if ($existing) {
+                            $report->existing++;
+                            $parentid = (int) $existing->id;
+                        } else {
+                            $created = self::insert_node($name, $parentid);
+                            $report->created++;
+                            $parentid = (int) $created->id;
+                            // Payload built inside the transaction,
+                            // dispatched after the commit below - the
+                            // binding rule for new code.
+                            $events[] = self::vocabulary_event(
+                                \mod_selfselectadvanced\event\dept_created::class,
+                                $created,
+                                $actorid
+                            );
+                        }
+                    }
+                } catch (moodle_exception $e) {
+                    // A bad line is REPORTED, not unwound: the paste is
+                    // a best-effort ingest and the other lines stand.
+                    // Caught here and never rolled back, so the frame
+                    // stays whole and the commit below is reached.
+                    $report->errors++;
+                    $report->errorlines[] = ($lineno + 1) . ': ' . $line;
+                }
             }
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
         }
-        $transaction->allow_commit();
         $report->errordetail = implode('; ', $report->errorlines);
 
         foreach ($events as $event) {

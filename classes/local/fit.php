@@ -60,8 +60,38 @@ use stdClass;
  *    four queries and then judges each team with none.
  *
  * Both funnel the composition verdict through
+ * self::composition_verdict(), which funnels through
  * evaluator::feasibility_from_data(), so the advisory caution in the
  * picker can never contradict the refusal at the gate.
+ *
+ * WHAT A PENDING INVITATION MAY AND MAY NOT DO (maintainer decision
+ * 53: "Invitation should not hard-block. When a leader decides that
+ * another member will do the job, why not remove the user"). The
+ * admission gate counts confirmed PLUS invited members, because an
+ * invitation reserves its seat (L2). For a counting-rule MAXIMUM that
+ * basis used to produce a hard refusal, which told a leader that a
+ * request was impossible when one click - withdraw the invitation -
+ * would have made it possible. Since 1.20.5 the two questions are
+ * asked separately over the same engine:
+ *
+ *  - only CONFIRMED members (plus the candidate) can put a maximum
+ *    over in a way nothing the leader does today could repair, so only
+ *    they produce a HARD refusal;
+ *  - a maximum that is over only once PENDING invitations are counted
+ *    is a WARNING, carried in {@see $answer->warnings}, naming what is
+ *    confirmed, what is pending and what the request would make.
+ *
+ * WHAT ACCEPTING WOULD DO, ASKED HERE (maintainer decision 53, the
+ * photographed contradiction). The Fit column said "Meets this team's
+ * requirements" and the very same row's Accept button then failed with
+ * the move engine's QUOTA verdict. The two were different questions:
+ * this class asked the ADMISSION gate, the engine asked whether the
+ * post-move rosters COMPLY. {@see self::accept_composition_refusal()}
+ * is the one projection of that engine verdict, and it is consulted
+ * BOTH here - so a request that cannot be accepted is never labelled a
+ * fit - and by joinrequests::first_reason(), which words the engine's
+ * own refusal with it. The engine keeps the last word; what this
+ * removes is the possibility of the two SAYING different things.
  *
  * WHAT for_groups() COSTS, AND WHO PAYS IT (corrected 2026-07-31; this
  * docblock used to say the picker "costs about what the unannotated
@@ -98,26 +128,113 @@ class fit {
     /**
      * How one person stands against one team, through the real gate.
      *
+     * When a live join request from this person to this team exists it
+     * is the SUBJECT of the verdict, and the answer is what accepting
+     * that request would do - including the team the request would take
+     * them out of. The row is looked up when the caller does not hand
+     * it over, so the leader panel on group.php and the "Asked of my
+     * team" tab reach the identical verdict without either of them
+     * having to know that the other exists.
+     *
      * @param activity $activity the activity
      * @param stdClass $group the team
      * @param int $userid the person
-     * @return stdClass {fits: bool, caution: string, seat: string|null, seatno: int|null}
+     * @param stdClass|null $request the live join request when the caller already holds it;
+     *        null to look one up
+     * @return stdClass {fits: bool, caution: string, warnings: string[],
+     *                  seat: string|null, seatno: int|null}
      */
-    public static function for_person(activity $activity, stdClass $group, int $userid): stdClass {
+    public static function for_person(
+        activity $activity,
+        stdClass $group,
+        int $userid,
+        ?stdClass $request = null
+    ): stdClass {
+        global $DB;
+
         $answer = (object) [
             'fits' => true,
             'caution' => '',
+            'warnings' => [],
             'seat' => null,
             'seatno' => null,
         ];
 
+        if ($request === null) {
+            // At most one live request per person exists (the duplicate
+            // guard in joinrequests::request()), so IGNORE_MULTIPLE is
+            // a statement about a corrupt table, not about a choice.
+            $request = $DB->get_record_select(
+                'selfselectadvanced_move',
+                'activityid = :activityid AND userid = :userid'
+                    . ' AND targetgroupid = :targetgroupid AND status = :status',
+                [
+                    'activityid' => $activity->id(),
+                    'userid' => $userid,
+                    'targetgroupid' => (int) $group->id,
+                    'status' => joinrequests::STATUS_REQUESTED,
+                ],
+                '*',
+                IGNORE_MULTIPLE
+            ) ?: null;
+        }
+        $sourcegroupid = $request !== null && $request->sourcegroupid ? (int) $request->sourcegroupid : null;
+
         // The same gate an invitation goes through, so the caution a
         // student reads is the refusal they would actually meet.
         $refusal = (new api($activity))->gatekeeper()->can_invite($group, $userid);
-        if ($refusal !== null) {
-            $answer->fits = false;
-            $answer->caution = $refusal->get_message();
+        $fits = $refusal === null;
+        $caution = $refusal !== null ? $refusal->get_message() : '';
+
+        if ($refusal !== null && $refusal->stringkey === 'refusalcompositionmax') {
+            // Decision 53: re-ask the composition question with the
+            // confirmed/pending split, through the shared verdict the
+            // picker also uses. A maximum that only PENDING invitations
+            // put over is a warning, not a wall.
+            $verdict = self::composition_verdict_for_group($activity, $group, $userid);
+            $fits = $verdict->fits;
+            $caution = $verdict->caution;
+            if ($verdict->warning !== '') {
+                $answer->warnings[] = $verdict->warning;
+            }
         }
+
+        if (!$fits && $refusal !== null && $refusal->stringkey === 'refusalinviteecap' && $sourcegroupid !== null) {
+            // A request that LEAVES a team costs the student no net
+            // membership, and the move engine judges it on exactly that
+            // net (moves::validate_set, verdict L4). The invitation
+            // gate has no source to net against and so refuses a
+            // student at their cap; carrying that refusal into a
+            // request whose whole point is the swap made the Fit column
+            // disagree with the Accept button in the other direction.
+            //
+            // BUT THE CAP IS NOT THE ONLY QUESTION. can_invite() returns
+            // at its FIRST refusal, so a cap refusal means the seat and
+            // composition questions were never asked at all. Declaring
+            // fits=true here would answer them by assumption - the
+            // vacuity defect this project refuses. So the cap refusal is
+            // only SET ASIDE, and the questions it pre-empted are asked
+            // now, through the same shared verdict everything else uses.
+            $verdict = self::composition_verdict_for_group($activity, $group, $userid);
+            $fits = $verdict->fits;
+            $caution = $verdict->caution;
+            if ($verdict->warning !== '') {
+                $answer->warnings[] = $verdict->warning;
+            }
+        }
+
+        if ($fits && $request !== null) {
+            // What ACCEPTING would do, asked here so the column and the
+            // button cannot disagree.
+            $blocked = self::accept_composition_refusal($activity, $group, $userid, $sourcegroupid);
+            if ($blocked !== null) {
+                $fits = false;
+                $caution = $blocked;
+            }
+        }
+
+        $answer->fits = $fits;
+        $answer->caution = $caution;
 
         $seat = self::seat_taken($activity, $group, $userid);
         if ($seat !== null) {
@@ -126,6 +243,358 @@ class fit {
         }
 
         return $answer;
+    }
+
+    /**
+     * Whether accepting this student into this team would leave either
+     * team's composition non-compliant - the ONE projection of the move
+     * engine's QUOTA verdict.
+     *
+     * This is deliberately the same question, asked the same way, as
+     * moves::quota_after(): the CONFIRMED roster each team would have,
+     * judged by evaluator::compliant_for_members(), with a per-group
+     * quota exemption skipping the team it is set on. It is a
+     * projection and not the engine itself because the engine can only
+     * answer for a move row that has been STAGED, and the leader needs
+     * the answer while deciding whether to stage one at all.
+     *
+     * Nothing here is advisory: whatever this refuses, the engine
+     * refuses. joinrequests::first_reason() asks it when the engine's
+     * QUOTA verdict is the one that failed, so the refusal a leader
+     * meets is worded in terms of the TEAMS involved instead of "Quota
+     * rules on both groups after the move" - a sentence that named two
+     * groups where an extra-membership request has only ever had one.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $target the team being joined
+     * @param int $userid the student
+     * @param int|null $sourcegroupid the team the request would take them out of, or null
+     * @return string|null null when both rosters would comply, else the reason
+     */
+    public static function accept_composition_refusal(
+        activity $activity,
+        stdClass $target,
+        int $userid,
+        ?int $sourcegroupid
+    ): ?string {
+        $resolver = new resolver($activity);
+
+        if (!$resolver->is_quota_exempt((int) $target->id)->enabled) {
+            $after = self::confirmed_after((int) $target->id, [$userid], []);
+            if (!evaluator::compliant_for_members($activity, $after)) {
+                return get_string(
+                    'refusaljoinquotatarget',
+                    'mod_selfselectadvanced',
+                    format_string($target->name)
+                );
+            }
+        }
+
+        if ($sourcegroupid !== null && !$resolver->is_quota_exempt($sourcegroupid)->enabled) {
+            $after = self::confirmed_after($sourcegroupid, [], [$userid]);
+            if (!evaluator::compliant_for_members($activity, $after)) {
+                return get_string(
+                    'refusaljoinquotasource',
+                    'mod_selfselectadvanced',
+                    format_string(groups::get($activity, $sourcegroupid)->name)
+                );
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A team's confirmed roster with a move applied to it, exactly as
+     * moves::quota_after() builds the virtual roster it judges.
+     *
+     * @param int $groupid the team
+     * @param int[] $add user ids the move would put in
+     * @param int[] $remove user ids the move would take out
+     * @return int[] the resulting confirmed member ids
+     */
+    private static function confirmed_after(int $groupid, array $add, array $remove): array {
+        global $DB;
+
+        $current = array_map('intval', $DB->get_fieldset_select(
+            'selfselectadvanced_member',
+            'userid',
+            'groupid = ? AND status = ?',
+            [$groupid, groups::STATUS_CONFIRMED]
+        ));
+
+        return array_values(array_diff(array_merge($current, $add), $remove));
+    }
+
+    /**
+     * The composition verdict for one team, loading the four things it
+     * needs. The per-team entry point; the picker holds the same four
+     * for the whole page and calls composition_verdict() directly.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the team
+     * @param int $userid the candidate
+     * @return stdClass {fits, caution, warning}
+     */
+    private static function composition_verdict_for_group(
+        activity $activity,
+        stdClass $group,
+        int $userid
+    ): stdClass {
+        global $DB;
+
+        $confirmed = [];
+        $invited = [];
+        [$insql, $params] = $DB->get_in_or_equal(
+            [groups::STATUS_CONFIRMED, groups::STATUS_INVITED],
+            SQL_PARAMS_NAMED,
+            'st'
+        );
+        $params['groupid'] = (int) $group->id;
+        $rows = $DB->get_records_select(
+            'selfselectadvanced_member',
+            "groupid = :groupid AND status $insql",
+            $params,
+            '',
+            'id, userid, status'
+        );
+        foreach ($rows as $row) {
+            if ($row->status === groups::STATUS_CONFIRMED) {
+                $confirmed[] = (int) $row->userid;
+            } else {
+                $invited[] = (int) $row->userid;
+            }
+        }
+
+        $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $activity->id()], 'priority ASC');
+        $template = slots::get_all($activity);
+        $attrs = manager::get_for_users(array_merge($confirmed, $invited, [$userid]));
+        $maxsize = (new resolver($activity))->effective_maxsize((int) $group->id)->value;
+
+        return self::composition_verdict($rules, $template, $confirmed, $invited, $userid, $attrs, $maxsize);
+    }
+
+    /**
+     * Whether the composition admits this candidate, with the ruling of
+     * maintainer decision 53 applied: a counting-rule MAXIMUM is a hard
+     * refusal only when CONFIRMED members put it over, and a warning
+     * when it takes pending invitations to do so.
+     *
+     * The reachability half is unchanged in the ordinary case - the
+     * same feasibility bound, over the same confirmed-plus-invited
+     * basis, that the gate has always used. On the WARNING path the
+     * bound is taken over the confirmed basis instead, with the pending
+     * invitations subtracted from the free seats they reserve: the
+     * confirmed-plus-invited run stopped its rule scan at the exceeded
+     * maximum, so its `missing` is a partial figure, and refusing a
+     * student on a partial figure would be exactly the vacuous check
+     * this plugin does not ship.
+     *
+     * @param stdClass[] $rules the activity's quota rules, priority order
+     * @param stdClass[] $template the activity's seat plan
+     * @param int[] $confirmedids confirmed members, candidate excluded
+     * @param int[] $invitedids members holding a pending invitation
+     * @param int $userid the candidate
+     * @param stdClass[] $attrs attributes keyed by user id
+     * @param int $maxsize the team's effective maximum size
+     * @return stdClass {fits: bool, caution: string, warning: string, seating: stdClass}
+     */
+    private static function composition_verdict(
+        array $rules,
+        array $template,
+        array $confirmedids,
+        array $invitedids,
+        int $userid,
+        array $attrs,
+        int $maxsize
+    ): stdClass {
+        $full = evaluator::feasibility_from_data(
+            $rules,
+            $template,
+            array_merge($confirmedids, $invitedids, [$userid]),
+            $attrs
+        );
+        $verdict = (object) [
+            'fits' => true,
+            'caution' => '',
+            'warning' => '',
+            'seating' => $full->seating,
+        ];
+
+        if ($full->maxexceeded === null) {
+            $free = max(0, $maxsize - $full->seated);
+            if ($full->missing > $free) {
+                $verdict->fits = false;
+                $verdict->caution = get_string(
+                    'refusalcompositionunreachable',
+                    'mod_selfselectadvanced',
+                    (object) ['missing' => $full->missing, 'free' => $free]
+                );
+            }
+
+            return $verdict;
+        }
+
+        // A maximum is over on the projected roster. Whose maximum is
+        // it? Re-asked over CONFIRMED members plus the candidate, which
+        // is the only roster nothing the leader can do today would
+        // shrink.
+        $hardbasis = array_merge($confirmedids, [$userid]);
+        $hard = evaluator::feasibility_from_data($rules, $template, $hardbasis, $attrs);
+        if ($hard->maxexceeded !== null) {
+            $verdict->fits = false;
+            $verdict->caution = self::max_message(
+                $rules,
+                $confirmedids,
+                $invitedids,
+                $userid,
+                $attrs,
+                $hard->maxexceeded,
+                true
+            );
+
+            return $verdict;
+        }
+
+        $verdict->warning = self::max_message(
+            $rules,
+            $confirmedids,
+            $invitedids,
+            $userid,
+            $attrs,
+            $full->maxexceeded,
+            false
+        );
+        $free = max(0, $maxsize - $hard->seated - count(array_unique($invitedids)));
+        if ($hard->missing > $free) {
+            $verdict->fits = false;
+            $verdict->caution = get_string(
+                'refusalcompositionunreachable',
+                'mod_selfselectadvanced',
+                (object) ['missing' => $hard->missing, 'free' => $free]
+            );
+        }
+
+        return $verdict;
+    }
+
+    /**
+     * The sentence for an exceeded counting maximum, with the counts
+     * broken out: what is CONFIRMED, what is merely PENDING, and what
+     * this request would make.
+     *
+     * The VERDICT is never decided here - it is decided by the
+     * evaluator, twice, over two rosters. All this does is attach
+     * figures to it, by locating the rule the evaluator's own entry
+     * came from and counting the two rosters against that rule's
+     * dimension exactly as the evaluator counts them. When the rule
+     * cannot be located with certainty the wording falls back to the
+     * figure-free sentence rather than guessing a number: a wrong
+     * number in a refusal is worse than a vague one.
+     *
+     * @param stdClass[] $rules the activity's quota rules, priority order
+     * @param int[] $confirmedids confirmed members, candidate excluded
+     * @param int[] $invitedids members holding a pending invitation
+     * @param int $userid the candidate
+     * @param stdClass[] $attrs attributes keyed by user id
+     * @param stdClass $entry the evaluator's maxexceeded entry {value, max, current}
+     * @param bool $hard true for the refusal, false for the advisory warning
+     * @return string the localised sentence
+     */
+    private static function max_message(
+        array $rules,
+        array $confirmedids,
+        array $invitedids,
+        int $userid,
+        array $attrs,
+        stdClass $entry,
+        bool $hard
+    ): string {
+        $rule = self::rule_behind($rules, $entry);
+        if ($rule === null) {
+            return $hard
+                ? get_string('refusalcompositionmax', 'mod_selfselectadvanced', $entry)
+                : get_string('cautioncompositionmaxpendingplain', 'mod_selfselectadvanced', $entry);
+        }
+
+        $confirmed = self::holders($confirmedids, $attrs, $rule->dimension, (string) $rule->value);
+        $pending = self::holders($invitedids, $attrs, $rule->dimension, (string) $rule->value);
+        $candidate = self::holders([$userid], $attrs, $rule->dimension, (string) $rule->value);
+        $a = (object) [
+            'value' => $rule->value,
+            'max' => (int) $rule->maxcount,
+            'confirmed' => $confirmed,
+            'pending' => $pending,
+            'candidate' => $candidate,
+            'wouldbe' => $hard ? $confirmed + $candidate : $confirmed + $pending + $candidate,
+        ];
+
+        return $hard
+            ? get_string('refusalcompositionmaxconfirmed', 'mod_selfselectadvanced', $a)
+            : get_string('cautioncompositionmaxpending', 'mod_selfselectadvanced', $a);
+    }
+
+    /**
+     * The rule an evaluator maxexceeded entry came from.
+     *
+     * The entry carries the configured value and the maximum but not
+     * the dimension, and the dimension is what a count needs. Matched
+     * on both of the fields the entry does carry, case-insensitively on
+     * the value as the evaluator matches it; an ambiguous or absent
+     * match returns null and the caller words itself without figures.
+     *
+     * @param stdClass[] $rules the activity's quota rules
+     * @param stdClass $entry the evaluator's maxexceeded entry
+     * @return stdClass|null the one rule that matches, or null
+     */
+    private static function rule_behind(array $rules, stdClass $entry): ?stdClass {
+        $found = null;
+        foreach ($rules as $rule) {
+            if ($rule->rtype === 'distinct' || $rule->maxcount === null) {
+                continue;
+            }
+            if ((int) $rule->maxcount !== (int) $entry->max) {
+                continue;
+            }
+            if (\core_text::strtolower((string) $rule->value) !== \core_text::strtolower((string) $entry->value)) {
+                continue;
+            }
+            if ($found !== null && $found->dimension !== $rule->dimension) {
+                // Two dimensions carry the same value at the same
+                // maximum: which one is over cannot be told from the
+                // entry, so no figures are claimed.
+                return null;
+            }
+            $found = $found ?? $rule;
+        }
+
+        return $found;
+    }
+
+    /**
+     * How many of these people hold one value of one dimension.
+     *
+     * Compared exactly as evaluator::feasibility_from_data() compares a
+     * counting rule: lower-cased on both sides, empty treated as
+     * missing rather than as a value.
+     *
+     * @param int[] $userids the people
+     * @param stdClass[] $attrs attributes keyed by user id
+     * @param string $dimension the dimension
+     * @param string $value the configured value
+     * @return int how many hold it
+     */
+    private static function holders(array $userids, array $attrs, string $dimension, string $value): int {
+        $target = \core_text::strtolower($value);
+        $held = 0;
+        foreach (array_unique(array_map('intval', $userids)) as $uid) {
+            $mine = $attrs[$uid]->{$dimension} ?? null;
+            if ($mine !== null && $mine !== '' && \core_text::strtolower($mine) === $target) {
+                $held++;
+            }
+        }
+
+        return $held;
     }
 
     /**
@@ -245,6 +714,7 @@ class fit {
             $answer = (object) [
                 'fits' => true,
                 'caution' => '',
+                'warnings' => [],
                 'seat' => null,
                 'seatno' => null,
                 'member' => in_array($userid, $confirmed[$gid], true),
@@ -289,26 +759,27 @@ class fit {
             // solves it itself.
             $seating = null;
             if (!$resolver->is_quota_exempt($gid)->enabled) {
-                $with = array_merge($roster, [$userid]);
-                $feasibility = evaluator::feasibility_from_data($rules, $template, $with, $attrs);
-                $seating = $feasibility->seating;
-                if ($feasibility->maxexceeded !== null) {
-                    $answer->fits = false;
-                    $answer->caution = get_string(
-                        'refusalcompositionmax',
-                        'mod_selfselectadvanced',
-                        $feasibility->maxexceeded
-                    );
-                    continue;
+                // The SAME verdict the gate re-asks in for_person(), so
+                // the caution this row carries and the refusal at the
+                // gate are one sentence written once - including the
+                // confirmed/pending split of decision 53.
+                $invited = array_values(array_diff($roster, $confirmed[$gid]));
+                $verdict = self::composition_verdict(
+                    $rules,
+                    $template,
+                    $confirmed[$gid],
+                    $invited,
+                    $userid,
+                    $attrs,
+                    $maxsize
+                );
+                $seating = $verdict->seating;
+                if ($verdict->warning !== '') {
+                    $answer->warnings[] = $verdict->warning;
                 }
-                $free = max(0, $maxsize - $feasibility->seated);
-                if ($feasibility->missing > $free) {
+                if (!$verdict->fits) {
                     $answer->fits = false;
-                    $answer->caution = get_string(
-                        'refusalcompositionunreachable',
-                        'mod_selfselectadvanced',
-                        (object) ['missing' => $feasibility->missing, 'free' => $free]
-                    );
+                    $answer->caution = $verdict->caution;
                     continue;
                 }
             }

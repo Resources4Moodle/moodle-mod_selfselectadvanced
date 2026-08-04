@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.20.5 — what the column says, the button does (2026-08-05)
+
+> Serial `2026080100` / `1.20.5`. No schema, capability, message-provider or
+> scheduled-task change. The serial is also a correction: every serial from
+> `2026073200` onwards encoded **2026-07-32**, a day that does not exist —
+> the scheme carried its increment into the day field instead of the month.
+> Moodle only requires the number to rise, so nothing broke; from here the
+> serials are real calendar dates. Landed savepoints are not rewritten.
+
+- **A pending invitation no longer refuses a join request.** Only *confirmed*
+  members can put a counting maximum beyond reach. Where an invitation that
+  has not been accepted is the only reason a team looks full, the leader now
+  gets a **warning naming what is confirmed, what is invited, and what this
+  request would make** — and keeps the withdraw-invitation control to make
+  room deliberately. A team that is genuinely over its maximum still refuses.
+- **The fit verdict and the accept button can no longer disagree.** They are
+  produced by one predicate. Previously a request could be shown as *"Meets
+  this team's requirements"* and then be refused on accept with a quota
+  message — and, in the other direction, a student swapping teams could be
+  shown as a poor fit for a membership cap the move engine nets out. Both are
+  gone.
+- **Refusals say what is true.** The composition refusal states the confirmed
+  count against the maximum instead of a projection that read as the current
+  roster; a request that joins a team without leaving one no longer reports
+  *"quota rules on both groups after the move"* when there is no second group;
+  and seat counts keep confirmed and invited apart.
+- **Requesters show their department and sub-department** in both join-request
+  views and on the leader's own team page — the composition dimensions a
+  leader is deciding about. No contact detail is added: the privacy switch is
+  untouched.
+- **The leader sees incoming requests on their team page**, with accept and
+  decline, instead of having to find the join-request screen.
+- **A departed nominee's handover now lapses on unenrolment too** — the
+  deletion path already did this, and the earlier fix's own test only covered
+  deletion.
+- **Privacy: discovery and erasure now agree.** A person named inside a queued
+  digest is found *and* removed, including when their name carries a non-ASCII
+  character, which the stored JSON escapes — the two halves previously used
+  different tests, so such a person could be discovered and then left behind.
+- Department and programme vocabulary writes are serialised and atomic; the
+  guide-handover authority matches the page that offers it; the participant
+  search placeholder no longer promises an email match it never performed; and
+  the requirements are stated plainly as Moodle 5.2 on PHP 8.4 or later.
+
 ## 1.20.4 — a refused message is a fact, not a shrug (2026-08-04)
 
 > No schema, capability, message-provider or scheduled-task change. Serial

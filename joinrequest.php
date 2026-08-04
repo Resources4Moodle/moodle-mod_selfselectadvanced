@@ -183,6 +183,36 @@ if ($tab === 'ask') {
     }
     echo html_writer::div($bannertext, 'alert alert-info');
 
+    // WHAT THE LEADER WILL SEE OF YOU (maintainer decision 53: "Will
+    // adding the student's department and sub-department be a major
+    // change? This will be your design fix"). The same two COMPOSITION
+    // attributes the answering side is shown, read through the same
+    // accessor the leader panel on group.php uses, so the asker is told
+    // exactly what the decider reads about them and nothing is
+    // disclosed here that is not disclosed there. No contact field is
+    // read on this page, for any viewer, in either state of the
+    // contact-privacy switch.
+    $myattr = \mod_selfselectadvanced\local\attributes\manager::get_for_users([(int) $USER->id])[(int) $USER->id]
+        ?? null;
+    $mydept = trim((string) ($myattr->department ?? ''));
+    $mysubdept = trim((string) ($myattr->subdepartment ?? ''));
+    $mylines = [html_writer::tag('p', get_string('joinyourcomposition', 'mod_selfselectadvanced'), [
+        'class' => 'text-muted small mb-1',
+    ])];
+    if ($mydept === '' && $mysubdept === '') {
+        $mylines[] = html_writer::div(get_string('attrsmissing', 'mod_selfselectadvanced'), 'small text-muted');
+    } else {
+        $parts = [];
+        if ($mydept !== '') {
+            $parts[] = get_string('attrdepartment', 'mod_selfselectadvanced') . ': ' . s($mydept);
+        }
+        if ($mysubdept !== '') {
+            $parts[] = get_string('attrsubdepartment', 'mod_selfselectadvanced') . ': ' . s($mysubdept);
+        }
+        $mylines[] = html_writer::div(implode(' &middot; ', $parts), 'small');
+    }
+    echo html_writer::div(implode('', $mylines), 'selfselectadvanced-joinmycomposition mb-3');
+
     $targetnames = [];
     if ($mine) {
         // One batched lookup for the source names of the rows already
@@ -295,6 +325,36 @@ if ($tab === 'ask') {
         ? $DB->get_records_list('selfselectadvanced_group', 'id', array_keys($sourceids), '', 'id, name')
         : [];
 
+    // The requesters' COMPOSITION attributes, one bulk read before the
+    // loop and never a get_for_users() inside it - the same accessor,
+    // and the same two dimensions, the leader panel on group.php
+    // renders (maintainer decision 53). Department and sub-department
+    // are what a team is composed by; no contact field is read here.
+    $requesterids = [];
+    foreach ($rows as [, $request]) {
+        $requesterids[(int) $request->userid] = true;
+    }
+    $requesterattrs = [];
+    foreach (array_chunk(array_keys($requesterids), 1000) as $chunk) {
+        $requesterattrs += \mod_selfselectadvanced\local\attributes\manager::get_for_users($chunk);
+    }
+
+    // Seats, told as they are: CONFIRMED and PENDING kept apart, never
+    // added up into one number that reads as the current roster. Held
+    // per TEAM, because a team with five requests waiting has one seat
+    // position and not five.
+    $gatekeeper = (new \mod_selfselectadvanced\local\api($activity))->gatekeeper();
+    $seatlines = [];
+    foreach ($rows as [$team, ]) {
+        if (!isset($seatlines[(int) $team->id])) {
+            $seatlines[(int) $team->id] = get_string(
+                'seatsummary',
+                'mod_selfselectadvanced',
+                $gatekeeper->seat_position($team)
+            );
+        }
+    }
+
     // Decision 6, D6-5: the staff override reaches the acceptance too.
     // Collapsed by default, so a leader answering an ordinary request
     // never sees it; rendered only for holders, and the server checks
@@ -345,6 +405,7 @@ if ($tab === 'ask') {
         $table->head = [
             get_string('groupname', 'mod_selfselectadvanced'),
             get_string('fullname'),
+            get_string('composition', 'mod_selfselectadvanced'),
             get_string('jointreason', 'mod_selfselectadvanced'),
             get_string('joinfitcolumn', 'mod_selfselectadvanced'),
             get_string('actions'),
@@ -372,7 +433,16 @@ if ($tab === 'ask') {
             // would take. Shown, never used to hide the request - the
             // leader is entitled to accept somebody the rules would
             // refuse today and sort the composition out afterwards.
-            $verdict = \mod_selfselectadvanced\local\fit::for_person($activity, $team, (int) $request->userid);
+            // The REQUEST is handed over, so this verdict is the answer
+            // to "what would accepting this do" - the same object, from
+            // the same call, that the leader panel on group.php builds
+            // its row from.
+            $verdict = \mod_selfselectadvanced\local\fit::for_person(
+                $activity,
+                $team,
+                (int) $request->userid,
+                $request
+            );
             $fitcell = [];
             if (!$verdict->fits) {
                 $fitcell[] = html_writer::div(
@@ -384,6 +454,17 @@ if ($tab === 'ask') {
                 $fitcell[] = html_writer::div(
                     get_string('joinfitok', 'mod_selfselectadvanced'),
                     'text-success small'
+                );
+            }
+            // Advisory, not a wall: a maximum that only PENDING
+            // invitations put over is something the leader can clear by
+            // withdrawing one, and decision 53 says so rather than
+            // refusing on their behalf.
+            foreach ($verdict->warnings as $warning) {
+                $fitcell[] = html_writer::div(
+                    html_writer::tag('strong', get_string('joinfitnote', 'mod_selfselectadvanced'))
+                        . ' ' . s($warning),
+                    'text-muted small'
                 );
             }
             if ($verdict->seat !== null) {
@@ -405,9 +486,34 @@ if ($tab === 'ask') {
                 'small text-muted'
             );
 
+            $attr = $requesterattrs[(int) $request->userid] ?? null;
+            $department = trim((string) ($attr->department ?? ''));
+            $subdepartment = trim((string) ($attr->subdepartment ?? ''));
+            $composition = [];
+            if ($department !== '') {
+                $composition[] = html_writer::div(
+                    get_string('attrdepartment', 'mod_selfselectadvanced') . ': ' . s($department),
+                    'small'
+                );
+            }
+            if ($subdepartment !== '') {
+                $composition[] = html_writer::div(
+                    get_string('attrsubdepartment', 'mod_selfselectadvanced') . ': ' . s($subdepartment),
+                    'small'
+                );
+            }
+            if (!$composition) {
+                $composition[] = html_writer::div(
+                    get_string('attrsmissing', 'mod_selfselectadvanced'),
+                    'small text-muted'
+                );
+            }
+
             $table->data[] = [
-                format_string($team->name) . ' ' . html_writer::span($team->pluginuid, 'text-muted small'),
+                format_string($team->name) . ' ' . html_writer::span($team->pluginuid, 'text-muted small')
+                    . html_writer::div($seatlines[(int) $team->id] ?? '', 'small text-muted'),
                 $student ? fullname($student) : '',
+                implode('', $composition),
                 s(shorten_text((string) $request->reason, 110)),
                 implode('', $fitcell),
                 $form,

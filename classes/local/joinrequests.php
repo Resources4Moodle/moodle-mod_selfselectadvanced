@@ -633,7 +633,14 @@ class joinrequests {
                     'refusaljoinrules',
                     'mod_selfselectadvanced',
                     '',
-                    self::first_reason($verdicts, (int) $staged->id)
+                    self::first_reason(
+                        $verdicts,
+                        (int) $staged->id,
+                        $activity,
+                        $target,
+                        $source,
+                        (int) $request->userid
+                    )
                 );
             }
             $moves->commit_set(
@@ -871,13 +878,58 @@ class joinrequests {
      * "the rules refused it" and never which rule or by how much
      * (D6-5). It now names the rule and carries its figures.
      *
+     * THE QUOTA VERDICT IS RE-WORDED HERE (1.20.5). The engine's own
+     * sentence is "Quota rules on both groups after the move", written
+     * for a manager moving somebody BETWEEN two teams. A join request
+     * that keeps every current team - the maintainer's extra-membership
+     * shape - has no source group at all, so "both groups" named a team
+     * the student had never mentioned, and the leader was left to guess
+     * which rules on which roster had refused them. The teams involved
+     * are known here, and fit::accept_composition_refusal() - the same
+     * projection fit::for_person() put in front of the leader beside
+     * this very request - says which side is at fault, in the sentence
+     * they already read. The ENGINE still decides; this only decides
+     * the words. Where the projection and the engine disagree the
+     * engine's own sentence stands, and then only where it is true:
+     * with a source group there really are two rosters.
+     *
      * @param stdClass $verdicts what validate_set() returned
      * @param int $moveid the staged move
+     * @param activity $activity the activity
+     * @param stdClass $target the team being joined
+     * @param stdClass|null $source the team being left, or null for an extra membership
+     * @param int $userid the student the request is about
      * @return string a localised reason, or a general one
      */
-    private static function first_reason(stdClass $verdicts, int $moveid): string {
+    private static function first_reason(
+        stdClass $verdicts,
+        int $moveid,
+        activity $activity,
+        stdClass $target,
+        ?stdClass $source,
+        int $userid
+    ): string {
         foreach ($verdicts->permove[$moveid] ?? [] as $rule => $verdict) {
             if (empty($verdict['ok']) && empty($verdict['bypassed']) && !empty($verdict['reason'])) {
+                if ($rule === 'QUOTA') {
+                    $named = fit::accept_composition_refusal(
+                        $activity,
+                        $target,
+                        $userid,
+                        $source !== null ? (int) $source->id : null
+                    );
+                    if ($named !== null) {
+                        return $rule . ': ' . $named;
+                    }
+                    if ($source === null) {
+                        return $rule . ': ' . get_string(
+                            'refusaljoinquotatarget',
+                            'mod_selfselectadvanced',
+                            format_string($target->name)
+                        );
+                    }
+                }
+
                 return $rule . ': ' . $verdict['reason'];
             }
         }

@@ -10,7 +10,7 @@ downstream activity can use.
 
 ## Requirements
 
-**Moodle 5.2 on PHP 8.4 or later — ONLY.** MariaDB or PostgreSQL.
+**Moodle 5.2 on PHP 8.4 or later ONLY.** MariaDB or PostgreSQL.
 
 That is a promise narrowed on purpose, not by drift. The plugin was
 previously declared for "4.5 LTS or 5.x", but it is developed, gated and
