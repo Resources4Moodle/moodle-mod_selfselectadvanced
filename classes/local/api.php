@@ -171,9 +171,21 @@ class api {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
         }
-        if (groups::name_taken($this->activity, $name)) {
-            throw new \moodle_exception('errnametaken', 'mod_selfselectadvanced');
-        }
+        // NAME UNIQUENESS WAS REMOVED HERE, maintainer decision 2026-08-05.
+        // Two teams may carry the same name, in this activity or in any other
+        // in the course. The identity of a team is its PROJECT ID - built from
+        // the team's own database key and therefore unique plugin-wide forever
+        // ({@see groups::build_pluginuid()}) - not the label a student typed.
+        // Strategy 1.16 C had made the name unique course-wide so a reader
+        // browsing the course met one "Alpha"; the maintainer's ruling is that
+        // the id carries identity and the mirrored course group carries the
+        // activity, so a repeated label is not an ambiguity worth refusing a
+        // student over.
+        //
+        // groups::name_taken() itself is KEPT: the auto-grouping engine still
+        // uses it to pick names that differ from one another, which is a
+        // courtesy to whoever reads the result rather than a rule imposed on
+        // students.
 
         // Activity-scoped, deliberately. Since 1.16.0 a name must be
         // unique across every instance of this activity in the course,
@@ -198,9 +210,8 @@ class api {
             } else if ($refusal = $this->gatekeeper->can_create_group($userid)) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
-            if (groups::name_taken($this->activity, $name)) {
-                throw new \moodle_exception('errnametaken', 'mod_selfselectadvanced');
-            }
+            // Renaming carries no uniqueness check either - see the note on
+            // the creation path above. Same ruling, same reason.
 
             $now = time();
             $group = (object) [

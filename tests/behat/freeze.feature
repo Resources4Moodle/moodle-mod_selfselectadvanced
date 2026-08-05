@@ -67,8 +67,14 @@ Feature: Freezing firm groups into course groups
     And I follow "Unfreeze"
     And I press "Unfreeze"
     Then I should see "unfrozen and restored"
+    # 1.20.7 puts the PROJECT ID into the mirror name, so the option now reads
+    # "[ssa1] Team Blue (SSA-C1-000n) (2)" - and n is the team's database key,
+    # which differs every run. The select-box step matches option text EXACTLY
+    # (behat_forms.php in_array), so it cannot express that. A page-text
+    # assertion proves the same thing this scenario is about: the course group
+    # survived the unfreeze, still named for its activity.
     When I am on the "Course 1" "groups" page logged in as teacher1
-    Then the "groups" select box should contain "[ssa1] Team Blue (2)"
+    Then I should see "[ssa1] Team Blue"
 
   Scenario: Manager resynchronises the course group
     Given I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1

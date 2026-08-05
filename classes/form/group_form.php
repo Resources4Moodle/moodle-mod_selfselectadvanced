@@ -17,7 +17,6 @@
 namespace mod_selfselectadvanced\form;
 
 use mod_selfselectadvanced\activity;
-use mod_selfselectadvanced\local\groups;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -130,10 +129,14 @@ class group_form extends \moodleform {
         $activity = $this->_customdata['activity'];
 
         if (empty($this->_customdata['editgroup'])) {
+            // A name need only be present. Uniqueness was removed by the
+            // maintainer's ruling of 2026-08-05: identity lives in the
+            // generated project id, not the label, so two teams may share a
+            // name. The service no longer refuses it either - a form that
+            // rejected what the service accepts would be the UI/service
+            // disagreement this codebase spent 1.20.6 removing.
             if (trim($data['name'] ?? '') === '') {
                 $errors['name'] = get_string('required');
-            } else if (groups::name_taken($activity, $data['name'])) {
-                $errors['name'] = get_string('errnametaken', 'mod_selfselectadvanced');
             }
         }
         if (trim($data['title'] ?? '') === '') {

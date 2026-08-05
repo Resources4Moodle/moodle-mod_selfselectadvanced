@@ -96,7 +96,7 @@
       </KEYS>
       <INDEXES>
         <INDEX NAME="pluginuid" UNIQUE="true" FIELDS="pluginuid"/>
-        <INDEX NAME="activityid_name" UNIQUE="true" FIELDS="activityid, name"/>
+        <INDEX NAME="activityid_name" UNIQUE="false" FIELDS="activityid, name"/>
         <INDEX NAME="state" UNIQUE="false" FIELDS="state"/>
         <INDEX NAME="guideid_state" UNIQUE="false" FIELDS="guideid, state"/>
       </INDEXES>

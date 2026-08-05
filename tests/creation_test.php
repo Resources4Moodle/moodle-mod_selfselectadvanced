@@ -178,17 +178,36 @@ final class creation_test extends \advanced_testcase {
     }
 
     /**
-     * Group names are unique within the activity, case-insensitively.
+     * A name may repeat, case-insensitively or exactly. Maintainer ruling,
+     * 2026-08-05: identity is the generated project id, not the label.
+     *
+     * groups::name_taken() SURVIVES and is still asserted here, because the
+     * auto-grouping engine uses it to pick auto-names that differ from one
+     * another. What changed is that the CREATE PATH no longer consults it -
+     * so this test pins both halves: the helper still answers truthfully, and
+     * creation no longer refuses on its answer.
+     *
+     * MUTATION CAUGHT (run): restoring the name_taken() refusal in
+     * api::create_group() makes the second create_group() throw
+     * errnametaken and the assertion below is never reached.
      */
-    public function test_name_uniqueness(): void {
+    public function test_a_repeated_name_is_accepted_though_name_taken_still_answers(): void {
         $this->resetAfterTest();
 
         [$activity, $api, $users] = $this->setup_activity(['maxlead' => 2, 'maxmembership' => 2]);
-        $api->create_group((int) $users[0]->id, 'Team Alpha', 'T', '<p>b</p>', FORMAT_HTML);
+        $first = $api->create_group((int) $users[0]->id, 'Team Alpha', 'T', '<p>b</p>', FORMAT_HTML);
 
+        // The helper still reports the name as used - case-insensitively.
         $this->assertTrue(groups::name_taken($activity, 'team ALPHA'));
-        $this->expectException(\moodle_exception::class);
-        $api->create_group((int) $users[1]->id, 'team alpha', 'T', '<p>b</p>', FORMAT_HTML);
+
+        // And creation accepts it anyway.
+        $second = $api->create_group((int) $users[1]->id, 'team alpha', 'T', '<p>b</p>', FORMAT_HTML);
+        $this->assertSame('team alpha', $second->name);
+        $this->assertNotSame(
+            $first->pluginuid,
+            $second->pluginuid,
+            'two teams may share a label but never a project id'
+        );
     }
 
     /**

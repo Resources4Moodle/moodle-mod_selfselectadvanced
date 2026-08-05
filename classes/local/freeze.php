@@ -512,10 +512,21 @@ class freeze {
     private static function mint_core_group(activity $activity, stdClass $group): stdClass {
         global $DB;
 
+        // THE MIRROR NAME CARRIES THE PROJECT ID, and that is load-bearing
+        // rather than decorative. Since 2026-08-05 two teams may share a name -
+        // identity lives in the generated project id, not the label. The
+        // bracketed activity prefix keeps teams in DIFFERENT activities apart,
+        // but two "Alpha"s in the SAME activity would otherwise mirror to the
+        // identical course-group name, and a teacher picking a group for a quiz
+        // or an assignment would have no way to tell them apart. The id is the
+        // one thing guaranteed distinct, so it belongs where the choosing
+        // happens - in the visible name, not only in the idnumber a picker
+        // never shows.
         $prefix = trim((string) ($activity->cm()->idnumber ?: $activity->name()));
+        $label = '[' . $prefix . '] ' . $group->name . ' (' . $group->pluginuid . ')';
         $data = (object) [
             'courseid' => $activity->courseid(),
-            'name' => \core_text::substr('[' . $prefix . '] ' . $group->name, 0, 254),
+            'name' => \core_text::substr($label, 0, 254),
             'description' => get_string('coregroupdescription', 'mod_selfselectadvanced', $group->pluginuid),
             'descriptionformat' => FORMAT_HTML,
             'idnumber' => $group->pluginuid,

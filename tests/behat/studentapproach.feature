@@ -58,7 +58,10 @@ Feature: Students approach guides, and group names follow the course's format
     And I should see "MDP/"
     And I should not see "MDP-C1-"
 
-  Scenario: A group name already used in the course is refused
+  # 1.20.7: a name used by another activity in the same course is now
+  # ACCEPTED - see the note in create_group.feature. Names repeat; project
+  # ids do not.
+  Scenario: A group name already used elsewhere in the course is accepted
     Given the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name        | leader   |
       | ssa1               | Taken twice | student1 |
@@ -72,7 +75,8 @@ Feature: Students approach guides, and group names follow the course's format
       | Title of work | Something else    |
       | Brief of work | Another study.    |
     And I press "Create group"
-    Then I should see "That group name is already taken in this course."
+    Then I should not see "That group name is already taken in this course."
+    And I should see "Taken twice"
 
   # The other half of the first scenario in this file, which pins that a
   # STUDENT still reads "Guides do not advertise availability here":

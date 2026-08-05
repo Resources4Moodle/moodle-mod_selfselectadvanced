@@ -320,19 +320,37 @@ final class studentapproach_test extends \advanced_testcase {
     }
 
     /**
-     * Group names are unique across every instance of the activity in
-     * the course, but not across courses.
+     * A team name may repeat - anywhere. Maintainer ruling, 2026-08-05.
+     *
+     * This test asserted the OPPOSITE until that ruling: names were unique
+     * course-wide (strategy 1.16 C) so a reader browsing a course met one
+     * "Alpha". The maintainer's position is that identity belongs to the
+     * generated PROJECT ID, which is built from the team's own database key
+     * and is unique plugin-wide forever, and that refusing a student's chosen
+     * label to protect a display convention is the wrong trade.
+     *
+     * What is asserted here is therefore the property that actually matters:
+     * the labels may collide, the IDS MAY NOT.
+     *
+     * MUTATION CAUGHT (run): restoring the name_taken() refusal in
+     * api::create_group() makes the second create_group() throw
+     * errnametaken and the test errors out.
      */
-    public function test_name_unique_course_wide(): void {
+    public function test_a_team_name_may_repeat_but_its_project_id_may_not(): void {
         $this->resetAfterTest();
         $generator = $this->getDataGenerator();
 
         [$activity, $students] = $this->setup_activity();
         $course = get_course((int) $activity->cm()->course);
         $api = new api($activity);
-        $api->create_group((int) $students[0]->id, 'Shared name', 'Title', '', FORMAT_HTML);
+        $first = $api->create_group((int) $students[0]->id, 'Shared name', 'Title', '', FORMAT_HTML);
 
-        // A second instance in the SAME course refuses the name.
+        // The SAME activity accepts the same name again.
+        $samehere = $api->create_group((int) $students[1]->id, 'Shared name', 'Title', '', FORMAT_HTML);
+        $this->assertSame('Shared name', $samehere->name);
+        $this->assertNotSame($first->pluginuid, $samehere->pluginuid);
+
+        // So does a second instance in the same course.
         $instance2 = $generator->create_module('selfselectadvanced', [
             'course' => $course->id,
             'minsize' => 1,
@@ -341,23 +359,17 @@ final class studentapproach_test extends \advanced_testcase {
             'maxmembership' => 2,
         ]);
         $activity2 = activity::from_instance((int) $instance2->id);
-        $this->assertTrue(groups::name_taken($activity2, 'Shared name'));
-        try {
-            (new api($activity2))->create_group((int) $students[1]->id, 'Shared name', 'Title', '', FORMAT_HTML);
-            $this->fail('Expected errnametaken');
-        } catch (\moodle_exception $e) {
-            $this->assertSame('errnametaken', $e->errorcode);
-        }
-
-        // A different course is a different namespace.
-        [$other, $otherstudents] = $this->setup_activity();
-        $group = (new api($other))->create_group(
-            (int) $otherstudents[0]->id,
+        $elsewhere = (new api($activity2))->create_group(
+            (int) $students[1]->id,
             'Shared name',
             'Title',
             '',
             FORMAT_HTML
         );
-        $this->assertSame('Shared name', $group->name);
+        $this->assertSame('Shared name', $elsewhere->name);
+
+        // Three teams, one label, three distinct identities.
+        $uids = [$first->pluginuid, $samehere->pluginuid, $elsewhere->pluginuid];
+        $this->assertCount(3, array_unique($uids), 'project ids must stay unique when names do not');
     }
 }

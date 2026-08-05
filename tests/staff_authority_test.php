@@ -582,21 +582,27 @@ final class staff_authority_test extends \advanced_testcase {
             $this->assertSame('refusalmembershipcap', $e->errorcode);
         }
 
-        // A duplicate name is refused whoever asks.
-        try {
-            $api->create_group(
-                (int) $staff->id,
-                $group->name,
-                'Work',
-                '<p>Brief</p>',
-                FORMAT_HTML,
-                (int) $students[2]->id,
-                true
-            );
-            $this->fail('Expected errnametaken');
-        } catch (\moodle_exception $e) {
-            $this->assertSame('errnametaken', $e->errorcode);
-        }
+        // A DUPLICATE NAME IS NOW ACCEPTED - maintainer ruling, 2026-08-05.
+        // This block previously asserted the opposite. The rule was not
+        // weakened to make a test pass: uniqueness was removed deliberately
+        // because a team's identity is its generated project id, not the label
+        // a student typed, and the assertion below proves the two teams remain
+        // distinguishable by that id.
+        $twin = $api->create_group(
+            (int) $staff->id,
+            $group->name,
+            'Work',
+            '<p>Brief</p>',
+            FORMAT_HTML,
+            (int) $students[2]->id,
+            true
+        );
+        $this->assertSame($group->name, $twin->name, 'the duplicate name was accepted verbatim');
+        $this->assertNotSame(
+            $group->pluginuid,
+            $twin->pluginuid,
+            'two teams sharing a name must still carry different project ids - the id is what identity rests on'
+        );
 
         // A user who is not a participant at all.
         $outsider = $this->getDataGenerator()->create_user();

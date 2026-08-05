@@ -38,7 +38,11 @@ Feature: Students create groups under the lead cap
     When I am on the "Lab groups" "selfselectadvanced activity" page
     Then I should see "You lead 1 of 1 groups"
 
-  Scenario: A duplicate group name is refused
+  # 1.20.7: a duplicate name is ACCEPTED. Maintainer ruling of 2026-08-05 -
+  # identity is the generated project id, not the label a student typed, and
+  # the pickers lead with that id so two teams called "Team Blue" cannot be
+  # confused for one another. This scenario asserted the refusal until then.
+  Scenario: A duplicate group name is accepted, and the project ids differ
     Given the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   |
       | ssa1               | Team Blue | student2 |
@@ -49,7 +53,8 @@ Feature: Students create groups under the lead cap
       | Title of work | Anything      |
       | Brief of work | Some brief.   |
     And I press "Create group"
-    Then I should see "That group name is already taken in this course."
+    Then I should not see "That group name is already taken in this course."
+    And I should see "Team Blue"
 
   Scenario: The create control is disabled with the reason at the lead cap
     Given the following "mod_selfselectadvanced > groups" exist:

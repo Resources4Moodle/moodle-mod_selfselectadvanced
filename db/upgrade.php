@@ -1612,5 +1612,44 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080501, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080502) {
+        // 1.20.7: a team NAME may now repeat, in this activity or any other in
+        // the course. Maintainer ruling of 2026-08-05: a team's identity is its
+        // generated project id - built from the team's own database key and
+        // unique plugin-wide forever - not the label a student typed. Refusing
+        // a student's chosen name to protect a display convention was the wrong
+        // trade; the pickers now lead with the project id instead, so two teams
+        // called "Alpha" cannot be confused for one another.
+        //
+        // The index is made NON-UNIQUE rather than dropped: it still serves the
+        // activity+name lookups that read it. Only the constraint goes.
+        //
+        // ONE-WAY IN PRACTICE. Once duplicate names exist, restoring the unique
+        // index would fail on them, and the repair would mean renaming teams
+        // out from under their members. Anyone reversing this must plan that
+        // migration deliberately rather than editing install.xml back.
+        $table = new xmldb_table('selfselectadvanced_group');
+        $index = new xmldb_index('activityid_name', XMLDB_INDEX_UNIQUE, ['activityid', 'name']);
+        if ($dbman->index_exists($table, $index)) {
+            $dbman->drop_index($table, $index);
+        }
+        $index = new xmldb_index('activityid_name', XMLDB_INDEX_NOTUNIQUE, ['activityid', 'name']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        // Marker discipline unchanged: versionbump_test matches
+        // '%(2026080502)%', so the serial stays inside the parentheses.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.7 (2026080502). Team names may repeat; the project id carries identity.',
+            'Drops the UNIQUE constraint on (activityid, name), keeping the index itself for lookups. '
+                . 'This row is written if and only if the step actually executed.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080502, 'selfselectadvanced');
+    }
+
     return true;
 }

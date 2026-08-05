@@ -135,7 +135,11 @@ final class freeze_test extends \advanced_testcase {
         $this->assertSame(state::FIRM, $approved->state);
         $this->assertNotEmpty($approved->coregroupid);
         $core = groups_get_group((int) $approved->coregroupid);
-        $this->assertSame('[SSAFRZ] Icy', $core->name);
+        // The mirror name carries the PROJECT ID as well as the activity
+        // prefix, since 2026-08-05. Two teams may now share a name, so the
+        // bracketed activity alone no longer tells a teacher which "Icy" they
+        // are picking for a quiz - the id is the one thing guaranteed distinct.
+        $this->assertSame('[SSAFRZ] Icy (' . $approved->pluginuid . ')', $core->name);
         $this->assertSame($approved->pluginuid, $core->idnumber);
         $members = array_map('intval', array_keys(groups_get_members((int) $approved->coregroupid, 'u.id')));
         $this->assertEqualsCanonicalizing(
@@ -269,7 +273,11 @@ final class freeze_test extends \advanced_testcase {
         // members AND the assigned guide (decision 7), never the
         // invited seat-holder.
         $core = groups_get_group((int) $frozen->coregroupid);
-        $this->assertSame('[SSAFRZ] Icy', $core->name);
+        // The mirror name carries the PROJECT ID as well as the activity
+        // prefix, since 2026-08-05. Two teams may now share a name, so the
+        // bracketed activity alone no longer tells a teacher which "Icy" they
+        // are picking for a quiz - the id is the one thing guaranteed distinct.
+        $this->assertSame('[SSAFRZ] Icy (' . $frozen->pluginuid . ')', $core->name);
         $this->assertSame($frozen->pluginuid, $core->idnumber);
         $members = array_map('intval', array_keys(groups_get_members((int) $frozen->coregroupid, 'u.id')));
         $this->assertEqualsCanonicalizing(
