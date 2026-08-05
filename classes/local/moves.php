@@ -641,13 +641,13 @@ class moves {
             $targetok = true;
             if ($targetid !== null) {
                 $targetok = $resolver->is_quota_exempt($targetid)->enabled
-                    || $this->quota_after($targetid, $additions[$targetid] ?? [], $removals[$targetid] ?? []);
+                    || $this->quota_after($targetid, $additions[$targetid] ?? [], $removals[$targetid] ?? [], $resolver);
             }
             $sourceok = true;
             if ($move->sourcegroupid) {
                 $sourceid = (int) $move->sourcegroupid;
                 $sourceok = $resolver->is_quota_exempt($sourceid)->enabled
-                    || $this->quota_after($sourceid, $additions[$sourceid] ?? [], $removals[$sourceid] ?? []);
+                    || $this->quota_after($sourceid, $additions[$sourceid] ?? [], $removals[$sourceid] ?? [], $resolver);
             }
             $verdicts['QUOTA'] = $this->verdict(
                 $targetok && $sourceok,
@@ -1525,29 +1525,28 @@ class moves {
     }
 
     /**
-     * Quota compliance of a group's net post-state roster.
+     * State-dependent quota validity of a group's net post-state roster.
      *
      * @param int $groupid the group
      * @param int[] $add userids joining
      * @param int[] $remove userids leaving
-     * @return bool compliant
+     * @param resolver $resolver override resolver already in use
+     * @return bool valid for this team's lifecycle state
      */
-    private function quota_after(int $groupid, array $add, array $remove): bool {
-        global $DB;
-
+    private function quota_after(int $groupid, array $add, array $remove, resolver $resolver): bool {
         // The full evaluator — counting rules AND the seat plan — on
-        // the virtual roster; a hand-rolled rules-only loop here once
-        // let managers commit moves that broke slot compliance of
-        // firm groups behind a green QUOTA verdict.
-        $current = $DB->get_fieldset_select(
-            'selfselectadvanced_member',
-            'userid',
-            'groupid = ? AND status = ?',
-            [$groupid, groups::STATUS_CONFIRMED]
+        // the virtual roster, through fit::quota_ok_after(), so the
+        // accept surface and the engine share the FORMING-vs-approved
+        // rule. A hand-rolled rules-only loop here once let managers
+        // commit moves that broke slot compliance of firm groups behind
+        // a green QUOTA verdict.
+        return fit::quota_ok_after(
+            $this->activity,
+            groups::get($this->activity, $groupid),
+            $add,
+            $remove,
+            $resolver
         );
-        $virtual = array_diff(array_merge(array_map('intval', $current), $add), $remove);
-
-        return \mod_selfselectadvanced\local\quota\evaluator::compliant_for_members($this->activity, $virtual);
     }
 
     /**

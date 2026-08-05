@@ -142,17 +142,30 @@ final class invitation_request_collision_test extends \advanced_testcase {
         );
     }
 
-    // A SECOND TEST IS OWED HERE, and its absence is deliberate rather than
-    // forgotten. The dedupe added to fit::composition_verdict()'s projection on
-    // 2026-08-05 is proven only by direct measurement of the seat engine - two
-    // people with one id repeated reports current=3 against a max of 2 - not by
-    // a test in this suite. Two attempts to pin it through fit::for_person()
-    // both measured the wrong thing: an invitee already holds an 'invited'
-    // member row, so the gate returns 'already invited' and the verdict is
-    // false for a reason that has nothing to do with counting.
-    //
-    // Pinning it needs a fixture that reaches the projection WITHOUT tripping
-    // that earlier refusal. That is real work and it is not done. Recording the
-    // gap beats a green test that examines nothing, which is the defect this
-    // project polices hardest.
+    /**
+     * The picker projection dedupes a candidate who is already invited.
+     *
+     * MUTATION CAUGHT (run): removing array_unique() from the projection
+     * made fit::for_groups() count the invited candidate twice, report a
+     * third SCOPE member against the maximum of two, and add a warning.
+     */
+    public function test_picker_projection_dedupes_an_invited_candidate(): void {
+        $this->resetAfterTest();
+        [$activity, $api, $group, $invitee] = $this->world();
+        $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_quota([
+            'activityid' => $activity->id(),
+            'dimension' => 'department',
+            'rtype' => 'value',
+            'value' => 'SCOPE',
+            'mincount' => 2,
+            'maxcount' => 2,
+        ]);
+
+        $api->invitations()->send($group, (int) $invitee->id, (int) $group->leaderid);
+
+        $answers = fit::for_groups($activity, [$group], (int) $invitee->id);
+        $this->assertTrue($answers[(int) $group->id]->fits);
+        $this->assertSame('', $answers[(int) $group->id]->caution);
+        $this->assertSame([], $answers[(int) $group->id]->warnings);
+    }
 }

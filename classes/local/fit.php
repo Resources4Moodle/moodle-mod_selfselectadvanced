@@ -271,16 +271,18 @@ class fit {
 
     /**
      * Whether accepting this student into this team would leave either
-     * team's composition non-compliant - the ONE projection of the move
-     * engine's QUOTA verdict.
+     * team's composition in a state the move engine's QUOTA verdict
+     * refuses.
      *
      * This is deliberately the same question, asked the same way, as
      * moves::quota_after(): the CONFIRMED roster each team would have,
-     * judged by evaluator::compliant_for_members(), with a per-group
-     * quota exemption skipping the team it is set on. It is a
-     * projection and not the engine itself because the engine can only
-     * answer for a move row that has been STAGED, and the leader needs
-     * the answer while deciding whether to stage one at all.
+     * judged by quota_ok_after(), with a per-group quota exemption
+     * skipping the team it is set on. FORMING teams ask whether
+     * compliance is still reachable; approved teams ask whether it is
+     * already present. It is a projection and not the engine itself
+     * because the engine can only answer for a move row that has been
+     * STAGED, and the leader needs the answer while deciding whether to
+     * stage one at all.
      *
      * Nothing here is advisory: whatever this refuses, the engine
      * refuses. joinrequests::first_reason() asks it when the engine's
@@ -304,8 +306,7 @@ class fit {
         $resolver = new resolver($activity);
 
         if (!$resolver->is_quota_exempt((int) $target->id)->enabled) {
-            $after = self::confirmed_after((int) $target->id, [$userid], []);
-            if (!evaluator::compliant_for_members($activity, $after)) {
+            if (!self::quota_ok_after($activity, $target, [$userid], [], $resolver)) {
                 return get_string(
                     'refusaljoinquotatarget',
                     'mod_selfselectadvanced',
@@ -315,12 +316,12 @@ class fit {
         }
 
         if ($sourcegroupid !== null && !$resolver->is_quota_exempt($sourcegroupid)->enabled) {
-            $after = self::confirmed_after($sourcegroupid, [], [$userid]);
-            if (!evaluator::compliant_for_members($activity, $after)) {
+            $source = groups::get($activity, $sourcegroupid);
+            if (!self::quota_ok_after($activity, $source, [], [$userid], $resolver)) {
                 return get_string(
                     'refusaljoinquotasource',
                     'mod_selfselectadvanced',
-                    format_string(groups::get($activity, $sourcegroupid)->name)
+                    format_string($source->name)
                 );
             }
         }
@@ -348,6 +349,49 @@ class fit {
         ));
 
         return array_values(array_diff(array_merge($current, $add), $remove));
+    }
+
+    /**
+     * State-dependent quota predicate for accepting or committing a move.
+     *
+     * FORMING teams are still being assembled, so their post-move
+     * roster must be reachable: no maximum is exceeded, and the proven
+     * lower bound of further members needed for compliance fits in the
+     * remaining seats. Approved teams are no longer being built toward
+     * compliance; their post-move roster must already comply.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the team being judged
+     * @param int[] $add user ids the move would put in
+     * @param int[] $remove user ids the move would take out
+     * @param resolver|null $resolver override resolver already in use, when available
+     * @return bool true when the team's post-move composition is allowed
+     */
+    public static function quota_ok_after(
+        activity $activity,
+        stdClass $group,
+        array $add,
+        array $remove,
+        ?resolver $resolver = null
+    ): bool {
+        global $DB;
+
+        $after = self::confirmed_after((int) $group->id, $add, $remove);
+        if ($group->state !== state::FORMING) {
+            return evaluator::compliant_for_members($activity, $after);
+        }
+
+        $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $activity->id()], 'priority ASC');
+        $template = slots::get_all($activity);
+        $attrs = manager::get_for_users($after);
+        $feasibility = evaluator::feasibility_from_data($rules, $template, $after, $attrs);
+        if ($feasibility->maxexceeded !== null) {
+            return false;
+        }
+        $resolver = $resolver ?? new resolver($activity);
+        $free = max(0, $resolver->effective_maxsize((int) $group->id)->value - $feasibility->seated);
+
+        return $feasibility->missing <= $free;
     }
 
     /**

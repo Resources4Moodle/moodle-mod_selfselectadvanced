@@ -1651,5 +1651,21 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080502, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080503) {
+        // Marker-only release step: acceptance of a forming-team join
+        // request now shares the reachability predicate used by the
+        // move engine's QUOTA verdict. There is no schema or data
+        // migration; the marker proves this code release executed.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.8 (2026080503). Forming-team acceptance checks composition reachability.',
+            'No schema change. Records that the accept surface and move engine now share the '
+                . 'state-dependent QUOTA predicate for join acceptance.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080503, 'selfselectadvanced');
+    }
+
     return true;
 }
