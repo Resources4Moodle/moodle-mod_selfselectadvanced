@@ -304,15 +304,18 @@ final class joincluster_test extends \advanced_testcase {
     public function test_fit_says_no_in_the_same_words_the_acceptance_refuses_with(): void {
         $this->resetAfterTest();
         $sink = $this->redirectMessages();
-        [$activity, , $beta, $wanderer] = $this->setup_plain_world();
+        // Capacity two: after the join Beta is FULL. That matters since
+        // 1.20.8, which judges a FORMING team on whether a compliant
+        // completion is still REACHABLE rather than on whether it is
+        // already complete. Two Scope members are required, neither
+        // Beta's leader nor the asker is one, and with no free seat
+        // left the two missing members can never arrive - so the
+        // shortfall is unreachable and BOTH answers refuse. That is
+        // what this test is for: not the verdict, but that the Fit
+        // column refuses in the SAME SENTENCE the button uses.
+        [$activity, , $beta, $wanderer] = $this->setup_plain_world(['maxsize' => 2]);
         $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
 
-        // Two Scope members required; neither Beta's leader nor the
-        // asker is one, so admitting them leaves Beta non-compliant -
-        // while the ADMISSION gate stays green, because two free seats
-        // could still supply the two missing members. That gap between
-        // "reachable" and "compliant" is exactly what the two answers
-        // used to disagree across.
         $plugingen->create_quota([
             'activityid' => $activity->id(),
             'dimension' => 'department',
@@ -324,7 +327,16 @@ final class joincluster_test extends \advanced_testcase {
         manager::set((int) $wanderer->id, ['department' => 'Elsewhere'], 2);
 
         $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
-        $expected = get_string('refusaljoinquotatarget', 'mod_selfselectadvanced', 'Beta');
+        // Since 1.20.8 both surfaces name the shortfall precisely - how
+        // many more suitable members are needed and how many seats are
+        // left - instead of the older, vaguer "would not meet its
+        // composition rules". ONE sentence, computed once here, so this
+        // test fails if the two surfaces ever drift apart again.
+        $expected = get_string(
+            'refusalcompositionunreachable',
+            'mod_selfselectadvanced',
+            (object) ['missing' => 2, 'free' => 0]
+        );
 
         $verdict = fit::for_person($activity, $beta, (int) $wanderer->id, $request);
         $this->assertFalse($verdict->fits, 'The Fit column called a request a fit that the button would refuse');
@@ -359,7 +371,13 @@ final class joincluster_test extends \advanced_testcase {
     public function test_an_extra_membership_refusal_names_no_source_it_does_not_have(): void {
         $this->resetAfterTest();
         $sink = $this->redirectMessages();
-        [$activity, , $beta, $wanderer] = $this->setup_plain_world(['maxmembership' => 2]);
+        // Capacity two, so the Scope shortfall is unreachable once Beta is
+        // full; without that, 1.20.8's reachability rule admits the
+        // student and there is no refusal left whose wording to check.
+        [$activity, , $beta, $wanderer] = $this->setup_plain_world([
+            'maxmembership' => 2,
+            'maxsize' => 2,
+        ]);
         $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
 
         $plugingen->create_quota([
@@ -407,11 +425,90 @@ final class joincluster_test extends \advanced_testcase {
      * the panel goes back to answering the ADMISSION question - "Meets
      * this team's requirements" - for a request the button refuses, and
      * the caution assertions fail.
+     *
+     * Pinned on BOTH sides of 1.20.8's reachability boundary, by this
+     * method and by the one below it. One voice while refusing is half
+     * the property; agreeing to refuse everything would satisfy it. The
+     * surfaces must also agree when the answer is yes.
      */
     public function test_the_leader_panel_and_the_tab_answer_with_one_voice(): void {
+        $this->assert_panel_and_tab_agree(2, false);
+    }
+
+    /**
+     * The same two surfaces, on the permissive side of the boundary:
+     * free seats remain, so the Scope shortfall is still reachable and
+     * both call shapes must say yes together.
+     */
+    public function test_the_panel_and_the_tab_agree_when_completion_is_reachable(): void {
+        $this->assert_panel_and_tab_agree(4, true);
+    }
+
+    /**
+     * The invited-maximum branch judges minimums by REACHABILITY too.
+     *
+     * FOUND BY MUTATION, 2026-08-06. fit computes "missing vs free" in
+     * three places. Two are pinned. This one - reached when a maximum
+     * is over only once PENDING INVITATIONS are counted - was pinned by
+     * nothing: reverting it to strict compliance left all 838 tests of
+     * the suite green, on both engines.
+     *
+     * Beta's leader and the candidate are both Scope, so the Scope
+     * maximum of two is intact on the roster that matters; two Scope
+     * INVITATIONS push the projection past it, which is a warning to
+     * the leader rather than a refusal of this student. A second rule
+     * wants two Elsewhere members and exactly two seats remain for
+     * them, so a compliant finish is still reachable and the answer
+     * stays yes - with the warning attached.
+     *
+     * MUTATION CAUGHT (run): changing $hard->missing > $free to
+     * > 0 turns this yes into a refusal and this test red.
+     */
+    public function test_the_invited_maximum_branch_judges_minimums_by_reachability(): void {
         $this->resetAfterTest();
         $sink = $this->redirectMessages();
-        [$activity, , $beta, $wanderer] = $this->setup_plain_world();
+        // Leader Scope confirmed, two Scope invitations pending, a
+        // groupless Scope candidate: the projection is over the maximum
+        // of two, the confirmed roster plus the candidate sits on it.
+        [$activity, $team, $candidate] = $this->setup_scope_world(0, 2);
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+
+        // A second rule with an UNMET minimum, and room left for it.
+        $plugingen->create_quota([
+            'activityid' => $activity->id(),
+            'dimension' => 'department',
+            'rtype' => 'value',
+            'value' => 'Elsewhere',
+            'mincount' => 2,
+        ]);
+
+        $verdict = fit::for_person($activity, $team, (int) $candidate->id);
+
+        $this->assertTrue(
+            $verdict->fits,
+            'Two Elsewhere members are still needed and two seats remain - reachable, not a refusal. caution=['
+                . $verdict->caution . ']'
+        );
+        $this->assertSame('', $verdict->caution);
+        $this->assertNotSame(
+            [],
+            $verdict->warnings,
+            'the leader must still be warned that the outstanding invitations breach the Scope maximum'
+        );
+        $sink->close();
+    }
+
+    /**
+     * Both call shapes of fit::for_person() answer identically.
+     *
+     * @param int $maxsize team capacity - 2 leaves no free seat after the
+     *                     join (shortfall unreachable), 4 leaves two.
+     * @param bool $expected the verdict both surfaces must reach.
+     */
+    private function assert_panel_and_tab_agree(int $maxsize, bool $expected): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, , $beta, $wanderer] = $this->setup_plain_world(['maxsize' => $maxsize]);
         $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
 
         $plugingen->create_quota([
@@ -429,7 +526,11 @@ final class joincluster_test extends \advanced_testcase {
         $handedover = fit::for_person($activity, $beta, (int) $wanderer->id, $request);
         $lookedup = fit::for_person($activity, $beta, (int) $wanderer->id);
 
-        $this->assertFalse($lookedup->fits, 'The panel called a request a fit that the tab refuses');
+        $this->assertSame(
+            $expected,
+            $lookedup->fits,
+            'The panel and the tab must reach the same verdict the acceptance does'
+        );
         $this->assertSame($handedover->fits, $lookedup->fits);
         $this->assertSame($handedover->caution, $lookedup->caution);
         $this->assertSame($handedover->warnings, $lookedup->warnings);

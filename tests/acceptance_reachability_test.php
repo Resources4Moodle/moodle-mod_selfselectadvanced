@@ -396,7 +396,8 @@ final class acceptance_reachability_test extends \advanced_testcase {
     /**
      * Cases for the projection/engine agreement test.
      *
-     * @return array<string, array{activity: activity, api: api, target: \stdClass, source: ?\stdClass, user: \stdClass, expected: bool}>
+     * @return array<string, array{activity: activity, api: api, target: \stdClass,
+     *                             source: ?\stdClass, user: \stdClass, expected: bool}>
      */
     private function agreement_cases(): array {
         $cases = [];
