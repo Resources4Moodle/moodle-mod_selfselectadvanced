@@ -1,0 +1,118 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/guide_panel
+
+    The guide's own decision window at the top of the activity landing
+    (1.20.6 item A). Never renders empty: the window policy is stated
+    from the settings whether or not any team has submitted, and the
+    derived per-team deadlines are added only when there are some.
+
+    No participant field appears here for any viewer - team name,
+    plugin uid, dates and counts only.
+
+    Context variables required for this template:
+    * heading - panel heading
+    * loadline - "You are guiding N of M groups"
+    * hasawaiting - whether any team is waiting on a decision
+    * awaitingline / nothingline - the count, or the nothing-waiting line
+    * hasoverdue / overdueline - how many of them are past the deadline
+    * hasnextdeadline / nextdeadlineline - the next deadline still to come
+    * windowpolicy - the decision rule, stated unconditionally
+    * awaiting - the pending teams (name, pluginuid, hasdeadline, deadline, isoverdue)
+    * haswaiting / waitingline / queuelabel / queueurl - the approach queue
+    * dashboardurl - the guide dashboard
+
+    Example context (json):
+    {
+        "heading": "Your guide work",
+        "loadline": "You are guiding 4 of 5 groups",
+        "hasawaiting": true,
+        "awaitingline": "2 team(s) are waiting for your decision",
+        "nothingline": "No team is waiting for your decision right now.",
+        "hasoverdue": true,
+        "overdueline": "1 of them are past the decision deadline",
+        "hasnextdeadline": true,
+        "nextdeadlineline": "Next decision due Monday, 5 August 2026, 9:00 AM",
+        "windowpolicy": "Once a team submits to you, you have 2 hours to approve or return it.",
+        "awaiting": [
+            {
+                "name": "Team Alpha",
+                "pluginuid": "SSA-C101-0001",
+                "hasdeadline": true,
+                "deadline": "Monday, 5 August 2026, 9:00 AM",
+                "isoverdue": false
+            }
+        ],
+        "haswaiting": true,
+        "waitingline": "3 team(s) have approached you",
+        "queuelabel": "My request queue",
+        "queueurl": "https://example.com/mod/selfselectadvanced/guidequeue.php?id=1",
+        "dashboardurl": "https://example.com/mod/selfselectadvanced/guide.php?id=1"
+    }
+}}
+<div class="selfselectadvanced-guidepanel card mb-3">
+    <div class="card-body">
+        <h3 class="card-title h5">{{heading}}</h3>
+        <p class="mb-1">{{loadline}}</p>
+        {{#hasawaiting}}
+            <p class="mb-1">{{awaitingline}}</p>
+        {{/hasawaiting}}
+        {{^hasawaiting}}
+            <p class="mb-1">{{nothingline}}</p>
+        {{/hasawaiting}}
+        {{#hasoverdue}}
+            <p class="mb-1 text-danger fw-bold">{{overdueline}}</p>
+        {{/hasoverdue}}
+        {{#hasnextdeadline}}
+            <p class="mb-1">{{nextdeadlineline}}</p>
+        {{/hasnextdeadline}}
+        <p class="text-muted small">{{windowpolicy}}</p>
+        {{#hasawaiting}}
+            <h4 class="h6">{{#str}} guidepanelteams, mod_selfselectadvanced {{/str}}</h4>
+            <ul class="list-group list-group-flush mb-3">
+                {{#awaiting}}
+                    <li class="list-group-item d-flex justify-content-between align-items-start flex-wrap">
+                        <span>
+                            {{name}}
+                            <span class="text-muted small ms-2">{{pluginuid}}</span>
+                        </span>
+                        <span class="text-end small">
+                            {{#hasdeadline}}
+                                {{#isoverdue}}
+                                    <span class="text-danger fw-bold">
+                                        {{deadline}} {{#str}} flaggedoverdue, mod_selfselectadvanced {{/str}}
+                                    </span>
+                                {{/isoverdue}}
+                                {{^isoverdue}}{{deadline}}{{/isoverdue}}
+                            {{/hasdeadline}}
+                        </span>
+                    </li>
+                {{/awaiting}}
+            </ul>
+        {{/hasawaiting}}
+        <p class="mb-0">
+            {{#haswaiting}}
+                <a href="{{queueurl}}" class="btn btn-primary">{{waitingline}}</a>
+            {{/haswaiting}}
+            {{^haswaiting}}
+                <a href="{{queueurl}}" class="btn btn-outline-primary">{{queuelabel}}</a>
+            {{/haswaiting}}
+            <a href="{{dashboardurl}}" class="btn btn-outline-primary">{{#str}} guidedashboard, mod_selfselectadvanced {{/str}}</a>
+        </p>
+    </div>
+</div>

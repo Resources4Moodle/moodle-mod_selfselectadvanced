@@ -19,6 +19,8 @@ namespace mod_selfselectadvanced;
 use mod_selfselectadvanced\local\coordinatorrole;
 use mod_selfselectadvanced\local\freeze;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\authority;
+use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\joinrequests;
 use mod_selfselectadvanced\local\locks;
 use mod_selfselectadvanced\local\state;
@@ -152,6 +154,21 @@ final class joinrequests_test extends \advanced_testcase {
     }
 
     /**
+     * Prohibit one capability for a role in this activity.
+     *
+     * @param activity $activity the activity
+     * @param string $capability capability name
+     * @param string $shortname role shortname
+     */
+    private function prohibit(activity $activity, string $capability, string $shortname): void {
+        global $DB;
+
+        $roleid = (int) $DB->get_field('role', 'id', ['shortname' => $shortname], MUST_EXIST);
+        role_change_permission($roleid, $activity->context(), $capability, CAP_PROHIBIT);
+        accesslib_clear_all_caches_for_unit_testing();
+    }
+
+    /**
      * The ordinary case: a student asks, the TARGET team's leader
      * accepts, and the move happens through the engine.
      */
@@ -196,6 +213,47 @@ final class joinrequests_test extends \advanced_testcase {
             '',
             (int) $wanderer->id
         ));
+        $sink->close();
+    }
+
+    /**
+     * A stored leader whose leader capability has been prohibited may not
+     * decide a join request by direct service call.
+     *
+     * MUTATION CAUGHT (run): require_decider() returns on leaderid equality
+     * alone; the prohibited leader decided the request and the expected
+     * refusal was not thrown.
+     */
+    public function test_a_prohibited_target_leader_cannot_answer_a_join_request(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, , $beta, $wanderer] = $this->setup_world();
+        $leaderid = (int) $beta->leaderid;
+        $request = joinrequests::request($activity, (int) $beta->id, 'Please', (int) $wanderer->id);
+
+        $this->assertTrue(authority::may_lead($activity, $leaderid), 'fixture: the leader must start authorised');
+        $this->prohibit($activity, authority::CREATEGROUP, 'student');
+        $this->assertFalse(authority::may_lead($activity, $leaderid));
+        $this->assertSame(
+            $leaderid,
+            (int) $DB->get_field('selfselectadvanced_group', 'leaderid', ['id' => (int) $beta->id]),
+            'the actor stopped being the stored leader, so this test proves nothing'
+        );
+
+        $this->assert_refused('refusaljoinnotleader', fn() => joinrequests::respond(
+            $activity,
+            (int) $request->id,
+            true,
+            'Welcome',
+            $leaderid
+        ));
+        $this->assertSame(
+            joinrequests::STATUS_REQUESTED,
+            $DB->get_field('selfselectadvanced_move', 'status', ['id' => (int) $request->id]),
+            'a refused decision still moved the request'
+        );
         $sink->close();
     }
 
@@ -282,8 +340,100 @@ final class joinrequests_test extends \advanced_testcase {
     }
 
     /**
+     * A firm team that was approved but not guide-released is closed to
+     * join requests; otherwise a student leader can alter a graded
+     * roster after approval.
+     *
+     * MUTATION CAUGHT (run): join_change_refusal() allowed every FIRM
+     * team; the request was created instead of refusing with
+     * refusaljointargetunreleased.
+     */
+    public function test_an_unreleased_firm_target_refuses_join_requests(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        [$activity, , $beta, $wanderer, $guide] = $this->setup_world();
+        $DB->update_record('selfselectadvanced_group', (object) [
+            'id' => (int) $beta->id,
+            'state' => state::FIRM,
+            'guideid' => (int) $guide->id,
+            'timeapproved' => time(),
+            'releasedbyguide' => 0,
+        ]);
+
+        $this->assert_refused('refusaljointargetunreleased', fn() => joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'Please',
+            (int) $wanderer->id
+        ));
+    }
+
+    /**
+     * A team in guide review is also closed; the leader must ask the
+     * guide to release the team before the roster changes.
+     *
+     * MUTATION CAUGHT (run): join_change_refusal() allowed
+     * PENDING_GUIDE teams; the request was created instead of refusing
+     * with refusaljointargetunreleased.
+     */
+    public function test_a_pending_guide_target_refuses_join_requests(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        [$activity, , $beta, $wanderer, $guide] = $this->setup_world();
+        $DB->update_record('selfselectadvanced_group', (object) [
+            'id' => (int) $beta->id,
+            'state' => state::PENDING_GUIDE,
+            'guideid' => (int) $guide->id,
+            'timesubmitted' => time(),
+            'releasedbyguide' => 0,
+        ]);
+
+        $this->assert_refused('refusaljointargetunreleased', fn() => joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'Please',
+            (int) $wanderer->id
+        ));
+    }
+
+    /**
+     * The same release rule applies to the team the requester would
+     * leave, not only the target team.
+     *
+     * MUTATION CAUGHT (run): resolve_source() skipped the source
+     * release check; the request was created instead of refusing with
+     * refusaljoinsourceunreleased.
+     */
+    public function test_an_unreleased_firm_source_refuses_join_requests(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        [$activity, $alpha, $beta, $wanderer, $guide] = $this->setup_world();
+        $DB->update_record('selfselectadvanced_group', (object) [
+            'id' => (int) $alpha->id,
+            'state' => state::FIRM,
+            'guideid' => (int) $guide->id,
+            'timeapproved' => time(),
+            'releasedbyguide' => 0,
+        ]);
+
+        $this->assert_refused('refusaljoinsourceunreleased', fn() => joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'Please',
+            (int) $wanderer->id
+        ));
+    }
+
+    /**
      * A frozen team neither takes anybody nor lets anybody go until it
      * is released.
+     *
+     * MUTATION CAUGHT (run): freeze::unfreeze() wrote
+     * releasedbyguide = 0; the post-release assertion saw 0 instead
+     * of 1 before the join could proceed.
      */
     public function test_a_frozen_team_is_closed_until_released(): void {
         $this->resetAfterTest();
@@ -306,12 +456,125 @@ final class joinrequests_test extends \advanced_testcase {
         // The guide froze it, so the guide may release it - and then it
         // takes people again.
         freeze::unfreeze($activity, groups::get($activity, (int) $beta->id), (int) $guide->id);
+        $this->assertSame(1, (int) groups::get($activity, (int) $beta->id)->releasedbyguide);
         $request = joinrequests::request($activity, (int) $beta->id, 'Please', (int) $wanderer->id);
         joinrequests::respond($activity, (int) $request->id, true, '', (int) $beta->leaderid);
         $this->assertSame(
             [(int) $beta->id],
             array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $wanderer->id)))
         );
+        $sink->close();
+    }
+
+    /**
+     * A guide-released firm team has already been approved, so a later
+     * accepted join is a roster delta the guide must hear about. The
+     * message names the student and the source/target teams, but never
+     * contact details.
+     *
+     * MUTATION CAUGHT (run): disabling the post-accept
+     * notify_released_guide_change() call left the assigned guide with
+     * zero joinrequests messages.
+     */
+    public function test_accept_into_released_firm_team_notifies_the_guide_of_the_roster_change(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        [$activity, $alpha, $beta, $wanderer, $guide] = $this->setup_world();
+        $phone = '555-SSA-CHANGE';
+        $DB->set_field('user', 'phone1', $phone, ['id' => (int) $wanderer->id]);
+        $DB->update_record('selfselectadvanced_group', (object) [
+            'id' => (int) $beta->id,
+            'state' => state::FIRM,
+            'guideid' => (int) $guide->id,
+            'timeapproved' => time(),
+            'releasedbyguide' => 1,
+        ]);
+
+        $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
+        $sink = $this->redirectMessages();
+        joinrequests::respond($activity, (int) $request->id, true, 'Welcome', (int) $beta->leaderid);
+        $messages = $sink->get_messages();
+        $sink->close();
+
+        $guidechanges = array_values(array_filter(
+            $messages,
+            static fn($m): bool => (int) $m->useridto === (int) $guide->id
+                && $m->eventtype === 'joinrequests'
+        ));
+        $this->assertCount(1, $guidechanges, 'the assigned guide was not told about the released-team join');
+        $body = (string) $guidechanges[0]->fullmessage;
+        $this->assertStringContainsString(fullname($wanderer), $body);
+        $this->assertStringContainsString(format_string($beta->name), $body);
+        $this->assertStringContainsString(format_string($alpha->name), $body);
+        $this->assertStringNotContainsString((string) $wanderer->email, $body);
+        $this->assertStringNotContainsString($phone, $body);
+        $this->assertStringNotContainsString((string) $wanderer->email, (string) $guidechanges[0]->subject);
+        $this->assertStringNotContainsString($phone, (string) $guidechanges[0]->subject);
+    }
+
+    /**
+     * A forming target has no assigned guide and no approved roster to
+     * invalidate, so accepting its join request must not emit the
+     * released-team guide-change notice.
+     *
+     * MUTATION CAUGHT (run): treating a forming guide-less target as
+     * eligible and falling back to the target leader emitted an
+     * unwanted "Released team" notice.
+     */
+    public function test_accept_into_forming_guideless_team_sends_no_guide_change_notice(): void {
+        $this->resetAfterTest();
+        [$activity, , $beta, $wanderer, $guide] = $this->setup_world();
+
+        $this->assertEmpty(groups::get($activity, (int) $beta->id)->guideid);
+        $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
+        $sink = $this->redirectMessages();
+        joinrequests::respond($activity, (int) $request->id, true, 'Welcome', (int) $beta->leaderid);
+        $messages = $sink->get_messages();
+        $sink->close();
+
+        $this->assertEmpty(array_filter(
+            $messages,
+            static fn($m): bool => (int) $m->useridto === (int) $guide->id
+        ));
+        $this->assertEmpty(array_filter(
+            $messages,
+            static fn($m): bool => strpos((string) $m->subject, 'Released team') !== false
+        ));
+    }
+
+    /**
+     * Submitting and approving clear any stale release flag, so a
+     * later approved team does not stay mutable merely because an older
+     * lifecycle turn had been released.
+     *
+     * MUTATION CAUGHT (run): submit() kept releasedbyguide = 1; the
+     * submit assertion failed with "submit left the release flag set".
+     * MUTATION CAUGHT (run): approve() kept releasedbyguide = 1; the
+     * approve assertion failed with "approve left the release flag set".
+     */
+    public function test_submit_and_approve_clear_the_guide_release_flag(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, , $beta, , $guide] = $this->setup_world();
+        $api = new api($activity);
+
+        $DB->set_field('selfselectadvanced_group', 'releasedbyguide', 1, ['id' => (int) $beta->id]);
+        $submitted = $api->lifecycle()->submit(
+            groups::get($activity, (int) $beta->id),
+            (int) $guide->id,
+            (int) $beta->leaderid
+        );
+        $this->assertSame(0, (int) $submitted->releasedbyguide, 'submit left the release flag set');
+
+        $DB->set_field('selfselectadvanced_group', 'releasedbyguide', 1, ['id' => (int) $beta->id]);
+        $approved = $api->lifecycle()->approve(
+            groups::get($activity, (int) $beta->id),
+            (int) $guide->id
+        );
+        $this->assertSame(0, (int) $approved->releasedbyguide, 'approve left the release flag set');
         $sink->close();
     }
 
@@ -1012,6 +1275,33 @@ final class joinrequests_test extends \advanced_testcase {
                 $e->getMessage()
             );
         }
+    }
+
+    /**
+     * Staff who can override rules see a live accept decision for an L2
+     * refusal that an ordinary leader cannot accept from the same row.
+     *
+     * MUTATION CAUGHT (run): forcing accept_decision() to ignore
+     * :overriderules left the staff decision with canaccept=false.
+     */
+    public function test_staff_override_authority_keeps_bypassable_hard_accept_live(): void {
+        $this->resetAfterTest();
+        [$activity, , $beta, $wanderer, , , $manager] = $this->setup_world(['maxsize' => 1]);
+
+        $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
+        $leaderdecision = joinrequests::accept_decision($activity, $request, (int) $beta->leaderid, $beta);
+        $this->assertFalse($leaderdecision->canaccept);
+        $this->assertSame('refusalnoseats', $leaderdecision->hardkey);
+        $this->assertFalse($leaderdecision->confirmationrequired);
+
+        $this->assertTrue(has_capability('mod/selfselectadvanced:overriderules', $activity->context(), (int) $manager->id));
+        $staffdecision = joinrequests::accept_decision($activity, $request, (int) $manager->id, $beta);
+        $this->assertTrue($staffdecision->canaccept, 'staff override authority still produced a disabled Accept');
+        $this->assertSame('refusalnoseats', $staffdecision->hardkey);
+        $this->assertTrue($staffdecision->confirmationrequired);
+        $this->assertFalse($staffdecision->confirmacceptrequired);
+        $this->assertSame(['L2'], $staffdecision->bypassrules);
+        $this->assertSame([], $staffdecision->autobypassrules, 'staff L2 must still require an explicit override');
     }
 
     /**

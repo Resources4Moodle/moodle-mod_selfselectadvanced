@@ -340,6 +340,11 @@ class ledger {
             $usersql = ' AND m.userid = :userid';
             $params['userid'] = $userid;
         }
+        // Decision 59 (2026-08-05): grade the CURRENT confirmed roster
+        // of firm/frozen teams, not the roster present at approval. A
+        // student joining a released late team inherits its penalty; a
+        // student leaving stops carrying it. An exception for a person
+        // belongs in the gradebook, where the teacher can judge it.
         $sql = "SELECT DISTINCT m.userid
                   FROM {selfselectadvanced_member} m
                   JOIN {selfselectadvanced_group} g ON g.id = m.groupid

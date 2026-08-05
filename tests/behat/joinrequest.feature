@@ -157,8 +157,14 @@ Feature: Asking to join another team, and the guide releasing a settled one
     And I press "Send the request"
 
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as coord1
-    And I follow "Asked of my team"
-    Then I should see "Nina Three"
+    # 1.20.6: a coordinator holds no :respond - it is the students'
+    # capability - so "Asked of my team" is now their ONLY tab and the page
+    # lands them on it. Moodle renders an ACTIVE tab as text rather than an
+    # anchor, so the old 'I follow' step had no link to find. The navigation
+    # it used to perform is now done by the page itself, which is the point
+    # of the fix: staff no longer arrive at a form the service refuses.
+    Then I should see "Asked of my team"
+    And I should see "Nina Three"
     When I press "Accept"
     Then I should see "Accepted. The student has been moved and the team re-composed."
 
@@ -251,8 +257,11 @@ Feature: Asking to join another team, and the guide releasing a settled one
       | selfselectadvanced | user     | ssagroup   | reason                 |
       | ssa3               | student3 | Tight Gold | Closer to my programme |
     When I am on the "Tight labs" "mod_selfselectadvanced > join" page logged in as teacher1
-    And I follow "Asked of my team"
-    Then I should see "Override composition rules…"
+    # 1.20.6: as above - an editing teacher holds :manage but not :respond, so
+    # the answer tab is their only one and is already active. See the
+    # coordinator scenario for why the 'I follow' step was removed.
+    Then I should see "Asked of my team"
+    And I should see "Override composition rules…"
     # Without the override the refusal now NAMES the rule and its
     # figures, instead of the general "the rules refused it" (D6-5).
     When I press "Accept"

@@ -73,3 +73,16 @@ Feature: Students approach guides, and group names follow the course's format
       | Brief of work | Another study.    |
     And I press "Create group"
     Then I should see "That group name is already taken in this course."
+
+  # The other half of the first scenario in this file, which pins that a
+  # STUDENT still reads "Guides do not advertise availability here":
+  # 1.20.6 takes that student-addressed notice away only from viewers
+  # who are given the guide's own decision rule in its place. ssa1 sets
+  # no guidewindow, so this is the "no time limit" branch of the policy
+  # line - and it is stated here with no team submitted at all, which is
+  # exactly the case that has no derived deadline in existence to draw.
+  Scenario: The guide's landing states the decision rule instead of the student notice
+    When I am on the "Approached" "selfselectadvanced activity" page logged in as guide1
+    Then I should not see "Guides do not advertise availability here"
+    And I should see "Your guide work"
+    And I should see "There is no time limit on your decision"

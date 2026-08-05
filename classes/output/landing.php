@@ -74,6 +74,14 @@ class landing implements renderable, templatable {
         $gatekeeper = $this->api->gatekeeper();
         $cmid = $activity->cm()->id;
 
+        // Hoisted above the student-approach notice, which is now
+        // gated on it (1.20.6 item A). This viewer's guide capability
+        // decides two things on this page and they have to be decided
+        // in this order: whether the guide panel is drawn at the top,
+        // and therefore whether the student-addressed notice is
+        // replaced by the guide-addressed decision rule inside it.
+        $isguide = has_capability('mod/selfselectadvanced:guide', $context, $this->userid, false);
+
         $data = (object) [
             'isstudent' => false,
             'isstaff' => false,
@@ -82,9 +90,24 @@ class landing implements renderable, templatable {
             'actionurl' => (new \moodle_url('/mod/selfselectadvanced/group.php'))->out(false),
         ];
 
-        // Student-approach mode: expectations set plainly for every
-        // viewer - guides advertise nothing here, students approach.
-        $data->studentapproachnotice = !empty($activity->settings()->studentapproach)
+        // Student-approach mode: expectations set plainly - guides
+        // advertise nothing here, students approach.
+        //
+        // The string is student-addressed prose ("Choose a guide, agree
+        // with them directly, and submit your group; the guide
+        // decides"), and until 1.20.6 it was the FIRST thing a guide
+        // read on their own landing page - the maintainer's finding.
+        // The predicate is !$isguide and deliberately not isstudent:
+        // "is this viewer being given the guide-addressed statement
+        // INSTEAD?" Everybody who loses the notice here gains the guide
+        // panel's window policy in the same screen position, so nothing
+        // is subtracted without a replacement. An editing teacher and a
+        // manager hold no :guide, are not being given anything in its
+        // place, and therefore keep the notice exactly as before. A
+        // coordinator holds :guide, so they are treated as guide-side
+        // (maintainer decision on item A) and keep their coordinator
+        // button untouched.
+        $data->studentapproachnotice = !empty($activity->settings()->studentapproach) && !$isguide
             ? get_string('studentapproachnotice', 'mod_selfselectadvanced')
             : '';
 
@@ -188,11 +211,29 @@ class landing implements renderable, templatable {
             $data->hasmynominations = !empty($data->mynominations);
         }
 
-        $data->isguide = has_capability('mod/selfselectadvanced:guide', $context, $this->userid, false);
-        $data->guideurl = (new \moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cmid]))->out(false);
+        // The guide's own work, at the TOP of the page (1.20.6 item A).
+        // The panel carries the one and only "Guide dashboard" anchor
+        // on this page - the old standalone link below the student
+        // panels was removed in the same change, because a duplicate
+        // would make Behat's "I follow" resolve to whichever came first
+        // and silently stop exercising the other.
+        $data->isguide = $isguide;
+        $data->showguidepanel = $isguide;
+        $data->guidepanel = $isguide
+            ? (new guide_panel($this->api, $this->userid))->export_for_template($output)
+            : null;
+
         // Asking to join another team, and answering those asks
-        // (strategy 1.19 B). Offered to everybody who can take part:
-        // the two sides of it are one page.
+        // (strategy 1.19 B). Two sides, one page - but not one
+        // audience: the 1.20.5 review (NAV-02) found this button drawn
+        // for EVERY viewer while the page itself admits only holders of
+        // :respond, :manage or :coordinate, so every ordinary
+        // non-editing teacher on the live site was offered a button
+        // that could only ever end at a permission exception. The
+        // predicate is authority::may_join_requests(), CALLED and not
+        // transcribed, and joinrequest.php's own door is the require_
+        // half of that same function.
+        $data->showjoinlink = authority::may_join_requests($activity, $this->userid);
         $data->joinurl = (new \moodle_url('/mod/selfselectadvanced/joinrequest.php', ['id' => $cmid]))->out(false);
         $data->ismanager = has_capability('mod/selfselectadvanced:manage', $context, $this->userid, false);
         $data->manageurl = (new \moodle_url('/mod/selfselectadvanced/manage.php', ['id' => $cmid]))->out(false);

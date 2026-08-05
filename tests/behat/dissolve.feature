@@ -24,9 +24,13 @@ Feature: Dissolving a team that can be neither repaired nor deleted
       | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership |
       | selfselectadvanced | C1     | Lab groups | ssa1     | 2       | 4       | 1       | 1             |
     And the following "mod_selfselectadvanced > groups" exist:
-      | selfselectadvanced | name    | leader   | state |
-      | ssa1               | Team Up | student1 | firm  |
-      | ssa1               | Husk    | student2 | firm  |
+    # 1.20.6: a firm team accepts a join request only once its guide has
+    # released it. Husk is the team a student asks to join in the scenario
+    # below, so it carries the flag; Team Up does not, because nothing joins
+    # it and the default state is the closed one.
+      | selfselectadvanced | name    | leader   | state | releasedbyguide |
+      | ssa1               | Team Up | student1 | firm  | 0               |
+      | ssa1               | Husk    | student2 | firm  | 1               |
 
   Scenario: A solo-leader firm team is dissolved with a reason and its leader is parked
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1

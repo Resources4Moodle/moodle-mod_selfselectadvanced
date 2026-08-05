@@ -20,7 +20,7 @@ use mod_selfselectadvanced\activity;
 use stdClass;
 
 /**
- * Core-group synchronisation (spec 12): freeze, unfreeze and the one
+ * Core-group synchronisation (spec 12): approval, freeze, unfreeze and the one
  * authoritative mirror routine.
  *
  * The mirror is a course group whose plugin-owned membership equals
@@ -103,15 +103,16 @@ class freeze {
      * Called INSIDE the mutating lock and transaction. The task_adhoc
      * insert commits atomically with the plugin state, so the documented
      * failure path - crash after the plugin commit, before the inline
-     * sync_core_group() - is repaired by cron. queue_adhoc_task(..., true)
-     * dedupes identical pending rows, so repeat mutations of one group do
-     * not stack.
+     * sync_core_group() - is repaired by cron. Since approval now mints
+     * mirrors, both FIRM and FROZEN states queue even when coregroupid is
+     * still empty. queue_adhoc_task(..., true) dedupes identical pending
+     * rows, so repeat mutations of one group do not stack.
      *
      * @param activity $activity the activity
      * @param stdClass $group the group row as it stands after the write
      */
     public static function request_sync(activity $activity, stdClass $group): void {
-        if (empty($group->coregroupid) && ($group->state ?? '') !== state::FROZEN) {
+        if (empty($group->coregroupid) && !self::state_needs_mirror((string) ($group->state ?? ''))) {
             // No mirror and none required: nothing to keep in step.
             return;
         }
@@ -126,11 +127,11 @@ class freeze {
      *
      * The single entry point for every core-group write. Idempotent,
      * diff-based and convergent: calling it twice in a row is a no-op
-     * the second time. It mints the mirror when the group is frozen and
-     * has none, clears a dangling pointer when it is not frozen and the
-     * mirror is gone, adds what is missing, removes what this plugin
-     * owns and should not be there, and REPORTS - never removes - rows
-     * somebody else put in the group.
+     * the second time. It mints the mirror when the lifecycle state
+     * needs one and has none, clears a dangling pointer when the team is
+     * outside mirrorable states, adds what is missing, removes what this
+     * plugin owns and should not be there, and REPORTS - never removes
+     * - rows somebody else put in the group.
      *
      * @param activity $activity the activity
      * @param int $groupid the plugin group id
@@ -204,51 +205,78 @@ class freeze {
         }
 
         try {
-            $coregroupid = (int) ($group->coregroupid ?? 0);
-            $frozen = $group->state === state::FROZEN;
-            if ($frozen && (!$coregroupid || !groups_group_exists($coregroupid))) {
-                // Mint or repair. The ONE exception to "no core API
-                // under a plugin lock", and the honest description of
-                // it - the previous wording, "a single insert", is
-                // false and docs/architecture.md A7 now carries the
-                // corrected list. groups_create_group() also invalidates
-                // the course-wide 'groupdata' cache definition, rebuilds
-                // the course's hidden-groups cache, may create a group
-                // conversation, saves group custom fields, triggers
-                // \core\event\group_created - measured dispatching at
-                // locks::held_count() === 1, the only core group event
-                // in this plugin that does - and dispatches
-                // \core_group\hook\after_group_created, i.e. arbitrary
-                // third-party observer and hook code, per mint, under
-                // this per-team lock. It stays because the lock is what
-                // closes the double-mint race between an inline caller
-                // and the adhoc, and it runs once per team lifetime,
-                // with no membership writes and no open transaction of
-                // this plugin's own.
+            $coregroupid = self::live_coregroupid($activity, $group);
+            if (self::state_needs_mirror((string) $group->state) && !$coregroupid) {
+                $mint = false;
                 $lock = locks::acquire('group:' . $groupid);
                 try {
                     $group = $DB->get_record('selfselectadvanced_group', ['id' => $groupid]);
                     if (!$group) {
                         return $result;
                     }
-                    $coregroupid = (int) ($group->coregroupid ?? 0);
-                    if ($group->state === state::FROZEN && (!$coregroupid || !groups_group_exists($coregroupid))) {
-                        $coregroupid = self::mint_core_group($activity, $group);
+                    $coregroupid = self::live_coregroupid($activity, $group);
+                    if (self::state_needs_mirror((string) $group->state) && !$coregroupid) {
+                        $mint = true;
+                    } else if ($coregroupid && (int) ($group->coregroupid ?? 0) !== $coregroupid) {
+                        self::require_core_group_claimable((int) $coregroupid, $group);
                         $DB->set_field('selfselectadvanced_group', 'coregroupid', $coregroupid, ['id' => $groupid]);
                         $group->coregroupid = $coregroupid;
                     }
                 } finally {
                     $lock->release();
                 }
-            } else if (!$frozen && $coregroupid && !groups_group_exists($coregroupid)) {
-                // The mirror was deleted out of band while the team was
-                // firm. Clear the dangling pointer and say so.
+
+                if ($mint) {
+                    $mintpluginuid = (string) $group->pluginuid;
+                    $minted = self::mint_core_group($activity, $group);
+                    $discardminted = 0;
+                    $abortaftermint = false;
+                    $lock = locks::acquire('group:' . $groupid);
+                    try {
+                        $group = $DB->get_record('selfselectadvanced_group', ['id' => $groupid]);
+                        if (!$group) {
+                            if ($minted->created) {
+                                $discardminted = (int) $minted->id;
+                            }
+                            $abortaftermint = true;
+                        }
+                        if (!$abortaftermint) {
+                            $coregroupid = self::live_coregroupid($activity, $group);
+                            if (self::state_needs_mirror((string) $group->state) && !$coregroupid) {
+                                $coregroupid = (int) $minted->id;
+                                $DB->set_field('selfselectadvanced_group', 'coregroupid', $coregroupid, ['id' => $groupid]);
+                                $group->coregroupid = $coregroupid;
+                            } else if ($coregroupid && (int) ($group->coregroupid ?? 0) !== $coregroupid) {
+                                self::require_core_group_claimable((int) $coregroupid, $group);
+                                $DB->set_field('selfselectadvanced_group', 'coregroupid', $coregroupid, ['id' => $groupid]);
+                                $group->coregroupid = $coregroupid;
+                                if ($minted->created && $coregroupid !== (int) $minted->id) {
+                                    $discardminted = (int) $minted->id;
+                                }
+                            } else if (!self::state_needs_mirror((string) $group->state) && $minted->created) {
+                                $discardminted = (int) $minted->id;
+                            }
+                        }
+                    } finally {
+                        $lock->release();
+                    }
+                    if ($discardminted) {
+                        self::discard_newly_lost_core_group($discardminted, $mintpluginuid);
+                    }
+                    if ($abortaftermint) {
+                        return $result;
+                    }
+                }
+            } else if (!self::state_needs_mirror((string) $group->state) && $coregroupid && !groups_group_exists($coregroupid)) {
+                // The mirror pointer was already dangling before this
+                // team left mirrorable states. Clear the pointer and
+                // say there is nothing to sync.
                 $lock = locks::acquire('group:' . $groupid);
                 try {
                     $recheck = $DB->get_record('selfselectadvanced_group', ['id' => $groupid]);
                     if (
                         $recheck && !empty($recheck->coregroupid)
-                        && $recheck->state !== state::FROZEN
+                        && !self::state_needs_mirror((string) $recheck->state)
                         && !groups_group_exists((int) $recheck->coregroupid)
                     ) {
                         $DB->set_field('selfselectadvanced_group', 'coregroupid', null, ['id' => $groupid]);
@@ -260,6 +288,29 @@ class freeze {
                 return $result;
             } else if (!$coregroupid) {
                 return $result;
+            }
+
+            if ($coregroupid && (int) ($group->coregroupid ?? 0) !== $coregroupid) {
+                $lock = locks::acquire('group:' . $groupid);
+                try {
+                    $recheck = $DB->get_record('selfselectadvanced_group', ['id' => $groupid]);
+                    if ($recheck && self::state_needs_mirror((string) $recheck->state)) {
+                        $liveid = self::live_coregroupid($activity, $recheck);
+                        if ($liveid && (int) ($recheck->coregroupid ?? 0) !== $liveid) {
+                            self::require_core_group_claimable((int) $liveid, $recheck);
+                            $DB->set_field('selfselectadvanced_group', 'coregroupid', $liveid, ['id' => $groupid]);
+                            $recheck->coregroupid = $liveid;
+                        }
+                        $group = $recheck;
+                        $coregroupid = $liveid ?: $coregroupid;
+                    }
+                } finally {
+                    $lock->release();
+                }
+            }
+
+            if ($coregroupid) {
+                self::require_core_group_claimable((int) $coregroupid, $group);
             }
 
             $result->coregroupid = $coregroupid;
@@ -389,20 +440,65 @@ class freeze {
     }
 
     /**
-     * Create the owned course group for a frozen team.
+     * Does this state need a Moodle mirror?
      *
-     * The name format and the description are unchanged (D7-A1: only
-     * the membership basis moves). The idnumber makes the mirror's
-     * ownership machine-readable after uninstall, which the uninstall
-     * promise needs; core refuses a duplicate idnumber with
-     * 'idnumbertaken', and a mirror without an idnumber is better than
-     * no mirror at all.
+     * Maintainer decision 2026-08-05 moved the mirror boundary from
+     * freeze to approval: approved teams are usable by Moodle
+     * activities, and frozen teams keep the same mirror while the
+     * freeze adds the snapshot contract.
+     *
+     * @param string $state the plugin lifecycle state
+     * @return bool
+     */
+    private static function state_needs_mirror(string $state): bool {
+        return in_array($state, [state::FIRM, state::FROZEN], true);
+    }
+
+    /**
+     * The live mirror id, using pluginuid before any editable name.
+     *
+     * The group row's coregroupid is the fast path. When it is empty or
+     * dangling, the Moodle group's idnumber is the repair key: names
+     * are teacher-editable, but pluginuid is the machine-readable owner
+     * this plugin wrote and the value uninstall/import tooling already
+     * relies on.
      *
      * @param activity $activity the activity
-     * @param stdClass $group the plugin group row, read under the lock
-     * @return int the new course group id
+     * @param stdClass $group the plugin group row
+     * @return int the live core group id, or 0
      */
-    private static function mint_core_group(activity $activity, stdClass $group): int {
+    private static function live_coregroupid(activity $activity, stdClass $group): int {
+        global $DB;
+
+        $coregroupid = (int) ($group->coregroupid ?? 0);
+        if ($coregroupid && groups_group_exists($coregroupid)) {
+            return $coregroupid;
+        }
+
+        return (int) $DB->get_field('groups', 'id', [
+            'courseid' => $activity->courseid(),
+            'idnumber' => (string) $group->pluginuid,
+        ]);
+    }
+
+    /**
+     * Create the owned course group for an approved or frozen team.
+     *
+     * The name format and the description are unchanged. The idnumber
+     * is not optional any more: unfreeze repair uses it to find a mirror
+     * after a teacher renames the group or the plugin pointer is lost.
+     * If core reports a duplicate, the only acceptable fallback is the
+     * already-owned group with exactly this pluginuid in this course;
+     * otherwise the collision is a hard, visible failure.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the plugin group row
+     * @return stdClass id and created flag
+     * @throws \moodle_exception when an idnumber collision cannot be repaired
+     */
+    private static function mint_core_group(activity $activity, stdClass $group): stdClass {
+        global $DB;
+
         $prefix = trim((string) ($activity->cm()->idnumber ?: $activity->name()));
         $data = (object) [
             'courseid' => $activity->courseid(),
@@ -412,12 +508,71 @@ class freeze {
             'idnumber' => $group->pluginuid,
         ];
         try {
-            return (int) groups_create_group($data);
+            return (object) ['id' => (int) groups_create_group($data), 'created' => true];
         } catch (\moodle_exception $e) {
-            unset($data->idnumber);
+            if ($e->errorcode === 'idnumbertaken') {
+                $existing = (int) $DB->get_field('groups', 'id', [
+                    'courseid' => $activity->courseid(),
+                    'idnumber' => (string) $group->pluginuid,
+                ]);
+                if ($existing) {
+                    self::require_core_group_claimable($existing, $group);
+                    return (object) ['id' => $existing, 'created' => false];
+                }
+            }
 
-            return (int) groups_create_group($data);
+            throw $e;
         }
+    }
+
+    /**
+     * Refuse a mirror id already owned by another plugin group.
+     *
+     * An idnumber duplicate in Moodle is not permission to create an
+     * ownerless fallback. The only repairable collision is the orphaned
+     * mirror whose idnumber is this pluginuid and which no other plugin
+     * row currently claims.
+     *
+     * @param int $coregroupid the Moodle group id to claim
+     * @param stdClass $group the plugin group claiming it
+     * @throws \moodle_exception when another plugin group already claims it
+     */
+    private static function require_core_group_claimable(int $coregroupid, stdClass $group): void {
+        global $DB;
+
+        $claimants = $DB->get_fieldset_select(
+            'selfselectadvanced_group',
+            'id',
+            'coregroupid = ? AND id <> ?',
+            [$coregroupid, (int) $group->id]
+        );
+        if (!$claimants) {
+            return;
+        }
+
+        throw new \moodle_exception('coregroupcollision', 'mod_selfselectadvanced', '', (object) [
+            'pluginuid' => (string) $group->pluginuid,
+            'groupid' => (int) reset($claimants),
+        ]);
+    }
+
+    /**
+     * Delete a newly-created race loser after the plugin lock is gone.
+     *
+     * @param int $coregroupid the Moodle group created by this sync attempt
+     * @param string $pluginuid the idnumber it must still carry
+     */
+    private static function discard_newly_lost_core_group(int $coregroupid, string $pluginuid): void {
+        global $DB;
+
+        $core = $DB->get_record('groups', ['id' => $coregroupid]);
+        if (!$core) {
+            return;
+        }
+        if ((string) $core->idnumber !== $pluginuid) {
+            throw new \coding_exception('Refusing to discard a core group whose idnumber changed after minting.');
+        }
+        groups_delete_group($coregroupid);
     }
 
     /**
@@ -797,6 +952,7 @@ class freeze {
                     $now = time();
                     $fresh->state = state::FROZEN;
                     $fresh->timefrozen = $now;
+                    $fresh->releasedbyguide = 0;
                     // Whether staff enforced this freeze, recorded now
                     // rather than worked out later (strategy 1.19 C). A
                     // guide may release a team they guide, but not one
@@ -1183,6 +1339,7 @@ class freeze {
 
             $fresh->state = state::FIRM;
             $fresh->leaderid = $leaderid;
+            $fresh->releasedbyguide = (int) ((int) $fresh->guideid === $actorid);
             // The coregroupid is deliberately NOT cleared: the mirror
             // is retained across unfreeze and reused by the next freeze.
             $fresh->timefrozen = null;
@@ -1240,6 +1397,7 @@ class freeze {
         // The mirror now follows the restored roster instead of being
         // deleted with the freeze.
         $sync = self::sync_core_group($activity, (int) $fresh->id, $actorid);
+        $fresh = groups::get($activity, (int) $fresh->id);
 
         // The queue never lists work already done: a direct unfreeze
         // resolves the group's live unfreeze ticket (strategy 1.16 B).

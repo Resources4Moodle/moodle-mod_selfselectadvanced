@@ -205,11 +205,17 @@ final class staff_authority_test extends \advanced_testcase {
         $this->resetAfterTest();
         [$activity, $api, $group, $students, $staff] = $this->setup_team(['maxsize' => 4]);
 
+        // 1.20.6: Beta is the team a join request is aimed at, and a firm team
+        // accepts one only once its guide has released it. The flag keeps this
+        // fixture meaning what it always meant - a settled team that can still
+        // legitimately be joined - so the test goes on measuring what dissolve
+        // does to open moves and requests, rather than dying on the new guard.
         $other = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_group([
             'activityid' => $activity->id(),
             'leaderid' => (int) $students[2]->id,
             'name' => 'Beta',
             'state' => state::FIRM,
+            'releasedbyguide' => 1,
         ]);
 
         // One staged move OUT of the doomed team, one INTO it.
@@ -237,7 +243,13 @@ final class staff_authority_test extends \advanced_testcase {
             ['rulesbypassed' => 'L2'],
             (int) $staff->id
         );
-        // And one live join request aimed at the doomed team.
+        // And one live join request aimed at the doomed team. 1.20.6 only lets
+        // a firm team be joined once its guide has released it, and this is
+        // set HERE rather than in setup_team() on purpose: that helper is
+        // shared by every test in this file, and nine of them pass without it.
+        // Widening a shared fixture to fix one test would change the state
+        // under the other nine silently.
+        $DB->set_field('selfselectadvanced_group', 'releasedbyguide', 1, ['id' => (int) $group->id]);
         $request = \mod_selfselectadvanced\local\joinrequests::request(
             $activity,
             (int) $group->id,

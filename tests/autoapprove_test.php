@@ -497,12 +497,31 @@ final class autoapprove_test extends \advanced_testcase {
         // order is ascending (override rank 5 before group rank 8) and
         // the release is in reverse; the trailing pair is the penalty
         // ledger's own group lock, taken after ours is released.
+        //
+        // 1.20.6 adds two more trailing pairs, and they are the mirror sync:
+        // approval now creates the team's Moodle group instead of waiting for
+        // freeze, and freeze::sync_core_group() takes group:{id} for each
+        // phase of its work. EVERY PROPERTY THIS TEST GUARDS SURVIVES that
+        // change, which is why the expectation grows rather than loosening.
+        // store::save() still does not re-acquire override:group, so there is
+        // no phantom hold and the first four entries are untouched. The order
+        // is still ascending by rank with the release in reverse. And the new
+        // pairs are SEQUENTIAL rather than nested, taken after our own hold is
+        // released, which is the signature of the two-phase mint: reserve
+        // under the lock, release it, then do the core-group work.
+        // The assertion stays an exact array match. Relaxing it to "contains"
+        // would let a genuinely nested or misordered acquisition through, and
+        // that is the whole thing this test exists to catch.
         $gid = (int) $auto->id;
         $this->assertSame([
             'acquire override:group:' . $gid,
             'acquire group:' . $gid,
             'release group:' . $gid,
             'release override:group:' . $gid,
+            'acquire group:' . $gid,
+            'release group:' . $gid,
+            'acquire group:' . $gid,
+            'release group:' . $gid,
             'acquire group:' . $gid,
             'release group:' . $gid,
         ], $log);

@@ -46,7 +46,7 @@ class tickets {
     /**
      * @var string A guide asks the coordinators to raise their team limit
      *      (strategy 1.18 C). Alone among the types this one is not about
-     *      a team: its groupid is 0 and it carries the number asked for.
+     *      a team: its groupid is null and it carries the number asked for.
      */
     public const TYPE_GUIDECAP = 'guidecap';
 
@@ -190,7 +190,7 @@ class tickets {
      * (strategy 1.18 C).
      *
      * Unlike the other two types this request is about the guide, not a
-     * team, so it takes no group lock and stores groupid 0. The number
+     * team, so it takes no group lock and stores no groupid. The number
      * asked for travels on the ticket, which is what lets a coordinator
      * grant it in one action rather than transcribing it into an
      * override by hand.
@@ -254,7 +254,7 @@ class tickets {
             $now = time();
             $ticket = (object) [
                 'activityid' => $activity->id(),
-                'groupid' => 0,
+                'groupid' => null,
                 'type' => self::TYPE_GUIDECAP,
                 'status' => self::STATUS_OPEN,
                 'requestedby' => $userid,
@@ -559,7 +559,7 @@ class tickets {
      * @return stdClass|null the group row, or null for a guidecap request
      */
     public static function group_of(activity $activity, stdClass $ticket): ?stdClass {
-        if ((int) $ticket->groupid <= 0) {
+        if ($ticket->groupid === null || (int) $ticket->groupid <= 0) {
             return null;
         }
 
@@ -1145,7 +1145,7 @@ class tickets {
         // loading EVERY group in the activity - fifteen hundred rows to
         // label a screenful of tickets - and this plugin is built for
         // that many teams. A LEFT JOIN because a team-limit request
-        // carries groupid = 0 and is about no team at all.
+        // carries no groupid and is about no team at all.
         return $DB->get_records_sql(
             "SELECT t.*, g.name AS groupname, g.pluginuid AS grouppluginuid
                FROM {selfselectadvanced_ticket} t

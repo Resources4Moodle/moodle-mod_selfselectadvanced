@@ -640,10 +640,15 @@ class group_page implements renderable, templatable {
                     // deliberately so - this is ONE team's queue, where
                     // the tab already carries every team in the
                     // activity through the same call.
-                    $verdict = fit::for_person($activity, $this->group, $userid);
+                    $verdict = fit::for_person($activity, $this->group, $userid, $request);
+                    $decision = joinrequests::accept_decision($activity, $request, $this->userid, $this->group);
                     $attr = $requesterattrs[$userid] ?? null;
                     $department = (string) ($attr->department ?? '');
                     $subdepartment = (string) ($attr->subdepartment ?? '');
+                    $warnings = array_values(array_unique(array_merge(
+                        $verdict->warnings ?? [],
+                        $decision->warnings ?? []
+                    )));
                     $joinrows[] = (object) [
                         'requestid' => (int) $request->id,
                         'fullname' => isset($requesters[$userid]) ? fullname($requesters[$userid]) : '',
@@ -666,9 +671,15 @@ class group_page implements renderable, templatable {
                         // twice removed (blind audit, 1.20.5).
                         'warnings' => array_values(array_map(
                             static fn(string $w): array => ['text' => $w],
-                            $verdict->warnings ?? []
+                            $warnings
                         )),
-                        'haswarnings' => !empty($verdict->warnings),
+                        'haswarnings' => !empty($warnings),
+                        'canaccept' => (bool) $decision->canaccept,
+                        'cannotaccept' => !$decision->canaccept,
+                        'hardreason' => (string) $decision->hardreason,
+                        'confirmationrequired' => (bool) $decision->confirmationrequired,
+                        'confirmacceptrequired' => (bool) $decision->confirmacceptrequired,
+                        'confirmacceptmessage' => get_string('joinacceptconfirm', 'mod_selfselectadvanced'),
                         'seatline' => $verdict->seat !== null
                             ? get_string('joinfitseat', 'mod_selfselectadvanced', $verdict->seat)
                             : '',

@@ -825,10 +825,9 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
     if ($oldversion < 2026073080) {
         // A guide may now ask the coordinators for a higher team limit
         // (strategy 1.18 C). That request is a ticket like the other
-        // two, but it is not about a team - its groupid is 0 - and it
-        // carries the number asked for, so a coordinator can grant it
-        // in one action instead of copying the figure into an override
-        // by hand.
+        // two, but it is not about a team and it carries the number
+        // asked for, so a coordinator can grant it in one action
+        // instead of copying the figure into an override by hand.
         $ticket = new xmldb_table('selfselectadvanced_ticket');
         $requested = new xmldb_field('requested', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'resolutionformat');
         if (!$dbman->field_exists($ticket, $requested)) {
@@ -1541,6 +1540,76 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         );
 
         upgrade_mod_savepoint(true, 2026080100, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026080500) {
+        // 1.20.6 schema truth: a guide-capacity ticket is not about a
+        // team. The schema used to advertise groupid as a NOT NULL
+        // foreign key while the writer stored 0 for "no team", which
+        // made XMLDB's foreign-key checker report violations and made
+        // the metadata lie to readers. NULL is the relational spelling
+        // of "there is no referenced row"; real team tickets keep the
+        // foreign key.
+        //
+        // The foreign key is dropped and re-added around the nullable
+        // change for the same reason as the 2026073130 move change
+        // above: XMLDB will not modify a column while a key references
+        // it.
+        $table = new xmldb_table('selfselectadvanced_ticket');
+        $key = new xmldb_key(
+            'fk_groupid',
+            XMLDB_KEY_FOREIGN,
+            ['groupid'],
+            'selfselectadvanced_group',
+            ['id']
+        );
+        $field = new xmldb_field('groupid', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'activityid');
+        $dbman->drop_key($table, $key);
+        $dbman->change_field_notnull($table, $field);
+        $DB->execute("UPDATE {selfselectadvanced_ticket} SET groupid = NULL WHERE groupid = :zero", ['zero' => 0]);
+        $dbman->add_key($table, $key);
+
+        upgrade_mod_savepoint(true, 2026080500, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026080501) {
+        // 1.20.6 late-join guard: only a team released by its assigned
+        // guide may change after approval. The flag is false for every
+        // existing row, so approved teams keep the newly-closed default
+        // until their guide explicitly releases them.
+        $table = new xmldb_table('selfselectadvanced_group');
+        $field = new xmldb_field(
+            'releasedbyguide',
+            XMLDB_TYPE_INTEGER,
+            '1',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            '0',
+            'frozenbystaff'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Marker discipline unchanged: versionbump_test matches
+        // '%(2026080501)%', so the serial stays inside the parentheses. Both
+        // 1.20.6 steps landed without one, which is why
+        // test_a_site_at_the_previous_serial_runs_the_new_step failed: a
+        // version number moving proves only that CORE bumped it, not that this
+        // step ran. This row is the difference between the two, and the test
+        // exists precisely to refuse a release that cannot tell them apart.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.6 (2026080501). Late-join guard: a team settled with its guide, or '
+                . 'approved and never released, no longer changes underneath that guide.',
+            'Adds selfselectadvanced_group.releasedbyguide, defaulting to 0 so every existing '
+                . 'approved team starts closed until its own guide releases it. This row is '
+                . 'written if and only if the step actually executed.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080501, 'selfselectadvanced');
     }
 
     return true;

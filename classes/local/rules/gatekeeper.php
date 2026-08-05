@@ -140,17 +140,82 @@ class gatekeeper {
      * @param \stdClass $group group row
      * @param int $inviteeid the candidate
      * @param int|null $now time of the action, defaults to now
-     * @return refusal|null null when allowed
+     * @return refusal|null the FIRST refusal, or null when allowed
      */
     public function can_invite(stdClass $group, int $inviteeid, ?int $now = null): ?refusal {
+        return $this->invite_refusals($group, $inviteeid, $now ?? time(), true)[0] ?? null;
+    }
+
+    /**
+     * EVERY reason this user may not be invited, not merely the first.
+     *
+     * WHY THIS EXISTS, and it is a defect report rather than a feature
+     * note: can_invite() answers with the first refusal it meets, which
+     * is all a picker needs - it renders one reason per candidate. But a
+     * caller that legitimately SETS ONE REFUSAL ASIDE cannot use it.
+     * Discarding the first answer does not reveal the second; it hides
+     * the fact that the second was never asked.
+     *
+     * fit::for_person() does exactly that set-aside for a request that
+     * LEAVES a team (the membership cap is netted by the move engine, so
+     * carrying it would make the Fit column disagree with the Accept
+     * button). Before this method existed that branch re-asked only the
+     * COMPOSITION question, while its own comment claimed it re-asked
+     * the seat question too - so a student at their cap requesting a
+     * FULL team was shown a green "fits", and Accept then threw. Same
+     * team, same student, opposite verdict depending only on which
+     * refusal happened to be first. Found by the 1.20.5 review sweep,
+     * 2026-08-05; the comment asserted a completeness the code did not
+     * have, which is this project's vacuity defect wearing a new hat.
+     *
+     * The rules are NOT duplicated here. Both entry points run the one
+     * private evaluator below and differ only in whether it stops early,
+     * because two copies of a rule are precisely how the copies drift.
+     *
+     * @param \stdClass $group group row
+     * @param int $inviteeid the candidate
+     * @param int|null $now time of the action, defaults to now
+     * @return refusal[] in the documented order; empty when allowed
+     */
+    public function can_invite_all(stdClass $group, int $inviteeid, ?int $now = null): array {
+        return $this->invite_refusals($group, $inviteeid, $now ?? time(), false);
+    }
+
+    /**
+     * The single evaluation of the invitation rules.
+     *
+     * Order is the documented one (see can_invite()). $stopatfirst buys
+     * the picker its short circuit - seat_position() scans the roster and
+     * check_composition_feasibility() runs the seat engine, and paying
+     * both for every candidate on every keystroke would be a real cost -
+     * without giving the codebase a second copy of the rules.
+     *
+     * @param \stdClass $group group row
+     * @param int $inviteeid the candidate
+     * @param int $now time of the action
+     * @param bool $stopatfirst return as soon as one refusal is found
+     * @return refusal[] in the documented order; empty when allowed
+     */
+    private function invite_refusals(stdClass $group, int $inviteeid, int $now, bool $stopatfirst): array {
         global $DB;
-        $now = $now ?? time();
+
+        $refusals = [];
+        $add = static function (?refusal $r) use (&$refusals): bool {
+            if ($r !== null) {
+                $refusals[] = $r;
+                return true;
+            }
+            return false;
+        };
 
         if ($group->state !== state::FORMING) {
-            return new refusal('refusalwrongstate');
+            $add(new refusal('refusalwrongstate'));
+            if ($stopatfirst) {
+                return $refusals;
+            }
         }
-        if ($refusal = $this->check_window((int) $group->leaderid, (int) $group->id, $now)) {
-            return $refusal;
+        if ($add($this->check_window((int) $group->leaderid, (int) $group->id, $now)) && $stopatfirst) {
+            return $refusals;
         }
 
         $existing = $DB->get_record('selfselectadvanced_member', [
@@ -158,24 +223,38 @@ class gatekeeper {
             'userid' => $inviteeid,
         ]);
         if ($existing && $existing->status === groups::STATUS_CONFIRMED) {
-            return new refusal('refusalalreadymember');
+            $add(new refusal('refusalalreadymember'));
+            if ($stopatfirst) {
+                return $refusals;
+            }
         }
         if ($existing && $existing->status === groups::STATUS_INVITED) {
-            return new refusal('refusalalreadyinvited');
+            $add(new refusal('refusalalreadyinvited'));
+            if ($stopatfirst) {
+                return $refusals;
+            }
         }
 
         $cap = $this->resolver->effective_maxmembership($inviteeid);
         $memberships = groups::count_memberships($this->activity, $inviteeid);
         if ($memberships >= $cap->value) {
-            return new refusal('refusalinviteecap', (object) ['current' => $memberships, 'max' => $cap->value]);
+            $add(new refusal('refusalinviteecap', (object) ['current' => $memberships, 'max' => $cap->value]));
+            if ($stopatfirst) {
+                return $refusals;
+            }
         }
 
         $seats = $this->seat_position($group);
         if ($seats->free < 1) {
-            return new refusal('refusalnoseats');
+            $add(new refusal('refusalnoseats'));
+            if ($stopatfirst) {
+                return $refusals;
+            }
         }
 
-        return $this->check_composition_feasibility($group, $inviteeid);
+        $add($this->check_composition_feasibility($group, $inviteeid));
+
+        return $refusals;
     }
 
     /**

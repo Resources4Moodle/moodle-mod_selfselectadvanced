@@ -19,6 +19,7 @@ namespace mod_selfselectadvanced;
 use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\freeze;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\joinrequests;
 use mod_selfselectadvanced\local\locks;
 use mod_selfselectadvanced\local\override\store;
 use mod_selfselectadvanced\local\state;
@@ -96,6 +97,132 @@ final class freeze_test extends \advanced_testcase {
         ]);
 
         return [$activity, new api($activity), groups::get($activity, (int) $group->id), $students, $guide, $staff];
+    }
+
+    /**
+     * Approval is now the lifecycle edge that exposes a team to
+     * Moodle-native group-aware activities. The mirror has to exist
+     * before freeze, and the grouping assignment matters as much as the
+     * group because Moodle activities target groupings.
+     *
+     * MUTATION CAUGHT (run): do_approve() skipped
+     * freeze::sync_core_group(); approval returned with coregroupid
+     * still NULL.
+     */
+    public function test_approval_creates_core_group_and_grouping(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+
+        [$activity, $api, $group, $students, $guide] = $this->setup_firm();
+        $DB->update_record('selfselectadvanced_group', (object) [
+            'id' => (int) $group->id,
+            'state' => state::FORMING,
+            'guideid' => null,
+            'timeapproved' => null,
+            'releasedbyguide' => 0,
+            'coregroupid' => null,
+        ]);
+
+        $submitted = $api->lifecycle()->submit(
+            groups::get($activity, (int) $group->id),
+            (int) $guide->id,
+            (int) $group->leaderid
+        );
+        $approved = $api->lifecycle()->approve($submitted, (int) $guide->id);
+
+        $this->assertSame(state::FIRM, $approved->state);
+        $this->assertNotEmpty($approved->coregroupid);
+        $core = groups_get_group((int) $approved->coregroupid);
+        $this->assertSame('[SSAFRZ] Icy', $core->name);
+        $this->assertSame($approved->pluginuid, $core->idnumber);
+        $members = array_map('intval', array_keys(groups_get_members((int) $approved->coregroupid, 'u.id')));
+        $this->assertEqualsCanonicalizing(
+            [(int) $students[0]->id, (int) $students[1]->id, (int) $guide->id],
+            $members
+        );
+
+        $groupingname = get_string('groupingname', 'mod_selfselectadvanced', $activity->name());
+        $grouping = groups_get_grouping_by_name($activity->courseid(), $groupingname);
+        $this->assertNotEmpty($grouping);
+        $this->assertTrue($DB->record_exists('groupings_groups', [
+            'groupingid' => $grouping,
+            'groupid' => $approved->coregroupid,
+        ]));
+        $sink->close();
+    }
+
+    /**
+     * A guide-released firm team can still change through a leader's
+     * join acceptance, and the already-approved mirror must follow the
+     * plugin roster immediately after that accept commits.
+     *
+     * MUTATION CAUGHT (run): joinrequests::respond() skipped the
+     * deferred mirror sync loop; the accepted student was not a member
+     * of the core group.
+     */
+    public function test_released_firm_join_acceptance_updates_the_core_group(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+
+        [$activity, , $group, $students, $guide] = $this->setup_firm();
+        $DB->set_field('selfselectadvanced_group', 'releasedbyguide', 1, ['id' => (int) $group->id]);
+        $sync = freeze::sync_core_group($activity, (int) $group->id, (int) $guide->id);
+        $this->assertSame('synced', $sync->status);
+        $group = groups::get($activity, (int) $group->id);
+        $joiner = (int) $students[2]->id;
+        $this->assertFalse(groups_is_member((int) $group->coregroupid, $joiner));
+
+        $request = joinrequests::request($activity, (int) $group->id, 'Please', $joiner);
+        joinrequests::respond($activity, (int) $request->id, true, 'Welcome', (int) $group->leaderid);
+
+        $this->assertTrue(groups_is_member((int) $group->coregroupid, $joiner));
+        $tagged = $DB->get_record('groups_members', [
+            'groupid' => (int) $group->coregroupid,
+            'userid' => $joiner,
+        ]);
+        $this->assertSame('mod_selfselectadvanced', $tagged->component);
+        $this->assertSame((int) $group->id, (int) $tagged->itemid);
+        $sink->close();
+    }
+
+    /**
+     * Unfreeze repair finds the Moodle group by pluginuid, not by the
+     * editable name and not solely by the plugin row's pointer. That is
+     * what lets a renamed mirror be re-attached and re-adjusted after a
+     * stale pointer is lost.
+     *
+     * MUTATION CAUGHT (run): live_coregroupid() stopped looking up
+     * pluginuid and mint_core_group() rethrew idnumbertaken; unfreeze
+     * returned coregroupid 0 instead of the renamed mirror id.
+     */
+    public function test_unfreeze_repairs_a_renamed_mirror_by_idnumber(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, , $group, $students, $guide, $staff] = $this->setup_firm();
+        $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
+        $coreid = (int) $frozen->coregroupid;
+        $missing = (int) $students[1]->id;
+        $DB->set_field('groups', 'name', 'Teacher renamed mirror', ['id' => $coreid]);
+        groups_remove_member($coreid, $missing);
+        $DB->set_field('selfselectadvanced_group', 'coregroupid', null, ['id' => (int) $frozen->id]);
+
+        $restored = freeze::unfreeze($activity, groups::get($activity, (int) $frozen->id), (int) $staff->id);
+
+        $this->assertSame($coreid, (int) $restored->coregroupid);
+        $this->assertSame('Teacher renamed mirror', groups_get_group($coreid)->name);
+        $this->assertTrue(groups_is_member($coreid, $missing));
+        $tagged = $DB->get_record('groups_members', [
+            'groupid' => $coreid,
+            'userid' => $missing,
+        ]);
+        $this->assertSame('mod_selfselectadvanced', $tagged->component);
+        $this->assertSame((int) $frozen->id, (int) $tagged->itemid);
     }
 
     /**

@@ -144,9 +144,12 @@ final class ticketqueuepaging_test extends \advanced_testcase {
     }
 
     /**
-     * A team-limit request is about no team at all, and must survive the
-     * join that fetches team names — the same LEFT JOIN lesson the
-     * privacy export had to learn.
+     * A team-limit request is about no team at all, stores NULL in groupid,
+     * and must survive the join that fetches team names - the same LEFT JOIN
+     * lesson the privacy export had to learn.
+     *
+     * MUTATION CAUGHT (run): changing the queue() LEFT JOIN to an INNER JOIN;
+     * the page dropped the guide-capacity ticket and returned only two rows.
      */
     public function test_a_guidecap_ticket_is_not_dropped_by_the_join(): void {
         global $DB;
@@ -157,7 +160,7 @@ final class ticketqueuepaging_test extends \advanced_testcase {
         $guide = $this->getDataGenerator()->create_user();
         $DB->insert_record('selfselectadvanced_ticket', (object) [
             'activityid' => $activity->id(),
-            'groupid' => 0,
+            'groupid' => null,
             'type' => tickets::TYPE_GUIDECAP,
             'status' => tickets::STATUS_OPEN,
             'requestedby' => $guide->id,
@@ -174,5 +177,8 @@ final class ticketqueuepaging_test extends \advanced_testcase {
 
         $types = array_map(static fn($t) => $t->type, array_values($page));
         $this->assertContains(tickets::TYPE_GUIDECAP, $types);
+        $guidecap = array_values(array_filter($page, static fn($t) => $t->type === tickets::TYPE_GUIDECAP))[0];
+        $this->assertNull($guidecap->groupid, 'a team-limit ticket stored a sentinel groupid');
+        $this->assertNull($guidecap->groupname, 'a team-limit ticket was joined to a team');
     }
 }

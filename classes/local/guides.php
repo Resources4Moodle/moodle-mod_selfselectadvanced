@@ -47,8 +47,8 @@ class guides {
      * @param bool $includeunavailable keep guides who are unavailable purely for want of volunteering,
      *      for manager-facing target pickers such as the overrides page
      * @param string $searchquery keep only guides whose NAME contains this - or, when the typed
-     *      text contains '@', whose name OR EMAIL ADDRESS contains it - matched before any
-     *      per-guide override work is done; empty for all of them
+     *      text is a complete email address, whose email address equals it case-insensitively -
+     *      matched before any per-guide override work is done; empty for all of them
      * @return \stdClass[] userid-keyed: id, fullname, used, max, remaining, label - never an address
      */
     public static function with_load(
@@ -62,26 +62,19 @@ class guides {
             \core_user\fields::for_name()->get_required_fields()
         ));
 
-        // THE ADDRESS ARM ENGAGES ONLY WHEN THE TYPED TEXT CONTAINS
-        // '@', AND THAT IS MAINTAINER DECISION 41 (2026-08-04)
-        // ANSWERING A MEASUREMENT RATHER THAN A TASTE: substring
-        // matching leaks the string it matches, and a plain enrolled
-        // student holding nothing but :respond reconstructed an entire
-        // guide address - p7x9qz@confidential.invalid, a local part
-        // with no relation to the guide's name - in 453 calls to
-        // search_guides, using only found/not-found on single-character
-        // extensions of a substring.
-        //
-        // WHAT '@' BUYS, STATED HONESTLY: it does not close that oracle.
-        // A determined prober can anchor on the '@' and grow the
-        // substring in both directions from there. It removes the
-        // no-cost blind sweep over name-shaped fragments, and the
-        // maintainer accepted the residue in those terms - "staff
-        // directory is available to anyone who opens picker, but @
-        // slows deliberate probe" - because this pool is the holders of
-        // mod/selfselectadvanced:guide in this module context, i.e.
-        // staff being approached. Exact equality was considered and NOT
-        // taken.
+        // THE ADDRESS ARM ENGAGES ONLY WHEN THE TYPED TEXT IS A
+        // COMPLETE EMAIL ADDRESS, AND THEN IT IS EQUALITY ONLY. This is
+        // maintainer decision 41 as superseded by decision 52 on
+        // 2026-08-04: "Email should be fully typed." The measurement
+        // behind the decision is
+        // concrete rather than speculative. A plain enrolled student
+        // holding nothing but :respond reconstructed an entire guide
+        // address - p7x9qz@confidential.invalid, a local part with no
+        // relation to the guide's name - in 453 calls to search_guides,
+        // using only found/not-found on single-character extensions of a
+        // substring. So a syntactically incomplete query never fetches
+        // or compares the address, and a complete address compares by
+        // case-insensitive equality, never substring.
         //
         // WITHOUT '@' THIS IS THE PRE-DECISION-32 MATCHER, unchanged:
         // names only. {@see \mod_selfselectadvanced\local\candidates}
@@ -90,14 +83,14 @@ class guides {
         // against a pool of STUDENTS is an oracle over protected
         // people, and no part of this file may be "aligned" with it.
         $searchquery = \core_text::strtolower(trim($searchquery));
-        $matchaddress = strpos($searchquery, '@') !== false;
+        $matchaddress = validate_email($searchquery);
 
         // THE FIELD LIST IS DECIDED BEFORE THE QUERY, which is the rule
         // {@see \mod_selfselectadvanced\local\candidates} already states
         // in its own words: an address that is never selected "cannot be
         // printed by a later edit, dumped by a debugger or iterated out
         // of the record by a template". So the column is fetched on
-        // exactly the calls that can use it - a query carrying an '@' -
+        // exactly the calls that can use it - a complete email query -
         // and on no others.
         //
         // The condition is the QUERY, never the caller, and that
@@ -108,13 +101,15 @@ class guides {
         // contact.php:79 reads a guidefilter parameter, :162 renders it
         // as a visible text input, and :183 passes it here - behind
         // require_capability(':creategroup') at :45, a student
-        // capability. Measured on both engines: a plain student leading
-        // a group, querying 'p7x9qz@', matches the guide who owns that
-        // address.
+        // capability. Under the full-address rule, a plain student
+        // leading a group can still reach the guide by the complete
+        // address they were given; partial address probes do not engage
+        // the address arm.
         // That is CORRECT - the page exists so a student can find a
-        // guide, and the '@' rule governs it exactly as it governs every
-        // other caller. What was wrong was a sentence claiming a
-        // student-facing page could never fetch an address. Callers that
+        // guide, and the full-address rule governs it exactly as it
+        // governs every other caller. What was wrong was a sentence
+        // claiming a student-facing page could never fetch an address.
+        // Callers that
         // genuinely pass no query - guidequeue.php, the unfiltered Loads
         // tab and every selectable() site - are handed no address
         // because their query is empty, not because of who they are.
@@ -141,16 +136,18 @@ class guides {
                     return true;
                 }
                 if (!$matchaddress) {
-                    // No '@' typed, so no address was fetched and none
-                    // is compared. See above.
+                    // Not a complete email address, so no address was
+                    // fetched and none is compared. See above.
                     return false;
                 }
 
                 // Both sides lowered, as the name arm already does, so
-                // that an address a student wrote down in capitals
-                // still reaches the guide who owns it.
+                // that a complete address a student wrote down in
+                // capitals still reaches the guide who owns it. Equality
+                // is the privacy rule: local-part-only, domain-only,
+                // prefix and suffix probes all stop here.
                 return isset($user->email)
-                    && strpos(\core_text::strtolower((string) $user->email), $searchquery) !== false;
+                    && \core_text::strtolower((string) $user->email) === $searchquery;
             });
         }
 
@@ -241,9 +238,9 @@ class guides {
      * picker asks this instead. The result carries department and load
      * so the person choosing does not need a second page to decide.
      * The typed text is matched against a guide's name, and - only when
-     * that text contains '@' - against their email address as well
-     * (maintainer decisions 32 and 41). Nothing downstream returns an
-     * address.
+     * that text is a complete email address - against their email address
+     * by case-insensitive equality (maintainer decisions 32 and 52,
+     * superseding 41). Nothing downstream returns an address.
      *
      * @param activity $activity the activity
      * @param resolver $resolver the override resolver

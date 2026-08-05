@@ -431,6 +431,7 @@ if ($action === 'joinrespond' && data_submitted() && confirm_sesskey()) {
         redirect($baseurl);
     }
     $joinnote = trim(optional_param('note', '', PARAM_TEXT));
+    $confirmaccept = optional_param('confirmaccept', 0, PARAM_BOOL);
     // Ownership: the request must be one asked OF THIS TEAM (IDOR rule,
     // spec section 14.12). respond() would refuse a request belonging to
     // another team anyway - it re-reads the row and asks
@@ -457,7 +458,9 @@ if ($action === 'joinrespond' && data_submitted() && confirm_sesskey()) {
             $requestid,
             $decision === 'accept',
             $joinnote,
-            (int) $USER->id
+            (int) $USER->id,
+            [],
+            (bool) $confirmaccept
         );
         redirect(
             $baseurl,

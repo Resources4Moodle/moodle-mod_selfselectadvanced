@@ -24,9 +24,16 @@
     * isstaff - whether to show the all-groups area
     * showconsent - whether to show the mobile-sharing consent widget
       (a userattr record with a non-empty mobile exists for the viewer)
+    * showguidepanel - whether the viewer holds :guide, and so is shown
+      their own decision window before anything else on the page
+    * guidepanel - the guide_panel context (null when not a guide)
+    * showjoinlink - whether the viewer may open joinrequest.php at all
 
     Example context (json):
     {
+        "showguidepanel": false,
+        "guidepanel": null,
+        "showjoinlink": true,
         "studentapproachnotice": "",
         "iscoordinator": false,
         "ticketsurl": "https://example.com/mod/selfselectadvanced/coordinator.php?id=1",
@@ -68,6 +75,11 @@
     }
 }}
 <div class="selfselectadvanced-landing">
+{{#showguidepanel}}
+    {{#guidepanel}}
+        {{> mod_selfselectadvanced/guide_panel }}
+    {{/guidepanel}}
+{{/showguidepanel}}
 {{#studentapproachnotice}}
     <div class="selfselectadvanced-approach alert alert-info mb-3">{{studentapproachnotice}}</div>
 {{/studentapproachnotice}}
@@ -184,11 +196,10 @@
     {{/hasmynominations}}
 {{/isstudent}}
 
-<p><a href="{{joinurl}}" class="btn btn-outline-secondary">{{#str}} joinheading, mod_selfselectadvanced {{/str}}</a></p>
+{{#showjoinlink}}
+    <p><a href="{{joinurl}}" class="btn btn-outline-secondary">{{#str}} joinheading, mod_selfselectadvanced {{/str}}</a></p>
+{{/showjoinlink}}
 
-{{#isguide}}
-    <p><a href="{{guideurl}}" class="btn btn-outline-primary">{{#str}} guidedashboard, mod_selfselectadvanced {{/str}}</a></p>
-{{/isguide}}
 {{#ismanager}}
     <p><a href="{{manageurl}}" class="btn btn-outline-primary">{{#str}} managerdashboard, mod_selfselectadvanced {{/str}}</a></p>
 {{/ismanager}}

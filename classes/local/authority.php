@@ -61,6 +61,12 @@ final class authority {
     /** @var string Release a frozen team back to firm (spec T6). */
     public const UNFREEZE = 'mod/selfselectadvanced:unfreeze';
 
+    /** @var string Manage the whole activity (spec 14, manager dashboard). */
+    public const MANAGE = 'mod/selfselectadvanced:manage';
+
+    /** @var string Work the coordinator ticket queue (strategy 1.16 D). */
+    public const COORDINATE = 'mod/selfselectadvanced:coordinate';
+
     /**
      * May this actor act as a team leader in this activity?
      *
@@ -183,5 +189,60 @@ final class authority {
      */
     public static function require_unfreeze(activity $activity, int $actorid): void {
         require_capability(self::UNFREEZE, $activity->context(), $actorid);
+    }
+
+    /**
+     * May this actor open the join-requests page at all?
+     *
+     * Three audiences reach it and they arrive by different doors: a
+     * student ASKING to join another team and a leader ANSWERING what
+     * has been asked of theirs both hold :respond, while a coordinator
+     * or a manager answers for an absent leader and holds neither -
+     * :respond is the students' capability.
+     *
+     * The 1.20.5 independent review (NAV-02) found the landing page
+     * drawing the "Joining another team" button for EVERY viewer while
+     * this door refused all but those three, so on the live site every
+     * ordinary non-editing teacher - a guide holds :guide, :freeze and
+     * :viewassignedteams, and no :respond - was offered a button whose
+     * only possible outcome was a required_capability_exception. The
+     * button now asks THIS function and joinrequest.php's own door is
+     * require_join_requests() below, so the offer and the refusal are
+     * one predicate and cannot drift apart again.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the person acting
+     * @return bool true when they may open the page
+     */
+    public static function may_join_requests(activity $activity, int $actorid): bool {
+        $context = $activity->context();
+
+        return has_capability(self::MANAGE, $context, $actorid)
+            || has_capability(self::COORDINATE, $context, $actorid)
+            || has_capability(self::RESPOND, $context, $actorid);
+    }
+
+    /**
+     * Refuse unless this actor may open the join-requests page.
+     *
+     * The staff capabilities are asked FIRST and the student one is the
+     * throwing branch, deliberately: that is the shape joinrequest.php
+     * has had since 1.19, so a viewer holding none of the three still
+     * gets the same refusal naming :respond, which is the capability
+     * the overwhelming majority of them are actually missing.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the person acting
+     * @throws \required_capability_exception when none of the three is effective
+     */
+    public static function require_join_requests(activity $activity, int $actorid): void {
+        $context = $activity->context();
+        if (
+            has_capability(self::MANAGE, $context, $actorid)
+                || has_capability(self::COORDINATE, $context, $actorid)
+        ) {
+            return;
+        }
+        require_capability(self::RESPOND, $context, $actorid);
     }
 }

@@ -127,6 +127,13 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
             // fixture has to be able to arrange both, because a guide
             // may release their own freeze and not a staff one.
             'frozenbystaff' => (int) ($record->frozenbystaff ?? 0),
+            // 1.20.6: a firm team may only be joined or left once its guide
+            // has released it. Fixtures that build a settled team a student
+            // legitimately moves through must be able to say so, or every
+            // such test dies on the new guard before reaching what it
+            // actually measures. Defaults to 0 - closed - so a fixture that
+            // does not mention it gets the safe state, not the permissive one.
+            'releasedbyguide' => (int) ($record->releasedbyguide ?? 0),
             'coregroupid' => $record->coregroupid ?? null,
             'usermodified' => (int) $record->leaderid,
             // Settable, because "the teams you are in" is ordered by it

@@ -863,7 +863,7 @@ class provider implements
                 ['activityid' => $cm->instance, 'userid' => $userid]
             );
             // LEFT JOIN deliberately: a team-limit ticket is about the
-            // guide and not about a team, so it carries groupid 0. An
+            // guide and not about a team, so it carries no groupid. An
             // inner join dropped every one of them out of the person's
             // own export.
             $tickets = $DB->get_records_sql(

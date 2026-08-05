@@ -39,15 +39,12 @@ use mod_selfselectadvanced\external\search_participants;
  *    with an employee id or an email address. The id is recorded as the
  *    surname, so it already matched; the address did not, and the journey
  *    stopped there. guides::with_load() now tests the query against the
- *    address as well as the name - but ONLY when the typed text contains
- *    '@' (decision 41), because a blind audit measured what an unconditional
- *    substring match costs: a plain enrolled student holding nothing but
- *    :respond reconstructed a whole guide address in 453 calls to
- *    search_guides, extending a found substring one character at a time.
- *    Requiring '@' does not close that oracle and is not claimed to - it
- *    removes the free sweep over name-shaped fragments, and the maintainer
- *    accepted the residue explicitly. Exact equality was recommended and NOT
- *    taken.
+ *    address as well as the name - but ONLY when the typed text is a complete
+ *    syntactically valid email address and equals the stored guide address
+ *    case-insensitively. A blind audit measured what substring matching costs:
+ *    a plain enrolled student holding nothing but :respond reconstructed a
+ *    whole guide address in 453 calls to search_guides, extending a found
+ *    substring one character at a time.
  *
  * 2. The override target picker inherited the assignment pickers' "only
  *    guides with free slots" rule, so the two guides it could never offer
@@ -85,9 +82,9 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
     private const ADDRESS_A = 'anita.raman@guidemail.invalid';
 
     /**
-     * @var string Guide B's address: a DIFFERENT domain, so a domain query still
-     * discriminates, and deliberately MIXED CASE, so that a lower-case query for it
-     * can only succeed if the STORED side is folded too. Every fixture address here
+     * @var string Guide B's address: deliberately MIXED CASE, so that a
+     * lower-case query for it can only succeed if the STORED side is folded too.
+     * Every fixture address here
      * was lower case until 2026-08-04, and on an all-lower-case fixture folding the
      * stored side is a no-op - so no test in this file could detect its removal,
      * which is what a reviewer and a prover found independently.
@@ -100,10 +97,11 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
     /**
      * An activity with two guides, a student and a manager.
      *
-     * Guide A is "Anita 21BCE1234": the surname is an employee id, which is
-     * how VIT records it, and 'anita.raman' is therefore a substring of the
-     * ADDRESS and of neither guide's name. That is what makes an address
-     * query here discriminating rather than incidentally satisfied.
+     * Guide A is "Anita 21BCE1234 Raman": the employee id sits in
+     * middlename, included by the test's fullnamedisplay setting, and
+     * 'anita.raman' is therefore a substring of the ADDRESS and of neither
+     * guide's name. That is what makes an address query here discriminating
+     * rather than incidentally satisfied.
      *
      * @param array $settings instance settings to override
      * @return array [activity, guide A, guide B, student, manager, course]
@@ -117,10 +115,12 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
             'course' => $course->id,
             'maxguided' => 3,
         ], $settings));
+        set_config('fullnamedisplay', 'firstname middlename lastname');
 
         $guidea = $generator->create_user([
             'firstname' => 'Anita',
-            'lastname' => '21BCE1234',
+            'middlename' => '21BCE1234',
+            'lastname' => 'Raman',
             'email' => self::ADDRESS_A,
         ]);
         $generator->enrol_user($guidea->id, $course->id, 'teacher');
@@ -173,20 +173,21 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
     }
 
     /**
-     * T1. An address finds the guide - and only that guide.
+     * T1. A complete address finds the guide - and only that guide.
      *
-     * DISCRIMINATING: 'anita.raman@' is a substring of neither "Anita
-     * 21BCE1234" nor "Bala Krishnan", so the first assertion cannot be
-     * satisfied by the name arm. assertSame() on array_keys() is an EXACT
+     * DISCRIMINATING: the complete address is a substring of neither "Anita
+     * 21BCE1234 Raman" nor "Bala Krishnan", so the first assertion cannot
+     * be satisfied by the name arm. assertSame() on array_keys() is an EXACT
      * list, so the test fails both when the address arm is missing (empty
      * result) and when the filter has been short-circuited to match
-     * everybody (two results). The last assertion means it cannot pass
-     * merely because the filter became a no-op on a small fixture.
+     * everybody (two results). The last assertion means it cannot pass merely
+     * because the filter became a no-op on a small fixture.
      *
-     * EVERY QUERY HERE CARRIES ITS '@', which is decision 41 and is pinned in
-     * its own right by test_the_address_arm_engages_only_on_a_query_with_an_at().
+     * EVERY ADDRESS QUERY HERE IS COMPLETE, which is the 2026-08-04 ruling and
+     * is pinned in its own right by
+     * test_the_address_arm_requires_a_complete_email_address().
      *
-     * MUTATIONS CAUGHT: removing the address strpos(); dropping u.email from
+     * MUTATIONS CAUGHT: removing the address equality; dropping u.email from
      * the field list in with_load() (the property is then unset and nothing
      * matches); replacing the array_filter with `return $users`.
      */
@@ -197,18 +198,13 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
 
         $this->assertSame(
             [(int) $guidea->id],
-            array_keys(guides::search($activity, $resolver, 'anita.raman@')),
-            'the local part of a guide address finds nobody'
-        );
-        $this->assertSame(
-            [(int) $guidea->id],
             array_keys(guides::search($activity, $resolver, self::ADDRESS_A)),
-            'a whole guide address finds nobody'
+            'the complete guide address finds nobody'
         );
         $this->assertSame(
             [(int) $guideb->id],
-            array_keys(guides::search($activity, $resolver, '@othermail.invalid')),
-            'a domain matched the wrong guide, or every guide'
+            array_keys(guides::search($activity, $resolver, self::ADDRESS_B)),
+            'the mixed-case complete guide address finds nobody'
         );
         $this->assertSame(
             [],
@@ -218,9 +214,9 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
     }
 
     /**
-     * THE RULING (maintainer decision 41, 2026-08-04). The address arm engages
-     * only when the typed text contains '@'; without one, this is the name
-     * matcher it was before decision 32 and nothing else.
+     * THE RULING (maintainer decision 41, updated 2026-08-04). The address arm
+     * engages only when the typed text is a complete email address; without
+     * one, this is the name matcher it was before decision 32 and nothing else.
      *
      * WHY THE RULE EXISTS, measured rather than supposed: a plain enrolled
      * student holding only mod/selfselectadvanced:respond recovered a whole
@@ -229,52 +225,94 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
      * on found/not-found alone. Substring matching leaks the string it
      * matches.
      *
-     * WHAT THIS TEST DOES NOT CLAIM. It does not pin an oracle shut, because
-     * the rule does not shut one: a prober can anchor on the '@' and grow the
-     * substring in both directions from there. The maintainer took that trade
-     * knowingly ("staff directory is available to anyone who opens picker, but
-     * @ slows deliberate probe"), and exact equality - which would have shut
-     * it - was recommended and refused. What is pinned is the rule as ruled.
+     * WHAT THIS TEST CLAIMS. A local part, a bare domain, a prefix of the full
+     * address, and a suffix of the full address do not match the address field.
+     * The positive control proves a complete mixed-case address still reaches
+     * the stored guide.
      *
-     * DISCRIMINATING: the two positive controls sit in the same method as the
-     * two empties. Without them a filter that had become "match nobody" would
-     * satisfy the ruling's assertions perfectly.
+     * DISCRIMINATING: the address and name positive controls sit in the same
+     * method as the rejected fragments. Without them a filter that had become
+     * "match nobody" would satisfy the ruling's assertions perfectly.
      *
-     * MUTATIONS CAUGHT: reverting to the unconditional address arm (the first
-     * two assertions fail); deriving $matchaddress from anything other than
-     * the query, e.g. hard-coding it true or false.
+     * MUTATION CAUGHT (run): replacing the exact address comparison with
+     * substring comparison; the rewritten test failed on the domain-only
+     * query, which returned guide A.
      */
-    public function test_the_address_arm_engages_only_on_a_query_with_an_at(): void {
+    public function test_the_address_arm_requires_a_complete_email_address(): void {
         $this->resetAfterTest();
-        [$activity, $guidea] = $this->world();
+        [$activity, $guidea, $guideb] = $this->world();
         $resolver = $this->resolver($activity);
 
-        // THE RULING. 'anita.raman' is a local part and nothing else; before
-        // decision 41 it returned guide A, and that is the shape the 453-call
-        // reconstruction was built out of.
         $this->assertSame(
             [],
             guides::search($activity, $resolver, 'anita.raman'),
-            'a query with no @ still matched an address; the reconstruction oracle is open again'
+            'a local-part-only query matched an address'
         );
         $this->assertSame(
             [],
-            guides::search($activity, $resolver, 'guidemail.invalid'),
-            'a bare domain with no @ still matched an address'
+            guides::search($activity, $resolver, '@guidemail.invalid'),
+            'a domain-only query matched an address'
         );
-
-        // POSITIVE CONTROL ONE: with the '@', the same person is found.
         $this->assertSame(
-            [(int) $guidea->id],
-            array_keys(guides::search($activity, $resolver, 'anita.raman@')),
-            'the address arm no longer works at all, so the two empties above prove nothing'
+            [],
+            guides::search($activity, $resolver, 'anita.raman@'),
+            'an address prefix matched an address'
         );
-        // POSITIVE CONTROL TWO: without an '@' the name arm is untouched. A
-        // query with no '@' means "names only", never "nobody".
+        $this->assertSame(
+            [],
+            guides::search($activity, $resolver, 'raman@guidemail.invalid'),
+            'an address suffix matched an address'
+        );
+        $this->assertSame(
+            [(int) $guideb->id],
+            array_keys(guides::search($activity, $resolver, \core_text::strtoupper(self::ADDRESS_B))),
+            'a complete mixed-case address did not match case-insensitively'
+        );
         $this->assertSame(
             [(int) $guidea->id],
             array_keys(guides::search($activity, $resolver, 'Anita')),
-            'the @ rule broke the name arm'
+            'the name arm broke while tightening the address arm'
+        );
+    }
+
+    /**
+     * The external endpoint rejects a query longer than 128 characters before
+     * it asks the guide service.
+     *
+     * DISCRIMINATING: the long guide name is first shown to be findable by the
+     * service with the same string. Without that positive control, an empty
+     * endpoint answer could mean the fixture was unsearchable rather than the
+     * endpoint enforcing its cap.
+     *
+     * MUTATION CAUGHT (run): deleting the length check in
+     * search_guides::execute(); the endpoint returned the over-128-character
+     * guide name instead of rejecting it.
+     */
+    public function test_the_guide_search_endpoint_rejects_queries_longer_than_128_characters(): void {
+        $this->resetAfterTest();
+        [$activity, , , $student, , $course] = $this->world();
+
+        $firstname = str_repeat('Q', 80);
+        $lastname = str_repeat('Z', 60);
+        $longguide = $this->getDataGenerator()->create_user([
+            'firstname' => $firstname,
+            'lastname' => $lastname,
+        ]);
+        $this->getDataGenerator()->enrol_user($longguide->id, $course->id, 'teacher');
+
+        $query = fullname($longguide);
+        $this->assertGreaterThan(128, \core_text::strlen($query), 'the fixture query is not over the endpoint cap');
+        $this->assertSame(
+            [(int) $longguide->id],
+            array_keys(guides::search($activity, $this->resolver($activity), $query)),
+            'the long-name fixture is not searchable before the endpoint cap is applied'
+        );
+
+        $this->setUser($student);
+        $this->assertSame(
+            [],
+            search_guides::execute($activity->cm()->id, $query),
+            'the endpoint accepted a query longer than 128 characters'
         );
     }
 
@@ -300,7 +338,7 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
      * exactly like a pass.
      *
      * MUTATIONS CAUGHT: putting u.email back in the unconditional field list;
-     * making the condition "non-empty query" rather than "contains '@'"
+     * making the condition "non-empty query" rather than "complete email"
      * (the by-name capture then carries the column).
      */
     public function test_the_address_column_is_fetched_only_when_it_can_be_used(): void {
@@ -320,7 +358,7 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
             guides::search($activity, $resolver, 'Anita');
         });
         $byaddress = self::captured_sql(static function () use ($activity, $resolver): void {
-            guides::search($activity, $resolver, 'anita.raman@');
+            guides::search($activity, $resolver, self::ADDRESS_A);
         });
 
         // POSITIVE CONTROLS on the capture itself.
@@ -348,22 +386,30 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
     }
 
     /**
-     * T3, folded in as the refactor's negative control: the employee-id
-     * journey passed BEFORE this change and must keep passing.
+     * T3, folded in as the refactor's negative control: an employee id carried
+     * by configured fullname fields passed BEFORE this change and must keep
+     * passing.
      *
      * DISCRIMINATING: nothing here is new behaviour. It is the tripwire for
-     * an implementer who "tidies" the matcher into users_search_sql() or any
-     * other rule that stops going through fullname() - middlename and
-     * alternatename participate in fullname() whenever the site's
-     * fullnamedisplay includes them, and core's helper does not test them.
+     * an implementer who "tidies" the matcher into firstname-only or
+     * firstname-plus-lastname code. The fixture token is in middlename, and
+     * this method asserts it is in neither firstname nor lastname, so both
+     * mutations lose it.
      *
-     * MUTATIONS CAUGHT: swapping the fullname() substring test for a
-     * firstname-only or firstname-plus-lastname-concat condition.
+     * MUTATION CAUGHT (run): swapping the fullname() substring test for a
+     * firstname-only condition; the employee id was no longer found.
+     * MUTATION CAUGHT (run): swapping the fullname() substring test for a
+     * firstname-plus-lastname-concat condition; the employee id was no
+     * longer found.
      */
-    public function test_the_employee_id_in_the_surname_still_finds_the_guide(): void {
+    public function test_the_employee_id_in_the_configured_fullname_still_finds_the_guide(): void {
         $this->resetAfterTest();
         [$activity, $guidea] = $this->world();
         $resolver = $this->resolver($activity);
+
+        $this->assertStringNotContainsString('21BCE1234', $guidea->firstname);
+        $this->assertStringNotContainsString('21BCE1234', $guidea->lastname);
+        $this->assertStringContainsString('21BCE1234', fullname($guidea), 'the configured fullname lost the token');
 
         $this->assertSame(
             [(int) $guidea->id],
@@ -374,6 +420,11 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
             [(int) $guidea->id],
             array_keys(guides::search($activity, $resolver, 'Anita')),
             'a first name stopped matching'
+        );
+        $this->assertSame(
+            [(int) $guidea->id],
+            array_keys(guides::search($activity, $resolver, 'Raman')),
+            'a surname stopped matching'
         );
     }
 
@@ -408,11 +459,6 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
         // Stored lower case, typed in capitals: the QUERY side.
         $this->assertSame(
             [(int) $guidea->id],
-            array_keys(guides::search($activity, $resolver, '@GUIDEMAIL.INVALID')),
-            'an uppercase domain query found the wrong set'
-        );
-        $this->assertSame(
-            [(int) $guidea->id],
             array_keys(guides::search($activity, $resolver, 'ANITA.RAMAN@GUIDEMAIL.INVALID')),
             'a whole uppercase address found the wrong set'
         );
@@ -420,11 +466,6 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
         // Stored MIXED case, typed in lower case: the STORED side. This is the
         // pair that fails when \core_text::strtolower() is taken off
         // $user->email, and the only pair in this file that can.
-        $this->assertSame(
-            [(int) $guideb->id],
-            array_keys(guides::search($activity, $resolver, 'bala.k@')),
-            'a lower-case query did not reach a mixed-case stored address: the stored side is compared raw'
-        );
         $this->assertSame(
             [(int) $guideb->id],
             array_keys(guides::search($activity, $resolver, \core_text::strtolower(self::ADDRESS_B))),
@@ -442,7 +483,7 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
      * T4. Matched by address, returned without one.
      *
      * DISCRIMINATING: the row can ONLY have been reached through the
-     * address, because 'anita.raman@' appears in no name. So the payload
+     * address, because the address appears in no name. So the payload
      * assertions land on exactly the case where an implementer is most
      * tempted to echo the key back ("show what matched").
      * tests/external_guidesearch_test.php makes the same no-address
@@ -457,7 +498,7 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
         [$activity, $guidea, , $student] = $this->world();
 
         $this->setUser($student);
-        $result = search_guides::execute($activity->cm()->id, 'anita.raman@');
+        $result = search_guides::execute($activity->cm()->id, self::ADDRESS_A);
 
         $this->assertCount(1, $result, 'the student could not reach the guide by address');
         $this->assertSame((int) $guidea->id, (int) $result[0]['id']);
@@ -470,7 +511,7 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
         // The row the service layer hands over has no address FIELD either,
         // which is the thing a template or a debugger could otherwise reach
         // even when this endpoint declines to print it.
-        $rows = guides::search($activity, $this->resolver($activity), 'anita.raman@');
+        $rows = guides::search($activity, $this->resolver($activity), self::ADDRESS_A);
         $this->assertArrayNotHasKey(
             'email',
             (array) $rows[(int) $guidea->id],
@@ -552,7 +593,7 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
         // different pools and the difference is a maintainer ruling.
         $this->assertSame(
             [(int) $guidea->id],
-            array_keys(guides::search($activity, $this->resolver($activity), 'anita.raman@')),
+            array_keys(guides::search($activity, $this->resolver($activity), self::ADDRESS_A)),
             'the guide address arm is gone; this file no longer pins a boundary, only a rule'
         );
     }
@@ -591,7 +632,7 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
         // guide, so the empties below are about WHOSE address it is.
         $this->assertSame(
             [(int) $guidea->id],
-            array_keys(guides::search($activity, $resolver, '@guidemail.invalid')),
+            array_keys(guides::search($activity, $resolver, self::ADDRESS_A)),
             'no address query reaches anybody at all, so this test proves nothing'
         );
 
@@ -609,7 +650,7 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
         // And at the endpoint, asked by the student who owns the address -
         // the person best placed to notice, and the one holding :respond.
         $this->setUser($student);
-        $reached = search_guides::execute($cmid, '@guidemail.invalid');
+        $reached = search_guides::execute($cmid, self::ADDRESS_A);
         $this->assertSame(
             [(int) $guidea->id],
             array_column($reached, 'id'),
@@ -682,14 +723,14 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
         // The same pair through the endpoint the browser calls, and the same
         // pair reached BY ADDRESS - the two halves of this wave meeting.
         $this->setUser($manager);
-        $reached = search_guides::execute($activity->cm()->id, 'bala.k@', false);
+        $reached = search_guides::execute($activity->cm()->id, self::ADDRESS_B, false);
         $this->assertSame([(int) $guideb->id], array_column($reached, 'id'));
         $this->assertStringNotContainsString('@', json_encode($reached));
 
         $this->setUser($student);
         $this->assertSame(
             [],
-            search_guides::execute($activity->cm()->id, 'bala.k@', true),
+            search_guides::execute($activity->cm()->id, self::ADDRESS_B, true),
             'the assignment-shaped request offered a full guide'
         );
     }
@@ -743,7 +784,7 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
         // does not resurrect an unavailable guide for a student.
         $this->assertSame(
             [],
-            search_guides::execute($cmid, 'bala.k@', false),
+            search_guides::execute($cmid, self::ADDRESS_B, false),
             'the address arm reached a guide the volunteering rule excludes'
         );
 
@@ -753,7 +794,7 @@ final class guidepickeraddress_test extends \externallib_advanced_testcase {
             array_column(search_guides::execute($cmid, 'Krishnan', false), 'id'),
             'an :override holder still cannot reach a guide who has not volunteered'
         );
-        $byaddress = search_guides::execute($cmid, 'bala.k@', false);
+        $byaddress = search_guides::execute($cmid, self::ADDRESS_B, false);
         $this->assertSame(
             [(int) $guideb->id],
             array_column($byaddress, 'id'),

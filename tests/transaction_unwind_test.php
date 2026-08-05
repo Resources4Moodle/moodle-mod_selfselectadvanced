@@ -949,7 +949,7 @@ final class transaction_unwind_test extends \advanced_testcase {
         // transaction.
         $DB->insert_record('selfselectadvanced_ticket', (object) [
             'activityid' => $activity->id(),
-            'groupid' => 0,
+            'groupid' => null,
             'type' => tickets::TYPE_GUIDECAP,
             'status' => tickets::STATUS_OPEN,
             'requestedby' => (int) $guide1->id,

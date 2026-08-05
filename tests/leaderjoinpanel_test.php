@@ -327,6 +327,141 @@ final class leaderjoinpanel_test extends \advanced_testcase {
     }
 
     /**
+     * Decision 55, hard side. A team with no free seat cannot accept
+     * from the inline panel, and the standalone inbox is wired through
+     * the same accept_decision() object rather than a local copy.
+     *
+     * MUTATION CAUGHT (run): ignoring refusalnoseats in accept_decision()
+     * made this test fail because the full-team row exported canaccept=true.
+     */
+    public function test_a_hard_accept_refusal_disables_the_inline_accept_control(): void {
+        $this->resetAfterTest();
+        [$activity, $apifacade, , $beta] = $this->fixture();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $courseid = $activity->courseid();
+
+        for ($i = 0; $i < 2; $i++) {
+            $member = $generator->create_user();
+            $generator->enrol_user($member->id, $courseid, 'student');
+            $plugingen->create_member([
+                'groupid' => (int) $beta->id,
+                'userid' => (int) $member->id,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+        }
+
+        $exported = $this->grouppage($activity, $apifacade, $beta, (int) $beta->leaderid);
+        $this->assertTrue($exported->showjoinpanel);
+        $this->assertCount(1, $exported->joinrows);
+        $row = $exported->joinrows[0];
+        $this->assertFalse($row->canaccept, 'a full team still exported a live accept control');
+        $this->assertTrue($row->cannotaccept);
+        $this->assertNotSame('', $row->hardreason, 'the disabled control had no reason to show');
+        $this->assertFalse($row->confirmationrequired, 'a hard stop was treated as a confirmation warning');
+
+        $script = file_get_contents(__DIR__ . '/../joinrequest.php');
+        $this->assertStringContainsString('joinrequests::accept_decision', $script);
+        $this->assertStringContainsString("\$acceptattrs['disabled'] = 'disabled';", $script);
+    }
+
+    /**
+     * Decision 55, advisory side. A quota mismatch keeps Accept live,
+     * asks for confirmation, and the confirmed service call commits
+     * through the same move-scope bypass mechanism.
+     *
+     * MUTATION CAUGHT (run): forcing confirmationrequired=false in
+     * accept_decision() made this test fail because the rule mismatch
+     * was no longer marked for confirmation.
+     */
+    public function test_a_rule_based_refusal_keeps_accept_enabled_with_confirmation(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $apifacade, , $beta, $wanderer, $betamember] = $this->fixture();
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+
+        $plugingen->create_quota([
+            'activityid' => $activity->id(),
+            'dimension' => 'department',
+            'rtype' => 'value',
+            'value' => 'Scope',
+            'mincount' => 2,
+        ]);
+        foreach ([(int) $beta->leaderid, (int) $betamember->id, (int) $wanderer->id] as $userid) {
+            if ($DB->record_exists('selfselectadvanced_userattr', ['userid' => $userid])) {
+                $DB->set_field('selfselectadvanced_userattr', 'department', 'Elsewhere', ['userid' => $userid]);
+                $DB->set_field('selfselectadvanced_userattr', 'subdepartment', 'Physics', ['userid' => $userid]);
+            } else {
+                $plugingen->create_userattr([
+                    'userid' => $userid,
+                    'department' => 'Elsewhere',
+                    'subdepartment' => 'Physics',
+                ]);
+            }
+        }
+        \mod_selfselectadvanced\local\attributes\manager::purge_value_cache();
+
+        $exported = $this->grouppage($activity, $apifacade, $beta, (int) $beta->leaderid);
+        $row = $exported->joinrows[0];
+        $this->assertTrue($row->canaccept, 'a rule mismatch disabled the accept control');
+        $this->assertFalse($row->cannotaccept);
+        $this->assertTrue($row->confirmationrequired, 'a rule mismatch was not marked for confirmation');
+        $this->assertNotSame([], $row->warnings, 'the confirmation had no warning to show');
+
+        $decided = joinrequests::respond(
+            $activity,
+            (int) $row->requestid,
+            true,
+            '',
+            (int) $beta->leaderid,
+            [],
+            true
+        );
+        $this->assertSame('committed', $decided->status);
+        $this->assertTrue($DB->record_exists('selfselectadvanced_member', [
+            'groupid' => (int) $beta->id,
+            'userid' => (int) $wanderer->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]));
+        $sink->close();
+    }
+
+    /**
+     * Decision 55, source-leader side. The workflow cannot name a
+     * successor for the source team, so this is a hard stop and not a
+     * composition confirmation.
+     *
+     * MUTATION CAUGHT (run): removing the source-leader branch in
+     * accept_decision() made this test fail because the row exported a
+     * live accept control.
+     */
+    public function test_a_source_leader_request_disables_accept_with_the_successor_reason(): void {
+        $this->resetAfterTest();
+        [$activity, $apifacade, $alpha, $beta] = $this->fixture();
+
+        $request = joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'I need this team',
+            (int) $alpha->leaderid
+        );
+        $exported = $this->grouppage($activity, $apifacade, $beta, (int) $beta->leaderid);
+        $rows = array_filter(
+            $exported->joinrows,
+            static fn(\stdClass $row): bool => (int) $row->requestid === (int) $request->id
+        );
+        $this->assertCount(1, $rows);
+        $row = reset($rows);
+
+        $this->assertFalse($row->canaccept, 'a source leader still had a live accept control');
+        $this->assertTrue($row->cannotaccept);
+        $this->assertFalse($row->confirmationrequired);
+        $this->assertSame(get_string('errmovesuccessorrequired', 'mod_selfselectadvanced'), $row->hardreason);
+    }
+
+    /**
      * No empty scaffolding: a leader nobody has asked gets the page
      * they had before this wave.
      */

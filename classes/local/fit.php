@@ -215,11 +215,35 @@ class fit {
             // vacuity defect this project refuses. So the cap refusal is
             // only SET ASIDE, and the questions it pre-empted are asked
             // now, through the same shared verdict everything else uses.
-            $verdict = self::composition_verdict_for_group($activity, $group, $userid);
-            $fits = $verdict->fits;
-            $caution = $verdict->caution;
-            if ($verdict->warning !== '') {
-                $answer->warnings[] = $verdict->warning;
+            //
+            // THIS BLOCK ONCE ASSERTED THAT AND DID NOT DO IT. Until
+            // 2026-08-05 it re-asked only the composition question while
+            // this comment claimed the seat question too, so a student at
+            // their cap requesting a FULL team was shown a green "fits"
+            // and an Accept that could only throw. can_invite_all() now
+            // returns every refusal, so the set-aside is a filter over
+            // answers that were actually computed rather than a promise
+            // that they were.
+            // Re-evaluated here rather than at the top of the method:
+            // this branch needs a cap refusal AND a source team, which is
+            // rare, while for_person() itself runs once per row of the
+            // join inbox. Asking every question for every row would pay a
+            // seat scan and a composition solve the common path does not
+            // need.
+            $others = array_values(array_filter(
+                (new api($activity))->gatekeeper()->can_invite_all($group, $userid),
+                static fn(rules\refusal $r): bool => $r->stringkey !== 'refusalinviteecap'
+            ));
+            if ($others !== []) {
+                $fits = false;
+                $caution = $others[0]->get_message();
+            } else {
+                $verdict = self::composition_verdict_for_group($activity, $group, $userid);
+                $fits = $verdict->fits;
+                $caution = $verdict->caution;
+                if ($verdict->warning !== '') {
+                    $answer->warnings[] = $verdict->warning;
+                }
             }
         }
 

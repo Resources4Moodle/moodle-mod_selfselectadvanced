@@ -18,6 +18,7 @@ namespace mod_selfselectadvanced;
 
 use mod_selfselectadvanced\local\freeze;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\coresync_backfill;
 use mod_selfselectadvanced\local\state;
 use mod_selfselectadvanced\task\coresync_adhoc;
 
@@ -243,10 +244,15 @@ final class coresync_test extends \advanced_testcase {
     }
 
     /**
-     * The mirror was deleted out of band while the team was firm: the
-     * pointer is cleared instead of dangling, and the caller is told.
+     * The mirror was deleted out of band while the team was firm: firm
+     * teams now need mirrors too, so the pointer is repaired to a new
+     * Moodle group instead of being cleared.
+     *
+     * MUTATION CAUGHT (run): state_needs_mirror() only treated frozen
+     * teams as mirrored; the firm team returned nomirror after the
+     * deletion.
      */
-    public function test_dangling_mirror_while_firm_is_cleared(): void {
+    public function test_dangling_mirror_while_firm_is_reminted(): void {
         $this->preventResetByRollback();
         $this->resetAfterTest();
 
@@ -265,8 +271,11 @@ final class coresync_test extends \advanced_testcase {
         groups_delete_group($coreid);
         $result = freeze::sync_core_group($activity, (int) $restored->id, 99);
 
-        $this->assertSame('nomirror', $result->status);
-        $this->assertNull(groups::get($activity, (int) $restored->id)->coregroupid);
+        $fresh = groups::get($activity, (int) $restored->id);
+        $this->assertSame('synced', $result->status);
+        $this->assertNotEmpty($fresh->coregroupid);
+        $this->assertNotEquals($coreid, (int) $fresh->coregroupid);
+        $this->assertTrue(groups_group_exists((int) $fresh->coregroupid));
     }
 
     /**
@@ -336,27 +345,126 @@ final class coresync_test extends \advanced_testcase {
     }
 
     /**
-     * D7-D2: the mirror is marked with the plugin uid as its idnumber,
-     * and when a course group already claims that idnumber the mint
-     * falls back to no idnumber rather than failing the freeze.
+     * A same-course group with this pluginuid is an orphaned mirror to
+     * adopt, not a reason to create an ownerless fallback.
+     *
+     * MUTATION CAUGHT (run): mint_core_group() retried without
+     * idnumber; the adopted core id did not match the pre-existing
+     * mirror and the stored idnumber was blank.
      */
-    public function test_idnumber_collision_falls_back(): void {
+    public function test_idnumber_collision_adopts_unclaimed_orphan(): void {
         $this->preventResetByRollback();
         $this->resetAfterTest();
 
         [$activity, $group, , $guide, $course] = $this->setup_team();
-        groups_create_group((object) [
+        $orphanid = groups_create_group((object) [
             'courseid' => $course->id,
-            'name' => 'Squatter',
+            'name' => 'Renamed orphan mirror',
             'idnumber' => $group->pluginuid,
         ]);
 
         $frozen = freeze::freeze_group($activity, $group, (int) $guide->id);
 
-        $this->assertNotEmpty($frozen->coregroupid);
+        $this->assertSame((int) $orphanid, (int) $frozen->coregroupid);
         $core = groups_get_group((int) $frozen->coregroupid);
-        $this->assertSame('', (string) $core->idnumber);
+        $this->assertSame($group->pluginuid, (string) $core->idnumber);
         $this->assertTrue(groups_is_member((int) $frozen->coregroupid, (int) $guide->id));
+    }
+
+    /**
+     * A sync-time collision is visible but not approval-fatal. The row
+     * is firm, the retry task is queued, and no mirror without the
+     * machine-readable owner idnumber is created.
+     *
+     * MUTATION CAUGHT (run): state::do_approve() let the inline sync
+     * exception abort the approval; the group stayed pending_guide.
+     */
+    public function test_approval_survives_a_failing_inline_sync(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, $group, $students, $guide, $course] = $this->setup_team();
+        $DB->update_record('selfselectadvanced_group', (object) [
+            'id' => (int) $group->id,
+            'state' => state::PENDING_GUIDE,
+            'coregroupid' => null,
+            'timesubmitted' => time(),
+            'timeapproved' => null,
+        ]);
+        $coreid = groups_create_group((object) [
+            'courseid' => $course->id,
+            'name' => 'Claimed collision',
+            'idnumber' => $group->pluginuid,
+        ]);
+        $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $students[2]->id,
+            'name' => 'Claimant',
+            'state' => state::FIRM,
+            'guideid' => (int) $guide->id,
+            'timeapproved' => time(),
+            'coregroupid' => $coreid,
+        ]);
+        $DB->delete_records('task_adhoc');
+
+        $approved = (new \mod_selfselectadvanced\local\api($activity))
+            ->lifecycle()
+            ->approve(groups::get($activity, (int) $group->id), (int) $guide->id);
+        $this->assertDebuggingCalled();
+
+        $this->assertSame(state::FIRM, $approved->state);
+        $this->assertSame('failed', $approved->sync->status);
+        $this->assertEmpty(groups::get($activity, (int) $group->id)->coregroupid);
+        $this->assertFalse($DB->record_exists('groups', [
+            'courseid' => $course->id,
+            'idnumber' => '',
+            'name' => '[SSACSY] Mirror',
+        ]));
+        $this->assertCount(1, \core\task\manager::get_adhoc_tasks(coresync_adhoc::class));
+    }
+
+    /**
+     * The CLI backfill is the permanent convergence sweep: it creates
+     * missing mirrors for firm teams, and a second pass is a no-op.
+     *
+     * MUTATION CAUGHT (run): coresync_backfill skipped firm teams with
+     * NULL coregroupid; the first pass reported changed=0 and left no
+     * Moodle group.
+     */
+    public function test_backfill_creates_missing_mirrors_and_second_run_changes_nothing(): void {
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, $group, $students, $guide] = $this->setup_team();
+
+        $lines = [];
+        $first = coresync_backfill::run(
+            ['activityid' => $activity->id(), 'actorid' => (int) $guide->id],
+            static function (string $line) use (&$lines): void {
+                $lines[] = $line;
+            }
+        );
+        $fresh = groups::get($activity, (int) $group->id);
+
+        $this->assertSame(1, $first->scanned);
+        $this->assertSame(1, $first->synced);
+        $this->assertSame(1, $first->changed);
+        $this->assertSame(0, $first->failed);
+        $this->assertNotEmpty($fresh->coregroupid);
+        $this->assertTrue(groups_is_member((int) $fresh->coregroupid, (int) $students[1]->id));
+        $this->assertTrue(groups_is_member((int) $fresh->coregroupid, (int) $guide->id));
+        $this->assertNotEmpty(array_filter(
+            $lines,
+            static fn(string $line): bool => str_contains($line, 'changed=1')
+        ));
+
+        $second = coresync_backfill::run(['activityid' => $activity->id(), 'actorid' => (int) $guide->id]);
+
+        $this->assertSame(1, $second->scanned);
+        $this->assertSame(1, $second->synced);
+        $this->assertSame(0, $second->changed);
+        $this->assertSame(0, $second->failed);
     }
 
     /**

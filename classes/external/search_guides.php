@@ -41,12 +41,13 @@ use mod_selfselectadvanced\activity;
  *
  * No address is RETURNED at any point, for anybody: the 1.17 rule for
  * approaches holds here too. Since maintainer decision 32 the typed
- * text is MATCHED against a guide's address as well as their name -
- * and since decision 41 only when that text contains '@'. Matching and
- * returning are two different questions; see the matrix note below.
+ * text can be MATCHED against a guide's address as well as their name -
+ * and since decision 52 superseded decision 41 on 2026-08-04 only when that
+ * text is a complete email address, compared by case-insensitive equality. Matching
+ * and returning are two different questions; see the matrix note below.
  *
  * FIELD-VISIBILITY MATRIX (contact-privacy audit, 2026-08-01; amended
- * for decisions 32 and 41, 2026-08-03/04): this endpoint admits any holder of
+ * for decisions 32, 41 and 52, 2026-08-03/04): this endpoint admits any holder of
  * mod/selfselectadvanced:respond - which is every student - and
  * discloses to them a GUIDE's name, department and (outside
  * students-approach mode) current load. It returns no student data and
@@ -54,26 +55,23 @@ use mod_selfselectadvanced\activity;
  * needs no gate from the contact-privacy work.
  *
  * What decision 32 changed is the MATCH and not the RETURN. A typed
- * query CONTAINING '@' is tested against the guide's email address as
- * well as their name
+ * query that is a complete email address is tested against the guide's
+ * email address as well as their name
  * ({@see \mod_selfselectadvanced\local\guides::with_load()}), because at
  * VIT a student approaches a faculty member in person and comes away
  * with an address or an employee id, and the id is already the surname.
- * A query without '@' matches names only. Nothing here learns the
- * address: label() below composes name, department, sub-department and
- * load, execute_returns() declares those five keys and no more, and the
- * row guides::with_load() hands over carries no address field at all.
+ * A query that is not a complete email address matches names only. Nothing
+ * here learns the address: label() below composes name, department,
+ * sub-department and load, execute_returns() declares those five keys and no
+ * more, and the row guides::with_load() hands over carries no address field
+ * at all.
  *
- * WHAT THE '@' CONDITION IS FOR (decision 41). A blind audit measured
- * this endpoint with the arm unconditional: a plain enrolled student
- * holding only :respond reconstructed a whole guide address in 453
- * calls to execute(), extending a matched substring one character at a
- * time. Substring matching leaks the string it matches. The condition
- * slows a deliberate probe; it does not stop one, and the maintainer
- * accepted that residue knowingly - the guide list is a staff directory
- * reachable by anyone who can open a picker. Do not paraphrase this as
- * "the address cannot be recovered", and do not tighten it to exact
- * equality: that was recommended and refused.
+ * WHY EQUALITY IS REQUIRED (decision 52 superseding decision 41, 2026-08-04). A blind audit
+ * measured this endpoint with substring matching: a plain enrolled student
+ * holding only :respond reconstructed a whole guide address in 453 calls to
+ * execute(), extending a matched substring one character at a time.
+ * Substring matching leaks the string it matches, so local-part-only,
+ * domain-only, prefix and suffix probes must not engage the address arm.
  *
  * THE OPPOSITE RULE STILL HOLDS ON THE OPPOSITE POOL, and the two files
  * do not disagree by accident.
@@ -94,6 +92,9 @@ class search_guides extends external_api {
     /** @var int Most rows a single search returns. */
     private const LIMIT = 50;
 
+    /** @var int Longest query accepted from the searchable picker. */
+    private const QUERY_LIMIT = 128;
+
     /**
      * Parameter definition.
      *
@@ -113,8 +114,8 @@ class search_guides extends external_api {
     }
 
     /**
-     * Search the activity's guides by name, or by email address when the
-     * query contains '@'.
+     * Search the activity's guides by name, or by exact email address when the
+     * query is a complete address.
      *
      * @param int $cmid course module id
      * @param string $query search text
@@ -145,9 +146,9 @@ class search_guides extends external_api {
         // Nothing returned here is private - name, department and load
         // are what every guide list in the plugin already shows, and no
         // address is RETURNED at any point (the 1.17 rule for approaches
-        // holds here too). Decision 32 lets a query CONTAINING '@' be
-        // matched against a guide's address (decision 41 added that
-        // condition); neither added an address to any answer.
+        // holds here too). Decision 32 lets a complete email query be matched
+        // against a guide's address by equality (decision 52 superseded
+        // decision 41's substring rule); neither added an address to any answer.
         // :assignguide joined the list in 1.20.0. It is the capability
         // that reaches manage.php's assign/reassign tabs, and the
         // control there is guidepicker::render() - a select that starts
@@ -169,6 +170,9 @@ class search_guides extends external_api {
         }
 
         $query = trim($query);
+        if (\core_text::strlen($query) > self::QUERY_LIMIT) {
+            return [];
+        }
         if ($query === '') {
             return [];
         }

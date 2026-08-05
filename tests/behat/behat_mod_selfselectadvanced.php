@@ -177,6 +177,51 @@ class behat_mod_selfselectadvanced extends behat_base {
     }
 
     /**
+     * Assert the approved team's Moodle course-group mirror and members.
+     *
+     * @Then the Moodle group mirror for :team in :activityname should contain :usernames
+     *
+     * @param string $team plugin team name
+     * @param string $activityname activity name
+     * @param string $usernames comma-separated usernames
+     */
+    public function the_moodle_group_mirror_should_contain(
+        string $team,
+        string $activityname,
+        string $usernames
+    ): void {
+        global $CFG, $DB;
+        require_once($CFG->dirroot . '/group/lib.php');
+
+        $cm = $this->get_cm_by_activity_name('selfselectadvanced', $activityname);
+        $group = $DB->get_record('selfselectadvanced_group', [
+            'activityid' => $cm->instance,
+            'name' => $team,
+        ], '*', MUST_EXIST);
+        if (empty($group->coregroupid) || !groups_group_exists((int) $group->coregroupid)) {
+            throw new ExpectationException(
+                'No live Moodle group mirror exists for "' . $team . '".',
+                $this->getSession()
+            );
+        }
+
+        $expected = array_values(array_filter(array_map('trim', explode(',', $usernames))));
+        sort($expected);
+        $actual = array_map(
+            static fn($user): string => (string) $user->username,
+            groups_get_members((int) $group->coregroupid, 'u.id, u.username')
+        );
+        sort($actual);
+        if ($actual !== $expected) {
+            throw new ExpectationException(
+                'Moodle group mirror for "' . $team . '" contains '
+                    . implode(', ', $actual) . '; expected ' . implode(', ', $expected) . '.',
+                $this->getSession()
+            );
+        }
+    }
+
+    /**
      * A plugin page must refuse the user who is already logged in.
      *
      * A refusal is the ASSERTION in half of viewassignedteams.feature,

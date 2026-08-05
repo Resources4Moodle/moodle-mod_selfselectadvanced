@@ -116,7 +116,7 @@ final class guidecap_test extends \advanced_testcase {
 
         $ticket = tickets::file_guidecap($activity, 5, 'Two more finalists', FORMAT_PLAIN, (int) $guide->id);
         $this->assertSame(tickets::TYPE_GUIDECAP, $ticket->type);
-        $this->assertSame(0, (int) $ticket->groupid);
+        $this->assertNull($ticket->groupid);
         $this->assertSame(5, (int) $ticket->requested);
         $this->assertSame(tickets::STATUS_OPEN, $ticket->status);
 
@@ -196,6 +196,9 @@ final class guidecap_test extends \advanced_testcase {
      * A groupless ticket travels the whole queue: it is listed, it can
      * be claimed, and closing it notifies without reaching for a team
      * that was never there.
+     *
+     * MUTATION CAUGHT (run): file_guidecap() stores groupid 0 instead of
+     * NULL; this method and test_filing_gates both failed on the sentinel.
      */
     public function test_a_ticket_without_a_team_survives_the_queue(): void {
         $this->resetAfterTest();
@@ -206,6 +209,7 @@ final class guidecap_test extends \advanced_testcase {
 
         $queue = tickets::queue($activity, (int) $manager->id);
         $this->assertArrayHasKey((int) $ticket->id, $queue);
+        $this->assertNull($queue[(int) $ticket->id]->groupid, 'a team-limit ticket stored a sentinel groupid');
         $this->assertNull(tickets::group_of($activity, $queue[(int) $ticket->id]));
 
         tickets::claim($activity, (int) $ticket->id, (int) $manager->id);

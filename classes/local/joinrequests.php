@@ -58,6 +58,196 @@ class joinrequests {
      */
     public const SOURCE_ADDITIONAL = -1;
 
+    /** @var string[] Rules a confirmed leader join acceptance may bypass. */
+    private const CONFIRMABLE_ACCEPT_RULES = ['L1', 'QUOTA'];
+
+    /** @var array<string,string> Invitation refusals a staff move override can repair. */
+    private const OVERRIDEABLE_HARD_RULES = [
+        'refusalnoseats' => 'L2',
+        'refusalinviteecap' => 'L4',
+    ];
+
+    /**
+     * Whether accepting this request is live, blocked, or needs a confirmation.
+     *
+     * The answering surfaces consume this single object so their button
+     * state cannot drift from the service path. Hard stops are the
+     * cases acceptance cannot safely repair: no target seat, duplicate
+     * target membership/invitation, an additional membership over the
+     * student's cap, stale source membership and a source leader who
+     * would need a successor the join-request workflow cannot name.
+     * Composition and quota mismatches are warnings; a confirmed accept
+     * routes them through the move engine's existing move-scope bypass.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $request the join-request row
+     * @param int $actorid the viewer deciding whether this accept control is live
+     * @param stdClass|null $target the target group when the caller already has it
+     * @return stdClass {canaccept: bool, hardreason: string, hardkey: string,
+     *                  warnings: string[], confirmationrequired: bool, bypassrules: string[],
+     *                  autobypassrules: string[], confirmacceptrequired: bool}
+     */
+    public static function accept_decision(
+        activity $activity,
+        stdClass $request,
+        int $actorid,
+        ?stdClass $target = null
+    ): stdClass {
+        global $DB;
+
+        $target = $target ?? groups::get($activity, (int) $request->targetgroupid);
+        $canoverride = has_capability('mod/selfselectadvanced:overriderules', $activity->context(), $actorid);
+        $decision = (object) [
+            'canaccept' => true,
+            'hardreason' => '',
+            'hardkey' => '',
+            'warnings' => [],
+            'confirmationrequired' => false,
+            'bypassrules' => [],
+            'autobypassrules' => [],
+            'confirmacceptrequired' => false,
+        ];
+        $hard = static function (string $reason, string $key) use ($decision): void {
+            if ($decision->hardreason === '') {
+                $decision->hardreason = $reason;
+                $decision->hardkey = $key;
+            }
+            $decision->canaccept = false;
+        };
+        $overrideablehard = static function (
+            string $reason,
+            string $key,
+            string $rule
+        ) use (
+            $decision,
+            $hard,
+            $canoverride
+        ): void {
+            if (!$canoverride) {
+                $hard($reason, $key);
+
+                return;
+            }
+            if ($decision->hardreason === '') {
+                $decision->hardreason = $reason;
+                $decision->hardkey = $key;
+            }
+            if (!in_array($reason, $decision->warnings, true)) {
+                $decision->warnings[] = $reason;
+            }
+            if (!in_array($rule, $decision->bypassrules, true)) {
+                $decision->bypassrules[] = $rule;
+            }
+        };
+        $warn = static function (string $reason, string $rule) use ($decision): void {
+            if ($reason !== '' && !in_array($reason, $decision->warnings, true)) {
+                $decision->warnings[] = $reason;
+            }
+            if ($rule !== '' && !in_array($rule, $decision->bypassrules, true)) {
+                $decision->bypassrules[] = $rule;
+            }
+            if ($rule !== '' && !in_array($rule, $decision->autobypassrules, true)) {
+                $decision->autobypassrules[] = $rule;
+            }
+        };
+
+        $source = null;
+        if ($request->sourcegroupid) {
+            $source = groups::get($activity, (int) $request->sourcegroupid);
+            $stillthere = $DB->record_exists('selfselectadvanced_member', [
+                'groupid' => (int) $source->id,
+                'userid' => (int) $request->userid,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+            if (!$stillthere) {
+                $hard(
+                    get_string('refusaljoinsourcegone', 'mod_selfselectadvanced', format_string($source->name)),
+                    'refusaljoinsourcegone'
+                );
+            } else if ((int) $source->leaderid === (int) $request->userid) {
+                $others = $DB->record_exists_select(
+                    'selfselectadvanced_member',
+                    'groupid = ? AND userid <> ? AND status = ?',
+                    [(int) $source->id, (int) $request->userid, groups::STATUS_CONFIRMED]
+                );
+                $key = $others ? 'errmovesuccessorrequired' : 'errmovesololeader';
+                $hard(get_string($key, 'mod_selfselectadvanced'), $key);
+            } else {
+                $min = (new resolver($activity))->effective_minsize((int) $source->id)->value;
+                $after = groups::count_confirmed((int) $source->id) - 1;
+                if ($after < $min) {
+                    $warn(get_string('moveruleL1', 'mod_selfselectadvanced', (object) [
+                        'after' => $after,
+                        'min' => $min,
+                    ]), 'L1');
+                }
+            }
+        }
+
+        if ($key = self::join_change_refusal($target, true)) {
+            $hard(get_string($key, 'mod_selfselectadvanced'), $key);
+        }
+        if ($source !== null && ($key = self::join_change_refusal($source, false))) {
+            $hard(get_string($key, 'mod_selfselectadvanced'), $key);
+        }
+        $alreadyconfirmed = $DB->record_exists('selfselectadvanced_member', [
+            'groupid' => (int) $target->id,
+            'userid' => (int) $request->userid,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        if ($alreadyconfirmed) {
+            $hard(
+                get_string('refusaljointargetalready', 'mod_selfselectadvanced', format_string($target->name)),
+                'refusaljointargetalready'
+            );
+        }
+
+        foreach ((new api($activity))->gatekeeper()->can_invite_all($target, (int) $request->userid) as $refusal) {
+            if ($refusal->stringkey === 'refusalwrongstate') {
+                continue;
+            }
+            if ($refusal->stringkey === 'refusalinviteecap' && $source !== null) {
+                continue;
+            }
+            if (in_array($refusal->stringkey, ['refusalcompositionmax', 'refusalcompositionunreachable'], true)) {
+                $warn($refusal->get_message(), 'QUOTA');
+                continue;
+            }
+            if (isset(self::OVERRIDEABLE_HARD_RULES[$refusal->stringkey])) {
+                $overrideablehard(
+                    $refusal->get_message(),
+                    $refusal->stringkey,
+                    self::OVERRIDEABLE_HARD_RULES[$refusal->stringkey]
+                );
+                continue;
+            }
+            $hard($refusal->get_message(), $refusal->stringkey);
+        }
+
+        $quota = fit::accept_composition_refusal(
+            $activity,
+            $target,
+            (int) $request->userid,
+            $source !== null ? (int) $source->id : null
+        );
+        if ($quota !== null) {
+            $warn($quota, 'QUOTA');
+        }
+
+        $decision->bypassrules = array_values(array_unique(array_intersect(
+            array_merge(self::CONFIRMABLE_ACCEPT_RULES, moves::BYPASSABLE),
+            $decision->bypassrules
+        )));
+        $decision->autobypassrules = array_values(array_unique(array_intersect(
+            self::CONFIRMABLE_ACCEPT_RULES,
+            $decision->autobypassrules
+        )));
+        $decision->confirmationrequired = $decision->canaccept && $decision->bypassrules !== [];
+        $decision->confirmacceptrequired = $decision->canaccept && $decision->autobypassrules !== [];
+
+        return $decision;
+    }
+
     /**
      * Ask to join a team.
      *
@@ -94,12 +284,7 @@ class joinrequests {
         if ((int) $target->leaderid === $userid) {
             throw new \moodle_exception('refusaljoinownteam', 'mod_selfselectadvanced');
         }
-        // A frozen team cannot take anybody until it is released, and a
-        // student cannot leave one either. Saying so here is kinder
-        // than accepting a request that acceptance would refuse.
-        if ($target->state === state::FROZEN) {
-            throw new \moodle_exception('refusaljointargetfrozen', 'mod_selfselectadvanced');
-        }
+        self::require_join_changeable($target, true);
 
         // Read once outside the lock so an obviously impossible ask is
         // answered without opening a transaction, and once more INSIDE
@@ -261,15 +446,54 @@ class joinrequests {
             $source = $currents[$sourcegroupid];
         }
 
-        // A frozen team cannot let anybody go until it is released -
-        // judged on the SELECTED team, not on whichever one came back
-        // first. Saying so here is kinder than accepting a request
-        // that acceptance would refuse.
-        if ($source->state === state::FROZEN) {
-            throw new \moodle_exception('refusaljoinsourcefrozen', 'mod_selfselectadvanced');
-        }
+        self::require_join_changeable($source, false);
 
         return $source;
+    }
+
+    /**
+     * Why this team cannot change through a join request, or null when it can.
+     *
+     * Forming teams are still open. Approved teams are open only after
+     * their assigned guide has released them; pending-review and
+     * unreleased approved teams are settled enough that the leader must
+     * ask for a release first. Frozen keeps its older, more specific
+     * refusal because it names the guide action that opens it.
+     *
+     * @param stdClass $group the team row
+     * @param bool $target true when the student is joining this team, false when leaving it
+     * @return string|null language string key, or null when the team may change
+     */
+    private static function join_change_refusal(stdClass $group, bool $target): ?string {
+        if ($group->state === state::FROZEN) {
+            return $target ? 'refusaljointargetfrozen' : 'refusaljoinsourcefrozen';
+        }
+        if ($group->state === state::FORMING) {
+            return null;
+        }
+        if ($group->state === state::FIRM && !empty($group->releasedbyguide)) {
+            // Decision 58 (2026-08-05): a guide release makes the firm
+            // roster mutable without touching timeapproved. Re-stamping
+            // or forcing re-approval would increase the lateness penalty
+            // for the whole team even though the guide sanctioned the
+            // change.
+            return null;
+        }
+
+        return $target ? 'refusaljointargetunreleased' : 'refusaljoinsourceunreleased';
+    }
+
+    /**
+     * Assert that a team may change through a join request.
+     *
+     * @param stdClass $group the team row
+     * @param bool $target true when the student is joining this team, false when leaving it
+     * @throws \moodle_exception when the team may not change
+     */
+    private static function require_join_changeable(stdClass $group, bool $target): void {
+        if ($key = self::join_change_refusal($group, $target)) {
+            throw new \moodle_exception($key, 'mod_selfselectadvanced');
+        }
     }
 
     /**
@@ -306,6 +530,8 @@ class joinrequests {
      * @param string[] $bypass composition rule codes the decider is
      *        overriding (decision 6); refused unless the ACTOR holds
      *        :overriderules, so a crafted student POST cannot use it
+     * @param bool $acceptconfirmed true when the decider confirmed the
+     *        advisory rule mismatch named by accept_decision()
      * @return stdClass the decided request
      * @throws \moodle_exception when refused
      */
@@ -315,7 +541,8 @@ class joinrequests {
         bool $accept,
         string $note,
         int $actorid,
-        array $bypass = []
+        array $bypass = [],
+        bool $acceptconfirmed = false
     ): stdClass {
         global $DB;
 
@@ -350,7 +577,8 @@ class joinrequests {
                     $deferred,
                     $deferredsync,
                     $deferredoverrides,
-                    $bypass
+                    $bypass,
+                    $acceptconfirmed
                 )
                 : self::do_decline($activity, $request, $note, $actorid);
         } finally {
@@ -415,6 +643,9 @@ class joinrequests {
             (int) $request->userid,
             $note
         );
+        if ($accept) {
+            self::notify_released_guide_change($activity, $target, $request);
+        }
 
         return $fresh;
     }
@@ -482,6 +713,8 @@ class joinrequests {
      *        ITS lock release
      * @param string[] $bypass composition rule codes the decider is
      *        overriding (decision 6)
+     * @param bool $acceptconfirmed true when the decider confirmed the
+     *        advisory rule mismatch named by accept_decision()
      * @return stdClass the decided request
      * @throws \moodle_exception when the composition rules refuse it
      */
@@ -494,7 +727,8 @@ class joinrequests {
         array &$deferred,
         array &$deferredsync,
         array &$deferredoverrides,
-        array $bypass = []
+        array $bypass = [],
+        bool $acceptconfirmed = false
     ): stdClass {
         global $DB;
 
@@ -517,15 +751,13 @@ class joinrequests {
 
             // A settled team has to be released by its guide first
             // (strategy 1.19 B step 3) - judged on rows read INSIDE the
-            // locks, or a freeze landing between the page load and here
-            // is invisible.
+            // locks, or a submission, approval, freeze or release
+            // landing between the page load and here is invisible.
             $target = groups::get($activity, (int) $target->id);
-            if ($target->state === state::FROZEN) {
-                throw new \moodle_exception('refusaljointargetfrozen', 'mod_selfselectadvanced');
-            }
+            self::require_join_changeable($target, true);
             $source = $sourceid ? groups::get($activity, $sourceid) : null;
-            if ($source !== null && $source->state === state::FROZEN) {
-                throw new \moodle_exception('refusaljoinsourcefrozen', 'mod_selfselectadvanced');
+            if ($source !== null) {
+                self::require_join_changeable($source, false);
             }
             // The student chose this team at ask time; the roster may have
             // moved since. Removing somebody from a team they already left
@@ -581,17 +813,6 @@ class joinrequests {
                 );
             }
 
-            $staged = $moves->stage(
-                (int) $request->userid,
-                $source !== null ? (int) $source->id : null,
-                (int) $target->id,
-                false,
-                null,
-                $actorid,
-                false,
-                $source === null
-            );
-
             // Decision 6: the staff override reaches the join-request
             // path too - the same move-scope mechanism, never a second
             // one. The capability is checked on the ACTOR server-side,
@@ -603,13 +824,57 @@ class joinrequests {
                 array_map(static fn($code) => clean_param($code, PARAM_ALPHANUM), $bypass),
                 moves::BYPASSABLE
             ));
-            if ($bypass) {
+            $staffbypass = $bypass;
+            if ($staffbypass) {
                 if (!has_capability('mod/selfselectadvanced:overriderules', $activity->context(), $actorid)) {
                     throw new \moodle_exception('refusaljoinbypasscap', 'mod_selfselectadvanced');
                 }
                 if (trim($note) === '') {
                     throw new \moodle_exception('errmoveoverridereasonrequired', 'mod_selfselectadvanced');
                 }
+            }
+
+            $decision = self::accept_decision($activity, $request, $actorid, $target);
+            $enginewillname = in_array($decision->hardkey, [
+                'refusalnoseats',
+                'refusalinviteecap',
+                'errmovesuccessorrequired',
+                'errmovesololeader',
+            ], true);
+            if (!$decision->canaccept && !$staffbypass && !$enginewillname) {
+                throw new \moodle_exception(
+                    'refusaljoinrules',
+                    'mod_selfselectadvanced',
+                    '',
+                    $decision->hardreason
+                );
+            }
+            if ($decision->autobypassrules !== [] && !$acceptconfirmed) {
+                throw new \moodle_exception(
+                    'refusaljoinrules',
+                    'mod_selfselectadvanced',
+                    '',
+                    implode(' ', $decision->warnings)
+                );
+            }
+
+            $staged = $moves->stage(
+                (int) $request->userid,
+                $source !== null ? (int) $source->id : null,
+                (int) $target->id,
+                false,
+                null,
+                $actorid,
+                false,
+                $source === null
+            );
+            if ($acceptconfirmed && $decision->autobypassrules !== []) {
+                $bypass = array_values(array_unique(array_merge($bypass, $decision->autobypassrules)));
+            }
+            $overridereason = trim($note) !== ''
+                ? $note
+                : get_string('joinacceptconfirmedreason', 'mod_selfselectadvanced');
+            if ($bypass) {
                 \mod_selfselectadvanced\local\override\store::save_for_new_move(
                     $activity,
                     (int) $staged->id,
@@ -649,7 +914,7 @@ class joinrequests {
                 true,
                 $deferred,
                 $deferredsync,
-                $note,
+                $overridereason,
                 $deferredoverrides
             );
 
@@ -788,9 +1053,9 @@ class joinrequests {
     /**
      * Who may answer a request for this team.
      *
-     * The target team's leader, and - the maintainer's escape hatch for
-     * an absent leader or a contested case - any coordinator or
-     * manager.
+     * The target team's leader while they still hold the authority to
+     * act as a leader, and - the maintainer's escape hatch for an
+     * absent leader or a contested case - any coordinator or manager.
      *
      * @param activity $activity the activity
      * @param stdClass $target the target team
@@ -798,7 +1063,7 @@ class joinrequests {
      * @throws \moodle_exception when they may not
      */
     public static function require_decider(activity $activity, stdClass $target, int $actorid): void {
-        if ((int) $target->leaderid === $actorid) {
+        if ((int) $target->leaderid === $actorid && authority::may_lead($activity, $actorid)) {
             return;
         }
         $context = $activity->context();
@@ -968,6 +1233,57 @@ class joinrequests {
                 'group' => format_string($target->name),
                 'student' => $student ? fullname($student) : '',
                 'note' => trim($note),
+            ],
+            new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $activity->cm()->id,
+                'g' => $target->id,
+            ]),
+            format_string($target->name)
+        );
+    }
+
+    /**
+     * Tell the guide that a team they released has a different roster.
+     *
+     * Maintainer decision 56 made a guide-released FIRM team mutable
+     * again. The guide approved an earlier roster, so a later
+     * leader-accepted join must be reported to that guide in the same
+     * joinrequests provider as the rest of this workflow. The payload
+     * names only the student and the teams involved. It deliberately
+     * carries no email, phone or free-text note: a guide is a
+     * non-editing teacher under the contact privacy rule, and the fact
+     * they need is the roster delta, not a contact channel.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $target the target team as it was when accepted
+     * @param stdClass $request the accepted join request
+     */
+    private static function notify_released_guide_change(
+        activity $activity,
+        stdClass $target,
+        stdClass $request
+    ): void {
+        if ($target->state !== state::FIRM || empty($target->guideid)) {
+            return;
+        }
+
+        $student = \core_user::get_user((int) $request->userid);
+        $sourcechange = get_string('msgjoinguidechangednosource', 'mod_selfselectadvanced');
+        if (!empty($request->sourcegroupid)) {
+            $source = groups::get($activity, (int) $request->sourcegroupid);
+            $sourcechange = get_string('msgjoinguidechangedsource', 'mod_selfselectadvanced', format_string($source->name));
+        }
+
+        notifier::send(
+            $activity,
+            'joinrequests',
+            (int) $target->guideid,
+            'msgjoinguidechangedsubject',
+            'msgjoinguidechangedbody',
+            (object) [
+                'group' => format_string($target->name),
+                'student' => $student ? fullname($student) : '',
+                'sourcechange' => $sourcechange,
             ],
             new \moodle_url('/mod/selfselectadvanced/group.php', [
                 'id' => $activity->cm()->id,

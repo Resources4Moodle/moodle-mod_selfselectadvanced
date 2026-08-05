@@ -287,6 +287,9 @@
                                             <div class="text-warning small">{{text}}</div>
                                         {{/warnings}}
                                     {{/haswarnings}}
+                                    {{#cannotaccept}}
+                                        <div class="text-danger small">{{hardreason}}</div>
+                                    {{/cannotaccept}}
                                     {{#seatline}}<div class="small">{{seatline}}</div>{{/seatline}}
                                     <div class="small text-muted">{{leavesline}}</div>
                                 </div>
@@ -296,13 +299,18 @@
                                     <input type="hidden" name="action" value="joinrespond">
                                     <input type="hidden" name="r" value="{{requestid}}">
                                     <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                    {{#confirmacceptrequired}}
+                                        <input type="hidden" name="confirmaccept" value="1">
+                                    {{/confirmacceptrequired}}
                                     <label class="visually-hidden" for="ssajoinnote-{{requestid}}">
                                         {{#str}} joinnotehint, mod_selfselectadvanced {{/str}}
                                     </label>
                                     <input type="text" name="note" id="ssajoinnote-{{requestid}}" size="20"
                                         class="form-control form-control-sm w-auto"
                                         placeholder="{{#str}} joinnotehint, mod_selfselectadvanced {{/str}}">
-                                    <button type="submit" name="decision" value="accept" class="btn btn-primary btn-sm">
+                                    <button type="submit" name="decision" value="accept" class="btn btn-primary btn-sm"
+                                        {{#cannotaccept}}disabled title="{{hardreason}}"{{/cannotaccept}}
+                                        {{#confirmacceptrequired}}onclick="return confirm('{{confirmacceptmessage}}');"{{/confirmacceptrequired}}>
                                         {{#str}} joinaccept, mod_selfselectadvanced {{/str}}
                                     </button>
                                     <button type="submit" name="decision" value="decline" class="btn btn-outline-warning btn-sm">

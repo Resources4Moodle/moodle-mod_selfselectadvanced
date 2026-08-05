@@ -79,6 +79,7 @@ Feature: Guide review of submitted groups
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Firm"
     Then I should see "Firm"
+    And the Moodle group mirror for "Team Firm" in "Lab groups" should contain "student1, student2, guide1"
 
   Scenario: A lapsed decision window firms the team and records the exception
     Given the following "mod_selfselectadvanced > groups" exist:
@@ -101,3 +102,23 @@ Feature: Guide review of submitted groups
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
     And I follow "Team Late"
     Then I should see "Awaiting guide"
+
+  # 1.20.6 item A: a guide landing on the activity used to get a
+  # student-shaped page - a student-addressed approach notice, a
+  # "Joining another team" button that ended at a permission exception,
+  # and one small dashboard link near the bottom. Their own decisions
+  # appeared nowhere. The panel now leads the page, and the dashboard
+  # link inside it is the SAME link the six existing "Guide dashboard"
+  # steps follow, which the last two steps here re-prove.
+  Scenario: A guide lands on their own work, not on the student page
+    Given the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name      | leader   | guide  | state         | timesubmitted |
+      | ssa1               | Team Wait | student1 | guide1 | pending_guide | -3 days       |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as guide1
+    Then I should see "Your guide work"
+    And I should see "You are guiding 1 of 5 groups"
+    And I should see "Team Wait" in the ".selfselectadvanced-guidepanel" "css_element"
+    And I should see "(overdue)" in the ".selfselectadvanced-guidepanel" "css_element"
+    And I should not see "Joining another team"
+    When I follow "Guide dashboard"
+    Then I should see "You are guiding 1 of 5 groups"

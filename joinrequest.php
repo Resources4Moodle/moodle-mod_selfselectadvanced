@@ -54,12 +54,41 @@ $isstaff = has_capability('mod/selfselectadvanced:manage', $context)
 // first two hold :respond; a coordinator does not - it is the students'
 // capability - so gating on it alone shut the very people the design
 // names as the escape hatch out of their own page.
-if (!$isstaff) {
-    require_capability('mod/selfselectadvanced:respond', $context);
-}
+//
+// The door is authority::require_join_requests() and not a copy of it:
+// the landing page's "Joining another team" button asks the may_ half
+// of that same function (1.20.6 item A, review finding NAV-02), and the
+// whole point of moving the question into authority is that the button
+// and this door can no longer be changed apart.
+\mod_selfselectadvanced\local\authority::require_join_requests($activity, (int) $USER->id);
 
-if (!in_array($tab, ['ask', 'answer'], true)) {
-    $tab = 'ask';
+// WHAT EACH ENTRANT CAN ACTUALLY DO HERE (review finding NAV-03).
+// Until 1.20.6 this page defaulted every entrant to the Ask tab and
+// built the Ask form for all of them, including the manager and the
+// coordinator it had just deliberately let in without :respond - and
+// joinrequests::request() requires :respond unconditionally, so their
+// default view was a form whose only possible outcome was a refusal.
+//
+// Asking is :respond, exactly as the service demands it. Answering is
+// joinrequests::require_decider()'s question - the target team's own
+// leader, or staff acting for an absent one - so a viewer who leads no
+// team here and holds no staff capability has nothing to answer.
+// Everyone admitted by the door above satisfies at least one of the
+// two, so the tab strip below is never empty.
+$canask = has_capability('mod/selfselectadvanced:respond', $context);
+$cananswer = $isstaff || $DB->record_exists('selfselectadvanced_group', [
+    'activityid' => $activity->id(),
+    'leaderid' => (int) $USER->id,
+]);
+
+$availabletabs = array_values(array_filter([
+    $canask ? 'ask' : null,
+    $cananswer ? 'answer' : null,
+]));
+if (!in_array($tab, $availabletabs, true)) {
+    // Staff-only entrants land on Answer, which is the side of the
+    // page they were admitted for.
+    $tab = reset($availabletabs);
 }
 $baseurl = new moodle_url('/mod/selfselectadvanced/joinrequest.php', ['id' => $cm->id]);
 $PAGE->set_url(new moodle_url($baseurl, ['tab' => $tab]));
@@ -67,15 +96,22 @@ $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
 
 $mycurrent = groups::get_groups_of_user($activity, (int) $USER->id);
-$mycap = (new \mod_selfselectadvanced\local\override\resolver($activity))
-    ->effective_maxmembership((int) $USER->id)->value;
-$askform = new \mod_selfselectadvanced\form\joinrequest_form($baseurl->out(false), [
-    'cmid' => $cm->id,
-    'sources' => $mycurrent,
-    'headroom' => count($mycurrent) < $mycap,
-]);
+// The Ask form is not built for an audience the service refuses: a
+// form that can only ever error is worse than no form, and it also
+// spared this page a resolver read and a moodleform construction for
+// every staff viewer.
+$askform = null;
+if ($canask) {
+    $mycap = (new \mod_selfselectadvanced\local\override\resolver($activity))
+        ->effective_maxmembership((int) $USER->id)->value;
+    $askform = new \mod_selfselectadvanced\form\joinrequest_form($baseurl->out(false), [
+        'cmid' => $cm->id,
+        'sources' => $mycurrent,
+        'headroom' => count($mycurrent) < $mycap,
+    ]);
+}
 
-if ($action === 'ask' && ($data = $askform->get_data())) {
+if ($action === 'ask' && $askform !== null && ($data = $askform->get_data())) {
     // Zero is the placeholder and "no element rendered"; both mean the
     // student stated nothing, which the service resolves or refuses.
     $chosen = (int) ($data->source ?? 0);
@@ -130,8 +166,17 @@ if (in_array($action, ['accept', 'decline'], true) && data_submitted() && confir
     // against the ACTOR's capability inside respond(), so a crafted
     // post from the team's own student leader is refused server-side.
     $bypass = optional_param_array('bypass', [], PARAM_ALPHANUM);
+    $confirmaccept = optional_param('confirmaccept', 0, PARAM_BOOL);
     try {
-        joinrequests::respond($activity, $requestid, $action === 'accept', $note, (int) $USER->id, $bypass);
+        joinrequests::respond(
+            $activity,
+            $requestid,
+            $action === 'accept',
+            $note,
+            (int) $USER->id,
+            $bypass,
+            (bool) $confirmaccept
+        );
         redirect(
             new moodle_url($baseurl, ['tab' => 'answer']),
             get_string($action === 'accept' ? 'joinaccepted' : 'joindeclined', 'mod_selfselectadvanced'),
@@ -153,6 +198,9 @@ echo $OUTPUT->heading(get_string('joinheading', 'mod_selfselectadvanced'));
 
 $tabs = [];
 foreach (['ask' => 'jointabask', 'answer' => 'jointabanswer'] as $key => $label) {
+    if (!in_array($key, $availabletabs, true)) {
+        continue;
+    }
     $tabs[] = new tabobject(
         $key,
         new moodle_url($baseurl, ['tab' => $key]),
@@ -412,17 +460,33 @@ if ($tab === 'ask') {
         ];
         foreach ($rows as [$team, $request]) {
             $student = \core_user::get_user((int) $request->userid);
+            $decision = joinrequests::accept_decision($activity, $request, (int) $USER->id, $team);
+            $acceptattrs = [
+                'type' => 'submit',
+                'class' => 'btn btn-primary btn-sm',
+                'formaction' => (new moodle_url($baseurl, ['action' => 'accept']))->out(false),
+                'value' => get_string('joinaccept', 'mod_selfselectadvanced'),
+            ];
+            if (!$decision->canaccept) {
+                $acceptattrs['disabled'] = 'disabled';
+                $acceptattrs['title'] = $decision->hardreason;
+            } else if ($decision->confirmacceptrequired) {
+                $acceptattrs['onclick'] = 'return confirm(' . json_encode(
+                    get_string('joinacceptconfirm', 'mod_selfselectadvanced')
+                ) . ');';
+            }
             $form = html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false),
                 'class' => 'd-flex flex-wrap gap-1 align-items-center'])
                 . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id])
                 . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'r', 'value' => $request->id])
                 . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
+                . ($decision->confirmacceptrequired
+                    ? html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'confirmaccept', 'value' => 1])
+                    : '')
                 . html_writer::empty_tag('input', ['type' => 'text', 'name' => 'note', 'size' => 20,
                     'class' => 'form-control form-control-sm',
                     'placeholder' => get_string('joinnotehint', 'mod_selfselectadvanced')])
-                . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-primary btn-sm',
-                    'formaction' => (new moodle_url($baseurl, ['action' => 'accept']))->out(false),
-                    'value' => get_string('joinaccept', 'mod_selfselectadvanced')])
+                . html_writer::empty_tag('input', $acceptattrs)
                 . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-outline-warning btn-sm',
                     'formaction' => (new moodle_url($baseurl, ['action' => 'decline']))->out(false),
                     'value' => get_string('joindecline', 'mod_selfselectadvanced')])
@@ -466,6 +530,17 @@ if ($tab === 'ask') {
                         . ' ' . s($warning),
                     'text-muted small'
                 );
+            }
+            if (!$decision->canaccept) {
+                $fitcell[] = html_writer::div(s($decision->hardreason), 'text-danger small');
+            } else if ($decision->confirmationrequired) {
+                foreach ($decision->warnings as $warning) {
+                    $fitcell[] = html_writer::div(
+                        html_writer::tag('strong', get_string('joinfitnote', 'mod_selfselectadvanced'))
+                            . ' ' . s($warning),
+                        'text-warning small'
+                    );
+                }
             }
             if ($verdict->seat !== null) {
                 $fitcell[] = html_writer::div(

@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026080100;
+    private const CURRENT = 2026080501;
 
     /** @var int The serial 1.20 shipped before it, i.e. what an upgrading site has recorded. */
-    private const PREVIOUS = 2026073250;
+    private const PREVIOUS = 2026080100;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.5';
+    private const RELEASE = '1.20.6';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -290,10 +290,29 @@ final class versionbump_test extends \advanced_testcase {
         $this->assertSame($ascending, $savepoints, 'the savepoints are not in ascending order');
 
         $this->assertSame(self::CURRENT, (int) end($savepoints), 'the final savepoint is not the code version');
-        $this->assertSame(
+
+        // A LANDED SAVEPOINT MUST NEVER BE REWRITTEN - that is the property,
+        // and it is unchanged. What changed is the assumption underneath the
+        // old assertion: it read the serial immediately BELOW the tip and
+        // required it to equal PREVIOUS, which silently assumed every release
+        // adds exactly ONE upgrade step. 1.20.6 adds two - the ticket groupid
+        // migration and the releasedbyguide column - so the serial below its
+        // tip is its own first step, and the old form failed on a release
+        // that had done nothing wrong.
+        //
+        // Containment is the honest test of the property: the previous
+        // release's serial must STILL BE THERE. Combined with the ascending
+        // check and the unique check above, and the tip check on the line
+        // above this, a rewritten or dropped landed savepoint still fails.
+        $this->assertContains(
             self::PREVIOUS,
-            (int) $savepoints[count($savepoints) - 2],
-            'the serial below the tip moved; a landed savepoint must never be rewritten'
+            array_map('intval', $savepoints),
+            'the previous release\'s savepoint is missing; a landed savepoint must never be rewritten'
+        );
+        $this->assertGreaterThan(
+            self::PREVIOUS,
+            (int) end($savepoints),
+            'the tip did not advance beyond the previous release'
         );
     }
 
@@ -317,6 +336,27 @@ final class versionbump_test extends \advanced_testcase {
         $this->assertLessThan($end, $start, 'the guard does not precede its savepoint');
 
         $block = substr($code, $start, $end - $start);
+
+        // XMLDB SCHEMA DECLARATIONS ARE NOT QUERIES, and excluding them is
+        // narrowing what this test IGNORES, never what it checks. A step that
+        // adds a column MUST name its table - `new xmldb_table('..._group')`
+        // is the only way Moodle lets you do it, and the 1.20.6 step that adds
+        // releasedbyguide does exactly that. Before this exclusion the test
+        // reported that step as "querying a plugin table", which it does not:
+        // $dbman->add_field() manipulates the SCHEMA, and the schema is the one
+        // thing an upgrade step is entitled to touch.
+        //
+        // What the test still forbids, which is the actual hazard, is DML -
+        // reading or writing ROWS of a plugin table while the PHP is the new
+        // code and the schema is still whatever the site is upgrading FROM.
+        // Any $DB-> call naming a plugin table, and any other mention outside
+        // an xmldb constructor, still fails below.
+        $block = preg_replace(
+            '/new\s+xmldb_(?:table|field|key|index)\s*\(\s*\'[^\']*\'/',
+            'new xmldb_declaration(\'\'',
+            $block
+        );
+
         foreach (['{selfselectadvanced_', '\'selfselectadvanced_'] as $tablereference) {
             $this->assertStringNotContainsString(
                 $tablereference,

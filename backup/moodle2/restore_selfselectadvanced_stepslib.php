@@ -384,10 +384,10 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
     }
 
     /**
-     * Restore a queue ticket. The group and the requester are both
-     * NOT NULL: a ticket whose group or requester cannot be mapped is
-     * dropped, like a member row with no mappable user. The claimant
-     * and resolver are nullable and degrade to null individually.
+     * Restore a queue ticket. A team ticket needs a mapped group and every
+     * ticket needs a mapped requester; a ticket missing either required
+     * relation is dropped, like a member row with no mappable user. The
+     * claimant and resolver are nullable and degrade to null individually.
      *
      * @param array $data the row
      */
@@ -397,12 +397,12 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         $data = (object) $data;
         $oldid = $data->id;
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
-        // A team-limit ticket is about the guide, not a team, and
-        // carries groupid 0 - so only a ticket that CLAIMS a team needs
-        // one mapped. Requiring it dropped every team-limit request on
-        // restore (audit HIGH-BACKUP-003).
-        $isaboutteam = (int) $data->groupid > 0;
-        $data->groupid = $isaboutteam ? (int) $this->get_mappingid('ssagroup', $data->groupid) : 0;
+        // A team-limit ticket is about the guide, not a team, and carries
+        // NULL. Older backups may still carry the former 0 sentinel, so only
+        // a ticket that CLAIMS a real team needs one mapped. Requiring it
+        // dropped every team-limit request on restore (audit HIGH-BACKUP-003).
+        $isaboutteam = $data->groupid !== null && (int) $data->groupid > 0;
+        $data->groupid = $isaboutteam ? (int) $this->get_mappingid('ssagroup', $data->groupid) : null;
         $data->requestedby = $this->get_mappingid('user', $data->requestedby);
         if (!$data->requestedby || ($isaboutteam && !$data->groupid)) {
             return;

@@ -101,22 +101,38 @@ final class races_locking_test extends \advanced_testcase {
         }
         $activity = activity::from_instance((int) $instance->id);
 
+        // 1.20.6: team A is the SOURCE these tests move a student out of, and
+        // a firm team may only be left once its guide has released it. Without
+        // the flag every test in this file dies on
+        // 'refusaljoinsourceunreleased' before reaching the lock and
+        // transaction behaviour it exists to measure. Setting it here keeps
+        // the fixture's meaning - "a settled team a student is legitimately
+        // moving out of" - which is exactly the state that used to be implied
+        // by FIRM alone.
         $a = $plugingen->create_group([
             'activityid' => $activity->id(),
             'leaderid' => (int) $students[0]->id,
             'name' => 'A',
             'state' => state::FIRM,
+            'releasedbyguide' => 1,
         ]);
         $plugingen->create_member([
             'groupid' => $a->id,
             'userid' => (int) $students[1]->id,
             'status' => groups::STATUS_CONFIRMED,
         ]);
+        // Team B is the TARGET these tests move a student into, and the same
+        // 1.20.6 guard applies to both ends of a move: a firm team may be
+        // joined only once its guide has released it. Both A and B therefore
+        // carry the flag - the fixture models two settled teams whose guides
+        // have opened them for a legitimate swap, which is what these tests
+        // were always exercising.
         $b = $plugingen->create_group([
             'activityid' => $activity->id(),
             'leaderid' => (int) $students[2]->id,
             'name' => 'B',
             'state' => state::FIRM,
+            'releasedbyguide' => 1,
         ]);
         $plugingen->create_member([
             'groupid' => $b->id,

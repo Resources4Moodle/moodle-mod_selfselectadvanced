@@ -128,6 +128,7 @@ final class state {
             $now = time();
             $fresh->state = self::PENDING_GUIDE;
             $fresh->guideid = $preassigned ?: ($leaderselects ? $guideid : null);
+            $fresh->releasedbyguide = 0;
             $fresh->timesubmitted = $now;
             $fresh->usermodified = $actorid;
             $fresh->timemodified = $now;
@@ -456,6 +457,7 @@ final class state {
             $now = time();
             $fresh->state = self::FORMING;
             $fresh->guideid = null;
+            $fresh->releasedbyguide = 0;
             // A return dissolves any pending handover with it: the
             // nomination belonged to the guide who just released the
             // team, and must not survive into a future submission.
@@ -623,10 +625,18 @@ final class state {
 
             $now = time();
             $fresh->state = self::FIRM;
+            $fresh->releasedbyguide = 0;
+            // Decision 58 (2026-08-05): this stamp belongs to the
+            // approval event. Later guide-released roster changes must
+            // not re-stamp or invalidate it, because the lateness
+            // penalty is computed from due date -> timeapproved; doing
+            // so would punish the whole team for a change its guide
+            // sanctioned.
             $fresh->timeapproved = $now;
             $fresh->usermodified = $actorid;
             $fresh->timemodified = $now;
             $DB->update_record('selfselectadvanced_group', $fresh);
+            freeze::request_sync($this->activity, $fresh);
 
             \mod_selfselectadvanced\event\group_approved::create([
                 'objectid' => $fresh->id,
@@ -677,7 +687,32 @@ final class state {
         // is the caller's business on the sweep path: push_grades()
         // republishes every confirmed member of every firm or frozen
         // group, so the sweep does it once per activity per run instead
-        // of once per approval (T-04 3c).
+        // of once per approval (T-04 3c). The mirror sync lives in the
+        // same outside-lock space: approval is now the first lifecycle
+        // state Moodle activities can consume through a real group.
+        try {
+            $sync = freeze::sync_core_group($this->activity, (int) $fresh->id, $actorid);
+        } catch (\Throwable $e) {
+            // Approval is the authoritative roster/state write; the
+            // mirror is best-effort inline and authoritative through
+            // the queued adhoc task already committed with the group.
+            debugging(
+                'Inline core-group sync failed after approving plugin group ' . (int) $fresh->id . ': '
+                    . $e->getMessage(),
+                DEBUG_DEVELOPER
+            );
+            $sync = (object) [
+                'status' => 'failed',
+                'coregroupid' => (int) ($fresh->coregroupid ?? 0),
+                'added' => [],
+                'removed' => [],
+                'refused' => [],
+                'extra' => [],
+                'error' => $e->getMessage(),
+            ];
+        }
+        $fresh = groups::get($this->activity, (int) $fresh->id);
+        $fresh->sync = $sync;
         penalty\ledger::upsert_for_group($this->activity, $fresh, $this->gatekeeper->resolver());
         if (!$auto) {
             penalty\ledger::push_grades($this->activity);
