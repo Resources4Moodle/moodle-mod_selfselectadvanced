@@ -403,6 +403,19 @@
                         {{#declined}}
                             <span class="badge bg-secondary ms-2">{{#str}} invitedeclinedlabel, mod_selfselectadvanced {{/str}}</span>
                         {{/declined}}
+                        <span class="d-block small">
+                            {{#hasdepartment}}
+                                {{#str}} attrdepartment, mod_selfselectadvanced {{/str}}: {{department}}
+                            {{/hasdepartment}}
+                            {{#hassubdepartment}}
+                                <span class="ms-2">
+                                    {{#str}} attrsubdepartment, mod_selfselectadvanced {{/str}}: {{subdepartment}}
+                                </span>
+                            {{/hassubdepartment}}
+                            {{#noattributes}}
+                                <span class="text-muted">{{#str}} attrsmissing, mod_selfselectadvanced {{/str}}</span>
+                            {{/noattributes}}
+                        </span>
                     </span>
                     {{^declined}}
                     {{#isleader}}

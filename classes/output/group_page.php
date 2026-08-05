@@ -139,9 +139,15 @@ class group_page implements renderable, templatable {
             'userid' => $this->userid,
             'status' => groups::STATUS_CONFIRMED,
         ]);
+        $isinvitedmember = $DB->record_exists('selfselectadvanced_member', [
+            'groupid' => (int) $this->group->id,
+            'userid' => $this->userid,
+            'status' => groups::STATUS_INVITED,
+        ]);
         $showmobilecol = $canviewall || $isguide || $isconfirmedmember;
+        $showdimensioncols = $showmobilecol || $isinvitedmember;
         $rostermembers = groups::get_roster((int) $this->group->id);
-        $attrs = $showmobilecol
+        $attrs = $showdimensioncols
             ? \mod_selfselectadvanced\local\attributes\manager::get_for_users(
                 array_map(static fn($m) => (int) $m->userid, $rostermembers)
             )
@@ -155,16 +161,14 @@ class group_page implements renderable, templatable {
             )
             : [];
         // The roster is a real table (2026-07-27 request): first and
-        // last name as separate sortable columns plus one column per
-        // composition dimension the activity uses, with a text filter.
-        // The dimension columns follow the same audience as the mobile
-        // column - staff, the guide, and the team's own confirmed
-        // members - because a team is assembled BY those values and
-        // the composition panel already tells its members which ones
-        // the seat plan still needs. Outsider students see neither.
-        $useddims = $showmobilecol
-            ? \mod_selfselectadvanced\local\attributes\manager::used_dimensions($activity)
-            : [];
+        // last name as separate sortable columns plus composition
+        // columns and, for the narrower contact audience, mobile.
+        // Mobile is contact data, so only staff, the team's assigned
+        // guide and confirmed members see it. Department and
+        // sub-department are composition data: a pending invitee needs
+        // them to decide what joining would do. A declined invitee has
+        // no decision left to make, and outsider students see neither.
+        $useddims = $showdimensioncols ? ['department', 'subdepartment'] : [];
         $rsort = optional_param('rsort', '', PARAM_ALPHANUMEXT);
         $rdir = optional_param('rdir', 0, PARAM_INT);
         $rq = optional_param('rq', '', PARAM_RAW_TRIMMED);
@@ -248,11 +252,11 @@ class group_page implements renderable, templatable {
         }
 
         // Pending invitations, visible to the leader, the team's own
-        // assigned guide and staff. The invited-but-unanswered seats
-        // are part of the composition the guide judges, and the block
-        // renders a name and nothing else. $isguide is assignment-
-        // shaped since 1.20.1, so this admits the team's own guide and
-        // nobody else's.
+        // assigned guide and staff. The invited and recently declined
+        // seats are part of the composition they judge, so the block
+        // renders the same department/sub-department shape used by the
+        // join-request panel. $isguide is assignment-shaped since
+        // 1.20.1, so this admits the team's own guide and nobody else's.
         $pendinginvites = [];
         if (
             $isleader
@@ -273,6 +277,7 @@ class group_page implements renderable, templatable {
             ) {
                 $pendinginvites[] = (object) [
                     'memberid' => (int) $invite->memberid,
+                    'userid' => (int) $invite->userid,
                     'fullname' => fullname($invite),
                     'invitedon' => $invite->timeinvited ? userdate($invite->timeinvited) : '',
                     'declined' => false,
@@ -294,10 +299,26 @@ class group_page implements renderable, templatable {
             ) {
                 $pendinginvites[] = (object) [
                     'memberid' => (int) $invite->memberid,
+                    'userid' => (int) $invite->userid,
                     'fullname' => fullname($invite),
                     'invitedon' => $invite->timeresponded ? userdate($invite->timeresponded) : '',
                     'declined' => true,
                 ];
+            }
+            $inviteattrs = $pendinginvites
+                ? \mod_selfselectadvanced\local\attributes\manager::get_for_users(
+                    array_map(static fn($invite) => (int) $invite->userid, $pendinginvites)
+                )
+                : [];
+            foreach ($pendinginvites as $invite) {
+                $attr = $inviteattrs[(int) $invite->userid] ?? null;
+                $department = (string) ($attr->department ?? '');
+                $subdepartment = (string) ($attr->subdepartment ?? '');
+                $invite->department = $department;
+                $invite->subdepartment = $subdepartment;
+                $invite->hasdepartment = $department !== '';
+                $invite->hassubdepartment = $subdepartment !== '';
+                $invite->noattributes = $department === '' && $subdepartment === '';
             }
         }
 

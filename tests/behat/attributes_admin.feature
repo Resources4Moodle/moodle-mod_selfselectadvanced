@@ -33,7 +33,7 @@ Feature: Site administrators manage participant attributes
     Then I should see "Participant attributes saved."
     And I should see "Mechanical"
 
-  Scenario: Staff and the team's own members see attribute columns, an invitee does not
+  Scenario: Staff, members and invitees see composition while mobile stays private
     Given the following "courses" exist:
       | fullname | shortname |
       | Course 1 | C1        |
@@ -64,8 +64,8 @@ Feature: Site administrators manage participant attributes
     # is never overruled", including for the editing teacher who owns
     # the contact-privacy switch.
     And the following "mod_selfselectadvanced > attributes" exist:
-      | user     | department | mobile        | shareconsent |
-      | student8 | Mechanical | +91 333 44444 | 0            |
+      | user     | department | subdepartment | mobile        | shareconsent |
+      | student8 | Mechanical | Structures    | +91 333 44444 | 0            |
     And the following "mod_selfselectadvanced > members" exist:
       | ssagroup  | user     | status    |
       | Team Blue | student9 | invited   |
@@ -82,7 +82,11 @@ Feature: Site administrators manage participant attributes
     Then I should see "Structures" in the ".selfselectadvanced-roster" "css_element"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student9
     And I follow "Team Blue"
-    Then I should not see "Structures"
+    Then I should see "Civil" in the ".selfselectadvanced-roster" "css_element"
+    And I should see "Structures" in the ".selfselectadvanced-roster" "css_element"
+    And I should see "Mechanical" in the ".selfselectadvanced-roster" "css_element"
+    And I should not see "+91 111 22222"
+    And I should not see "Contact numbers are shared in confidence"
 
   Scenario: The admin curates the pre-defined department tree
     Given I log in as "admin"
