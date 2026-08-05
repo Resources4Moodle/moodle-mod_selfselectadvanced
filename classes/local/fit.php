@@ -432,12 +432,23 @@ class fit {
         array $attrs,
         int $maxsize
     ): stdClass {
-        $full = evaluator::feasibility_from_data(
-            $rules,
-            $template,
-            array_merge($confirmedids, $invitedids, [$userid]),
-            $attrs
-        );
+        // DEDUPED, and this is a correctness fix rather than tidiness. The
+        // seat engine does NOT collapse a repeated userid - measured: two
+        // people with one id listed twice reports current=3 against a max of
+        // 2 - so a person who holds BOTH a pending invitation and a pending
+        // join request to the same team was counted as two people. A leader
+        // whose team met "between 2 and 2 with Department SCOPE" exactly was
+        // told the maximum was exceeded, by a phantom that was really the
+        // requester's own invitation (maintainer's live test, 2026-08-05).
+        //
+        // The product rule now resolves that pair at source - a request to a
+        // team that already invited you accepts the invitation - but the
+        // dedupe stays, because the engine's behaviour is a sharp edge and
+        // this is not the only caller that could hand it a repeat.
+        $projected = array_values(array_unique(
+            array_merge($confirmedids, $invitedids, [$userid])
+        ));
+        $full = evaluator::feasibility_from_data($rules, $template, $projected, $attrs);
         $verdict = (object) [
             'fits' => true,
             'caution' => '',

@@ -286,6 +286,48 @@ class joinrequests {
         }
         self::require_join_changeable($target, true);
 
+        // A REQUEST TO A TEAM THAT ALREADY INVITED YOU IS AN ACCEPTANCE.
+        // Maintainer ruling, 2026-08-05. An invitation and a request are the
+        // same event - this person joining this team - differing only in who
+        // spoke first, and the student clicking "ask to join" plainly means
+        // yes. Creating a second pending row for one fact was what produced
+        // the defect this rule closes: the advisory projection merged
+        // confirmed + invited + the requester, and a person holding BOTH rows
+        // was counted TWICE, so a team that met "between 2 and 2 with
+        // Department SCOPE" exactly was told the maximum was exceeded by a
+        // phantom that was really the requester's own invitation.
+        //
+        // Answered BEFORE the lock below because accept() takes its own
+        // locks; taking joinrequest:user here first would nest them and
+        // invert this codebase's lock order.
+        $invited = $DB->record_exists('selfselectadvanced_member', [
+            'groupid' => $targetgroupid,
+            'userid' => $userid,
+            'status' => groups::STATUS_INVITED,
+        ]);
+        if ($invited) {
+            (new api($activity))->invitations()->accept($target, $userid);
+
+            // The caller expects a request row back. There is none - the
+            // membership is settled - so the shape that says so is the
+            // accepted request this action is equivalent to.
+            return (object) [
+                'id' => 0,
+                'activityid' => $activity->id(),
+                'userid' => $userid,
+                'targetgroupid' => $targetgroupid,
+                'sourcegroupid' => null,
+                // The terminal status an accepted request
+                // reaches through the move engine; there is deliberately no
+                // STATUS_ACCEPTED constant, and inventing one here would put
+                // a value in this shape that no query in the codebase looks
+                // for.
+                'status' => 'committed',
+                'reason' => $reason,
+                'acceptedinvitation' => true,
+            ];
+        }
+
         // Read once outside the lock so an obviously impossible ask is
         // answered without opening a transaction, and once more INSIDE
         // it below - the authoritative read (house rule A7). Both reads

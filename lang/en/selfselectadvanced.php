@@ -636,6 +636,7 @@ $string['joinaccept'] = 'Accept';
 $string['joinacceptconfirm'] = 'This acceptance breaks a composition rule. Accept anyway?';
 $string['joinacceptconfirmedreason'] = 'Join acceptance confirmed over a composition warning.';
 $string['joinaccepted'] = 'Accepted. The student has been moved and the team re-composed.';
+$string['joinacceptedinvitation'] = 'That team had already invited you, so asking to join accepted their invitation. You are now a member.';
 $string['joinanswer'] = 'Answer';
 $string['joincurrent'] = 'You are in {$a} at the moment.';
 $string['joincurrentmany'] = 'You are in these teams at the moment: {$a}.';

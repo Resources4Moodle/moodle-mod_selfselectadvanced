@@ -116,16 +116,23 @@ if ($action === 'ask' && $askform !== null && ($data = $askform->get_data())) {
     // student stated nothing, which the service resolves or refuses.
     $chosen = (int) ($data->source ?? 0);
     try {
-        joinrequests::request(
+        $outcome = joinrequests::request(
             $activity,
             (int) $data->target,
             (string) $data->reason,
             (int) $USER->id,
             $chosen === 0 ? null : $chosen
         );
+        // A request to a team that had already invited this student IS an
+        // acceptance (maintainer ruling, 2026-08-05), and they are a member
+        // now - so "your request has gone to the team leader" would be a
+        // false statement about a settled fact, not merely an odd one.
         redirect(
             new moodle_url($baseurl, ['tab' => 'ask']),
-            get_string('joinsent', 'mod_selfselectadvanced'),
+            get_string(
+                empty($outcome->acceptedinvitation) ? 'joinsent' : 'joinacceptedinvitation',
+                'mod_selfselectadvanced'
+            ),
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
