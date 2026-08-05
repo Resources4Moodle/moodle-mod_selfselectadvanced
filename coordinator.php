@@ -105,6 +105,8 @@ $links = [
     ['tickets.php', 'tickets', ['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:coordinate'], []],
     ['overrides.php', 'overrides', ['mod/selfselectadvanced:override'], []],
     ['flagged.php', 'flaggedreport', ['mod/selfselectadvanced:viewall'], []],
+    ['coresync.php', 'coresyncreport', ['mod/selfselectadvanced:manage',
+        'mod/selfselectadvanced:coordinate', 'mod/selfselectadvanced:viewall'], []],
     // The manage.php door itself (manage.php:48), straight to the
     // assignment queue tab that is the work this power names.
     ['manage.php', 'coordinatorassignguide',
@@ -117,7 +119,11 @@ $links = [
 ];
 $linkhtml = '';
 foreach ($links as [$file, $stringkey, $caps, $extraparams]) {
-    if (!has_any_capability($caps, $context)) {
+    if (
+        $file === 'coresync.php'
+            ? !\mod_selfselectadvanced\local\authority::may_core_sync_report($activity, (int) $USER->id)
+            : !has_any_capability($caps, $context)
+    ) {
         continue;
     }
     $linkhtml .= html_writer::link(

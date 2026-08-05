@@ -550,11 +550,14 @@ function selfselectadvanced_pluginfile(
  * @param navigation_node $node this activity's node
  */
 function selfselectadvanced_extend_settings_navigation(settings_navigation $settingsnav, navigation_node $node): void {
+    global $USER;
+
     $cm = $settingsnav->get_page()->cm;
     if (!$cm) {
         return;
     }
     $context = $cm->context;
+    $activity = \mod_selfselectadvanced\activity::from_cmid((int) $cm->id);
     if (has_capability('mod/selfselectadvanced:manage', $context)) {
         $node->add(
             get_string('composition', 'mod_selfselectadvanced'),
@@ -599,6 +602,13 @@ function selfselectadvanced_extend_settings_navigation(settings_navigation $sett
         $node->add(
             get_string('gridreport', 'mod_selfselectadvanced'),
             new moodle_url('/mod/selfselectadvanced/gridreport.php', ['id' => $cm->id]),
+            navigation_node::TYPE_SETTING
+        );
+    }
+    if (\mod_selfselectadvanced\local\authority::may_core_sync_report($activity, (int) $USER->id)) {
+        $node->add(
+            get_string('coresyncreport', 'mod_selfselectadvanced'),
+            new moodle_url('/mod/selfselectadvanced/coresync.php', ['id' => $cm->id]),
             navigation_node::TYPE_SETTING
         );
     }

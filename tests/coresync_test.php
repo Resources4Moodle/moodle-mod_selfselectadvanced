@@ -20,6 +20,7 @@ use mod_selfselectadvanced\local\freeze;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\coresync_backfill;
 use mod_selfselectadvanced\local\state;
+use mod_selfselectadvanced\table\coresync_report_table;
 use mod_selfselectadvanced\task\coresync_adhoc;
 
 /**
@@ -99,6 +100,32 @@ final class coresync_test extends \advanced_testcase {
         }
 
         return [$activity, groups::get($activity, (int) $group->id), $students, $guide, $course];
+    }
+
+    /**
+     * Fetch one SQL-shaped report row and pass it through the engine
+     * report builder.
+     *
+     * @param activity $activity the activity
+     * @param int $groupid group id
+     * @param array $overrides SQL-row field overrides
+     * @return \stdClass report row
+     */
+    private function report_row(activity $activity, int $groupid, array $overrides = []): \stdClass {
+        global $DB;
+
+        [$fields, $from, $where, $params] = coresync_report_table::sql_parts($activity, []);
+        $params['reportgroupid'] = $groupid;
+        $row = $DB->get_record_sql(
+            "SELECT $fields FROM $from WHERE $where AND g.id = :reportgroupid",
+            $params,
+            MUST_EXIST
+        );
+        foreach ($overrides as $field => $value) {
+            $row->$field = $value;
+        }
+
+        return coresync_backfill::report_row($activity, $row);
     }
 
     /**
@@ -465,6 +492,136 @@ final class coresync_test extends \advanced_testcase {
         $this->assertSame(1, $second->synced);
         $this->assertSame(0, $second->changed);
         $this->assertSame(0, $second->failed);
+    }
+
+    /**
+     * The status-page row builder reports the engine's own current
+     * mirror shape: no mirror, in step, repairable drift, a renamed
+     * Moodle group still found through idnumber, and a persisted
+     * failed sync.
+     *
+     * MUTATION CAUGHT (run): report_row() ignored livecoregroupid from
+     * the SQL idnumber join; the renamed mirror came back nomirror and
+     * coregroupid 0.
+     */
+    public function test_report_row_builder_reports_mirror_statuses(): void {
+        global $DB;
+        $this->preventResetByRollback();
+        $this->resetAfterTest();
+
+        [$activity, $nomirror] = $this->setup_team();
+        $row = $this->report_row($activity, (int) $nomirror->id);
+        $this->assertSame('nomirror', $row->status);
+        $this->assertSame(3, $row->pluginmembercount);
+        $this->assertSame(0, $row->coremembercount);
+
+        [$okactivity, $okgroup, $okstudents, $okguide] = $this->setup_team();
+        freeze::sync_core_group($okactivity, (int) $okgroup->id, (int) $okguide->id);
+        $okrow = $this->report_row($okactivity, (int) $okgroup->id);
+        $this->assertSame('synced', $okrow->status);
+        $this->assertSame(3, $okrow->pluginmembercount);
+        $this->assertSame(3, $okrow->coremembercount);
+        $this->assertSame([], $okrow->drift['repairable']);
+        $this->assertSame([], $okrow->drift['extra']);
+
+        groups_remove_member((int) $okrow->coregroupid, (int) $okstudents[1]->id);
+        $driftrow = $this->report_row($okactivity, (int) $okgroup->id);
+        $this->assertSame('synced', $driftrow->status);
+        $this->assertSame(3, $driftrow->pluginmembercount);
+        $this->assertSame(2, $driftrow->coremembercount);
+        $this->assertSame([(int) $okstudents[1]->id], $driftrow->drift['repairable']);
+
+        groups_add_member((int) $okrow->coregroupid, (int) $okstudents[1]->id, freeze::COMPONENT, (int) $okgroup->id);
+        $DB->set_field('groups', 'name', 'Teacher renamed the Moodle group', ['id' => (int) $okrow->coregroupid]);
+        $DB->set_field('selfselectadvanced_group', 'coregroupid', null, ['id' => (int) $okgroup->id]);
+        $renamedrow = $this->report_row($okactivity, (int) $okgroup->id);
+        $this->assertSame('synced', $renamedrow->status);
+        $this->assertSame((int) $okrow->coregroupid, (int) $renamedrow->coregroupid);
+        $this->assertSame(3, $renamedrow->coremembercount);
+
+        [$failactivity, $failgroup, $failstudents, $failguide, $failcourse] = $this->setup_team();
+        $coreid = groups_create_group((object) [
+            'courseid' => $failcourse->id,
+            'name' => 'Claimed failure',
+            'idnumber' => $failgroup->pluginuid,
+        ]);
+        $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_group([
+            'activityid' => $failactivity->id(),
+            'leaderid' => (int) $failstudents[2]->id,
+            'name' => 'Failure claimant',
+            'state' => state::FIRM,
+            'guideid' => (int) $failguide->id,
+            'timeapproved' => time(),
+            'coregroupid' => $coreid,
+        ]);
+        $failedsync = freeze::sync_core_group($failactivity, (int) $failgroup->id, (int) $failguide->id);
+        $this->assertDebuggingCalled();
+        $this->assertSame('failed', $failedsync->status);
+        $failrow = $this->report_row($failactivity, (int) $failgroup->id, [
+            'lastfailure' => time(),
+            'lastsuccess' => 0,
+        ]);
+        $this->assertSame('failed', $failrow->status);
+        $this->assertGreaterThan(0, $failrow->lastsynctime);
+    }
+
+    /**
+     * The report's door is wider than :manage, and its Back target
+     * follows the same reach: a viewall-only auditor goes back to the
+     * activity landing page rather than manage.php.
+     *
+     * MUTATION CAUGHT (run): back_url() always returned manage.php; the
+     * viewall-only role was sent to a page it could not open.
+     */
+    public function test_viewall_only_user_may_read_report_and_gets_reachable_back_link(): void {
+        $this->resetAfterTest();
+
+        [$activity] = $this->setup_team();
+        $auditor = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($auditor->id, $activity->courseid(), 'student');
+        $roleid = create_role('Mirror auditor', 'mirrorauditor', 'Mirror auditor');
+        assign_capability('mod/selfselectadvanced:viewall', CAP_ALLOW, $roleid, $activity->context()->id, true);
+        role_assign($roleid, (int) $auditor->id, $activity->context()->id);
+
+        $this->assertTrue(\mod_selfselectadvanced\local\authority::may_core_sync_report($activity, (int) $auditor->id));
+        $this->assertFalse(has_capability('mod/selfselectadvanced:manage', $activity->context(), (int) $auditor->id));
+        $this->assertStringContainsString(
+            '/mod/selfselectadvanced/view.php',
+            \mod_selfselectadvanced\local\coresync_backfill::back_url($activity, (int) $auditor->id)->out(false)
+        );
+    }
+
+    /**
+     * The name/project-id filter belongs to the SQL WHERE clause. A
+     * selective count issues one bounded query; it does not fetch every
+     * team and array_filter() them in PHP.
+     *
+     * MUTATION CAUGHT (run): count_rows() ignored the q filter; the
+     * selective count returned every firm team in the activity.
+     */
+    public function test_report_filter_counts_in_sql_without_reading_every_team(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        [$activity, $group, $students] = $this->setup_team();
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        for ($i = 0; $i < 40; $i++) {
+            $plugingen->create_group([
+                'activityid' => $activity->id(),
+                'leaderid' => (int) $students[2]->id,
+                'name' => 'Bulk ' . $i,
+                'state' => state::FIRM,
+                'timeapproved' => time(),
+            ]);
+        }
+        $DB->set_field('selfselectadvanced_group', 'name', 'Only Needle', ['id' => (int) $group->id]);
+
+        $before = $DB->perf_get_reads();
+        $count = coresync_report_table::count_rows($activity, ['q' => 'Needle']);
+        $reads = $DB->perf_get_reads() - $before;
+
+        $this->assertSame(1, $count);
+        $this->assertLessThan(5, $reads, 'the filtered count fetched rows instead of counting in SQL');
     }
 
     /**

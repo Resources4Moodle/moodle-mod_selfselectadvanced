@@ -157,10 +157,16 @@ $links = [
     ['guidelist.php', 'guidelist', ['mod/selfselectadvanced:viewall']],
     ['roster.php', 'roster', ['mod/selfselectadvanced:viewall']],
     ['gridreport.php', 'gridreport', ['mod/selfselectadvanced:viewall']],
+    ['coresync.php', 'coresyncreport', ['mod/selfselectadvanced:manage',
+        'mod/selfselectadvanced:coordinate', 'mod/selfselectadvanced:viewall']],
 ];
 $linkhtml = '';
 foreach ($links as [$file, $stringkey, $caps]) {
-    if (!has_any_capability($caps, $context)) {
+    if (
+        $file === 'coresync.php'
+            ? !\mod_selfselectadvanced\local\authority::may_core_sync_report($activity, (int) $USER->id)
+            : !has_any_capability($caps, $context)
+    ) {
         continue;
     }
     $linkhtml .= html_writer::link(

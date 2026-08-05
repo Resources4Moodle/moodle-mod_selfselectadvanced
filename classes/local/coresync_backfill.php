@@ -28,6 +28,71 @@ use stdClass;
  */
 final class coresync_backfill {
     /**
+     * Build one report row from SQL-paged team data.
+     *
+     * This is the status page's engine-side interpretation. The
+     * renderer receives the outcome from here; it does not compute a
+     * parallel drift or status vocabulary.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $row group row, optionally carrying livecoregroupid and last event times
+     * @return stdClass report row
+     */
+    public static function report_row(activity $activity, stdClass $row): stdClass {
+        $coregroupid = (int) ($row->livecoregroupid ?? $row->coregroupid ?? 0);
+        $group = clone $row;
+        $group->coregroupid = $coregroupid ?: null;
+
+        $drift = $coregroupid ? freeze::drift($group) : ['extra' => [], 'missing' => [], 'repairable' => []];
+        $lastsuccess = (int) ($row->lastsuccess ?? 0);
+        $lastfailure = (int) ($row->lastfailure ?? 0);
+        if ($lastfailure > $lastsuccess) {
+            $status = 'failed';
+        } else if (!$coregroupid) {
+            $status = 'nomirror';
+        } else {
+            $status = 'synced';
+        }
+
+        $parts = [];
+        if (!$coregroupid) {
+            $parts[] = get_string('coresyncdriftnomirror', 'mod_selfselectadvanced');
+        }
+        if (!empty($drift['repairable'])) {
+            $parts[] = get_string('coresyncdriftrepairable', 'mod_selfselectadvanced', count($drift['repairable']));
+        }
+        if (!empty($drift['extra'])) {
+            $parts[] = get_string('coresyncdriftextra', 'mod_selfselectadvanced', count($drift['extra']));
+        }
+        if (!$parts) {
+            $parts[] = get_string('coresyncdriftinstep', 'mod_selfselectadvanced');
+        }
+
+        return (object) [
+            'status' => $status,
+            'coregroupid' => $coregroupid,
+            'pluginmembercount' => count(freeze::expected_core_members($group)),
+            'coremembercount' => (int) ($row->coremembercount ?? 0),
+            'drift' => $drift,
+            'driftlabel' => implode('; ', $parts),
+            'lastsynctime' => max($lastsuccess, $lastfailure),
+        ];
+    }
+
+    /**
+     * Back target for the status page.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the person viewing
+     * @return \moodle_url reachable back link
+     */
+    public static function back_url(activity $activity, int $actorid): \moodle_url {
+        $target = has_capability(authority::MANAGE, $activity->context(), $actorid) ? 'manage.php' : 'view.php';
+
+        return new \moodle_url('/mod/selfselectadvanced/' . $target, ['id' => $activity->cm()->id]);
+    }
+
+    /**
      * Run the mirror sweep.
      *
      * @param array $options dryrun, courseid, activityid, actorid

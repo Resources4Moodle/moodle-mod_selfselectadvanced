@@ -67,6 +67,9 @@ final class authority {
     /** @var string Work the coordinator ticket queue (strategy 1.16 D). */
     public const COORDINATE = 'mod/selfselectadvanced:coordinate';
 
+    /** @var string See all teams and reports in the activity. */
+    public const VIEWALL = 'mod/selfselectadvanced:viewall';
+
     /**
      * May this actor act as a team leader in this activity?
      *
@@ -244,5 +247,43 @@ final class authority {
             return;
         }
         require_capability(self::RESPOND, $context, $actorid);
+    }
+
+    /**
+     * May this actor open the core-group mirror status report?
+     *
+     * One predicate for the report's door and every navigation link to
+     * it: managers, coordinators and least-privilege auditors can all
+     * diagnose mirror drift, and site administrators arrive through
+     * the same capability system rather than a separate doanything arm.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the person acting
+     * @return bool true when they may read the report
+     */
+    public static function may_core_sync_report(activity $activity, int $actorid): bool {
+        $context = $activity->context();
+
+        return has_capability(self::MANAGE, $context, $actorid)
+            || has_capability(self::COORDINATE, $context, $actorid)
+            || has_capability(self::VIEWALL, $context, $actorid);
+    }
+
+    /**
+     * Refuse unless this actor may open the core-group mirror status report.
+     *
+     * @param activity $activity the activity
+     * @param int $actorid the person acting
+     * @throws \required_capability_exception when none of the report capabilities is effective
+     */
+    public static function require_core_sync_report(activity $activity, int $actorid): void {
+        $context = $activity->context();
+        if (
+            has_capability(self::MANAGE, $context, $actorid)
+                || has_capability(self::COORDINATE, $context, $actorid)
+        ) {
+            return;
+        }
+        require_capability(self::VIEWALL, $context, $actorid);
     }
 }

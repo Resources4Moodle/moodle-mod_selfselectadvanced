@@ -357,6 +357,19 @@ class freeze {
                 'Core-group sync failed for plugin group ' . $groupid . ': ' . $e->getMessage(),
                 DEBUG_DEVELOPER
             );
+            $eventdata = [
+                'objectid' => (int) $groupid,
+                'context' => $activity->context(),
+                'other' => [
+                    'pluginuid' => (string) ($group->pluginuid ?? $groupid),
+                    'coregroupid' => (int) ($coregroupid ?? $result->coregroupid ?? 0),
+                    'error' => $e->getMessage(),
+                ],
+            ];
+            if ($actorid > 0) {
+                $eventdata['userid'] = $actorid;
+            }
+            \mod_selfselectadvanced\event\coregroup_sync_failed::create($eventdata)->trigger();
 
             // Queue the convergence job even here. group.php's manual
             // resync was the ONE sync entry point with no adhoc behind
