@@ -1760,5 +1760,26 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080604, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080605) {
+        // Marker-only release step: the feasibility bound now counts the
+        // INTERACTION of a value-minimum and a distinct-minimum on one
+        // dimension (maintainer's live find, 2026-08-06): fills that
+        // repeat a required value introduce at most one new distinct
+        // value each, so the bound is the shortfall sum plus whatever
+        // the fills cannot supply of the distinct shortfall, not their
+        // max. Under-counting had admitted a second same-department
+        // member into a team whose completion thereby became a dead
+        // end. No schema change; the marker proves this code release
+        // executed.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.13 (2026080605). Feasibility counts the value-distinct rule interaction.',
+            'No schema change. Records the corrected per-dimension bound in the quota evaluator.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080605, 'selfselectadvanced');
+    }
+
     return true;
 }

@@ -231,15 +231,38 @@ class evaluator {
         ));
         foreach ($dimensions as $dimension) {
             $sum = 0;
+            $newvalues = 0;
             $values = array_unique(array_merge(
                 array_keys($seatdemand[$dimension] ?? []),
                 array_keys($rulemin[$dimension] ?? [])
             ));
             foreach ($values as $value) {
                 $required = max($seatdemand[$dimension][$value] ?? 0, $rulemin[$dimension][$value] ?? 0);
-                $sum += max(0, $required - ($present[$dimension][$value] ?? 0));
+                $short = max(0, $required - ($present[$dimension][$value] ?? 0));
+                $sum += $short;
+                if ($short > 0 && ($present[$dimension][$value] ?? 0) === 0) {
+                    // Filling this shortfall INTRODUCES the value to the
+                    // roster, so it counts once toward a distinct rule.
+                    $newvalues++;
+                }
             }
-            $dimbound = max($dimbound, $sum, $distinctbound[$dimension] ?? 0);
+            // A value-minimum and a distinct-minimum on ONE dimension
+            // INTERACT; taking their max under-counted (maintainer's
+            // live find, 2026-08-06, group 42 of "MDP Teams of Five":
+            // two same-department members were admitted into "between 2
+            // and 2 of SCOPE plus at least 4 distinct departments" with
+            // three seats left - but the two required SCOPE members
+            // introduce only ONE new distinct value, so the true need
+            // was 2 + 2 = 4 seats into 3, a dead end this engine's own
+            // docblock promises to prevent). The bound is therefore the
+            // SUM of the per-value shortfalls plus however much of the
+            // distinct shortfall those fills cannot themselves supply.
+            // With no distinct rule the second term is zero and the old
+            // arithmetic is unchanged; with no value rules the first is
+            // zero and the distinct bound stands alone, exactly as
+            // before.
+            $distinctremaining = max(0, ($distinctbound[$dimension] ?? 0) - $newvalues);
+            $dimbound = max($dimbound, $sum + $distinctremaining);
         }
 
         $slotresult = slots::evaluate_from_data($template, $memberids, $attrs);
