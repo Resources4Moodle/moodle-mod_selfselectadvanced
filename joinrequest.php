@@ -478,8 +478,14 @@ if ($tab === 'ask') {
                 $acceptattrs['disabled'] = 'disabled';
                 $acceptattrs['title'] = $decision->hardreason;
             } else if ($decision->confirmacceptrequired) {
+                // Decision 60: when only pending invitations are
+                // affected, no rule is broken and the dialog must not
+                // claim one is.
+                $confirmkey = $decision->autobypassrules === [] && $decision->consentnotes !== []
+                    ? 'joinacceptconsent'
+                    : 'joinacceptconfirm';
                 $acceptattrs['onclick'] = 'return confirm(' . json_encode(
-                    get_string('joinacceptconfirm', 'mod_selfselectadvanced')
+                    get_string($confirmkey, 'mod_selfselectadvanced')
                 ) . ');';
             }
             $form = html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false),

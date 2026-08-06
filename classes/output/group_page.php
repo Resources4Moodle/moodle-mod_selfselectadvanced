@@ -319,6 +319,29 @@ class group_page implements renderable, templatable {
                 $invite->hasdepartment = $department !== '';
                 $invite->hassubdepartment = $subdepartment !== '';
                 $invite->noattributes = $department === '' && $subdepartment === '';
+                // Decision 60: an invitation the roster has outgrown is
+                // not auto-declined - a departure can make it valid
+                // again, and the leader holds withdraw - but it must
+                // not LOOK acceptable when it is not. The same
+                // present-violation question every door asks, asked
+                // per pending invitee.
+                $invite->blocked = false;
+                $invite->blockedreason = '';
+                if (!$invite->declined) {
+                    $door = \mod_selfselectadvanced\local\fit::door_verdict(
+                        $this->api->activity(),
+                        $this->group,
+                        (int) $invite->userid
+                    );
+                    if ($door->hardmax !== null) {
+                        $invite->blocked = true;
+                        $invite->blockedreason = get_string(
+                            'invitationcurrentlyblocked',
+                            'mod_selfselectadvanced',
+                            $door->hardmax
+                        );
+                    }
+                }
             }
         }
 
@@ -700,7 +723,14 @@ class group_page implements renderable, templatable {
                         'hardreason' => (string) $decision->hardreason,
                         'confirmationrequired' => (bool) $decision->confirmationrequired,
                         'confirmacceptrequired' => (bool) $decision->confirmacceptrequired,
-                        'confirmacceptmessage' => get_string('joinacceptconfirm', 'mod_selfselectadvanced'),
+                        // Decision 60: when nothing needs bypassing -
+                        // the engine will commit, only pending
+                        // invitations are affected - the dialog must
+                        // not say a rule is broken, because none is.
+                        'confirmacceptmessage' => $decision->autobypassrules === []
+                            && $decision->consentnotes !== []
+                            ? get_string('joinacceptconsent', 'mod_selfselectadvanced')
+                            : get_string('joinacceptconfirm', 'mod_selfselectadvanced'),
                         'seatline' => $verdict->seat !== null
                             ? get_string('joinfitseat', 'mod_selfselectadvanced', $verdict->seat)
                             : '',

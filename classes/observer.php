@@ -144,6 +144,89 @@ class observer {
     }
 
     /**
+     * A course-level suspension must not turn into a rules violation
+     * for a SETTLED team (maintainer decision 61, 2026-08-06).
+     *
+     * The institution suspends a student after their team was approved
+     * by its guide or frozen by staff. The member row stays - core
+     * keeps their groups and so do we - but a FIRM or FROZEN team is
+     * re-validated on FULL COMPLIANCE, so the next move touching it
+     * would refuse the whole team over a fact none of them control.
+     * The engine therefore grants the exemption ITSELF: a group-scope
+     * quotaexempt override, written the moment the suspension lands.
+     *
+     * Deliberate boundaries, each the maintainer's call:
+     *  - FORMING and PENDING_GUIDE teams get nothing: they can still
+     *    rebuild, and a guide judging a submission sees the roster as
+     *    it is.
+     *  - The override PERSISTS through unsuspension. Retracting a
+     *    waiver by side effect under a settled team is worse than
+     *    leaving staff one row to delete.
+     *  - The actor recorded is the site administrator: this row is the
+     *    SYSTEM's reaction to an institutional fact, not a favour a
+     *    staff member granted, and the involvement guard on
+     *    store::save() is asked about an actor who cannot be involved.
+     *    Core's own logs keep who performed the suspension.
+     *  - store::save() merges per-field, so a staff-set minsize or
+     *    maxsize override on the same group survives untouched, and a
+     *    repeat suspension is a no-op on a row already exempt.
+     *
+     * @param \core\event\user_enrolment_updated $event the enrolment change
+     */
+    public static function user_enrolment_updated(\core\event\user_enrolment_updated $event): void {
+        global $DB;
+
+        $userid = (int) $event->relateduserid;
+        $courseid = (int) $event->courseid;
+        if (!$userid || !$courseid) {
+            return;
+        }
+        $coursecontext = \context_course::instance($courseid, IGNORE_MISSING);
+        if (!$coursecontext) {
+            return;
+        }
+        // Suspended = still enrolled, no longer ACTIVELY enrolled. Both
+        // asked of the whole course, not the one enrolment instance the
+        // event is about: a student with a second live enrolment is not
+        // suspended in any sense a team should be compensated for, and
+        // an unsuspension fails this test and correctly does nothing.
+        if (!is_enrolled($coursecontext, $userid) || is_enrolled($coursecontext, $userid, '', true)) {
+            return;
+        }
+
+        $rows = $DB->get_records_sql(
+            "SELECT g.id AS groupid, g.activityid
+               FROM {selfselectadvanced_member} m
+               JOIN {selfselectadvanced_group} g ON g.id = m.groupid
+               JOIN {selfselectadvanced} s ON s.id = g.activityid AND s.course = :courseid
+              WHERE m.userid = :userid AND m.status = :confirmed
+                AND g.state IN (:firm, :frozen)",
+            [
+                'courseid' => $courseid,
+                'userid' => $userid,
+                'confirmed' => local\groups::STATUS_CONFIRMED,
+                'firm' => local\state::FIRM,
+                'frozen' => local\state::FROZEN,
+            ]
+        );
+        if (!$rows) {
+            return;
+        }
+
+        $actorid = (int) get_admin()->id;
+        foreach ($rows as $row) {
+            $activity = activity::from_instance((int) $row->activityid);
+            \mod_selfselectadvanced\local\override\store::save(
+                $activity,
+                'group',
+                (int) $row->groupid,
+                ['quotaexempt' => 1],
+                $actorid
+            );
+        }
+    }
+
+    /**
      * A user lost an enrolment: when it was their LAST one in the
      * course, they cannot hold a seat any more, so every live
      * membership they hold in that course's activities is dropped -

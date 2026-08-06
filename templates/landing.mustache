@@ -146,6 +146,11 @@
                         <span class="text-muted small ms-2">{{pluginuid}}</span>
                         <span class="d-block small">{{title}}</span>
                         <span class="d-block small text-muted">{{seatsummary}}</span>
+                        {{#blocked}}
+                            <span class="d-block small text-danger selfselectadvanced-invitation-blocked">
+                                {{blockedreason}}
+                            </span>
+                        {{/blocked}}
                     </span>
                     <span class="text-end">
                         {{#mayrespond}}

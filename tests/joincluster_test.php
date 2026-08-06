@@ -329,13 +329,15 @@ final class joincluster_test extends \advanced_testcase {
         $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
         // Since 1.20.8 both surfaces name the shortfall precisely - how
         // many more suitable members are needed and how many seats are
-        // left - instead of the older, vaguer "would not meet its
-        // composition rules". ONE sentence, computed once here, so this
-        // test fails if the two surfaces ever drift apart again.
+        // left - and since decision 60 the door's sentence also names
+        // the TEAM it refuses about, because the extra-membership test
+        // below demands a refusal that names its team. ONE sentence,
+        // computed once here, so this test fails if the two surfaces
+        // ever drift apart again.
         $expected = get_string(
-            'refusalcompositionunreachable',
+            'refusalcompositionunreachableteam',
             'mod_selfselectadvanced',
-            (object) ['missing' => 2, 'free' => 0]
+            (object) ['name' => 'Beta', 'missing' => 2, 'free' => 0]
         );
 
         $verdict = fit::for_person($activity, $beta, (int) $wanderer->id, $request);

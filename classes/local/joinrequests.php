@@ -67,6 +67,9 @@ class joinrequests {
         'refusalinviteecap' => 'L4',
     ];
 
+    /** @var string[] Gatekeeper composition keys owned by fit::door_verdict() on this door. */
+    private const COMPOSITION_KEYS = ['refusalcompositionmax', 'refusalcompositionunreachable'];
+
     /**
      * Whether accepting this request is live, blocked, or needs a confirmation.
      *
@@ -74,10 +77,14 @@ class joinrequests {
      * state cannot drift from the service path. Hard stops are the
      * cases acceptance cannot safely repair: no target seat, duplicate
      * target membership/invitation, an additional membership over the
-     * student's cap, stale source membership and a source leader who
-     * would need a successor the join-request workflow cannot name.
-     * Composition and quota mismatches are warnings; a confirmed accept
-     * routes them through the move engine's existing move-scope bypass.
+     * student's cap, stale source membership, a source leader who
+     * would need a successor the join-request workflow cannot name -
+     * and, since decision 60, a composition maximum that CONFIRMED
+     * members plus this student would violate, which only the staff
+     * override may pass. An engine-refused reachability mismatch stays
+     * a confirmable warning routed through the move engine's
+     * move-scope bypass; a maximum that only pending invitations push
+     * over is a consent note that bypasses nothing.
      *
      * @param activity $activity the activity
      * @param stdClass $request the join-request row
@@ -85,7 +92,8 @@ class joinrequests {
      * @param stdClass|null $target the target group when the caller already has it
      * @return stdClass {canaccept: bool, hardreason: string, hardkey: string,
      *                  warnings: string[], confirmationrequired: bool, bypassrules: string[],
-     *                  autobypassrules: string[], confirmacceptrequired: bool}
+     *                  autobypassrules: string[], confirmacceptrequired: bool,
+     *                  consentnotes: string[]}
      */
     public static function accept_decision(
         activity $activity,
@@ -106,6 +114,7 @@ class joinrequests {
             'bypassrules' => [],
             'autobypassrules' => [],
             'confirmacceptrequired' => false,
+            'consentnotes' => [],
         ];
         $hard = static function (string $reason, string $key) use ($decision): void {
             if ($decision->hardreason === '') {
@@ -148,6 +157,19 @@ class joinrequests {
             }
             if ($rule !== '' && !in_array($rule, $decision->autobypassrules, true)) {
                 $decision->autobypassrules[] = $rule;
+            }
+        };
+        // Consent, not bypass: the decider must confirm they read it,
+        // but NO rule code travels with it - the engine will pass this
+        // acceptance unaided, and until decision 60 this tier wrote a
+        // QUOTA override row for a verdict that never refused, a record
+        // claiming a bypass that bypassed nothing.
+        $consent = static function (string $note) use ($decision): void {
+            if ($note !== '' && !in_array($note, $decision->warnings, true)) {
+                $decision->warnings[] = $note;
+            }
+            if ($note !== '' && !in_array($note, $decision->consentnotes, true)) {
+                $decision->consentnotes[] = $note;
             }
         };
 
@@ -209,8 +231,12 @@ class joinrequests {
             if ($refusal->stringkey === 'refusalinviteecap' && $source !== null) {
                 continue;
             }
-            if (in_array($refusal->stringkey, ['refusalcompositionmax', 'refusalcompositionunreachable'], true)) {
-                $warn($refusal->get_message(), 'QUOTA');
+            if (in_array($refusal->stringkey, self::COMPOSITION_KEYS, true)) {
+                // Composition is judged by fit::door_verdict() below -
+                // one evaluator for every door (decision 60). The
+                // gatekeeper's own composition answer is the INVITE
+                // door's, measured over a projection this door must
+                // not confuse with the present.
                 continue;
             }
             if (isset(self::OVERRIDEABLE_HARD_RULES[$refusal->stringkey])) {
@@ -224,14 +250,32 @@ class joinrequests {
             $hard($refusal->get_message(), $refusal->stringkey);
         }
 
-        $quota = fit::accept_composition_refusal(
+        // Decision 60, from the maintainer's live breach of 2026-08-06:
+        // a maximum that CONFIRMED members plus this student would
+        // violate is a present violation - the ordinary decider meets a
+        // hard stop, and only the deliberate staff override (decision 6,
+        // :overriderules, written reason, logged event) can pass it. A
+        // refusal the ENGINE will raise stays a confirmable warning as
+        // before. A maximum that only PENDING INVITATIONS push over
+        // blocks nothing and bypasses nothing - the decider proceeds
+        // informed that those invitations can no longer be accepted.
+        // Until this change all three cases were one overridable
+        // warning, and "Accept anyway?" admitted a third SCOPE member
+        // into a team of at-most-two four seconds after an invitation
+        // acceptance had filled the cap.
+        $door = fit::door_verdict(
             $activity,
             $target,
             (int) $request->userid,
             $source !== null ? (int) $source->id : null
         );
-        if ($quota !== null) {
-            $warn($quota, 'QUOTA');
+        if ($door->hardmax !== null) {
+            $overrideablehard($door->hardmax, (string) $door->hardmaxkey, 'QUOTA');
+        } else if ($door->engine !== null) {
+            $warn($door->engine, 'QUOTA');
+        }
+        foreach ($door->consent as $note) {
+            $consent($note);
         }
 
         $decision->bypassrules = array_values(array_unique(array_intersect(
@@ -243,7 +287,8 @@ class joinrequests {
             $decision->autobypassrules
         )));
         $decision->confirmationrequired = $decision->canaccept && $decision->bypassrules !== [];
-        $decision->confirmacceptrequired = $decision->canaccept && $decision->autobypassrules !== [];
+        $decision->confirmacceptrequired = $decision->canaccept
+            && ($decision->autobypassrules !== [] || $decision->consentnotes !== []);
 
         return $decision;
     }
@@ -891,7 +936,7 @@ class joinrequests {
                     $decision->hardreason
                 );
             }
-            if ($decision->autobypassrules !== [] && !$acceptconfirmed) {
+            if (($decision->autobypassrules !== [] || $decision->consentnotes !== []) && !$acceptconfirmed) {
                 throw new \moodle_exception(
                     'refusaljoinrules',
                     'mod_selfselectadvanced',

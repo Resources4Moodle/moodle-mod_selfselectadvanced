@@ -182,7 +182,29 @@ class landing implements renderable, templatable {
                     'status' => groups::STATUS_INVITED,
                 ]) as $group
             ) {
-                $data->myinvitations[] = $this->export_group_row($group, $cmid);
+                $row = $this->export_group_row($group, $cmid);
+                // Decision 60: an invitation the roster has outgrown is
+                // listed - the team is still waiting on this student -
+                // but the student is told the truth about the Accept
+                // button before clicking it, in the same sentence the
+                // gate would refuse them with. The invitation revives
+                // by itself if a seat-holder leaves.
+                $row->blocked = false;
+                $row->blockedreason = '';
+                $door = \mod_selfselectadvanced\local\fit::door_verdict(
+                    $activity,
+                    $group,
+                    $this->userid
+                );
+                if ($door->hardmax !== null) {
+                    $row->blocked = true;
+                    $row->blockedreason = get_string(
+                        'invitationcurrentlyblocked',
+                        'mod_selfselectadvanced',
+                        $door->hardmax
+                    );
+                }
+                $data->myinvitations[] = $row;
             }
             $data->hasmyinvitations = !empty($data->myinvitations);
             // The ACCEPT and DECLINE controls, gated on the capability

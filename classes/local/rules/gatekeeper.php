@@ -345,10 +345,45 @@ class gatekeeper {
             return new refusal('refusalnoseats');
         }
 
-        // The roster may have changed since the invitation: re-check
-        // that this acceptance keeps the composition reachable (the
-        // acceptor already sits in the invited basis, so no candidate).
-        return $this->check_composition_feasibility($group, null);
+        // The roster may have changed since the invitation. Decision 60:
+        // the only composition question an ACCEPTANCE answers is the
+        // present-violation one - would confirmed members plus me
+        // violate a maximum? Asked over confirmed + self and nobody
+        // else, because the previous basis (confirmed + every pending
+        // invitee) let OTHER people's unanswered invitations block a
+        // legitimate first acceptance: one confirmed SCOPE, two pending
+        // SCOPE, a cap of two - and neither invitee could accept the
+        // seat that one of them was entitled to. First to accept takes
+        // it; the second now meets the same hard answer every door
+        // gives.
+        $door = \mod_selfselectadvanced\local\fit::door_verdict(
+            $this->activity,
+            $group,
+            (int) $member->userid,
+            null,
+            $this->resolver
+        );
+        if ($door->hardmax !== null) {
+            return new refusal((string) $door->hardmaxkey, $door->hardmaxa);
+        }
+
+        // Reachability IS still re-asked, over the full invited basis,
+        // because the ACCEPTOR'S OWN ROW can have drifted since the
+        // invitation - attributes change, and a member who became a
+        // duplicate of a filled seat makes compliant completion
+        // unreachable (the pinned roster-drift property). What is NOT
+        // honoured here is the full basis's maximum: that is the other
+        // invitees' pending rows, and refusing on it was the mirror
+        // defect decision 60 closed. When a maximum is over on the
+        // projection the scan stops there and `missing` is a partial
+        // figure anyway - refusing on it would be the vacuous check
+        // this plugin does not ship.
+        $full = $this->check_composition_feasibility($group, null);
+        if ($full !== null && $full->stringkey === 'refusalcompositionunreachable') {
+            return $full;
+        }
+
+        return null;
     }
 
     /**

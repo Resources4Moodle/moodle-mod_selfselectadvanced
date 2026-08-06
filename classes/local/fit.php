@@ -185,6 +185,14 @@ class fit {
         $refusal = (new api($activity))->gatekeeper()->can_invite($group, $userid);
         $fits = $refusal === null;
         $caution = $refusal !== null ? $refusal->get_message() : '';
+        // Whether a NO below is a composition answer. The door verdict
+        // for a live request may only replace composition answers - a
+        // full team or an exhausted membership cap is not its question.
+        $compositional = $refusal !== null && in_array(
+            $refusal->stringkey,
+            ['refusalcompositionmax', 'refusalcompositionunreachable'],
+            true
+        );
 
         if ($refusal !== null && $refusal->stringkey === 'refusalcompositionmax') {
             // Decision 53: re-ask the composition question with the
@@ -237,23 +245,46 @@ class fit {
             if ($others !== []) {
                 $fits = false;
                 $caution = $others[0]->get_message();
+                $compositional = in_array(
+                    $others[0]->stringkey,
+                    ['refusalcompositionmax', 'refusalcompositionunreachable'],
+                    true
+                );
             } else {
                 $verdict = self::composition_verdict_for_group($activity, $group, $userid);
                 $fits = $verdict->fits;
                 $caution = $verdict->caution;
+                $compositional = true;
                 if ($verdict->warning !== '') {
                     $answer->warnings[] = $verdict->warning;
                 }
             }
         }
 
-        if ($fits && $request !== null) {
+        if ($request !== null) {
             // What ACCEPTING would do, asked here so the column and the
-            // button cannot disagree.
-            $blocked = self::accept_composition_refusal($activity, $group, $userid, $sourcegroupid);
-            if ($blocked !== null) {
+            // button cannot disagree. For a live request the DOOR owns
+            // every composition answer - one voice means the button's
+            // voice, in its exact sentence. A refusal that is not about
+            // composition (a full team, an exhausted cap) stands
+            // untouched: the door has no opinion on it.
+            $door = self::door_verdict($activity, $group, $userid, $sourcegroupid);
+            if ($door->hardmax !== null) {
                 $fits = false;
-                $caution = $blocked;
+                $caution = $door->hardmax;
+            } else if ($door->engine !== null) {
+                $fits = false;
+                $caution = $door->engine;
+            } else if ($compositional && !$fits) {
+                $fits = true;
+                $caution = '';
+            }
+            if ($door->hardmax === null && $door->engine === null) {
+                foreach ($door->consent as $note) {
+                    if (!in_array($note, $answer->warnings, true)) {
+                        $answer->warnings[] = $note;
+                    }
+                }
             }
         }
 
@@ -303,30 +334,14 @@ class fit {
         int $userid,
         ?int $sourcegroupid
     ): ?string {
-        $resolver = new resolver($activity);
+        // A thin reading of door_verdict(), kept so the callers that
+        // only need "would the engine refuse, and in what words" do not
+        // each re-derive the answer - that is how the three copies of
+        // 2026-08-06 happened. Consent notes are deliberately absent:
+        // this contract is null-means-the-engine-commits.
+        $door = self::door_verdict($activity, $target, $userid, $sourcegroupid);
 
-        if (!$resolver->is_quota_exempt((int) $target->id)->enabled) {
-            if (!self::quota_ok_after($activity, $target, [$userid], [], $resolver)) {
-                return get_string(
-                    'refusaljoinquotatarget',
-                    'mod_selfselectadvanced',
-                    format_string($target->name)
-                );
-            }
-        }
-
-        if ($sourcegroupid !== null && !$resolver->is_quota_exempt($sourcegroupid)->enabled) {
-            $source = groups::get($activity, $sourcegroupid);
-            if (!self::quota_ok_after($activity, $source, [], [$userid], $resolver)) {
-                return get_string(
-                    'refusaljoinquotasource',
-                    'mod_selfselectadvanced',
-                    format_string($source->name)
-                );
-            }
-        }
-
-        return null;
+        return $door->hardmax ?? $door->engine;
     }
 
     /**
@@ -411,28 +426,7 @@ class fit {
     ): stdClass {
         global $DB;
 
-        $confirmed = [];
-        $invited = [];
-        [$insql, $params] = $DB->get_in_or_equal(
-            [groups::STATUS_CONFIRMED, groups::STATUS_INVITED],
-            SQL_PARAMS_NAMED,
-            'st'
-        );
-        $params['groupid'] = (int) $group->id;
-        $rows = $DB->get_records_select(
-            'selfselectadvanced_member',
-            "groupid = :groupid AND status $insql",
-            $params,
-            '',
-            'id, userid, status'
-        );
-        foreach ($rows as $row) {
-            if ($row->status === groups::STATUS_CONFIRMED) {
-                $confirmed[] = (int) $row->userid;
-            } else {
-                $invited[] = (int) $row->userid;
-            }
-        }
+        [$confirmed, $invited] = self::roster((int) $group->id);
 
         $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $activity->id()], 'priority ASC');
         $template = slots::get_all($activity);
@@ -589,11 +583,41 @@ class fit {
         stdClass $entry,
         bool $hard
     ): string {
+        $payload = self::max_payload($rules, $confirmedids, $invitedids, $userid, $attrs, $entry, $hard);
+
+        return get_string($payload->key, 'mod_selfselectadvanced', $payload->a);
+    }
+
+    /**
+     * The string key and parameter object behind max_message(), for the
+     * callers that need a structured refusal instead of a sentence -
+     * gatekeeper refusals carry {stringkey, a} so the UI can render them
+     * beside a disabled control.
+     *
+     * @param stdClass[] $rules the activity's quota rules, priority order
+     * @param int[] $confirmedids confirmed members, candidate excluded
+     * @param int[] $invitedids members holding a pending invitation
+     * @param int $userid the candidate
+     * @param stdClass[] $attrs attributes keyed by user id
+     * @param stdClass $entry the evaluator's maxexceeded entry {value, max, current}
+     * @param bool $hard true for the refusal, false for the advisory warning
+     * @return stdClass {key: string, a: stdClass}
+     */
+    private static function max_payload(
+        array $rules,
+        array $confirmedids,
+        array $invitedids,
+        int $userid,
+        array $attrs,
+        stdClass $entry,
+        bool $hard
+    ): stdClass {
         $rule = self::rule_behind($rules, $entry);
         if ($rule === null) {
-            return $hard
-                ? get_string('refusalcompositionmax', 'mod_selfselectadvanced', $entry)
-                : get_string('cautioncompositionmaxpendingplain', 'mod_selfselectadvanced', $entry);
+            return (object) [
+                'key' => $hard ? 'refusalcompositionmax' : 'cautioncompositionmaxpendingplain',
+                'a' => $entry,
+            ];
         }
 
         $confirmed = self::holders($confirmedids, $attrs, $rule->dimension, (string) $rule->value);
@@ -608,9 +632,227 @@ class fit {
             'wouldbe' => $hard ? $confirmed + $candidate : $confirmed + $pending + $candidate,
         ];
 
-        return $hard
-            ? get_string('refusalcompositionmaxconfirmed', 'mod_selfselectadvanced', $a)
-            : get_string('cautioncompositionmaxpending', 'mod_selfselectadvanced', $a);
+        return (object) [
+            'key' => $hard ? 'refusalcompositionmaxconfirmed' : 'cautioncompositionmaxpending',
+            'a' => $a,
+        ];
+    }
+
+    /**
+     * The one composition answer for a DOOR - any action that would turn
+     * this person into a CONFIRMED member of this team: a leader or
+     * guide accepting a join request, an invitee accepting their own
+     * invitation. Decision 60, from the maintainer's live test of
+     * 2026-08-06:
+     *
+     *   A decision may leave a team unfinished - it must never leave it
+     *   in violation. A composition maximum measured on CONFIRMED
+     *   members plus the person entering is a hard refusal at every
+     *   door. A maximum exceeded only when PENDING INVITATIONS are
+     *   counted never blocks a door - it informs, naming the pending
+     *   invitations that can no longer be accepted.
+     *
+     * Three tiers come back, disjoint by construction:
+     *
+     *  - hardmax: admitting this person violates a maximum COUNTING ONLY
+     *    CONFIRMED members. Nothing the leader can do today shrinks that
+     *    roster, so this is a present violation, not a projection. The
+     *    key/a pair is exposed alongside the sentence so gatekeeper
+     *    refusals can carry it structurally.
+     *  - engine: what the move engine itself will refuse - a FORMING
+     *    team whose compliant completion this admission makes
+     *    unreachable, a non-FORMING team the admission leaves
+     *    non-compliant, or a source team the departure breaks. Worded
+     *    here so every surface uses the engine's own figures.
+     *  - consent: nothing is violated and the engine will commit, but
+     *    the admission consumes capacity that pending invitations were
+     *    counting on: those invitees can no longer accept. The leader
+     *    proceeds informed, in these words - never "breaks a
+     *    composition rule", because per the maintainer's ruling it
+     *    breaks nothing.
+     *
+     * One evaluator for every door on purpose. On 2026-08-06 a leader
+     * accepted a walk-up four seconds after an invitation acceptance
+     * filled the last SCOPE seat, because this question lived in three
+     * places with three answers: the engine refused, the door called
+     * the refusal overridable, and the override was written.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $target the team being entered
+     * @param int $userid the person entering
+     * @param int|null $sourcegroupid the team a move would take them out of, or null
+     * @param resolver|null $resolver override resolver already in use, when available
+     * @return stdClass {hardmax: ?string, hardmaxkey: ?string, hardmaxa: mixed,
+     *                   engine: ?string, consent: string[], blockedinvitees: int[]}
+     */
+    public static function door_verdict(
+        activity $activity,
+        stdClass $target,
+        int $userid,
+        ?int $sourcegroupid = null,
+        ?resolver $resolver = null
+    ): stdClass {
+        global $DB;
+
+        $resolver = $resolver ?? new resolver($activity);
+        $verdict = (object) [
+            'hardmax' => null,
+            'hardmaxkey' => null,
+            'hardmaxa' => null,
+            'engine' => null,
+            'consent' => [],
+            'blockedinvitees' => [],
+        ];
+
+        if (!$resolver->is_quota_exempt((int) $target->id)->enabled) {
+            $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $activity->id()], 'priority ASC');
+            $template = slots::get_all($activity);
+            [$confirmed, $invited] = self::roster((int) $target->id);
+            $attrs = manager::get_for_users(array_merge($confirmed, $invited, [$userid]));
+            $maxsize = $resolver->effective_maxsize((int) $target->id)->value;
+
+            // The present-violation question: confirmed members plus
+            // this person, nobody else. Deduped - the person may
+            // already hold an invitation row.
+            $hardbasis = array_values(array_unique(array_merge($confirmed, [$userid])));
+            $hard = evaluator::feasibility_from_data($rules, $template, $hardbasis, $attrs);
+            if ($hard->maxexceeded !== null) {
+                $payload = self::max_payload($rules, $confirmed, $invited, $userid, $attrs, $hard->maxexceeded, true);
+                $verdict->hardmaxkey = $payload->key;
+                $verdict->hardmaxa = $payload->a;
+                $verdict->hardmax = get_string($payload->key, 'mod_selfselectadvanced', $payload->a);
+
+                return $verdict;
+            }
+
+            // The engine's question, asked through the engine's own
+            // predicate so this door and moves::quota_after() cannot
+            // drift: with no maximum over on the confirmed basis, a
+            // false here is a FORMING team made unfinishable or a
+            // non-FORMING team left non-compliant.
+            if (!self::quota_ok_after($activity, $target, [$userid], [], $resolver)) {
+                if ($target->state === state::FORMING) {
+                    $free = max(0, $maxsize - $hard->seated);
+                    $verdict->engine = get_string(
+                        'refusalcompositionunreachableteam',
+                        'mod_selfselectadvanced',
+                        (object) [
+                            'name' => format_string($target->name),
+                            'missing' => $hard->missing,
+                            'free' => $free,
+                        ]
+                    );
+                } else {
+                    $verdict->engine = get_string(
+                        'refusaljoinquotatarget',
+                        'mod_selfselectadvanced',
+                        format_string($target->name)
+                    );
+                }
+            } else if ($invited !== []) {
+                // The engine will commit. Does the admission consume
+                // capacity that pending invitations were counting on?
+                $full = evaluator::feasibility_from_data(
+                    $rules,
+                    $template,
+                    array_values(array_unique(array_merge($confirmed, $invited, [$userid]))),
+                    $attrs
+                );
+                if ($full->maxexceeded !== null) {
+                    foreach (array_values(array_unique($invited)) as $inviteeid) {
+                        $with = evaluator::feasibility_from_data(
+                            $rules,
+                            $template,
+                            array_values(array_unique(array_merge($confirmed, [$userid, $inviteeid]))),
+                            $attrs
+                        );
+                        if ($with->maxexceeded !== null) {
+                            $verdict->blockedinvitees[] = (int) $inviteeid;
+                        }
+                    }
+                    $verdict->consent[] = self::max_message(
+                        $rules,
+                        $confirmed,
+                        $invited,
+                        $userid,
+                        $attrs,
+                        $full->maxexceeded,
+                        false
+                    );
+                    $verdict->consent[] = get_string(
+                        'consentinvitationsblocked',
+                        'mod_selfselectadvanced',
+                        max(1, count($verdict->blockedinvitees))
+                    );
+                } else {
+                    // No maximum in play; do the invited seat
+                    // reservations leave too few free seats for the
+                    // remaining shortfall? The engine ignores
+                    // reservations, so this cannot refuse - but the
+                    // leader is told what the fit column tells them.
+                    $free = max(0, $maxsize - $full->seated);
+                    if ($full->missing > $free) {
+                        $verdict->consent[] = get_string(
+                            'refusalcompositionunreachable',
+                            'mod_selfselectadvanced',
+                            (object) ['missing' => $full->missing, 'free' => $free]
+                        );
+                    }
+                }
+            }
+        }
+
+        if (
+            $verdict->engine === null
+            && $sourcegroupid !== null
+            && !$resolver->is_quota_exempt($sourcegroupid)->enabled
+        ) {
+            $source = groups::get($activity, $sourcegroupid);
+            if (!self::quota_ok_after($activity, $source, [], [$userid], $resolver)) {
+                $verdict->engine = get_string(
+                    'refusaljoinquotasource',
+                    'mod_selfselectadvanced',
+                    format_string($source->name)
+                );
+            }
+        }
+
+        return $verdict;
+    }
+
+    /**
+     * A team's confirmed and invited member ids, one query.
+     *
+     * @param int $groupid the team
+     * @return array{0: int[], 1: int[]} [confirmed, invited]
+     */
+    private static function roster(int $groupid): array {
+        global $DB;
+
+        [$insql, $params] = $DB->get_in_or_equal(
+            [groups::STATUS_CONFIRMED, groups::STATUS_INVITED],
+            SQL_PARAMS_NAMED,
+            'st'
+        );
+        $params['groupid'] = $groupid;
+        $confirmed = [];
+        $invited = [];
+        $rows = $DB->get_records_select(
+            'selfselectadvanced_member',
+            "groupid = :groupid AND status $insql",
+            $params,
+            '',
+            'id, userid, status'
+        );
+        foreach ($rows as $row) {
+            if ($row->status === groups::STATUS_CONFIRMED) {
+                $confirmed[] = (int) $row->userid;
+            } else {
+                $invited[] = (int) $row->userid;
+            }
+        }
+
+        return [$confirmed, $invited];
     }
 
     /**

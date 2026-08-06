@@ -37,4 +37,13 @@ $observers = [
         'eventname' => '\core\event\user_enrolment_deleted',
         'callback' => '\mod_selfselectadvanced\observer::user_enrolment_deleted',
     ],
+    [
+        // A course-level SUSPENSION keeps the enrolment and fires this
+        // instead. A member of a guide-approved or frozen team who is
+        // suspended must not turn into a composition violation the team
+        // cannot repair - the engine grants the group its quota
+        // exemption itself (maintainer decision 61).
+        'eventname' => '\core\event\user_enrolment_updated',
+        'callback' => '\mod_selfselectadvanced\observer::user_enrolment_updated',
+    ],
 ];

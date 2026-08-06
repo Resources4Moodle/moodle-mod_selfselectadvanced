@@ -1667,5 +1667,31 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080503, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080601) {
+        // Marker-only release step: decisions 60 and 61. Decision 60: a
+        // composition maximum measured on confirmed members plus the
+        // person entering is a hard refusal at every door (walk-up
+        // accept and invitation accept), passable only by the logged
+        // staff override; a maximum exceeded only when pending
+        // invitations are counted blocks nothing, bypasses nothing and
+        // writes no override row. Decision 61: a course-level
+        // suspension of a confirmed member of a guide-approved or
+        // frozen team makes the engine write that group's quotaexempt
+        // override itself, so an institutional fact never becomes a
+        // rules violation the team cannot repair. There is no schema or
+        // data migration; the marker proves this code release executed.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.9 (2026080601). Composition maxima: one verdict at every door; '
+                . 'suspension of a settled team\'s member auto-exempts the group.',
+            'No schema change. Records that fit::door_verdict() now decides composition for the '
+                . 'join-accept and invitation-accept doors, and that user_enrolment_updated is '
+                . 'observed to grant quota exemption to firm and frozen teams on suspension.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080601, 'selfselectadvanced');
+    }
+
     return true;
 }
