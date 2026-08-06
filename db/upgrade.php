@@ -1693,5 +1693,32 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080601, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080602) {
+        // Marker-only release step: the guide request set completed
+        // (maintainer flows d and e, 2026-08-06). Three new ticket
+        // types - guidereduce (a guide asks their team limit DOWN, 0
+        // meaning relieve-me, suggested successors in the request
+        // text), dates (a window extension for the guide's team) and
+        // penalty (plugin-level lateness relief; the gradebook
+        // remains the editing teacher's). The queue's contract is
+        // unchanged: resolving never mutates a team - the claimant
+        // acts with the existing override, handover and assignment
+        // tools. No schema change: the ticket table already carried
+        // every column these types need. The marker proves this code
+        // release executed.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.10 (2026080602). Guide requests: limit reduction/relief, '
+                . 'date extension, penalty waiver.',
+            'No schema change. Records that tickets::file() accepts dates and penalty '
+                . 'for the assigned guide of a submitted, firm or frozen team, and that '
+                . 'file_guidereduce() files the downward capacity ask sharing one live slot '
+                . 'with the raise.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080602, 'selfselectadvanced');
+    }
+
     return true;
 }

@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026080601;
+    private const CURRENT = 2026080602;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026080503;
+    private const PREVIOUS = 2026080601;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.9';
+    private const RELEASE = '1.20.10';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -290,6 +290,30 @@ final class versionbump_test extends \advanced_testcase {
         $this->assertSame($ascending, $savepoints, 'the savepoints are not in ascending order');
 
         $this->assertSame(self::CURRENT, (int) end($savepoints), 'the final savepoint is not the code version');
+
+        // EVERY NEW SERIAL IS A REAL CALENDAR DATE (maintainer,
+        // 2026-08-06: "I am very surprised that ... July 32, 2026 had
+        // been a valid solution"). Six serials 2026073200..2026073250
+        // shipped encoding July 32nd - a date that does not exist -
+        // and they are grandfathered here because a LANDED savepoint
+        // must never be rewritten: renumbering one breaks the upgrade
+        // ladder of every site that recorded it. Everything after the
+        // grandfather line, and version.php itself, must parse as
+        // YYYYMMDDXX with a date the calendar contains. Until this
+        // assertion the rule lived only in session memory, which is
+        // the drift class this project keeps meeting.
+        foreach (array_merge($savepoints, [self::CURRENT]) as $serial) {
+            if ((int) $serial <= 2026073250) {
+                continue;
+            }
+            $y = (int) substr((string) $serial, 0, 4);
+            $m = (int) substr((string) $serial, 4, 2);
+            $d = (int) substr((string) $serial, 6, 2);
+            $this->assertTrue(
+                checkdate($m, $d, $y),
+                "serial {$serial} encodes {$y}-{$m}-{$d}, a date the calendar does not contain"
+            );
+        }
 
         // A LANDED SAVEPOINT MUST NEVER BE REWRITTEN - that is the property,
         // and it is unchanged. What changed is the assumption underneath the

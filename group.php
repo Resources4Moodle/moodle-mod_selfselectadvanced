@@ -1052,6 +1052,19 @@ if (
 ) {
     $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_UNFREEZE;
 }
+// Flows (e), 2026-08-06: the assigned guide of a submitted, firm or
+// frozen team may ask for a date-window extension or a penalty waiver.
+// The service enforces the same predicate; this only decides whether
+// the form is drawn.
+$stateguided = $isassignedguide && in_array($group->state, [
+    \mod_selfselectadvanced\local\state::PENDING_GUIDE,
+    \mod_selfselectadvanced\local\state::FIRM,
+    \mod_selfselectadvanced\local\state::FROZEN,
+], true);
+if ($stateguided) {
+    $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_DATES;
+    $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_PENALTY;
+}
 foreach ($requestable as $tickettype) {
     $ticketforms .= html_writer::start_tag('form', ['method' => 'post', 'class' => 'mb-2',
         'action' => (new moodle_url($baseurl, ['action' => 'ticket']))->out(false)])

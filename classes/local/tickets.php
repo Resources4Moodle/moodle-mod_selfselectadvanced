@@ -59,6 +59,30 @@ class tickets {
      */
     public const TYPE_GUIDEGONE = 'guidegone';
 
+    /**
+     * @var string A guide asks the coordinators to LOWER their team limit,
+     *      or with `requested` 0 to be relieved entirely (maintainer flow
+     *      d, 2026-08-06). Suggested replacement guides travel in the
+     *      request text; the coordinator rehomes teams deliberately with
+     *      the handover and assignment tools, never by side effect of the
+     *      grant.
+     */
+    public const TYPE_GUIDEREDUCE = 'guidereduce';
+
+    /**
+     * @var string A guide asks for a date-window extension for their team
+     *      (maintainer flow e). The coordinator grants it through the
+     *      existing group-scope override form; the ticket carries the ask.
+     */
+    public const TYPE_DATES = 'dates';
+
+    /**
+     * @var string A guide asks the plugin's lateness penalty be waived for
+     *      their team (maintainer flow e). Plugin-level relief only - the
+     *      gradebook remains the editing teacher's, deliberately.
+     */
+    public const TYPE_PENALTY = 'penalty';
+
     /** @var string Waiting in the queue. */
     public const STATUS_OPEN = 'open';
 
@@ -102,7 +126,7 @@ class tickets {
     ): stdClass {
         global $DB;
 
-        if (!in_array($type, [self::TYPE_COMPCHANGE, self::TYPE_UNFREEZE], true)) {
+        if (!in_array($type, [self::TYPE_COMPCHANGE, self::TYPE_UNFREEZE, self::TYPE_DATES, self::TYPE_PENALTY], true)) {
             throw new \coding_exception('Unknown ticket type ' . $type);
         }
         if (trim(html_to_text($request)) === '') {
@@ -137,6 +161,17 @@ class tickets {
             }
             if ($type === self::TYPE_COMPCHANGE && !in_array($group->state, [state::FIRM, state::FROZEN], true)) {
                 throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+            }
+            // Flow (e): only the team's OWN assigned guide may ask, and
+            // only once there IS a guide relationship - a submitted,
+            // firm or frozen team. Forming teams have no guide to ask.
+            if (in_array($type, [self::TYPE_DATES, self::TYPE_PENALTY], true)) {
+                if (!$isguide) {
+                    throw new \moodle_exception('refusalticketnotguide', 'mod_selfselectadvanced');
+                }
+                if (!in_array($group->state, [state::PENDING_GUIDE, state::FIRM, state::FROZEN], true)) {
+                    throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                }
             }
 
             $live = $DB->get_record_select(
@@ -236,12 +271,17 @@ class tickets {
         try {
             $transaction = $DB->start_delegated_transaction();
 
+            // The guard spans BOTH capacity types (2026-08-06): an open
+            // raise and an open reduction from one guide would be two
+            // contradictory instructions in one queue.
             $live = $DB->get_record_select(
                 'selfselectadvanced_ticket',
-                "activityid = :activityid AND type = :type AND requestedby = :userid AND status IN (:open, :claimed)",
+                "activityid = :activityid AND type IN (:type, :reduce) AND requestedby = :userid"
+                    . " AND status IN (:open, :claimed)",
                 [
                     'activityid' => $activity->id(),
                     'type' => self::TYPE_GUIDECAP,
+                    'reduce' => self::TYPE_GUIDEREDUCE,
                     'userid' => $userid,
                     'open' => self::STATUS_OPEN,
                     'claimed' => self::STATUS_CLAIMED,
@@ -270,6 +310,106 @@ class tickets {
                 'objectid' => $ticket->id,
                 'context' => $activity->context(),
                 'other' => ['type' => self::TYPE_GUIDECAP, 'pluginuid' => ''],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
+        } finally {
+            $lock->release();
+        }
+
+        self::notify_workers($activity, $ticket, null);
+
+        return $ticket;
+    }
+
+    /**
+     * A guide asks the coordinators to LOWER their team limit, or to be
+     * relieved entirely (maintainer flow d, 2026-08-06).
+     *
+     * The mirror of file_guidecap(), with the bound inverted: the ask
+     * must be BELOW the current effective ceiling, and zero means
+     * complete removal. Suggested replacement guides travel in the
+     * request text - the coordinator rehomes each team deliberately
+     * with the handover and assignment tools, and the grant itself
+     * never moves a team by side effect. One live request per guide,
+     * shared with the raise type: a guide asking up and down at once
+     * is two contradictory instructions in one queue.
+     *
+     * @param activity $activity the activity
+     * @param int $requested the new, lower limit the guide is asking for (0 = relieve me)
+     * @param string $request why, and any suggested replacement guides
+     * @param int $requestformat text format of the request
+     * @param int $userid the guide asking
+     * @return stdClass the ticket row
+     * @throws \moodle_exception when a gate refuses
+     */
+    public static function file_guidereduce(
+        activity $activity,
+        int $requested,
+        string $request,
+        int $requestformat,
+        int $userid
+    ): stdClass {
+        global $DB;
+
+        require_capability('mod/selfselectadvanced:guide', $activity->context(), $userid);
+        if (trim(html_to_text($request)) === '') {
+            throw new \moodle_exception('refusalticketreason', 'mod_selfselectadvanced');
+        }
+
+        $ceiling = (new api($activity))->gatekeeper()->resolver()->guide_capacity_ceiling($userid);
+        if ($requested < 0) {
+            throw new \moodle_exception('refusalguidereducenegative', 'mod_selfselectadvanced');
+        }
+        if ($requested >= $ceiling->value) {
+            throw new \moodle_exception('refusalguidereducenotless', 'mod_selfselectadvanced', '', $ceiling->value);
+        }
+
+        // Serialised on the guide, and the duplicate guard spans BOTH
+        // capacity types: an open raise and an open reduction would be
+        // two contradictory instructions in one queue.
+        $lock = locks::acquire('guidecap:' . $userid);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $live = $DB->get_record_select(
+                'selfselectadvanced_ticket',
+                "activityid = :activityid AND type IN (:cap, :reduce) AND requestedby = :userid"
+                    . " AND status IN (:open, :claimed)",
+                [
+                    'activityid' => $activity->id(),
+                    'cap' => self::TYPE_GUIDECAP,
+                    'reduce' => self::TYPE_GUIDEREDUCE,
+                    'userid' => $userid,
+                    'open' => self::STATUS_OPEN,
+                    'claimed' => self::STATUS_CLAIMED,
+                ]
+            );
+            if ($live) {
+                throw new \moodle_exception('refusalticketduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
+            }
+
+            $now = time();
+            $ticket = (object) [
+                'activityid' => $activity->id(),
+                'groupid' => null,
+                'type' => self::TYPE_GUIDEREDUCE,
+                'status' => self::STATUS_OPEN,
+                'requestedby' => $userid,
+                'request' => $request,
+                'requestformat' => $requestformat,
+                'requested' => $requested,
+                'timecreated' => $now,
+                'timemodified' => $now,
+            ];
+            $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
+
+            \mod_selfselectadvanced\event\ticket_filed::create([
+                'objectid' => $ticket->id,
+                'context' => $activity->context(),
+                'other' => ['type' => self::TYPE_GUIDEREDUCE, 'pluginuid' => ''],
             ])->trigger();
 
             $transaction->allow_commit();

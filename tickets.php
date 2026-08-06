@@ -261,7 +261,10 @@ foreach ($queue as $ticket) {
                     'formaction' => (new moodle_url($baseurl, ['action' => 'release']))->out(false),
                     'value' => get_string('ticketrelease', 'mod_selfselectadvanced')])
                 . html_writer::end_tag('form');
-        } else {
+        } else if ($ticket->groupid) {
+            // Group-typed tickets only: a guidereduce ticket is about
+            // the GUIDE and carries no group, and a link to
+            // group.php?g= (nothing) would be a broken control.
             $actions .= html_writer::link(
                 new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $ticket->groupid]),
                 get_string('view'),
@@ -283,12 +286,23 @@ foreach ($queue as $ticket) {
             . html_writer::end_tag('form');
     }
 
-    $subject = $ticket->type === tickets::TYPE_GUIDECAP
-        ? get_string('guidecapsubject', 'mod_selfselectadvanced', (object) [
+    if ($ticket->type === tickets::TYPE_GUIDECAP) {
+        $subject = get_string('guidecapsubject', 'mod_selfselectadvanced', (object) [
             'guide' => $usernames[(int) $ticket->requestedby] ?? '',
             'requested' => (int) $ticket->requested,
-        ])
-        : ($groupnames[(int) $ticket->groupid] ?? $ticket->groupid);
+        ]);
+    } else if ($ticket->type === tickets::TYPE_GUIDEREDUCE) {
+        $subject = get_string(
+            (int) $ticket->requested === 0 ? 'guidereducesubjectzero' : 'guidereducesubject',
+            'mod_selfselectadvanced',
+            (object) [
+                'guide' => $usernames[(int) $ticket->requestedby] ?? '',
+                'requested' => (int) $ticket->requested,
+            ]
+        );
+    } else {
+        $subject = $groupnames[(int) $ticket->groupid] ?? $ticket->groupid;
+    }
 
     $row = new html_table_row([
         $isopen ? $position : '',

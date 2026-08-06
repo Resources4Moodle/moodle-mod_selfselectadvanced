@@ -447,7 +447,7 @@
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="The team the request is about, or NULL for a request that is not about a team (guidecap)"/>
-        <FIELD NAME="type" TYPE="char" LENGTH="12" NOTNULL="true" SEQUENCE="false" COMMENT="compchange, unfreeze or guidecap"/>
+        <FIELD NAME="type" TYPE="char" LENGTH="12" NOTNULL="true" SEQUENCE="false" COMMENT="compchange, unfreeze, guidecap, guidegone, guidereduce, dates or penalty"/>
         <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="open" SEQUENCE="false" COMMENT="open, claimed, resolved, declined or withdrawn"/>
         <FIELD NAME="requestedby" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="request" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="Why the change is needed, from the requester"/>

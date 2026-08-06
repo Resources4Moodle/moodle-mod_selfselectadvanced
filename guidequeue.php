@@ -58,6 +58,30 @@ $PAGE->set_heading(format_string($course->fullname));
 $api = new \mod_selfselectadvanced\local\api($activity);
 $resolver = $api->gatekeeper()->resolver();
 
+// Asking the coordinators for a LOWER team limit, or to be relieved
+// entirely (flow d, 2026-08-06). Suggested replacement guides travel
+// in the reason text; the coordinators rehome teams deliberately.
+if ($action === 'askreduce' && data_submitted() && confirm_sesskey()) {
+    $requested = required_param('requested', PARAM_INT);
+    $reason = required_param('reason', PARAM_TEXT);
+    try {
+        tickets::file_guidereduce($activity, $requested, $reason, FORMAT_PLAIN, (int) $USER->id);
+        redirect(
+            new moodle_url($baseurl, ['tab' => 'mine']),
+            get_string('guidereducefiled', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (moodle_exception $e) {
+        redirect(
+            new moodle_url($baseurl, ['tab' => 'mine']),
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+}
+
 // Asking the coordinators for a higher team limit.
 if ($action === 'askcap' && data_submitted() && confirm_sesskey()) {
     $requested = required_param('requested', PARAM_INT);
@@ -166,9 +190,18 @@ if ($tab === 'waiting') {
         'alert alert-info'
     );
 
-    $mine = $DB->get_records(
+    // BOTH capacity types: the raise and the reduction share one live
+    // slot (the service's duplicate guard spans them), so the history
+    // and the pending banner must see them as one family.
+    $mine = $DB->get_records_select(
         'selfselectadvanced_ticket',
-        ['activityid' => $activity->id(), 'requestedby' => (int) $USER->id, 'type' => tickets::TYPE_GUIDECAP],
+        'activityid = :activityid AND requestedby = :requestedby AND type IN (:cap, :reduce)',
+        [
+            'activityid' => $activity->id(),
+            'requestedby' => (int) $USER->id,
+            'cap' => tickets::TYPE_GUIDECAP,
+            'reduce' => tickets::TYPE_GUIDEREDUCE,
+        ],
         'timecreated DESC'
     );
     $live = null;
@@ -203,7 +236,11 @@ if ($tab === 'waiting') {
 
     if ($live) {
         echo html_writer::start_div('alert alert-warning d-flex flex-wrap gap-2 align-items-center');
-        echo html_writer::span(get_string('guidecappending', 'mod_selfselectadvanced', (int) $live->requested));
+        echo html_writer::span(get_string(
+            $live->type === tickets::TYPE_GUIDEREDUCE ? 'guidereducepending' : 'guidecappending',
+            'mod_selfselectadvanced',
+            (int) $live->requested
+        ));
         if ($live->status === tickets::STATUS_OPEN) {
             echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false), 'class' => 'd-inline']);
             echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
@@ -240,6 +277,43 @@ if ($tab === 'waiting') {
         echo html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-primary',
             'value' => get_string('guidecapsend', 'mod_selfselectadvanced')]);
         echo html_writer::end_tag('form');
+
+        // Flow (d): the downward ask. Only drawn when there is room to
+        // go down at all, and 0 is a legal ask - it means "relieve me
+        // once my teams are rehomed".
+        if ($ceiling->value > 0) {
+            echo $OUTPUT->heading(get_string('guidereduceask', 'mod_selfselectadvanced'), 4, 'mt-4');
+            echo html_writer::tag('p', get_string('guidereduceexplain', 'mod_selfselectadvanced'), ['class' => 'text-muted']);
+            echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)]);
+            echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+            echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'askreduce']);
+            echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+            echo html_writer::start_div('mb-2');
+            echo html_writer::label(
+                get_string('guidereduceasked', 'mod_selfselectadvanced'),
+                'ssa-reduce-requested',
+                true,
+                ['class' => 'd-block']
+            );
+            echo html_writer::empty_tag('input', ['type' => 'number', 'name' => 'requested',
+                'id' => 'ssa-reduce-requested', 'min' => 0, 'max' => $ceiling->value - 1,
+                'value' => max(0, $ceiling->value - 1), 'class' => 'form-control w-auto']);
+            echo html_writer::end_div();
+            echo html_writer::start_div('mb-2');
+            echo html_writer::label(
+                get_string('guidereducereason', 'mod_selfselectadvanced'),
+                'ssa-reduce-reason',
+                true,
+                ['class' => 'd-block']
+            );
+            echo html_writer::empty_tag('input', ['type' => 'text', 'name' => 'reason', 'id' => 'ssa-reduce-reason',
+                'size' => 60, 'class' => 'form-control',
+                'placeholder' => get_string('guidereducereasonhint', 'mod_selfselectadvanced')]);
+            echo html_writer::end_div();
+            echo html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-outline-primary',
+                'value' => get_string('guidereducesend', 'mod_selfselectadvanced')]);
+            echo html_writer::end_tag('form');
+        }
     }
 }
 
