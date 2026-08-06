@@ -29,6 +29,7 @@ Feature: Students approach guides, and group names follow the course's format
     When I am on the "Approached" "selfselectadvanced activity" page logged in as student1
     Then I should see "Guides do not advertise availability here"
     When I follow "Seekers"
+    And I click on "Submit to guide" "link" in the ".selfselectadvanced-leadertabs" "css_element"
     # The chooser searches rather than lists (1.18), so the guide is
     # found by typing - and the load still never appears beside the
     # name, which is what this mode is for.

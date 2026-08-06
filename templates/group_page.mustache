@@ -441,6 +441,70 @@
         </ul>
     {{/haspendinginvites}}
 
+    {{#showleadertabs}}
+    <ul class="nav nav-tabs mt-4 selfselectadvanced-leadertabs" role="tablist">
+        {{#tabinvite}}
+            <li class="nav-item" role="presentation">
+                <a class="nav-link {{#invitetabactive}}active{{/invitetabactive}}" id="ssa-leadertab-invite"
+                    data-bs-toggle="tab" href="#ssa-leaderpane-invite" role="tab"
+                    aria-controls="ssa-leaderpane-invite"
+                    aria-selected="{{#invitetabactive}}true{{/invitetabactive}}{{^invitetabactive}}false{{/invitetabactive}}">
+                    {{#str}} invitemembers, mod_selfselectadvanced {{/str}}
+                </a>
+            </li>
+        {{/tabinvite}}
+        {{#tabsuccession}}
+            <li class="nav-item" role="presentation">
+                <a class="nav-link {{#successiontabactive}}active{{/successiontabactive}}" id="ssa-leadertab-succession"
+                    data-bs-toggle="tab" href="#ssa-leaderpane-succession" role="tab"
+                    aria-controls="ssa-leaderpane-succession"
+                    aria-selected="{{#successiontabactive}}true{{/successiontabactive}}{{^successiontabactive}}false{{/successiontabactive}}">
+                    {{#str}} succession, mod_selfselectadvanced {{/str}}
+                    {{#hasnomination}}<span class="badge bg-danger ms-1">1</span>{{/hasnomination}}
+                </a>
+            </li>
+        {{/tabsuccession}}
+        {{#tabsubmit}}
+            <li class="nav-item" role="presentation">
+                <a class="nav-link {{#submittabactive}}active{{/submittabactive}}" id="ssa-leadertab-submit"
+                    data-bs-toggle="tab" href="#ssa-leaderpane-submit" role="tab"
+                    aria-controls="ssa-leaderpane-submit"
+                    aria-selected="{{#submittabactive}}true{{/submittabactive}}{{^submittabactive}}false{{/submittabactive}}">
+                    {{#str}} submittoguide, mod_selfselectadvanced {{/str}}
+                </a>
+            </li>
+        {{/tabsubmit}}
+    </ul>
+    {{! With JavaScript off, Bootstrap cannot switch panes: every pane
+        renders stacked instead - which is also what the non-JS Behat
+        driver and a JS-less user get, the exact pre-tab page. }}
+    <noscript>
+        <style>
+            .selfselectadvanced-leadertabs { display: none; }
+            .selfselectadvanced-leaderpanes .tab-pane { display: block !important; opacity: 1; }
+        </style>
+    </noscript>
+    <div class="tab-content pt-3 selfselectadvanced-leaderpanes">
+        {{#tabinvite}}
+        <div class="tab-pane fade {{#invitetabactive}}show active{{/invitetabactive}}" id="ssa-leaderpane-invite"
+            role="tabpanel" aria-labelledby="ssa-leadertab-invite">
+    {{#caninvite}}
+        <h4>{{#str}} invitemembers, mod_selfselectadvanced {{/str}}</h4>
+        {{{inviteformhtml}}}
+    {{/caninvite}}
+    {{#invitedisabledreason}}
+        <p>
+            <button type="button" class="btn btn-secondary" disabled aria-disabled="true">
+                {{#str}} invitemembers, mod_selfselectadvanced {{/str}}
+            </button>
+            <span class="ms-2 text-muted">{{invitedisabledreason}}</span>
+        </p>
+    {{/invitedisabledreason}}
+        </div>
+        {{/tabinvite}}
+        {{#tabsuccession}}
+        <div class="tab-pane fade {{#successiontabactive}}show active{{/successiontabactive}}" id="ssa-leaderpane-succession"
+            role="tabpanel" aria-labelledby="ssa-leadertab-succession">
     {{#hasnomination}}
         <div class="selfselectadvanced-nomination alert alert-warning">
             {{#nominationisstepout}}
@@ -491,6 +555,11 @@
         {{{nominateformhtml}}}
     {{/shownominateform}}
 
+        </div>
+        {{/tabsuccession}}
+        {{#tabsubmit}}
+        <div class="tab-pane fade {{#submittabactive}}show active{{/submittabactive}}" id="ssa-leaderpane-submit"
+            role="tabpanel" aria-labelledby="ssa-leadertab-submit">
     {{#showsubmit}}
         <h4>{{#str}} submittoguide, mod_selfselectadvanced {{/str}}</h4>
         {{#eoiassigned}}
@@ -502,18 +571,29 @@
         {{{submitformhtml}}}
     {{/showsubmit}}
 
-    {{#caninvite}}
-        <h4>{{#str}} invitemembers, mod_selfselectadvanced {{/str}}</h4>
-        {{{inviteformhtml}}}
-    {{/caninvite}}
-    {{#invitedisabledreason}}
-        <p>
-            <button type="button" class="btn btn-secondary" disabled aria-disabled="true">
-                {{#str}} invitemembers, mod_selfselectadvanced {{/str}}
-            </button>
-            <span class="ms-2 text-muted">{{invitedisabledreason}}</span>
-        </p>
-    {{/invitedisabledreason}}
+        </div>
+        {{/tabsubmit}}
+    </div>
+    {{/showleadertabs}}
+    {{#js}}
+    (function() {
+        var key = 'ssa-leadertab-' + {{groupid}};
+        var stored = null;
+        try { stored = window.sessionStorage.getItem(key); } catch (e) { /* private mode */ }
+        var wanted = window.location.hash || stored;
+        if (wanted) {
+            var link = document.querySelector('.selfselectadvanced-leadertabs a[href="' + wanted + '"]');
+            // Bootstrap's data API switches the pane on click; a
+            // simulated click avoids depending on any plugin API.
+            if (link && !link.classList.contains('active')) { link.click(); }
+        }
+        document.querySelectorAll('.selfselectadvanced-leadertabs a[data-bs-toggle="tab"]').forEach(function(tab) {
+            tab.addEventListener('shown.bs.tab', function(e) {
+                try { window.sessionStorage.setItem(key, e.target.getAttribute('href')); } catch (e2) { /* ditto */ }
+            });
+        });
+    })();
+    {{/js}}
 
     <div class="mt-3">
         <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>

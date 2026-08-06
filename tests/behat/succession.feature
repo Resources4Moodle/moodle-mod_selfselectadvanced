@@ -30,6 +30,9 @@ Feature: Leadership transfer and step-out
   Scenario: The leader nominates and the nominee takes over
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
+    # The leader action clusters are tabs since 1.20.11; the nominate
+    # form lives in the succession pane.
+    And I click on "Leadership succession" "link" in the ".selfselectadvanced-leadertabs" "css_element"
     And I set the field "Succession type" to "Transfer leadership (the current leader stays as a member)"
     And I set the field "Successor" to "Tara Two"
     And I press "Nominate"

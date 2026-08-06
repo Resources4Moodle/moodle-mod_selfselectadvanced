@@ -34,6 +34,9 @@ Feature: Guide review of submitted groups
   Scenario: The leader submits to a guide with a free slot
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
+    # The leader action clusters are tabs since 1.20.11; submit lives in
+    # its own pane, so under JavaScript it must be brought forward.
+    And I click on "Submit to guide" "link" in the ".selfselectadvanced-leadertabs" "css_element"
     # Searchable since 1.18: the control holds no options until a query
     # matches, so a school with 1500 guides is not rendered into a list.
     And I set the field "Choose a guide" to "Gina Guide"

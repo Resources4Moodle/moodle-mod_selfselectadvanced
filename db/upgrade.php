@@ -1720,5 +1720,25 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080602, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080603) {
+        // Marker-only release step: the group page's three leader action
+        // clusters - invite members, leadership succession, submit to
+        // guide - become Bootstrap tabs (maintainer, 2026-08-06), with
+        // a pending nomination badging the succession tab and every
+        // pane rendering stacked when JavaScript is off. No schema
+        // change; the marker proves this code release executed, and it
+        // carries the serial so installed sites rebuild their template
+        // and string caches.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.11 (2026080603). Tabbed leader panel on the group page.',
+            'No schema change. Records that the invite/succession/submit clusters render as '
+                . 'tabs with a no-JavaScript stacked fallback.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080603, 'selfselectadvanced');
+    }
+
     return true;
 }

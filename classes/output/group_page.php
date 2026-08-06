@@ -747,7 +747,29 @@ class group_page implements renderable, templatable {
             }
         }
 
+        // The tabbed leader panel (maintainer, 2026-08-06): the three
+        // action clusters below the roster - invite, succession, submit
+        // - become Bootstrap tabs. Each tab exists only when its
+        // content would have rendered; the active tab is the FIRST one
+        // that exists, and a pending nomination badges the succession
+        // tab so a nominee cannot miss the question waiting for them.
+        // With JavaScript off the panes all render stacked (noscript
+        // rule in the template), which is also why the non-JS Behat
+        // drivers see every form exactly as before.
+        $tabinvite = $caninvite
+            || ($isleader && $isforming && $maylead && $seats->free < 1);
+        $tabsuccession = !empty($this->group->successorid) || $this->nominateform !== null;
+        $tabsubmit = $this->submitform !== null && $maylead;
+        $activetab = $tabinvite ? 'invite' : ($tabsuccession ? 'succession' : 'submit');
+
         return (object) [
+            'showleadertabs' => $tabinvite || $tabsuccession || $tabsubmit,
+            'tabinvite' => $tabinvite,
+            'tabsuccession' => $tabsuccession,
+            'tabsubmit' => $tabsubmit,
+            'invitetabactive' => $tabinvite && $activetab === 'invite',
+            'successiontabactive' => $tabsuccession && $activetab === 'succession',
+            'submittabactive' => $tabsubmit && $activetab === 'submit',
             // NO EMPTY SCAFFOLDING: the panel exists when somebody has
             // actually asked, and at no other time. A leader with an
             // empty queue gets the page they had before this wave.

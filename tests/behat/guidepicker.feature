@@ -42,6 +42,7 @@ Feature: Finding a guide by the detail the person actually has
     # guidepickeraddress_test::test_the_address_arm_engages_only_on_a_query_with_an_at().
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Seekers"
+    And I click on "Submit to guide" "link" in the ".selfselectadvanced-leadertabs" "css_element"
     And I set the field "Choose a guide" to "anita.raman@guidemail.invalid"
     Then I should see "Anita 21BCE1234"
     # MATCHING IS NOT DISPLAYING - the browser-level half of the rule.
@@ -52,6 +53,7 @@ Feature: Finding a guide by the detail the person actually has
   Scenario: The employee id recorded as a surname still finds them
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Seekers"
+    And I click on "Submit to guide" "link" in the ".selfselectadvanced-leadertabs" "css_element"
     And I set the field "Choose a guide" to "21BCE1234"
     Then I should see "Anita 21BCE1234"
 
