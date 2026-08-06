@@ -113,11 +113,27 @@ class gatekeeper {
      * @return refusal|null null when allowed
      */
     public function can_delete_group(stdClass $group, int $userid): ?refusal {
+        global $DB;
+
         if ($group->state !== state::FORMING) {
             return new refusal('refusalwrongstate', $group->state);
         }
         if ((int) $group->leaderid !== $userid) {
             return new refusal('refusalnotleader');
+        }
+        // Decision 63 ("the earlier protocol", restored): only a team
+        // whose roster is the leader alone may be deleted by its
+        // leader. A peopled team winds up by CONSENT - the disband
+        // request, the broadcast reason, each member's own one-click
+        // leave - never by surprise. Staff dissolve_group() remains the
+        // unconditional emergency exit and does not pass through here.
+        $others = $DB->count_records_select(
+            'selfselectadvanced_member',
+            'groupid = ? AND status = ? AND userid <> ?',
+            [(int) $group->id, groups::STATUS_CONFIRMED, $userid]
+        );
+        if ($others > 0) {
+            return new refusal('refusaldisbandfirst', $others);
         }
 
         return null;
@@ -210,6 +226,13 @@ class gatekeeper {
 
         if ($group->state !== state::FORMING) {
             $add(new refusal('refusalwrongstate'));
+        }
+        // Decision 63: a team its leader has asked to wind up invites
+        // nobody. Early and state-shaped, before window, seats and
+        // composition - none of the machinery below is consulted for a
+        // team that is closing.
+        if (!empty($group->timedisbandrequested)) {
+            $add(new refusal('refusaldisbanding'));
             if ($stopatfirst) {
                 return $refusals;
             }
@@ -324,6 +347,12 @@ class gatekeeper {
 
         if ($group->state !== state::FORMING) {
             return new refusal('refusalwrongstate');
+        }
+        // Decision 63: an invitation into a winding-up team cannot be
+        // accepted while the disband request stands; cancelling the
+        // request revives it untouched.
+        if (!empty($group->timedisbandrequested)) {
+            return new refusal('refusaldisbanding');
         }
         if ($member->status !== groups::STATUS_INVITED) {
             return new refusal('refusalnotinvited');

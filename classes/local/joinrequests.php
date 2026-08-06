@@ -555,6 +555,15 @@ class joinrequests {
         if ($group->state === state::FROZEN) {
             return $target ? 'refusaljointargetfrozen' : 'refusaljoinsourcefrozen';
         }
+        // Decision 63: a team its leader has asked to wind up recruits
+        // nobody. A state-shaped early refusal at this ONE seam - ask
+        // and accept both pass through it - and deliberately NOT inside
+        // the composition machinery, so no bypass list, tier or key
+        // built before it is touched. LEAVING the team stays open: the
+        // wind-up is precisely people leaving.
+        if ($target && !empty($group->timedisbandrequested)) {
+            return 'refusaldisbanding';
+        }
         if ($group->state === state::FORMING) {
             return null;
         }

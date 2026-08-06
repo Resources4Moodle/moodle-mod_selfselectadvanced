@@ -1804,5 +1804,67 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080606, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080607) {
+        // Decision 63: consent-first disband (the maintainer's flow 1).
+        // A leader no longer deletes a peopled forming team; they
+        // REQUEST the wind-up with a composed reason, every confirmed
+        // member is messaged, members leave one-click while the request
+        // stands, and only a leader-alone team can be deleted. Three
+        // columns carry the request; null timedisbandrequested means
+        // none stands, so every existing team upgrades to "no request".
+        $table = new xmldb_table('selfselectadvanced_group');
+        $field = new xmldb_field(
+            'timedisbandrequested',
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            null,
+            null,
+            null,
+            'coregroupid'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field(
+            'disbandreason',
+            XMLDB_TYPE_TEXT,
+            null,
+            null,
+            null,
+            null,
+            null,
+            'timedisbandrequested'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field(
+            'disbandreasonformat',
+            XMLDB_TYPE_INTEGER,
+            '4',
+            null,
+            null,
+            null,
+            null,
+            'disbandreason'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.15 (2026080607). Consent-first disband: request, broadcast, '
+                . 'one-click leave, leader-alone delete.',
+            'Adds timedisbandrequested, disbandreason and disbandreasonformat to the group '
+                . 'table. Null timedisbandrequested is "no request stands", which is what every '
+                . 'pre-existing row means.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080607, 'selfselectadvanced');
+    }
+
     return true;
 }

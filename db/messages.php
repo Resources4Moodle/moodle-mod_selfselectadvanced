@@ -67,6 +67,14 @@ $messageproviders = [
         ],
     ],
     // The guide returned the group with a comment (to the leader).
+    // Decision 63: the leader's disband request and its cancellation,
+    // to every confirmed member - the broadcast IS the protocol.
+    'disband' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
     'groupreturned' => [
         'defaults' => [
             'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,

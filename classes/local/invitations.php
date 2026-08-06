@@ -702,6 +702,68 @@ class invitations {
         return $member;
     }
 
+
+    /**
+     * A member leaves a team whose leader has asked it to wind up
+     * (decision 63) - one click, no leader confirmation, because the
+     * disband request IS the leader\'s standing consent.
+     *
+     * The write is confirm_leave()\'s write - REMOVED, same fields, same
+     * lock discipline - behind a different gate: the member acts on
+     * their OWN row, only while the request stands, only while the team
+     * is forming. The deliberate no-minimum-floor rule is inherited:
+     * a forming team must always be able to shrink.
+     *
+     * @param stdClass $group the team winding up
+     * @param int $userid the member leaving
+     * @return stdClass the removed member row
+     * @throws \moodle_exception when refused
+     */
+    public function self_leave(stdClass $group, int $userid): stdClass {
+        global $DB;
+
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = groups::get($this->activity, (int) $group->id);
+            if ($fresh->state !== state::FORMING) {
+                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+            }
+            if (empty($fresh->timedisbandrequested)) {
+                throw new \moodle_exception('refusaldisbandnone', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->leaderid === $userid) {
+                // The leader does not leave their own wind-up; they
+                // delete once alone, or cancel.
+                throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+            }
+            $member = $DB->get_record('selfselectadvanced_member', [
+                'groupid' => $fresh->id,
+                'userid' => $userid,
+                'status' => groups::STATUS_CONFIRMED,
+            ], '*', MUST_EXIST);
+
+            $now = time();
+            $member->status = groups::STATUS_REMOVED;
+            $member->leaverequested = null;
+            $member->isleader = 0;
+            $member->timemodified = $now;
+            $DB->update_record('selfselectadvanced_member', $member);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+        }
+
+        return $member;
+    }
+
     /**
      * The acceptance cascade (4A.4): auto-decline every other pending
      * invitation of the user in this activity, inside the caller's

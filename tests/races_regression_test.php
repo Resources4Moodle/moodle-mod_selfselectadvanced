@@ -266,6 +266,17 @@ final class races_regression_test extends \advanced_testcase {
             false
         ));
 
+        // REFIT for decision 63: a peopled team is no longer the
+        // leader's to delete, and this test's property - the in-lock
+        // recheck and the file deletion AFTER the transaction - is
+        // about delete's mechanics, not its roster. The wanderer leaves
+        // through the protocol's own write first.
+        global $DB;
+        $DB->set_field('selfselectadvanced_member', 'status', groups::STATUS_REMOVED, [
+            'groupid' => (int) $alpha->id,
+            'userid' => (int) $wanderer->id,
+        ]);
+
         $sink = $this->redirectMessages();
         locks::start_recording();
         try {
@@ -289,12 +300,11 @@ final class races_regression_test extends \advanced_testcase {
             'id',
             false
         ));
-        // The member who was not the actor was told.
-        $this->assertNotEmpty($messages);
-        $this->assertContains(
-            (int) $wanderer->id,
-            array_map(static fn($m) => (int) $m->useridto, $messages)
-        );
+        // Decision 63 moved the "member is told" property EARLIER, to
+        // the disband broadcast (pinned by creation_test and
+        // disband_test); a compliant delete happens at leader-alone,
+        // where there is nobody left to tell.
+        $this->assertEmpty($messages, 'a leader-alone delete has nobody to notify');
     }
 
     /**

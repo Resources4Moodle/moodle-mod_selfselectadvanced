@@ -81,6 +81,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'returncomment', 'returncommentformat', 'listed', 'timelisted',
             'guidenotes', 'guidenotesformat', 'timesubmitted', 'timeapproved', 'timefrozen',
             'frozenbystaff', 'releasedbyguide', 'coregroupid',
+            'timedisbandrequested', 'disbandreason', 'disbandreasonformat',
             'timecreated', 'timemodified',
         ]);
         $members = new backup_nested_element('members');

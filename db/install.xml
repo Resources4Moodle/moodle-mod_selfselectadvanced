@@ -83,6 +83,9 @@
         <FIELD NAME="frozenbystaff" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1 when an editing teacher or coordinator enforced the freeze; a guide may not release such a team"/>
         <FIELD NAME="releasedbyguide" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1 when the assigned guide released a frozen team so its firm roster may change"/>
         <FIELD NAME="coregroupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Mirrored Moodle core group id while frozen; ownership tracking"/>
+        <FIELD NAME="timedisbandrequested" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="When the leader asked the members to wind the team up; null when no disband request stands (decision 63)"/>
+        <FIELD NAME="disbandreason" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="The leader's composed reason, broadcast to every confirmed member"/>
+        <FIELD NAME="disbandreasonformat" TYPE="int" LENGTH="4" NOTNULL="false" SEQUENCE="false" COMMENT="Text format of disbandreason"/>
         <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>

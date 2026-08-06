@@ -313,12 +313,14 @@ Feature: Asking to join another team, and the guide releasing a settled one
     And I should not see "9000000003"
     And I should not see "s3@example.com"
 
-  # THE STALE-ACCEPTED ROW (maintainer's live report, 2026-08-06): a
-  # student whose accepted team was later deleted read "Accepted" beside
-  # "Team no longer exists" under a banner saying they were in no team.
-  # The outcome must not outlive the team it describes.
+  # THE STALE-ACCEPTED ROW (maintainer's live report, 2026-08-06) AND
+  # THE CONSENT-FIRST PROTOCOL (decision 63) in one journey: a peopled
+  # team is never deleted by surprise - the leader requests the wind-up
+  # with a reason, the member leaves with one click, Delete opens only
+  # then - and afterwards the history says disbanded, not a bare
+  # Accepted beside a team that no longer exists.
   @javascript
-  Scenario: A deleted team's history says disbanded, not accepted
+  Scenario: The full wind-up: request, one-click leave, delete, honest history
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student4
     And I set the field "Team you want to join" to "Team Gold"
     And I set the field "Why you are asking" to "Gold looks right"
@@ -327,7 +329,21 @@ Feature: Asking to join another team, and the guide releasing a settled one
     And I follow "Team Gold"
     And I press "Accept"
     Then I should see "Accepted. The student has been moved and the team re-composed."
-    When I follow "Delete group"
+    # A peopled team refuses the surprise delete and points at consent.
+    And I should see "member(s) remain"
+    When I follow "Request disband"
+    And I set the field "Why the team should wind up (sent to every member)" to "The pool cannot complete us."
+    And I press "Request disband"
+    Then I should see "Your request has been sent to every member."
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student4
+    And I follow "Team Gold"
+    Then I should see "The leader has asked this team to wind up"
+    And I should see "The pool cannot complete us."
+    When I press "Leave this winding-up team"
+    Then I should see "You have left the team."
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
+    And I follow "Team Gold"
+    And I follow "Delete group"
     And I press "Delete group"
     And I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student4
     Then I should see "Team no longer exists"

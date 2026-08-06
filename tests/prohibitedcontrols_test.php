@@ -178,7 +178,11 @@ final class prohibitedcontrols_test extends \advanced_testcase {
 
         $before = $this->grouppage($activity, $api, $group, (int) $leader->id);
         $this->assertTrue($before->isleader, 'fixture: the viewer must lead the team');
-        $this->assertTrue($before->candelete, 'fixture: the team must be deletable to start with');
+        // Decision 63: a peopled team offers Request-disband where it
+        // once offered Delete; both are leader controls and both must
+        // vanish under the PROHIBIT below.
+        $this->assertFalse($before->candelete, 'a peopled team is not deletable (decision 63)');
+        $this->assertTrue($before->showdisbandrequest, 'fixture: the wind-up control must be offered to start with');
         $this->assertTrue($before->caninvite, 'fixture: there must be a free seat to start with');
         $this->assertTrue($before->hasleaverequests, 'fixture: a leave request must be waiting');
         $this->assertTrue($before->haspendinginvites, 'fixture: an invitation must be pending');
@@ -198,6 +202,7 @@ final class prohibitedcontrols_test extends \advanced_testcase {
 
         $after = $this->grouppage($activity, $api, $group, (int) $leader->id);
         $this->assertFalse($after->candelete, 'Delete team was still offered to a prohibited leader');
+        $this->assertFalse($after->showdisbandrequest, 'Request disband was still offered to a prohibited leader');
         $this->assertFalse($after->caninvite, 'Invite was still offered to a prohibited leader');
         $this->assertSame('', $after->inviteformhtml, 'the invite FORM was still rendered');
         $this->assertFalse($after->hasleaverequests, 'Confirm leave was still offered to a prohibited leader');

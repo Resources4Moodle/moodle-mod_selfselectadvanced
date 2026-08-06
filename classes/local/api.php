@@ -571,6 +571,177 @@ class api {
     }
 
     /**
+     * The leader asks their members to wind the team up (decision 63).
+     *
+     * Consent-first: a peopled forming team is never deleted by
+     * surprise. The leader composes a reason; every confirmed member is
+     * messaged; while the request stands each member's leave is
+     * one-click ({@see invitations::self_leave()}), the team recruits
+     * nobody (refusaldisbanding at every door), and Delete stays
+     * refused until the roster is the leader alone.
+     *
+     * @param stdClass $group the forming team
+     * @param string $reason why, composed by the leader; required
+     * @param int $reasonformat text format of the reason
+     * @param int $userid the leader
+     * @return stdClass the updated group row
+     * @throws \moodle_exception when refused
+     */
+    public function request_disband(stdClass $group, string $reason, int $reasonformat, int $userid): stdClass {
+        global $DB;
+
+        authority::require_lead($this->activity, $userid);
+        if (trim($reason) === '') {
+            throw new \moodle_exception('errcommentrequired', 'mod_selfselectadvanced');
+        }
+
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = groups::get($this->activity, (int) $group->id);
+            if ($fresh->state !== state::FORMING) {
+                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->leaderid !== $userid) {
+                throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+            }
+            if (!empty($fresh->timedisbandrequested)) {
+                throw new \moodle_exception('refusaldisbandlive', 'mod_selfselectadvanced');
+            }
+            $memberids = array_map('intval', $DB->get_fieldset_select(
+                'selfselectadvanced_member',
+                'userid',
+                'groupid = ? AND status = ? AND userid <> ?',
+                [$fresh->id, groups::STATUS_CONFIRMED, $userid]
+            ));
+            if (!$memberids) {
+                // An empty team needs no consent - Delete is already
+                // open to its leader.
+                throw new \moodle_exception('refusaldisbandempty', 'mod_selfselectadvanced');
+            }
+
+            $now = time();
+            $fresh->timedisbandrequested = $now;
+            $fresh->disbandreason = trim($reason);
+            $fresh->disbandreasonformat = $reasonformat;
+            $fresh->usermodified = $userid;
+            $fresh->timemodified = $now;
+            $DB->update_record('selfselectadvanced_group', $fresh);
+
+            \mod_selfselectadvanced\event\disband_requested::create([
+                'objectid' => $fresh->id,
+                'context' => $this->activity->context(),
+                'other' => ['pluginuid' => $fresh->pluginuid],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+        }
+
+        // Mail never travels under a lock. The broadcast IS the
+        // protocol: each member reads the leader's own words and holds
+        // the one-click leave that answers them.
+        foreach ($memberids as $memberid) {
+            notifier::send(
+                $this->activity,
+                'disband',
+                $memberid,
+                'msgdisbandrequestsubject',
+                'msgdisbandrequestbody',
+                (object) ['group' => format_string($fresh->name), 'reason' => trim($reason)],
+                new \moodle_url('/mod/selfselectadvanced/group.php', [
+                    'id' => $this->activity->cm()->id,
+                    'g' => $fresh->id,
+                ]),
+                format_string($fresh->name)
+            );
+        }
+
+        return $fresh;
+    }
+
+    /**
+     * The leader takes the disband request back (decision 63): every
+     * gate it held reverts, and the members are told the team stands.
+     *
+     * @param stdClass $group the team
+     * @param int $userid the leader
+     * @return stdClass the updated group row
+     * @throws \moodle_exception when refused
+     */
+    public function cancel_disband(stdClass $group, int $userid): stdClass {
+        global $DB;
+
+        authority::require_lead($this->activity, $userid);
+
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = groups::get($this->activity, (int) $group->id);
+            if ((int) $fresh->leaderid !== $userid) {
+                throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+            }
+            if (empty($fresh->timedisbandrequested)) {
+                throw new \moodle_exception('refusaldisbandnone', 'mod_selfselectadvanced');
+            }
+            $memberids = array_map('intval', $DB->get_fieldset_select(
+                'selfselectadvanced_member',
+                'userid',
+                'groupid = ? AND status = ? AND userid <> ?',
+                [$fresh->id, groups::STATUS_CONFIRMED, $userid]
+            ));
+
+            $fresh->timedisbandrequested = null;
+            $fresh->disbandreason = null;
+            $fresh->disbandreasonformat = null;
+            $fresh->usermodified = $userid;
+            $fresh->timemodified = time();
+            $DB->update_record('selfselectadvanced_group', $fresh);
+
+            \mod_selfselectadvanced\event\disband_cancelled::create([
+                'objectid' => $fresh->id,
+                'context' => $this->activity->context(),
+                'other' => ['pluginuid' => $fresh->pluginuid],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+        }
+
+        foreach ($memberids as $memberid) {
+            notifier::send(
+                $this->activity,
+                'disband',
+                $memberid,
+                'msgdisbandcancelsubject',
+                'msgdisbandcancelbody',
+                (object) ['group' => format_string($fresh->name)],
+                new \moodle_url('/mod/selfselectadvanced/group.php', [
+                    'id' => $this->activity->cm()->id,
+                    'g' => $fresh->id,
+                ]),
+                format_string($fresh->name)
+            );
+        }
+
+        return $fresh;
+    }
+
+    /**
      * Dissolve a team in ANY state: park every confirmed member and
      * close it (decision 6, D6-3).
      *

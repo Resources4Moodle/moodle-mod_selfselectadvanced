@@ -785,6 +785,102 @@ if ($action === 'dissolve') {
     die;
 }
 
+if ($action === 'disbandrequest') {
+    // Decision 63: the leader asks the members to wind the team up.
+    // GET renders the confirmation with the required reason; the POST
+    // files it. The SERVICE is the authority (leader, forming, peopled,
+    // no live request) - this page draws the form.
+    if (data_submitted() && confirm_sesskey()) {
+        $disbandreason = trim(optional_param('reason', '', PARAM_TEXT));
+        if ($disbandreason === '') {
+            redirect(
+                new moodle_url($baseurl, ['action' => 'disbandrequest']),
+                get_string('errcommentrequired', 'mod_selfselectadvanced'),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        }
+        try {
+            $api->request_disband($group, $disbandreason, FORMAT_PLAIN, (int) $USER->id);
+        } catch (moodle_exception $e) {
+            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        }
+        redirect(
+            $baseurl,
+            get_string('disbandrequestedok', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    }
+    echo $OUTPUT->header();
+    echo $OUTPUT->heading(get_string('disbandrequest', 'mod_selfselectadvanced'));
+    echo html_writer::tag(
+        'p',
+        get_string('disbandrequestconfirm', 'mod_selfselectadvanced', format_string($group->name))
+    );
+    echo html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => (new moodle_url($baseurl, ['action' => 'disbandrequest']))->out(false),
+        'class' => 'selfselectadvanced-disbandform mt-2',
+    ]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    echo html_writer::div(
+        html_writer::label(
+            get_string('disbandreasonlabel', 'mod_selfselectadvanced'),
+            'ssa-disbandreason',
+            true,
+            ['class' => 'form-label']
+        )
+        . html_writer::tag('textarea', '', [
+            'class' => 'form-control',
+            'id' => 'ssa-disbandreason',
+            'name' => 'reason',
+            'rows' => 4,
+            'required' => 'required',
+        ]),
+        'mb-2'
+    );
+    echo html_writer::empty_tag('input', [
+        'type' => 'submit',
+        'class' => 'btn btn-warning',
+        'value' => get_string('disbandrequest', 'mod_selfselectadvanced'),
+    ]);
+    echo html_writer::link($baseurl, get_string('cancel'), ['class' => 'btn btn-secondary ms-2']);
+    echo html_writer::end_tag('form');
+    echo $OUTPUT->footer();
+    die;
+}
+
+if ($action === 'canceldisband' && data_submitted() && confirm_sesskey()) {
+    try {
+        $api->cancel_disband($group, (int) $USER->id);
+        redirect(
+            $baseurl,
+            get_string('disbandcancelled', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
+if ($action === 'selfleave' && data_submitted() && confirm_sesskey()) {
+    // Decision 63: one click, own row only, only while the leader's
+    // disband request stands - the service is the authority.
+    try {
+        $api->invitations()->self_leave($group, (int) $USER->id);
+        redirect(
+            $viewurl,
+            get_string('disbandleft', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (moodle_exception $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
 if ($action === 'returnforming') {
     // Decision 62 (2026-08-06): the coordinator's half of ruling 51-A2.
     // Granting a guide's relief returns the FIRM team to the state

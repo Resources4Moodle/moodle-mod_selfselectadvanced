@@ -272,19 +272,33 @@ final class creation_test extends \advanced_testcase {
             'status' => groups::STATUS_CONFIRMED,
         ]);
 
+        // REFIT for decision 63 (2026-08-06). The property this test
+        // has always pinned is "a member is never surprised by the
+        // team's end". Under the consent-first protocol the member is
+        // told EARLIER and BETTER: the disband request delivers the
+        // leader's own composed reason, the member leaves themselves,
+        // and delete opens only at leader-alone - so the deletion
+        // itself has nobody left to surprise.
         $messagesink = $this->redirectMessages();
-        $api->delete_group($row, $leader);
+        $api->request_disband($row, 'Winding up for the test.', FORMAT_PLAIN, $leader);
         $messages = $messagesink->get_messages();
-        $messagesink->close();
 
         $othermsgs = array_values(array_filter(
             $messages,
-            fn($m) => (int) $m->useridto === $other && $m->eventtype === 'groupdeleted'
+            fn($m) => (int) $m->useridto === $other && $m->eventtype === 'disband'
         ));
-        $this->assertNotEmpty($othermsgs);
-        $this->assertStringContainsString('deleted', $othermsgs[0]->fullmessage);
+        $this->assertNotEmpty($othermsgs, 'the member reads the reason before anything happens');
+        $this->assertStringContainsString('Winding up for the test.', $othermsgs[0]->fullmessage);
         // The acting leader does not notify themselves.
         $this->assertEmpty(array_filter($messages, fn($m) => (int) $m->useridto === $leader));
+
+        $api->invitations()->self_leave($row, $other);
+        $api->delete_group(
+            $DB->get_record('selfselectadvanced_group', ['id' => $row->id], '*', MUST_EXIST),
+            $leader
+        );
+        $messagesink->close();
+        $this->assertFalse($DB->record_exists('selfselectadvanced_group', ['id' => $row->id]));
     }
 
     /**

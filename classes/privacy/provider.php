@@ -76,6 +76,7 @@ class provider implements
             'brief' => 'privacy:metadata:group:brief',
             'returncomment' => 'privacy:metadata:group:returncomment',
             'guidenotes' => 'privacy:metadata:group:guidenotes',
+            'disbandreason' => 'privacy:metadata:group:disbandreason',
             'usermodified' => 'privacy:metadata:group:usermodified',
         ], 'privacy:metadata:group');
         $collection->add_database_table('selfselectadvanced_userattr', [
@@ -748,7 +749,7 @@ class provider implements
             }
             $rows = $DB->get_records_sql(
                 "SELECT m.id, g.name, g.pluginuid, g.title, g.brief, g.briefformat, g.state,
-                        g.returncomment, g.guidenotes, m.status, m.isleader, m.invitedby,
+                        g.returncomment, g.guidenotes, g.disbandreason, m.status, m.isleader, m.invitedby,
                         m.timeinvited, m.timeresponded, m.leaverequested, p.penaltyvalue,
                         p.dayslate, p.award, p.waived, p.waivereason
                    FROM {selfselectadvanced_member} m
@@ -781,6 +782,7 @@ class provider implements
                     // about, who is entitled to see what is held on them.
                     'returncomment' => $row->returncomment,
                     'guidenotes' => $row->guidenotes,
+                    'disbandreason' => $row->disbandreason,
                     // Who invited this person is part of this person's
                     // own membership history, and it was declared in the
                     // metadata without ever being exported.

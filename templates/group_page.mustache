@@ -139,6 +139,35 @@
         </div>
     {{/returncomment}}
 
+    {{#disbandlive}}
+        <div class="alert alert-warning selfselectadvanced-disbandbanner">
+            <strong>{{#str}} disbandpending, mod_selfselectadvanced {{/str}}</strong>
+            <div class="mt-1">{{{disbandreason}}}</div>
+            {{#showselfleave}}
+                <form method="post" action="{{actionurl}}" class="mt-2">
+                    <input type="hidden" name="id" value="{{cmid}}">
+                    <input type="hidden" name="g" value="{{groupid}}">
+                    <input type="hidden" name="action" value="selfleave">
+                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                    <button type="submit" class="btn btn-warning btn-sm">
+                        {{#str}} disbandleave, mod_selfselectadvanced {{/str}}
+                    </button>
+                </form>
+            {{/showselfleave}}
+            {{#showdisbandcancel}}
+                <form method="post" action="{{actionurl}}" class="mt-2">
+                    <input type="hidden" name="id" value="{{cmid}}">
+                    <input type="hidden" name="g" value="{{groupid}}">
+                    <input type="hidden" name="action" value="canceldisband">
+                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                        {{#str}} disbandcancel, mod_selfselectadvanced {{/str}}
+                    </button>
+                </form>
+            {{/showdisbandcancel}}
+        </div>
+    {{/disbandlive}}
+
     {{#eoiassigned}}
         <div class="alert alert-success selfselectadvanced-eoiassigned">
             {{#str}} eoiassignedguide, mod_selfselectadvanced, {{guidename}} {{/str}}
@@ -597,9 +626,21 @@
 
     <div class="mt-3">
         <a href="{{backurl}}" class="btn btn-secondary">{{#str}} back {{/str}}</a>
+        {{#showdisbandrequest}}
+            <a href="{{disbandrequesturl}}" class="btn btn-warning ms-2">
+                {{#str}} disbandrequest, mod_selfselectadvanced {{/str}}
+            </a>
+        {{/showdisbandrequest}}
         {{#candelete}}
             <a href="{{deleteurl}}" class="btn btn-danger ms-2">{{#str}} deletegroup, mod_selfselectadvanced {{/str}}</a>
         {{/candelete}}
+        {{#deletedisabledreason}}
+            <button type="button" class="btn btn-danger ms-2" disabled aria-disabled="true"
+                title="{{deletedisabledreason}}">
+                {{#str}} deletegroup, mod_selfselectadvanced {{/str}}
+            </button>
+            <span class="ms-1 text-muted small">{{deletedisabledreason}}</span>
+        {{/deletedisabledreason}}
         {{#canfreeze}}
             <a href="{{freezeurl}}" class="btn btn-primary ms-2">{{#str}} freeze, mod_selfselectadvanced {{/str}}</a>
         {{/canfreeze}}

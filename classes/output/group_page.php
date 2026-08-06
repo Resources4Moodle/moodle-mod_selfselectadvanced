@@ -471,6 +471,27 @@ class group_page implements renderable, templatable {
         $candissolve = $canmanagemirror
             && has_capability('mod/selfselectadvanced:overriderules', $context, $this->userid);
 
+        // Decision 63: the consent-first disband surfaces. One live
+        // request drives four controls: the leader's cancel, each
+        // member's one-click leave, the banner with the composed
+        // reason, and the Delete button's disabled state while members
+        // remain. The REQUEST control itself appears only for a
+        // leader whose forming team has members and no live request.
+        $disbandlive = !empty($this->group->timedisbandrequested);
+        $othermembers = $DB->count_records_select(
+            'selfselectadvanced_member',
+            'groupid = ? AND status = ? AND userid <> ?',
+            [(int) $this->group->id, groups::STATUS_CONFIRMED, (int) $this->group->leaderid]
+        );
+        $showdisbandrequest = $isleader && $isforming && $maylead
+            && !$disbandlive && $othermembers > 0;
+        $showdisbandcancel = $isleader && $isforming && $maylead && $disbandlive;
+        $showselfleave = $disbandlive && $isforming
+            && !$isleader && $isconfirmedmember && $mayrespond;
+        $deletedisabledreason = $isleader && $isforming && $maylead && $othermembers > 0
+            ? get_string('refusaldisbandfirst', 'mod_selfselectadvanced', $othermembers)
+            : '';
+
         // Decision 62: the return-to-forming control for a FIRM team.
         // Drawn only for a queue worker (coordinator or manager) who is
         // NOT involved with this team - the same standing conflict rule
@@ -909,7 +930,24 @@ class group_page implements renderable, templatable {
             // who leads. Ownership itself is unchanged and is asserted
             // on the group row by the tests, not read off here.
             'isleader' => $isleader && $maylead,
-            'candelete' => $isleader && $isforming && $maylead,
+            'candelete' => $isleader && $isforming && $maylead && $othermembers === 0,
+            'deletedisabledreason' => $deletedisabledreason,
+            'disbandlive' => $disbandlive,
+            'disbandreason' => $disbandlive
+                ? format_text(
+                    (string) $this->group->disbandreason,
+                    (int) ($this->group->disbandreasonformat ?? FORMAT_PLAIN),
+                    ['context' => $context]
+                )
+                : '',
+            'showdisbandrequest' => $showdisbandrequest,
+            'showdisbandcancel' => $showdisbandcancel,
+            'showselfleave' => $showselfleave,
+            'disbandrequesturl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $cmid,
+                'g' => $this->group->id,
+                'action' => 'disbandrequest',
+            ]))->out(false),
             'caninvite' => $caninvite,
             'inviteformhtml' => $caninvite && $this->inviteform ? $this->inviteform->render() : '',
             'invitedisabledreason' => $isleader && $isforming && $maylead && $seats->free < 1
