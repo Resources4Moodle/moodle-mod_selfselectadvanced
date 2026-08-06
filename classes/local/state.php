@@ -450,13 +450,31 @@ final class state {
             $transaction = $DB->start_delegated_transaction();
 
             $fresh = groups::get($this->activity, (int) $group->id);
-            if ($refusal = $this->gatekeeper->can_return($fresh, $actorid)) {
+            if ($fresh->state === self::FIRM) {
+                // Decision 62 (2026-08-06): the coordinator's half of
+                // ruling 51-A2 ("a guide cannot un-approve; it needs a
+                // coordinator"). The maintainer's relief flow: the guide
+                // asks the coordinators to be relieved; granting it
+                // returns the team to the state before a guide was
+                // chosen. The actor is a queue worker - coordinator or
+                // manager - and the standing conflict rule applies: a
+                // coordinator never acts on a team they are involved
+                // with. The team's own guide is still refused here,
+                // which keeps 51-A2 itself intact.
+                tickets::require_queue_authority($this->activity, $actorid);
+                tickets::require_uninvolved($this->activity, $fresh, $actorid);
+            } else if ($refusal = $this->gatekeeper->can_return($fresh, $actorid)) {
                 throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
+            $oldguideid = (int) ($fresh->guideid ?? 0);
 
             $now = time();
             $fresh->state = self::FORMING;
             $fresh->guideid = null;
+            // Approval is undone with the guide who gave it: a forming
+            // team with a timeapproved would restart the penalty clock
+            // from a decision that no longer stands.
+            $fresh->timeapproved = null;
             $fresh->releasedbyguide = 0;
             // A return dissolves any pending handover with it: the
             // nomination belonged to the guide who just released the
@@ -513,6 +531,20 @@ final class state {
             $this->group_url((int) $fresh->id),
             format_string($fresh->name)
         );
+        if ($oldguideid && $oldguideid !== $actorid) {
+            // The relieved guide learns their relief was granted - the
+            // whole point of the flow that reaches this arm.
+            notifier::send(
+                $this->activity,
+                'groupreturned',
+                $oldguideid,
+                'msgguiderelievedsubject',
+                'msgguiderelievedbody',
+                (object) ['group' => format_string($fresh->name), 'comment' => trim($comment)],
+                $this->group_url((int) $fresh->id),
+                format_string($fresh->name)
+            );
+        }
 
         return $fresh;
     }
@@ -775,7 +807,11 @@ final class state {
     private const EDGES = [
         self::FORMING => [self::PENDING_GUIDE],
         self::PENDING_GUIDE => [self::FORMING, self::FIRM],
-        self::FIRM => [self::FROZEN],
+        // FORMING was added 2026-08-06 (decision 62): the coordinator's
+        // half of ruling 51-A2. A guide cannot un-approve; a
+        // coordinator, resolving the guide's relief ticket, returns the
+        // team to the state before a guide was chosen.
+        self::FIRM => [self::FROZEN, self::FORMING],
         self::FROZEN => [self::FIRM],
     ];
 

@@ -785,6 +785,76 @@ if ($action === 'dissolve') {
     die;
 }
 
+if ($action === 'returnforming') {
+    // Decision 62 (2026-08-06): the coordinator's half of ruling 51-A2.
+    // Granting a guide's relief returns the FIRM team to the state
+    // before a guide was chosen. GET renders the confirmation with the
+    // required reason; the POST performs it. The SERVICE is the
+    // authority - queue-worker capability AND the standing
+    // conflict-of-interest guard are re-asked there - this page gate
+    // only refuses the obviously unauthorised early.
+    \mod_selfselectadvanced\local\tickets::require_queue_authority($activity, (int) $USER->id);
+    if (data_submitted() && confirm_sesskey()) {
+        $returnreason = trim(optional_param('reason', '', PARAM_TEXT));
+        if ($returnreason === '') {
+            redirect(
+                new moodle_url($baseurl, ['action' => 'returnforming']),
+                get_string('errcommentrequired', 'mod_selfselectadvanced'),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        }
+        try {
+            $api->lifecycle()->return_group($group, $returnreason, (int) $USER->id);
+        } catch (moodle_exception $e) {
+            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        }
+        redirect(
+            $baseurl,
+            get_string('groupreturnedforming', 'mod_selfselectadvanced', format_string($group->name)),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    }
+    echo $OUTPUT->header();
+    echo $OUTPUT->heading(get_string('returnforming', 'mod_selfselectadvanced'));
+    echo html_writer::tag(
+        'p',
+        get_string('returnformingconfirm', 'mod_selfselectadvanced', format_string($group->name))
+    );
+    echo html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => (new moodle_url($baseurl, ['action' => 'returnforming']))->out(false),
+        'class' => 'selfselectadvanced-returnformingform mt-2',
+    ]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+    echo html_writer::div(
+        html_writer::label(
+            get_string('moveoverridereason', 'mod_selfselectadvanced'),
+            'ssa-returnreason',
+            true,
+            ['class' => 'form-label']
+        )
+        . html_writer::tag('textarea', '', [
+            'class' => 'form-control',
+            'id' => 'ssa-returnreason',
+            'name' => 'reason',
+            'rows' => 3,
+            'required' => 'required',
+        ]),
+        'mb-2'
+    );
+    echo html_writer::empty_tag('input', [
+        'type' => 'submit',
+        'class' => 'btn btn-warning',
+        'value' => get_string('returnforming', 'mod_selfselectadvanced'),
+    ]);
+    echo html_writer::link($baseurl, get_string('cancel'), ['class' => 'btn btn-secondary ms-2']);
+    echo html_writer::end_tag('form');
+    echo $OUTPUT->footer();
+    die;
+}
+
 if ($action === 'resynccore' && data_submitted() && confirm_sesskey()) {
     // The manager entry point for "make the course group match the
     // team": it repairs a missing mirror (state frozen, no core group -

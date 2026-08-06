@@ -1781,5 +1781,28 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080605, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080606) {
+        // Marker-only release step: decision 62 and the honest end of a
+        // deleted team. A queue worker (coordinator or manager, never
+        // involved with the team) may return a FIRM team to FORMING
+        // with a reason - the missing half of ruling 51-A2: approval
+        // undone, guide relieved and notified, pending handover lapsed.
+        // And delete_group() now runs dissolve_group()'s orphan sweep,
+        // so a live join request can no longer outlive the team it
+        // targets, and the request history reads "Accepted - the team
+        // was later disbanded" instead of a bare Accepted beside a team
+        // that no longer exists. No schema change; the marker proves
+        // this code release executed.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.14 (2026080606). Return-to-forming verb; deleted teams end honestly.',
+            'No schema change. Records the FIRM-to-FORMING coordinator arm of return_group() and '
+                . 'the orphan sweep in delete_group().'
+        );
+
+        upgrade_mod_savepoint(true, 2026080606, 'selfselectadvanced');
+    }
+
     return true;
 }

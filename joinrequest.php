@@ -313,6 +313,19 @@ if ($tab === 'ask') {
             if ($target && (int) $target->activityid !== $activity->id()) {
                 $target = null;
             }
+            // The OUTCOME must not outlive the team it describes
+            // (maintainer's live report, 2026-08-06): "Accepted" beside
+            // "Team no longer exists" told a student they were in a
+            // team while the banner above said they were in none. A
+            // committed request whose target has since been deleted or
+            // dissolved reads "Accepted - the team was later
+            // disbanded"; every other status keeps its own word, since
+            // a declined or withdrawn request is not falsified by the
+            // team's later end.
+            $statuslabel = get_string('joinstatus' . $request->status, 'mod_selfselectadvanced');
+            if (!$target && $request->status === 'committed') {
+                $statuslabel = get_string('joinstatusdisbanded', 'mod_selfselectadvanced');
+            }
             $table->data[] = [
                 $target
                     ? format_string($target->name)
@@ -322,7 +335,7 @@ if ($tab === 'ask') {
                     ? format_string($sourcenames[(int) $request->sourcegroupid]->name)
                     : get_string('joinleavesextra', 'mod_selfselectadvanced'),
                 s(shorten_text((string) $request->reason, 90)),
-                get_string('joinstatus' . $request->status, 'mod_selfselectadvanced'),
+                $statuslabel,
                 s(shorten_text((string) ($request->responsenote ?? ''), 90)),
                 userdate((int) $request->timecreated, get_string('strftimedatetimeshort')),
             ];

@@ -471,6 +471,23 @@ class group_page implements renderable, templatable {
         $candissolve = $canmanagemirror
             && has_capability('mod/selfselectadvanced:overriderules', $context, $this->userid);
 
+        // Decision 62: the return-to-forming control for a FIRM team.
+        // Drawn only for a queue worker (coordinator or manager) who is
+        // NOT involved with this team - the same standing conflict rule
+        // the service re-asks. A control the service would refuse is
+        // worse than no control.
+        $canreturnforming = false;
+        if ($this->group->state === state::FIRM) {
+            $isworker = has_capability('mod/selfselectadvanced:manage', $context, $this->userid)
+                || has_capability('mod/selfselectadvanced:coordinate', $context, $this->userid);
+            $canreturnforming = $isworker
+                && \mod_selfselectadvanced\local\tickets::involvement(
+                    $activity,
+                    $this->group,
+                    $this->userid
+                ) === null;
+        }
+
         // Expressions of interest (spec: EOI). The leader (and staff)
         // see the full panel; other members see only the count line.
         // Acceptance pre-assigns the guide while the team is still
@@ -818,6 +835,12 @@ class group_page implements renderable, templatable {
                 'action' => 'discardcoregroup',
             ]))->out(false),
             'candissolve' => $candissolve,
+            'canreturnforming' => $canreturnforming,
+            'returnformingurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $cmid,
+                'g' => $this->group->id,
+                'action' => 'returnforming',
+            ]))->out(false),
             'dissolveurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
                 'id' => $cmid,
                 'g' => $this->group->id,

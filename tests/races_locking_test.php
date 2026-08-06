@@ -471,9 +471,16 @@ final class races_locking_test extends \advanced_testcase {
         );
         $this->assertFalse($DB->is_transaction_started());
 
-        // Returning a group: only a PENDING_GUIDE one may be returned.
+        // Returning a group. Since decision 62 a FIRM team routes to
+        // the STAFF arm of return_group() - queue authority first - so
+        // a student leader is refused 'nopermissions' where the old
+        // single-arm gate said 'refusalwrongstate'. The property under
+        // test is unchanged: the refusal is thrown from inside the
+        // transaction and leaves it closed. The wrongstate flavour of
+        // this gate is pinned separately by
+        // return_to_forming_test::test_a_frozen_team_must_be_unfrozen_first.
         $this->assert_refused(
-            'refusalwrongstate',
+            'nopermissions',
             fn() => $api->lifecycle()->return_group($a, 'Needs work', (int) $a->leaderid)
         );
         $this->assertFalse($DB->is_transaction_started());

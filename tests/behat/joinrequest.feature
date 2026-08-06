@@ -312,3 +312,23 @@ Feature: Asking to join another team, and the guide releasing a settled one
     # and not a connection: no number, no address.
     And I should not see "9000000003"
     And I should not see "s3@example.com"
+
+  # THE STALE-ACCEPTED ROW (maintainer's live report, 2026-08-06): a
+  # student whose accepted team was later deleted read "Accepted" beside
+  # "Team no longer exists" under a banner saying they were in no team.
+  # The outcome must not outlive the team it describes.
+  @javascript
+  Scenario: A deleted team's history says disbanded, not accepted
+    When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student4
+    And I set the field "Team you want to join" to "Team Gold"
+    And I set the field "Why you are asking" to "Gold looks right"
+    And I press "Send the request"
+    And I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
+    And I follow "Team Gold"
+    And I press "Accept"
+    Then I should see "Accepted. The student has been moved and the team re-composed."
+    When I follow "Delete group"
+    And I press "Delete group"
+    And I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student4
+    Then I should see "Team no longer exists"
+    And I should see "Accepted — the team was later disbanded"

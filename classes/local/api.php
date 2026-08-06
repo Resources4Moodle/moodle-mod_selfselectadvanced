@@ -469,6 +469,52 @@ class api {
                 [$fresh->id, groups::STATUS_CONFIRMED]
             );
 
+            // The same orphan sweep dissolve_group() performs, and for
+            // the same reason (maintainer's live report, 2026-08-06): a
+            // live join request targeting the deleted team held its
+            // asker's one-request slot against a team that no longer
+            // existed, and a pending staged move naming it would take
+            // the pending-moves page down through validate_set()'s
+            // MUST_EXIST. "Drops member and group rows alone" used to
+            // be called enough for a forming team; the stranded asker
+            // proved it was not.
+            $now = time();
+            foreach (
+                $DB->get_records_select(
+                    'selfselectadvanced_move',
+                    'activityid = :activityid AND status = :pending
+                         AND (sourcegroupid = :sourceid OR targetgroupid = :targetid)',
+                    [
+                        'activityid' => $this->activity->id(),
+                        'pending' => 'pending',
+                        'sourceid' => (int) $fresh->id,
+                        'targetid' => (int) $fresh->id,
+                    ]
+                ) as $orphan
+            ) {
+                $DB->update_record('selfselectadvanced_move', (object) [
+                    'id' => $orphan->id,
+                    'status' => 'cancelled',
+                    'usermodified' => $userid,
+                    'timemodified' => $now,
+                ]);
+            }
+            foreach (
+                $DB->get_records('selfselectadvanced_move', [
+                    'activityid' => $this->activity->id(),
+                    'status' => joinrequests::STATUS_REQUESTED,
+                    'targetgroupid' => (int) $fresh->id,
+                ]) as $orphan
+            ) {
+                $DB->update_record('selfselectadvanced_move', (object) [
+                    'id' => $orphan->id,
+                    'status' => joinrequests::STATUS_DECLINED,
+                    'responsenote' => get_string('joindeclinedteamdeleted', 'mod_selfselectadvanced'),
+                    'usermodified' => $userid,
+                    'timemodified' => $now,
+                ]);
+            }
+
             $DB->delete_records('selfselectadvanced_member', ['groupid' => $fresh->id]);
             $DB->delete_records('selfselectadvanced_group', ['id' => $fresh->id]);
 
@@ -723,9 +769,9 @@ class api {
 
             $DB->delete_records('selfselectadvanced_member', ['groupid' => $fresh->id]);
             // Everything that is ONLY meaningful while the team exists
-            // goes with it. delete_group() drops member and group rows
-            // alone, which is enough for the FORMING team it is limited
-            // to; this verb closes teams that have been firm or frozen,
+            // goes with it. delete_group() now runs the same orphan
+            // sweep for the forming teams it is limited to (2026-08-06);
+            // this verb closes teams that have been firm or frozen,
             // so they carry a restore snapshot, a penalty row, guide
             // expressions of interest, approaches and possibly a
             // group-scope override. Left behind, those are rows no
