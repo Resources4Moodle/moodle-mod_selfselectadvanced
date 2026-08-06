@@ -1740,5 +1740,25 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080603, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080604) {
+        // Marker-only release step: an ineligible invite pick is refused
+        // BY NAME with the candidate's current refusal sentence
+        // (maintainer's live report, 2026-08-06). The selector keeps an
+        // ineligible candidate's identity as a negated id instead of
+        // collapsing every such pick into the same anonymous zero, and
+        // the batch loop prefixes combination refusals - eligible alone,
+        // refused once an earlier pick consumed the capacity - with the
+        // candidate's name. No schema change; the marker proves this
+        // code release executed and rebuilds the string and AMD caches.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.12 (2026080604). Invite refusals name the candidate and the reason.',
+            'No schema change. Records the negated-id selector mapping and the named batch refusals.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080604, 'selfselectadvanced');
+    }
+
     return true;
 }

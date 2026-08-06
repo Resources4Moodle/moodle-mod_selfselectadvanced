@@ -119,3 +119,25 @@ Feature: Invitation-only joining with reserved seats
     And I type "student3@example.com"
     Then I should see "No suggestions"
     And I should not see "Uma Three"
+
+  # THE ANONYMOUS-ZERO REGRESSION (maintainer's live report, 2026-08-06:
+  # "The message says that the reason why a member could not be added is
+  # given against the name, but it is not so"). Every ineligible pick
+  # used to collapse into the same value 0, so the server could name
+  # neither the candidate nor the reason and the refusal pointed back at
+  # a list that may have been re-queried. The selector now keeps the
+  # identity as a negated id, and the answer names both.
+  @javascript
+  Scenario: Selecting an annotated ineligible candidate is refused by name with the current reason
+    Given the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name      | leader   |
+      | ssa1               | Team Gold | student1 |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
+    And I follow "Team Blue"
+    # Sam leads Team Gold and maxmembership is 1, so the list annotates
+    # them - and the pick must come back as "Sam One cannot be invited",
+    # not as an anonymous complaint about the list.
+    And I set the field "Invite members" to "Sam One"
+    And I press "Send invitations"
+    Then I should see "0 invitation(s) sent."
+    And I should see "Sam One cannot be invited:"

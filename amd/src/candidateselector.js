@@ -54,7 +54,14 @@ export const transport = (selector, query, callback, failure) => {
     Ajax.call([request])[0]
         // eslint-disable-next-line promise/no-callback-in-promise
         .then((results) => callback(results.map((candidate) => ({
-            value: candidate.eligible ? candidate.id : 0,
+            // Ineligible candidates keep their IDENTITY as a negated id
+            // (2026-08-06): the previous mapping collapsed every
+            // ineligible pick into the same anonymous 0, so the server
+            // could name neither the candidate nor the reason and the
+            // refusal pointed back at a list that may have scrolled
+            // away. The negative sign still cannot collide with a real
+            // pick, and the server resolves it to "name: reason".
+            value: candidate.eligible ? candidate.id : -candidate.id,
             label: candidate.eligible
                 ? candidate.label
                 : candidate.label + ' (' + candidate.reason + ')',
@@ -67,8 +74,9 @@ export const transport = (selector, query, callback, failure) => {
  *
  * Ineligible candidates stay in the list carrying their refusal
  * reason in the label (audit item 3 - the whole point of the custom
- * transport); they use value 0, which the server refuses with the
- * same reason should anyone select one.
+ * transport); they use the NEGATED user id, which the server resolves
+ * back to the candidate's name and current refusal should anyone
+ * select one.
  *
  * @param {String} selector The autocomplete element selector.
  * @param {Array} results The results returned by transport.

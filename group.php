@@ -227,23 +227,57 @@ if ($action === 'cancelnomination' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
-    $picked = array_filter(array_map('intval', (array) ($data->invitees ?? [])));
-    if (count($picked) !== count((array) ($data->invitees ?? []))) {
+    // Three kinds of entry arrive here, and until 2026-08-06 all three
+    // collapsed into one anonymous banner that pointed back at a search
+    // list which may have scrolled away or been re-queried (maintainer's
+    // live report: "the message says the reason is given against the
+    // name, but it is not so"):
+    // A POSITIVE id is a candidate the list showed eligible. A NEGATIVE
+    // id is one the list annotated ineligible - the selector keeps
+    // their identity as -id precisely so the refusal can be resolved to
+    // a NAME and the CURRENT sentence here. A zero or empty entry is a
+    // widget artefact (typed text never committed to a pick), ignored
+    // when anything real was picked.
+    $raw = array_map('intval', (array) ($data->invitees ?? []));
+    $picked = array_filter($raw, static fn(int $id): bool => $id > 0);
+    $flagged = array_filter($raw, static fn(int $id): bool => $id < 0);
+    if (!$picked && !$flagged) {
         redirect(
             $baseurl,
-            get_string('errineligiblepick', 'mod_selfselectadvanced'),
+            get_string('errnopickselected', 'mod_selfselectadvanced'),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
     }
     $sent = 0;
     $problems = [];
-    foreach (array_filter(array_map('intval', (array) $data->invitees)) as $inviteeid) {
+    foreach ($flagged as $flaggedid) {
+        // Re-asked NOW rather than replayed from the list: the roster
+        // may have moved since the search rendered, and the sentence
+        // the leader reads must be the one the gate would use.
+        $ineligible = \core_user::get_user(-$flaggedid);
+        $refusal = $ineligible ? $api->gatekeeper()->can_invite($group, -$flaggedid) : null;
+        $problems[] = get_string('errineligiblepick', 'mod_selfselectadvanced', (object) [
+            'name' => $ineligible ? fullname($ineligible) : -$flaggedid,
+            'reason' => $refusal?->get_message()
+                ?? get_string('refusalgone', 'mod_selfselectadvanced'),
+        ]);
+    }
+    foreach ($picked as $inviteeid) {
         try {
             $api->invitations()->send($group, $inviteeid, (int) $USER->id);
             $sent++;
         } catch (moodle_exception $e) {
-            $problems[] = $e->getMessage();
+            // The combination case (maintainer, 2026-08-06): a candidate
+            // eligible ALONE can be refused once an earlier pick in this
+            // same batch consumed the seats or the rule capacity their
+            // eligibility depended on. The sentence alone did not say
+            // WHO it was about, so it is prefixed with the name.
+            $refused = \core_user::get_user($inviteeid);
+            $problems[] = get_string('errineligiblepick', 'mod_selfselectadvanced', (object) [
+                'name' => $refused ? fullname($refused) : $inviteeid,
+                'reason' => $e->getMessage(),
+            ]);
         }
     }
     $notice = get_string('invitationssent', 'mod_selfselectadvanced', $sent);
