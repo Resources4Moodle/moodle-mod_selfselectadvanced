@@ -106,6 +106,53 @@ final class autogroup_test extends \advanced_testcase {
     }
 
     /**
+     * Distinct rules reach the planner (seam audit B7, 1.20.20): "at
+     * least N different departments" was invisible to every branch -
+     * neither honoured nor bypassed - so a run could form
+     * single-department groups under a distinct-3 rule and log a clean
+     * pass. Satisfiable pools now honour it; an unsatisfiable rule is
+     * bypassed AND LOGGED, spec 9.3's own semantics.
+     *
+     * MUTATION CAUGHT (run): removing the distinct arm from plan()
+     * fails the distinct-count assertion below.
+     */
+    public function test_distinct_rules_reach_the_planner(): void {
+        $rule = [(object) [
+            'id' => 11,
+            'rtype' => 'distinct',
+            'dimension' => 'department',
+            'value' => null,
+            'mincount' => 3,
+            'maxcount' => null,
+            'priority' => 1,
+        ]];
+        // Six students over three departments: every group of three
+        // can seat one of each.
+        $attrs = [];
+        foreach ([1 => 'A', 2 => 'A', 3 => 'B', 4 => 'B', 5 => 'C', 6 => 'C'] as $uid => $dept) {
+            $attrs[$uid] = (object) ['department' => $dept];
+        }
+        $plan = engine::plan(range(1, 6), 3, 3, $rule, $attrs, 5);
+
+        $this->assertCount(2, $plan->groups);
+        $this->assertSame([], $plan->bypassed, 'a satisfiable rule is honoured, not bypassed');
+        foreach ($plan->groups as $group) {
+            $depts = array_unique(array_map(fn($u) => $attrs[$u]->department, $group));
+            $this->assertCount(3, $depts, 'every formed group carries three distinct departments');
+        }
+
+        // The unsatisfiable shape: one department only. Bypassed and
+        // logged, never silent.
+        $mono = [];
+        foreach (range(1, 6) as $uid) {
+            $mono[$uid] = (object) ['department' => 'A'];
+        }
+        $monoplan = engine::plan(range(1, 6), 3, 3, $rule, $mono, 5);
+        $this->assertSame([11], $monoplan->bypassed, 'the unfillable distinct rule is named in the log');
+        $this->assertCount(2, $monoplan->groups, 'and the run still forms the groups it can');
+    }
+
+    /**
      * B4 pool + end-to-end run: extended students are excluded until
      * their window closes; the run forms pending_guide autoformed
      * groups with leaders in the A5 queue; the task guard prevents

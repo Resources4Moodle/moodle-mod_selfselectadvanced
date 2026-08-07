@@ -61,6 +61,12 @@ class joinrequests {
     /** @var array<string,string> Invitation refusals a staff move override can repair. */
     private const OVERRIDEABLE_HARD_RULES = [
         'refusalnoseats' => 'L2',
+        // The honest sibling sentences (seam audit B8) are the SAME
+        // L2 fact and keep the same staff-override authority - the
+        // full-suite sweep caught the first wording change silently
+        // downgrading them to plain hard stops.
+        'refusalnoseatsconfirmed' => 'L2',
+        'refusalnoseatsheld' => 'L2',
         'refusalinviteecap' => 'L4',
     ];
 
@@ -932,6 +938,8 @@ class joinrequests {
             $decision = self::accept_decision($activity, $request, $actorid, $target);
             $enginewillname = in_array($decision->hardkey, [
                 'refusalnoseats',
+                'refusalnoseatsconfirmed',
+                'refusalnoseatsheld',
                 'refusalinviteecap',
                 'errmovesuccessorrequired',
                 'errmovesololeader',
@@ -945,11 +953,16 @@ class joinrequests {
                 );
             }
             if ($decision->consentnotes !== [] && !$acceptconfirmed) {
+                // Its own sentence (seam audit B8, 1.20.20): the old
+                // wrapper said "Accepting would break the team's
+                // composition" around notes whose whole point is that
+                // NO rule is broken - the decider only has to read the
+                // consequence before proceeding.
                 throw new \moodle_exception(
-                    'refusaljoinrules',
+                    'refusaljoinconsent',
                     'mod_selfselectadvanced',
                     '',
-                    implode(' ', $decision->warnings)
+                    implode(' ', $decision->consentnotes)
                 );
             }
 
@@ -1003,7 +1016,12 @@ class joinrequests {
                         $activity,
                         $target,
                         $source,
-                        (int) $request->userid
+                        (int) $request->userid,
+                        // Rule codes are staff vocabulary (seam audit
+                        // B8): they name the override checkboxes, so
+                        // an :overriderules holder keeps them; the
+                        // ordinary decider reads the sentence alone.
+                        has_capability('mod/selfselectadvanced:overriderules', $activity->context(), $actorid)
                     )
                 );
             }
@@ -1150,11 +1168,37 @@ class joinrequests {
     }
 
     /**
+     * The same question require_decider() asks, as a refusal-or-null:
+     * the one producer for every surface that must decide whether to
+     * OFFER an answer control (seam audit B1, 1.20.20). Both the group
+     * page's request panel and joinrequest.php's Answer tab call this
+     * rather than keeping private copies of the door - which is how
+     * the Answer tab drifted into drawing live controls for a
+     * prohibited leader and, once decision 65 landed, for an involved
+     * coordinator.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $target the target team
+     * @param int $actorid the actor
+     * @return string '' when they may decide, else the refusal sentence
+     */
+    public static function decide_refusal(activity $activity, stdClass $target, int $actorid): string {
+        try {
+            self::require_decider($activity, $target, $actorid);
+        } catch (\moodle_exception $e) {
+            return $e->getMessage();
+        }
+
+        return '';
+    }
+
+    /**
      * Who may answer a request for this team.
      *
      * The target team's leader while they still hold the authority to
      * act as a leader, and - the maintainer's escape hatch for an
-     * absent leader or a contested case - any coordinator or manager.
+     * absent leader or a contested case - any coordinator or manager
+     * (an involved narrow-authority coordinator excepted, decision 65).
      *
      * @param activity $activity the activity
      * @param stdClass $target the target team
@@ -1275,6 +1319,7 @@ class joinrequests {
      * @param stdClass $target the team being joined
      * @param stdClass|null $source the team being left, or null for an extra membership
      * @param int $userid the student the request is about
+     * @param bool $includecodes prefix rule codes - staff vocabulary that names their bypass form
      * @return string a localised reason, or a general one
      */
     private static function first_reason(
@@ -1283,8 +1328,10 @@ class joinrequests {
         activity $activity,
         stdClass $target,
         ?stdClass $source,
-        int $userid
+        int $userid,
+        bool $includecodes = false
     ): string {
+        $prefix = static fn(string $rule): string => $includecodes ? $rule . ': ' : '';
         foreach ($verdicts->permove[$moveid] ?? [] as $rule => $verdict) {
             if (empty($verdict['ok']) && empty($verdict['bypassed']) && !empty($verdict['reason'])) {
                 if ($rule === 'QUOTA') {
@@ -1295,10 +1342,10 @@ class joinrequests {
                         $source !== null ? (int) $source->id : null
                     );
                     if ($named !== null) {
-                        return $rule . ': ' . $named;
+                        return $prefix($rule) . $named;
                     }
                     if ($source === null) {
-                        return $rule . ': ' . get_string(
+                        return $prefix($rule) . get_string(
                             'refusaljoinquotatarget',
                             'mod_selfselectadvanced',
                             format_string($target->name)
@@ -1306,7 +1353,7 @@ class joinrequests {
                     }
                 }
 
-                return $rule . ': ' . $verdict['reason'];
+                return $prefix($rule) . $verdict['reason'];
             }
         }
 

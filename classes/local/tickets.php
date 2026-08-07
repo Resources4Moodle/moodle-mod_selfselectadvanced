@@ -1102,6 +1102,45 @@ class tickets {
     }
 
     /**
+     * Every group in the activity this person is INVOLVED with, as
+     * ids: the bulk form of involvement(), for dashboards that need
+     * the whole set rather than one team's answer (seam audit B6,
+     * 1.20.20 - coordinator.php carried a hand-written copy of the
+     * three arms). The SQL below restates involvement()'s arms - guide
+     * of, nominated successor guide of, confirmed member of - and a
+     * test pins the two producers to the same answers; the :manage
+     * exemption is the same trusted arm involvement() opens with
+     * (decision 65).
+     *
+     * @param activity $activity the activity
+     * @param int $userid the person
+     * @return int[] group ids, empty for a :manage holder
+     */
+    public static function involved_group_ids(activity $activity, int $userid): array {
+        global $DB;
+
+        if (has_capability('mod/selfselectadvanced:manage', $activity->context(), $userid)) {
+            return [];
+        }
+
+        return array_map('intval', $DB->get_fieldset_sql(
+            "SELECT g.id
+               FROM {selfselectadvanced_group} g
+              WHERE g.activityid = :activityid
+                AND (g.guideid = :guide OR g.guidesuccessorid = :successor
+                     OR EXISTS (SELECT 1 FROM {selfselectadvanced_member} m
+                                 WHERE m.groupid = g.id AND m.userid = :member AND m.status = :confirmed))",
+            [
+                'activityid' => $activity->id(),
+                'guide' => $userid,
+                'successor' => $userid,
+                'member' => $userid,
+                'confirmed' => groups::STATUS_CONFIRMED,
+            ]
+        ));
+    }
+
+    /**
      * The conflict-of-interest guard for overrides (strategy 1.17 B1).
      *
      * A coordinator may grant exceptions, but not to themselves and not

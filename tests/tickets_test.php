@@ -847,4 +847,29 @@ final class tickets_test extends \advanced_testcase {
         $unfrozen = freeze::unfreeze($activity, $frozen, (int) $guide->id);
         $this->assertSame(state::FIRM, $unfrozen->state);
     }
+
+    /**
+     * The two involvement producers agree (seam audit B6, 1.20.20):
+     * involved_group_ids() is the bulk restatement of involvement()'s
+     * three arms, and this test walks every fixture actor through both
+     * so the SQL and the per-group predicate cannot drift apart - the
+     * coordinator dashboard used to carry its own third copy.
+     */
+    public function test_involvement_producers_agree(): void {
+        $this->resetAfterTest();
+        [$activity, $group, $leader, $member, $guide, $manager, $coordinator] = $this->setup_world();
+
+        foreach ([$leader, $member, $guide, $manager, $coordinator] as $actor) {
+            $bulk = tickets::involved_group_ids($activity, (int) $actor->id);
+            $pergroup = tickets::involvement($activity, $group, (int) $actor->id) !== null;
+            $this->assertSame(
+                $pergroup,
+                in_array((int) $group->id, $bulk, true),
+                "bulk and per-group answers must match for user {$actor->id}"
+            );
+        }
+        // The trusted arm, explicitly: a :manage holder is involved
+        // with nothing, in both producers (decision 65).
+        $this->assertSame([], tickets::involved_group_ids($activity, (int) $manager->id));
+    }
 }

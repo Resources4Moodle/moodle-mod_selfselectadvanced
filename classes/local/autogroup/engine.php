@@ -171,6 +171,42 @@ class engine {
                         $need--;
                     }
                 }
+                if ($rule->rtype === 'distinct' && $rule->mincount !== null) {
+                    // Distinct rules were invisible to this planner
+                    // until 1.20.20 (seam audit B7): every branch
+                    // handled only rtype 'value', so "at least N
+                    // different departments" was neither honoured nor
+                    // bypassed-and-logged - the run just claimed the
+                    // groups it formed. Same greedy shape as the value
+                    // arm: while the group shows fewer distinct values
+                    // than the rule wants, take somebody whose value is
+                    // NEW to it; when nobody can add one, spec 9.3 -
+                    // bypassed and logged, never silent.
+                    $present = static function (array $members) use ($value, $rule): array {
+                        $seen = [];
+                        foreach ($members as $u) {
+                            $v = $value($u, $rule->dimension);
+                            if ($v !== null && $v !== '') {
+                                $seen[$v] = true;
+                            }
+                        }
+
+                        return $seen;
+                    };
+                    while (count($present($members)) < (int) $rule->mincount && count($members) < $size) {
+                        $seen = $present($members);
+                        $found = $take($remaining, static function ($u) use ($value, $rule, $seen) {
+                            $v = $value($u, $rule->dimension);
+
+                            return $v !== null && $v !== '' && !isset($seen[$v]);
+                        });
+                        if ($found === null) {
+                            $bypassed[(int) $rule->id] = true;
+                            break;
+                        }
+                        $members[] = $found;
+                    }
+                }
             }
             // Fill the remainder, honouring value-rule maxima.
             while (count($members) < $size && $remaining) {
@@ -239,6 +275,7 @@ class engine {
             $now = time();
             $pool = self::pool($activity, $resolver, $now);
             $rules = $DB->get_records('selfselectadvanced_quota', ['activityid' => $activity->id()], 'priority ASC');
+            $template = \mod_selfselectadvanced\local\quota\slots::get_all($activity);
             $attrs = manager::get_for_users($pool);
             // Band from the activity settings via the resolver's
             // activity fallthrough (auto groups have no group overrides yet).
@@ -339,7 +376,33 @@ class engine {
                     }
                 }
                 $placed += count($members);
-                $log['groups'][] = ['pluginuid' => $group->pluginuid, 'leaderid' => $leaderid, 'members' => $members];
+                // Seat-template honesty (seam audit B7, 1.20.20): this
+                // planner does not yet PLAN against the seat template
+                // (flagged as future work - templates need a solver,
+                // not a greedy pass), so the run must not read as
+                // compliant where the template went unexamined. Each
+                // formed group's unfilled template seats are measured
+                // by the same engine the compliance panel uses and
+                // recorded in the run log - a deficit named is a
+                // deficit somebody can repair.
+                $groupentry = ['pluginuid' => $group->pluginuid, 'leaderid' => $leaderid, 'members' => $members];
+                if ($template !== []) {
+                    $seating = \mod_selfselectadvanced\local\quota\slots::evaluate_from_data(
+                        $template,
+                        $members,
+                        $attrs
+                    );
+                    $deficits = [];
+                    foreach ($seating->slots as $slotentry) {
+                        if ((int) $slotentry->missing > 0) {
+                            $deficits[] = $slotentry->label . ': ' . $slotentry->missing;
+                        }
+                    }
+                    if ($deficits !== []) {
+                        $groupentry['templatedeficits'] = $deficits;
+                    }
+                }
+                $log['groups'][] = $groupentry;
             }
 
             $agrun = (object) [

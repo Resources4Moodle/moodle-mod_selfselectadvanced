@@ -1426,9 +1426,15 @@ if ($ticketforms !== '') {
 
 // Approaching a guide (strategy 1.17 E): the leader of a forming team
 // with no guide yet, where the activity allows it. Its own page, so
-// nothing here changes for anyone else.
+// nothing here changes for anyone else. $maylead is part of the
+// condition (seam audit B3, 1.20.20) because contact.php gates on
+// :creategroup and contacts::send() asks authority::require_lead() -
+// the neighbouring Edit control asked both questions while this link
+// kept the raw leader-of-record copy, so a decision-38 prohibited
+// leader met a raw no-permission page one click later.
 if (
     $isgroupleader
+    && $maylead
     && $group->state === \mod_selfselectadvanced\local\state::FORMING
     && empty($group->guideid)
     && (int) ($activity->settings()->contactmax ?? 0) > 0

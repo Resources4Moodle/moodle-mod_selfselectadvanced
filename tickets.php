@@ -216,13 +216,38 @@ foreach ($queue as $ticket) {
 
     $actions = '';
     if ($isopen) {
-        $actions = html_writer::start_tag('form', ['method' => 'post',
-            'action' => new moodle_url($baseurl, ['action' => 'claim'])])
-            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
-            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
-            . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-primary btn-sm',
-                'value' => get_string('ticketclaim', 'mod_selfselectadvanced')])
-            . html_writer::end_tag('form');
+        // The Claim control asks the gate claim() enforces (seam audit
+        // B6, 1.20.20): an involved narrow-authority coordinator used
+        // to be offered a button whose only outcome was the COI
+        // refusal. require_uninvolved() embodies decision 65 - :manage
+        // holders pass at once, involvement refuses the rest.
+        $claimrefusal = '';
+        if ((int) $ticket->groupid) {
+            $tgroup = $DB->get_record('selfselectadvanced_group', ['id' => (int) $ticket->groupid]);
+            if ($tgroup) {
+                try {
+                    \mod_selfselectadvanced\local\tickets::require_uninvolved($activity, $tgroup, (int) $USER->id);
+                } catch (\moodle_exception $e) {
+                    $claimrefusal = $e->getMessage();
+                }
+            }
+        }
+        if ($claimrefusal !== '') {
+            $actions = html_writer::tag('button', get_string('ticketclaim', 'mod_selfselectadvanced'), [
+                'type' => 'button',
+                'class' => 'btn btn-secondary btn-sm',
+                'disabled' => 'disabled',
+                'title' => $claimrefusal,
+            ]) . html_writer::span(s($claimrefusal), 'small text-muted ms-1');
+        } else {
+            $actions = html_writer::start_tag('form', ['method' => 'post',
+                'action' => new moodle_url($baseurl, ['action' => 'claim'])])
+                . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
+                . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
+                . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-primary btn-sm',
+                    'value' => get_string('ticketclaim', 'mod_selfselectadvanced')])
+                . html_writer::end_tag('form');
+        }
     } else if ($mine) {
         $actions = html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)])
             . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])

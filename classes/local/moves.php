@@ -1087,11 +1087,17 @@ class moves {
                 // moved to X" pair would format an empty team. The
                 // student is told what happened and where to look.
                 $source = groups::get($this->activity, (int) $move->sourcegroupid);
+                // The sentence checks the fact it asserts (seam audit
+                // B8, 1.20.20): "you are not in a team" was sent to
+                // every parked student regardless of their OTHER
+                // confirmed memberships - a transcription of the
+                // single-membership assumption the caps outgrew.
+                $stillmember = groups::count_memberships($this->activity, (int) $move->userid) > 0;
                 $notifications[] = notifier::intent(
                     'movecommitted',
                     (int) $move->userid,
                     'msgremovedsubject',
-                    'msgremovedbody',
+                    $stillmember ? 'msgremovedotherbody' : 'msgremovedbody',
                     (object) [
                         'group' => format_string($source->name),
                         'activity' => $this->activity->name(),

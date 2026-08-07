@@ -328,17 +328,25 @@ class group_page implements renderable, templatable {
                 $invite->blocked = false;
                 $invite->blockedreason = '';
                 if (!$invite->declined) {
-                    $door = \mod_selfselectadvanced\local\fit::door_verdict(
-                        $this->api->activity(),
-                        $this->group,
-                        (int) $invite->userid
-                    );
-                    if ($door->hardmax !== null) {
+                    // The ACCEPT GATE itself, not a transcription of
+                    // its hard-maximum tier (seam audit B4, 1.20.20):
+                    // the invitee's own landing page was fixed to ask
+                    // gatekeeper::can_accept() in 1.20.18, and this
+                    // leader-side panel kept the hardmax-only copy -
+                    // so an invitation whose acceptance is unreachable
+                    // (or whose team settled or is winding up) looked
+                    // acceptable here while the invitee's page said
+                    // the truth.
+                    $memberrow = $DB->get_record('selfselectadvanced_member', [
+                        'id' => (int) $invite->memberid,
+                    ], '*', MUST_EXIST);
+                    $refusal = $this->api->gatekeeper()->can_accept($this->group, $memberrow);
+                    if ($refusal !== null) {
                         $invite->blocked = true;
                         $invite->blockedreason = get_string(
                             'invitationcurrentlyblocked',
                             'mod_selfselectadvanced',
-                            $door->hardmax
+                            $refusal->get_message()
                         );
                     }
                 }
@@ -486,11 +494,23 @@ class group_page implements renderable, templatable {
         $showdisbandrequest = $isleader && $isforming && $maylead
             && !$disbandlive && $othermembers > 0;
         $showdisbandcancel = $isleader && $isforming && $maylead && $disbandlive;
+        // No $mayrespond factor (seam audit B5, 1.20.20): self_leave()
+        // deliberately asks NO capability - the disband request IS the
+        // leader's standing consent - so gating the button on :respond
+        // hid the one-click exit from exactly the member a prohibited
+        // :respond leaves stuck. The verb's own gate (forming + live
+        // request + own confirmed row + not leader) is what renders it.
         $showselfleave = $disbandlive && $isforming
-            && !$isleader && $isconfirmedmember && $mayrespond;
-        $deletedisabledreason = $isleader && $isforming && $maylead && $othermembers > 0
-            ? get_string('refusaldisbandfirst', 'mod_selfselectadvanced', $othermembers)
-            : '';
+            && !$isleader && $isconfirmedmember;
+        // The DELETE door itself, not a transcription of its roster
+        // count (seam audit B6, 1.20.20): can_delete_group() is the
+        // producer of both the verdict and the refusal sentence, so
+        // the disabled reason here can never drift from the refusal
+        // the click would meet.
+        $deleterefusal = $isleader && $isforming && $maylead
+            ? $this->api->gatekeeper()->can_delete_group($this->group, $this->userid)
+            : null;
+        $deletedisabledreason = $deleterefusal !== null ? $deleterefusal->get_message() : '';
 
         // Decision 62: the return-to-forming control for a FIRM team.
         // Drawn only for a queue worker (coordinator or manager) who is
@@ -930,7 +950,7 @@ class group_page implements renderable, templatable {
             // who leads. Ownership itself is unchanged and is asserted
             // on the group row by the tests, not read off here.
             'isleader' => $isleader && $maylead,
-            'candelete' => $isleader && $isforming && $maylead && $othermembers === 0,
+            'candelete' => $isleader && $isforming && $maylead && $deleterefusal === null,
             'deletedisabledreason' => $deletedisabledreason,
             'disbandlive' => $disbandlive,
             'disbandreason' => $disbandlive
@@ -986,13 +1006,8 @@ class group_page implements renderable, templatable {
      * @return bool
      */
     private function may_decide_joins(activity $activity, int $userid): bool {
-        try {
-            joinrequests::require_decider($activity, $this->group, $userid);
-        } catch (\moodle_exception $e) {
-            return false;
-        }
-
-        return true;
+        // Delegated to the producer (seam audit B1): one door, no copy.
+        return joinrequests::decide_refusal($activity, $this->group, $userid) === '';
     }
 
     /**

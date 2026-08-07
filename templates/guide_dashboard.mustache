@@ -186,6 +186,15 @@
                                                     {{#str}} queueaccept, mod_selfselectadvanced {{/str}}
                                                 </button>
                                             </form>
+                                        {{/canaccept}}
+                                        {{#acceptblocked}}
+                                            <button type="button" class="btn btn-secondary btn-sm" disabled
+                                                    aria-disabled="true">
+                                                {{#str}} queueaccept, mod_selfselectadvanced {{/str}}
+                                            </button>
+                                            <span class="text-muted small">{{acceptblocked}}</span>
+                                        {{/acceptblocked}}
+                                        {{#canreturn}}
                                             <form method="post" action="{{actionurl}}"
                                                   class="d-inline-flex gap-1 align-items-start">
                                                 <input type="hidden" name="id" value="{{cmid}}">
@@ -202,14 +211,7 @@
                                                     {{#str}} queuereturn, mod_selfselectadvanced {{/str}}
                                                 </button>
                                             </form>
-                                        {{/canaccept}}
-                                        {{#acceptblocked}}
-                                            <button type="button" class="btn btn-secondary btn-sm" disabled
-                                                    aria-disabled="true">
-                                                {{#str}} queueaccept, mod_selfselectadvanced {{/str}}
-                                            </button>
-                                            <span class="text-muted small">{{acceptblocked}}</span>
-                                        {{/acceptblocked}}
+                                        {{/canreturn}}
                                     {{/decided}}
                                 </div>
                             </td>

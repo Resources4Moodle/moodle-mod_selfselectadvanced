@@ -59,21 +59,10 @@ $PAGE->set_heading(format_string($course->fullname));
 // ever seen - and count the open ones in PHP.
 $open = tickets::count_open($activity, (int) $USER->id);
 
-$involved = $DB->get_fieldset_sql(
-    "SELECT g.id
-       FROM {selfselectadvanced_group} g
-      WHERE g.activityid = :activityid
-        AND (g.guideid = :guide OR g.guidesuccessorid = :successor
-             OR EXISTS (SELECT 1 FROM {selfselectadvanced_member} m
-                         WHERE m.groupid = g.id AND m.userid = :member AND m.status = :confirmed))",
-    [
-        'activityid' => $activity->id(),
-        'guide' => $USER->id,
-        'successor' => $USER->id,
-        'member' => $USER->id,
-        'confirmed' => \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED,
-    ]
-);
+// The one producer of "which teams are mine to stay away from" (seam
+// audit B6, 1.20.20): this page carried a hand-written copy of
+// tickets::involvement()'s three arms.
+$involved = tickets::involved_group_ids($activity, (int) $USER->id);
 
 $awaitingfreeze = $DB->count_records('selfselectadvanced_group', [
     'activityid' => $activity->id(),

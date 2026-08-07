@@ -221,7 +221,10 @@ final class composition_door_test extends \advanced_testcase {
             joinrequests::respond($activity, (int) $request->id, true, '', (int) $team->leaderid);
             $this->fail('An unconfirmed accept must stop at the consent gate');
         } catch (\moodle_exception $e) {
-            $this->assertSame('refusaljoinrules', $e->errorcode);
+            // Its own sentence since 1.20.20 (seam audit B8): the old
+            // wrapper claimed a composition break for a tier whose
+            // whole point is that nothing breaks.
+            $this->assertSame('refusaljoinconsent', $e->errorcode);
         }
         $sink->close();
     }

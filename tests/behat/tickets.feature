@@ -85,8 +85,11 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     And I press "File request"
     Then I should see "Your request has been queued for the managers and coordinators."
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as coord1
-    And I press "Take up"
-    Then I should see "you are the assigned guide"
+    # 1.20.20 (seam audit B6): the button asks the gate BEFORE the
+    # click - it renders disabled with the conflict reason beside it,
+    # so the coordinator reads why instead of being refused after.
+    Then the "Take up" "button" should be disabled
+    And I should see "you are the assigned guide"
 
   Scenario: A worker does not see their own request in their own queue
     Given the following "mod_selfselectadvanced > groups" exist:

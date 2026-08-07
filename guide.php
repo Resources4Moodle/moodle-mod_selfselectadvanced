@@ -440,6 +440,14 @@ foreach ($mygroups as $group) {
         $row->acceptblocked = $refusal !== null
             ? get_string($refusal->stringkey, 'mod_selfselectadvanced', $refusal->a ?? null)
             : '';
+        // Return is ITS OWN verb with ITS OWN gate (seam audit B2,
+        // 1.20.20): can_return() asks only the state and the guide's
+        // identity, none of can_approve()'s minsize/quota/capacity
+        // tiers. The template used to nest the Return form inside
+        // canaccept, so the one action an approve refusal calls for
+        // vanished exactly when it was needed - an over-guided or
+        // quota-blocked queue row offered no Return at all.
+        $row->canreturn = $api->gatekeeper()->can_return($group, (int) $USER->id) === null;
     }
     // Apply the guide filters to the guided (non-queue) list.
     $matchesfilters = true;

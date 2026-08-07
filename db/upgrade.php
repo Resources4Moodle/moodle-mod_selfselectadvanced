@@ -1965,5 +1965,26 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080704, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080705) {
+        // 1.20.20: seam-audit batch B. Every remaining transcribed
+        // gate calls its producer (the Answer tab, the guide queue's
+        // Return, the contact-a-guide link, the leader's pending-invite
+        // markers, the delete control, the ticket Claim button, the
+        // coordinator involvement card); the auto-grouping planner
+        // honours distinct rules and logs seat-template deficits; and
+        // seven refusal/notification sentences now say exactly what is
+        // true for the reader who gets them. No schema change.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.20 (2026080705). Seam-audit batch B: every control asks the '
+                . 'gate it posts to; the auto-grouping planner honours distinct rules; '
+                . 'refusals say what is true for their reader.',
+            'Behavioural changes only; no schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080705, 'selfselectadvanced');
+    }
+
     return true;
 }

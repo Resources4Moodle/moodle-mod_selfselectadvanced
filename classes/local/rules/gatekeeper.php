@@ -269,7 +269,11 @@ class gatekeeper {
 
         $seats = $this->seat_position($group);
         if ($seats->free < 1) {
-            $add(new refusal('refusalnoseats'));
+            // The advice matches what the reader can DO (seam audit
+            // B8, 1.20.20): "withdraw an invitation" is only true
+            // advice while a pending invitation exists; a team full of
+            // confirmed members gets the sentence that says so.
+            $add(new refusal($seats->invited > 0 ? 'refusalnoseats' : 'refusalnoseatsconfirmed'));
             if ($stopatfirst) {
                 return $refusals;
             }
@@ -372,7 +376,9 @@ class gatekeeper {
         // group is over only if confirmed-plus-invited exceeds the maximum.
         $seats = $this->seat_position($group);
         if ($seats->taken > $seats->max) {
-            return new refusal('refusalnoseats');
+            // The INVITEE reads this one - "withdraw an invitation" is
+            // the leader's remedy, not theirs (seam audit B8).
+            return new refusal('refusalnoseatsheld');
         }
 
         // The roster may have changed since the invitation. Decision 60:
@@ -892,7 +898,10 @@ class gatekeeper {
         }
         $maxsize = $this->resolver->effective_maxsize((int) $group->id);
         if ($confirmed > $maxsize->value) {
-            return new refusal('refusalnoseats');
+            // Over on CONFIRMED members alone: the sentence that names
+            // that fact (seam audit B8) - there may be nothing to
+            // withdraw at all.
+            return new refusal('refusalnoseatsconfirmed');
         }
         if (
             !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($this->activity, (int) $group->id)

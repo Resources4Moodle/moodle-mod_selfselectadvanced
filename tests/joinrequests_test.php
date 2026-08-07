@@ -1291,13 +1291,15 @@ final class joinrequests_test extends \advanced_testcase {
         $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
         $leaderdecision = joinrequests::accept_decision($activity, $request, (int) $beta->leaderid, $beta);
         $this->assertFalse($leaderdecision->canaccept);
-        $this->assertSame('refusalnoseats', $leaderdecision->hardkey);
+        // The honest sibling key since 1.20.20: every seat here is
+        // held by a CONFIRMED member, and the sentence says so.
+        $this->assertSame('refusalnoseatsconfirmed', $leaderdecision->hardkey);
         $this->assertFalse($leaderdecision->confirmationrequired);
 
         $this->assertTrue(has_capability('mod/selfselectadvanced:overriderules', $activity->context(), (int) $manager->id));
         $staffdecision = joinrequests::accept_decision($activity, $request, (int) $manager->id, $beta);
         $this->assertTrue($staffdecision->canaccept, 'staff override authority still produced a disabled Accept');
-        $this->assertSame('refusalnoseats', $staffdecision->hardkey);
+        $this->assertSame('refusalnoseatsconfirmed', $staffdecision->hardkey);
         $this->assertTrue($staffdecision->confirmationrequired);
         $this->assertFalse($staffdecision->confirmacceptrequired);
         $this->assertSame(['L2'], $staffdecision->bypassrules);

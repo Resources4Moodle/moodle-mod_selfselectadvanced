@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.20.20 — seam-audit batch B: every control asks its gate (2026-08-07)
+
+> Serial `2026080705` / `1.20.20`. Behavioural changes only; no schema change.
+> The remainder of `audit_state/SEAM-AUDIT-20260807.md`, each item fixed after
+> its own RCA with a per-fix blast check.
+
+- **Every remaining control asks the gate it posts to** — called, never
+  transcribed: the joinrequest Answer tab (leader authority + the decision-65
+  conflict rule, with the reason shown where a coordinator may not act); the
+  guide queue's Return (its own gate, so it no longer vanishes exactly when an
+  approve refusal calls for it); the contact-a-guide link; the leader's
+  pending-invitation markers (the full accept gate, matching the invitee's own
+  page); the delete control (verdict and sentence from `can_delete_group`);
+  the ticket Claim button (the conflict rule, disabled with the reason); the
+  one-click disband leave (no stray `:respond` requirement the verb never
+  asks); and the coordinator dashboard's involvement card (a new bulk producer
+  pinned by test to the per-team predicate).
+- **The auto-grouping planner honours distinct rules.** "At least N different
+  departments" was invisible to every branch — neither honoured nor logged.
+  Satisfiable pools now seat the distinct values; an unfillable rule is
+  bypassed **and logged**, spec 9.3's own semantics. Seat-template planning
+  remains future work, and the run log now records each formed group's
+  template deficits instead of silently claiming compliance.
+- **Sentences say what is true for their reader:** the composition-maximum
+  refusal names its counting basis; "withdraw an invitation" is advised only
+  where an invitation exists and the reader can withdraw it; the consent
+  confirmation no longer claims a composition break for a tier that breaks
+  nothing (its own message, `refusaljoinconsent`); rule codes (`L2:`,
+  `QUOTA:`) stay with staff, whose bypass form they name — students read the
+  sentence alone; the reserved-seats consent note speaks consent, not the
+  hard refusal's vocabulary; and a parked student with other teams is no
+  longer told "you are not in a team".
+
 ## 1.20.19 — the seam-audit batch (2026-08-07)
 
 > Serial `2026080704` / `1.20.19`. Behavioural changes only; no schema change.

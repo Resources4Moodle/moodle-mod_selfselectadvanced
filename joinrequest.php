@@ -76,10 +76,18 @@ $isstaff = has_capability('mod/selfselectadvanced:manage', $context)
 // Everyone admitted by the door above satisfies at least one of the
 // two, so the tab strip below is never empty.
 $canask = has_capability('mod/selfselectadvanced:respond', $context);
-$cananswer = $isstaff || $DB->record_exists('selfselectadvanced_group', [
-    'activityid' => $activity->id(),
-    'leaderid' => (int) $USER->id,
-]);
+// The leader arm asks the SAME two questions require_decider() asks -
+// leadership of record AND the authority to lead (seam audit B1,
+// 1.20.20): a decision-38 prohibited leader used to be drawn a full
+// Answer tab whose every control was refused on click. The per-row
+// gate below asks the producer itself, so an involved coordinator
+// (decision 65) reads the reason instead of a working-looking form.
+$cananswer = $isstaff || (
+    $DB->record_exists('selfselectadvanced_group', [
+        'activityid' => $activity->id(),
+        'leaderid' => (int) $USER->id,
+    ]) && \mod_selfselectadvanced\local\authority::may_lead($activity, (int) $USER->id)
+);
 
 $availabletabs = array_values(array_filter([
     $canask ? 'ask' : null,
@@ -480,6 +488,12 @@ if ($tab === 'ask') {
         ];
         foreach ($rows as [$team, $request]) {
             $student = \core_user::get_user((int) $request->userid);
+            // The door itself, per team (seam audit B1 + decision 65):
+            // whoever this viewer is, the controls render only when
+            // require_decider() would let the click through; otherwise
+            // the row states the reason - an involved coordinator sees
+            // WHY this one team is not theirs to answer.
+            $deciderefusal = joinrequests::decide_refusal($activity, $team, (int) $USER->id);
             $decision = joinrequests::accept_decision($activity, $request, (int) $USER->id, $team);
             $acceptattrs = [
                 'type' => 'submit',
@@ -517,6 +531,9 @@ if ($tab === 'ask') {
                     'value' => get_string('joindecline', 'mod_selfselectadvanced')])
                 . $overridedisclosure($request)
                 . html_writer::end_tag('form');
+            if ($deciderefusal !== '') {
+                $form = html_writer::div(s($deciderefusal), 'small text-danger');
+            }
             // What the leader needs to decide with: whether this
             // student fits the team's requirements, and which seat they
             // would take. Shown, never used to hide the request - the

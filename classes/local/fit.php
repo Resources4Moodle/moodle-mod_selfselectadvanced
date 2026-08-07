@@ -794,12 +794,17 @@ class fit {
                     // remaining shortfall? The engine ignores
                     // reservations, so this cannot refuse - but the
                     // leader is told what the fit column tells them.
+                    // In CONSENT vocabulary (seam audit B8, 1.20.20):
+                    // this tier's definition is "nothing is violated
+                    // and the engine will commit", so it must not
+                    // borrow the hard refusal's "could never be
+                    // completed correctly" for a case the door passes.
                     $free = max(0, $maxsize - $full->seated);
                     if ($full->missing > $free) {
                         $verdict->consent[] = get_string(
-                            'refusalcompositionunreachable',
+                            'consentseatsreserved',
                             'mod_selfselectadvanced',
-                            (object) ['missing' => $full->missing, 'free' => $free, 'needed' => $full->needed]
+                            (object) ['free' => $free, 'needed' => $full->needed]
                         );
                     }
                 }
