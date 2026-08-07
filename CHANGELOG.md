@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.20.16 — the candidate picker survives a failed search (2026-08-07)
+
+> Serial `2026080701` / `1.20.16`. JavaScript-only; no schema, capability,
+> message-provider or scheduled-task change.
+
+- **One refused search call no longer freezes an autocomplete for the life
+  of the page.** Core's form-autocomplete cannot recover from a rejected
+  transport: its in-progress latch resets only on the success path, so after
+  one failure every later keystroke re-queues itself forever and no request is
+  ever sent again — and the loading icon's removal is chained off the resolved
+  promise, so the throbber never leaves either. Observed in production on
+  2026-08-07: a transient `nopermissions` refusal (identified byte-exact from
+  the 300-byte response in the access log) left the invite picker spinning
+  silently. All FOUR of the plugin's transports (candidate, participant,
+  guide, group pickers) now name the failure in an exception dialog and answer
+  the widget with an empty result set, so the spinner clears, the latch
+  resets, and the very next keystroke retries — which is exactly what heals a
+  transient refusal.
+
 ## 1.20.5 — what the column says, the button does (2026-08-05)
 
 > Serial `2026080100` / `1.20.5`. No schema, capability, message-provider or

@@ -29,6 +29,7 @@
 
 import Ajax from 'core/ajax';
 import * as Autocomplete from 'core/form-autocomplete';
+import Notification from 'core/notification';
 
 /**
  * Enhance every guide picker on the page.
@@ -64,12 +65,18 @@ export const init = async(placeholder, noSelection) => {
  * optionally data-withroom="0" for the pickers that must show a full
  * guide too rather than silently omit one.
  *
+ * Core's failure handler is deliberately not accepted: rejecting the
+ * transport wedges core's autocomplete for the life of the page (the
+ * in-progress latch and the loading icon both recover only on the
+ * success path). The full contract note lives in candidateselector.js
+ * (1.20.16); on failure this transport names the error in a dialog and
+ * answers the widget with an empty result set so typing retries.
+ *
  * @param {String} selector The autocomplete element selector.
  * @param {String} query The search text.
  * @param {Function} callback Success callback receiving the results.
- * @param {Function} failure Failure callback.
  */
-export const transport = (selector, query, callback, failure) => {
+export const transport = (selector, query, callback) => {
     const element = document.querySelector(selector);
     const request = {
         methodname: 'mod_selfselectadvanced_search_guides',
@@ -86,7 +93,12 @@ export const transport = (selector, query, callback, failure) => {
             value: guide.id,
             label: guide.label,
         }))))
-        .catch(failure);
+        .catch((error) => {
+            // Never reject the widget - see candidateselector.js.
+            Notification.exception(error);
+            // eslint-disable-next-line promise/no-callback-in-promise
+            callback([]);
+        });
 };
 
 /**

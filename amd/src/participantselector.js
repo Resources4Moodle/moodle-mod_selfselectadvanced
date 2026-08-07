@@ -27,6 +27,7 @@
  */
 
 import Ajax from 'core/ajax';
+import Notification from 'core/notification';
 
 /**
  * Fetch this activity's participants matching the query.
@@ -34,12 +35,18 @@ import Ajax from 'core/ajax';
  * Called by core/form-autocomplete. The element carries a data-cmid
  * attribute identifying the activity to search within.
  *
+ * Core's failure handler is deliberately not accepted: rejecting the
+ * transport wedges core's autocomplete for the life of the page (the
+ * in-progress latch and the loading icon both recover only on the
+ * success path). The full contract note lives in candidateselector.js
+ * (1.20.16); on failure this transport names the error in a dialog and
+ * answers the widget with an empty result set so typing retries.
+ *
  * @param {String} selector The autocomplete element selector.
  * @param {String} query The search text.
  * @param {Function} callback Success callback receiving the results.
- * @param {Function} failure Failure callback.
  */
-export const transport = (selector, query, callback, failure) => {
+export const transport = (selector, query, callback) => {
     const element = document.querySelector(selector);
     const request = {
         methodname: 'mod_selfselectadvanced_search_participants',
@@ -55,7 +62,12 @@ export const transport = (selector, query, callback, failure) => {
             value: participant.id,
             label: participant.label,
         }))))
-        .catch(failure);
+        .catch((error) => {
+            // Never reject the widget - see candidateselector.js.
+            Notification.exception(error);
+            // eslint-disable-next-line promise/no-callback-in-promise
+            callback([]);
+        });
 };
 
 /**

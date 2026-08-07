@@ -1866,5 +1866,29 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080607, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080701) {
+        // 1.20.16 is a JavaScript-only release: the invitation
+        // candidate autocomplete no longer rejects its transport on a
+        // failed search call. Core's form-autocomplete cannot recover
+        // from a rejected transport (its in-progress latch resets only
+        // on success and the loading icon's removal is chained off the
+        // resolved promise), so one transient server refusal froze the
+        // picker for the life of the page, silently. The transport now
+        // surfaces the exception and answers the widget with an empty
+        // result set, so the spinner clears and the next keystroke
+        // retries. No schema change; the savepoint exists so the
+        // installed version reaches the code version and site caches
+        // (including the JS revision) rebuild.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.16 (2026080701). The candidate picker survives a failed '
+                . 'search call: the failure is named in a dialog and typing retries.',
+            'JavaScript-only change to the autocomplete transport; no schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080701, 'selfselectadvanced');
+    }
+
     return true;
 }

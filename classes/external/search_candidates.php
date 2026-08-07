@@ -30,10 +30,10 @@ use mod_selfselectadvanced\local\groups;
 /**
  * AJAX provider for the invitation candidate autocomplete (C10, U3).
  *
- * The sole custom transport in the plugin; justified in the
- * architecture plan (S5b): core selectors cannot attach per-candidate
- * eligibility verdicts and localised refusal reasons, which spec
- * section 6.2 requires.
+ * One of the plugin's four custom transports (candidate, participant,
+ * guide, group); this one is justified in the architecture plan (S5b):
+ * core selectors cannot attach per-candidate eligibility verdicts and
+ * localised refusal reasons, which spec section 6.2 requires.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>

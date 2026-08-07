@@ -16,11 +16,14 @@
 /**
  * Transport for the invitation candidate autocomplete (C10, U3).
  *
- * The only custom AMD module in the plugin: it feeds the CORE
- * form-autocomplete element from the plugin's candidate search, which
- * attaches per-candidate eligibility and localised refusal reasons
- * (spec section 6.2). Ineligible candidates render disabled with their
- * reason and cannot be selected.
+ * One of the plugin's four form-autocomplete transports (candidate,
+ * participant, guide, group), and the CANONICAL one: the never-reject
+ * failure contract below is stated once, here, and the other three
+ * point at it. This transport feeds the CORE form-autocomplete element
+ * from the plugin's candidate search, which attaches per-candidate
+ * eligibility and localised refusal reasons (spec section 6.2).
+ * Ineligible candidates render disabled with their reason and cannot
+ * be selected.
  *
  * @module     mod_selfselectadvanced/candidateselector
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -28,6 +31,7 @@
  */
 
 import Ajax from 'core/ajax';
+import Notification from 'core/notification';
 
 /**
  * Fetch candidates for the query.
@@ -35,12 +39,26 @@ import Ajax from 'core/ajax';
  * Called by core/form-autocomplete. The element carries data-cmid and
  * data-groupid attributes identifying the search scope.
  *
+ * CORE'S FAILURE HANDLER IS DELIBERATELY NOT ACCEPTED (1.20.16). Core
+ * passes a fourth argument, a failure callback, and rejecting through
+ * it wedges the widget for the life of the page: updateAjax() resets
+ * its inProgress latch only on the success path, so after one rejected
+ * transport every later keystroke re-queues itself forever and no
+ * request is ever sent again, and loadingicon's removal is chained off
+ * the resolved promise, so the throbber never leaves either. That is a
+ * silent, permanent hang - observed in production on 2026-08-07 when
+ * one search call was refused transiently (RCA: a 300-byte
+ * nopermissions body, the only response of that size). So on failure
+ * this transport SAYS why (the exception dialog) and then answers the
+ * widget with an empty result set: the spinner clears, the latch
+ * resets, and the very next keystroke retries - which is exactly what
+ * heals a transient refusal.
+ *
  * @param {String} selector The autocomplete element selector.
  * @param {String} query The search text.
  * @param {Function} callback Success callback receiving the results.
- * @param {Function} failure Failure callback.
  */
-export const transport = (selector, query, callback, failure) => {
+export const transport = (selector, query, callback) => {
     const element = document.querySelector(selector);
     const request = {
         methodname: 'mod_selfselectadvanced_search_candidates',
@@ -66,7 +84,14 @@ export const transport = (selector, query, callback, failure) => {
                 ? candidate.label
                 : candidate.label + ' (' + candidate.reason + ')',
         }))))
-        .catch(failure);
+        .catch((error) => {
+            // Never reject the widget (see the contract note above):
+            // name the failure out loud, then unstick the autocomplete
+            // so the next keystroke retries.
+            Notification.exception(error);
+            // eslint-disable-next-line promise/no-callback-in-promise
+            callback([]);
+        });
 };
 
 /**
