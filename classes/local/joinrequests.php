@@ -58,9 +58,6 @@ class joinrequests {
      */
     public const SOURCE_ADDITIONAL = -1;
 
-    /** @var string[] Rules a confirmed leader join acceptance may bypass. */
-    private const CONFIRMABLE_ACCEPT_RULES = ['L1', 'QUOTA'];
-
     /** @var array<string,string> Invitation refusals a staff move override can repair. */
     private const OVERRIDEABLE_HARD_RULES = [
         'refusalnoseats' => 'L2',
@@ -92,8 +89,7 @@ class joinrequests {
      * @param stdClass|null $target the target group when the caller already has it
      * @return stdClass {canaccept: bool, hardreason: string, hardkey: string,
      *                  warnings: string[], confirmationrequired: bool, bypassrules: string[],
-     *                  autobypassrules: string[], confirmacceptrequired: bool,
-     *                  consentnotes: string[]}
+     *                  confirmacceptrequired: bool, consentnotes: string[]}
      */
     public static function accept_decision(
         activity $activity,
@@ -112,7 +108,6 @@ class joinrequests {
             'warnings' => [],
             'confirmationrequired' => false,
             'bypassrules' => [],
-            'autobypassrules' => [],
             'confirmacceptrequired' => false,
             'consentnotes' => [],
         ];
@@ -146,17 +141,6 @@ class joinrequests {
             }
             if (!in_array($rule, $decision->bypassrules, true)) {
                 $decision->bypassrules[] = $rule;
-            }
-        };
-        $warn = static function (string $reason, string $rule) use ($decision): void {
-            if ($reason !== '' && !in_array($reason, $decision->warnings, true)) {
-                $decision->warnings[] = $reason;
-            }
-            if ($rule !== '' && !in_array($rule, $decision->bypassrules, true)) {
-                $decision->bypassrules[] = $rule;
-            }
-            if ($rule !== '' && !in_array($rule, $decision->autobypassrules, true)) {
-                $decision->autobypassrules[] = $rule;
             }
         };
         // Consent, not bypass: the decider must confirm they read it,
@@ -198,10 +182,15 @@ class joinrequests {
                 $min = (new resolver($activity))->effective_minsize((int) $source->id)->value;
                 $after = groups::count_confirmed((int) $source->id) - 1;
                 if ($after < $min) {
-                    $warn(get_string('moveruleL1', 'mod_selfselectadvanced', (object) [
+                    // The SOURCE team's minimum is not the target
+                    // leader's to waive (decision 64): until 1.20.17
+                    // this was a confirmable warning, and the accepting
+                    // leader's confirm click authored a move-scope L1
+                    // override they had no authority to write.
+                    $overrideablehard(get_string('moveruleL1', 'mod_selfselectadvanced', (object) [
                         'after' => $after,
                         'min' => $min,
-                    ]), 'L1');
+                    ]), 'moveruleL1', 'L1');
                 }
             }
         }
@@ -250,19 +239,20 @@ class joinrequests {
             $hard($refusal->get_message(), $refusal->stringkey);
         }
 
-        // Decision 60, from the maintainer's live breach of 2026-08-06:
-        // a maximum that CONFIRMED members plus this student would
-        // violate is a present violation - the ordinary decider meets a
-        // hard stop, and only the deliberate staff override (decision 6,
-        // :overriderules, written reason, logged event) can pass it. A
-        // refusal the ENGINE will raise stays a confirmable warning as
-        // before. A maximum that only PENDING INVITATIONS push over
-        // blocks nothing and bypasses nothing - the decider proceeds
-        // informed that those invitations can no longer be accepted.
-        // Until this change all three cases were one overridable
-        // warning, and "Accept anyway?" admitted a third SCOPE member
-        // into a team of at-most-two four seconds after an invitation
-        // acceptance had filled the cap.
+        // Decisions 60 and 64, each from a live breach the maintainer
+        // caught. Decision 60 (2026-08-06): a maximum that CONFIRMED
+        // members plus this student would violate is a present
+        // violation - a hard stop, staff-overridable only. Decision 64
+        // (2026-08-07): an ENGINE-tier refusal gets the SAME
+        // treatment, because a rule is the staff's to declare
+        // breakable and never the accepting leader's - until 1.20.17
+        // this tier was a confirmable warning whose confirm click
+        // wrote a QUOTA override in the leader's name, and two SCE
+        // members were admitted under SCOPE 2-2 + distinct>=4 on five
+        // seats. Only the third tier remains the decider's own: a
+        // maximum that PENDING INVITATIONS alone push over blocks
+        // nothing and bypasses nothing - the decider proceeds informed
+        // that those invitations can no longer be accepted.
         $door = fit::door_verdict(
             $activity,
             $target,
@@ -272,23 +262,32 @@ class joinrequests {
         if ($door->hardmax !== null) {
             $overrideablehard($door->hardmax, (string) $door->hardmaxkey, 'QUOTA');
         } else if ($door->engine !== null) {
-            $warn($door->engine, 'QUOTA');
+            // Decision 64, from the maintainer's live breach of
+            // 2026-08-07 (g=44: two SCE members admitted under
+            // SCOPE 2-2 + distinct>=4 on five seats): an ENGINE-tier
+            // quota refusal is a rule the activity set, and rules are
+            // the STAFF'S to declare breakable, never the accepting
+            // leader's. Until 1.20.17 this arm was a confirmable
+            // warning whose confirm click wrote a QUOTA override in
+            // the leader's name - "Should not allow it, but let us
+            // see" allowed it. The netting rationale that once
+            // justified the softer tier is vacuous here: a single
+            // acceptance is a set of one, nothing else moves, so the
+            // engine's refusal is final. Same treatment as hardmax:
+            // hard stop for the ordinary decider, bypassable only
+            // through :overriderules with a written reason.
+            $overrideablehard($door->engine, (string) $door->enginekey, 'QUOTA');
         }
         foreach ($door->consent as $note) {
             $consent($note);
         }
 
         $decision->bypassrules = array_values(array_unique(array_intersect(
-            array_merge(self::CONFIRMABLE_ACCEPT_RULES, moves::BYPASSABLE),
+            moves::BYPASSABLE,
             $decision->bypassrules
         )));
-        $decision->autobypassrules = array_values(array_unique(array_intersect(
-            self::CONFIRMABLE_ACCEPT_RULES,
-            $decision->autobypassrules
-        )));
         $decision->confirmationrequired = $decision->canaccept && $decision->bypassrules !== [];
-        $decision->confirmacceptrequired = $decision->canaccept
-            && ($decision->autobypassrules !== [] || $decision->consentnotes !== []);
+        $decision->confirmacceptrequired = $decision->canaccept && $decision->consentnotes !== [];
 
         return $decision;
     }
@@ -945,7 +944,7 @@ class joinrequests {
                     $decision->hardreason
                 );
             }
-            if (($decision->autobypassrules !== [] || $decision->consentnotes !== []) && !$acceptconfirmed) {
+            if ($decision->consentnotes !== [] && !$acceptconfirmed) {
                 throw new \moodle_exception(
                     'refusaljoinrules',
                     'mod_selfselectadvanced',
@@ -964,9 +963,13 @@ class joinrequests {
                 false,
                 $source === null
             );
-            if ($acceptconfirmed && $decision->autobypassrules !== []) {
-                $bypass = array_values(array_unique(array_merge($bypass, $decision->autobypassrules)));
-            }
+            // Decision 64: NOTHING is merged into the bypass set here
+            // any more. $bypass is exactly what the actor posted, the
+            // :overriderules check above has already vetted it, and the
+            // consent confirm carries no rule codes (decision 60) - so
+            // a leader's confirm click can no longer author an
+            // override row. The override reason is the staff note,
+            // which the staff arm above requires to be non-empty.
             $overridereason = trim($note) !== ''
                 ? $note
                 : get_string('joinacceptconfirmedreason', 'mod_selfselectadvanced');

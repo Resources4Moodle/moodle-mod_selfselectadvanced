@@ -761,14 +761,14 @@ class group_page implements renderable, templatable {
                         'hardreason' => (string) $decision->hardreason,
                         'confirmationrequired' => (bool) $decision->confirmationrequired,
                         'confirmacceptrequired' => (bool) $decision->confirmacceptrequired,
-                        // Decision 60: when nothing needs bypassing -
-                        // the engine will commit, only pending
-                        // invitations are affected - the dialog must
-                        // not say a rule is broken, because none is.
-                        'confirmacceptmessage' => $decision->autobypassrules === []
-                            && $decision->consentnotes !== []
-                            ? get_string('joinacceptconsent', 'mod_selfselectadvanced')
-                            : get_string('joinacceptconfirm', 'mod_selfselectadvanced'),
+                        // Decisions 60 + 64: the confirm tier is
+                        // consent-only - pending invitations affected,
+                        // no rule broken, nothing bypassed - so the
+                        // dialog always speaks consent. Rule refusals
+                        // never reach this dialog: they disable the
+                        // button (leader) or take the staff override
+                        // path with its own confirmation.
+                        'confirmacceptmessage' => get_string('joinacceptconsent', 'mod_selfselectadvanced'),
                         'seatline' => $verdict->seat !== null
                             ? get_string('joinfitseat', 'mod_selfselectadvanced', $verdict->seat)
                             : '',

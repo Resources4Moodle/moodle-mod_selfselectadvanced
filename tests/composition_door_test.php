@@ -204,7 +204,12 @@ final class composition_door_test extends \advanced_testcase {
 
         $this->assertTrue($decision->canaccept, 'no rule is broken - the maintainer\'s ruling verbatim');
         $this->assertNotSame([], $decision->consentnotes, 'the leader must be told invitations are affected');
-        $this->assertSame([], $decision->autobypassrules, 'nothing needs bypassing - the engine will commit');
+        $this->assertSame([], $decision->bypassrules, 'nothing needs bypassing - the engine will commit');
+        $this->assertObjectNotHasProperty(
+            'autobypassrules',
+            $decision,
+            'decision 64: the auto-bypass surface no longer exists - a confirm click cannot carry a rule code'
+        );
         $this->assertTrue($decision->confirmacceptrequired, 'but the leader must confirm they read it');
         $this->assertStringContainsString(
             get_string('consentinvitationsblocked', 'mod_selfselectadvanced', 1),

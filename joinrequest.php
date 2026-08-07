@@ -491,14 +491,13 @@ if ($tab === 'ask') {
                 $acceptattrs['disabled'] = 'disabled';
                 $acceptattrs['title'] = $decision->hardreason;
             } else if ($decision->confirmacceptrequired) {
-                // Decision 60: when only pending invitations are
-                // affected, no rule is broken and the dialog must not
-                // claim one is.
-                $confirmkey = $decision->autobypassrules === [] && $decision->consentnotes !== []
-                    ? 'joinacceptconsent'
-                    : 'joinacceptconfirm';
+                // Decisions 60 + 64: the confirm tier carries CONSENT
+                // NOTES only - pending invitations affected, no rule
+                // broken, nothing bypassed. A rule refusal is a hard
+                // stop above (disabled button) or a staff override
+                // with its own confirmation; neither reaches here.
                 $acceptattrs['onclick'] = 'return confirm(' . json_encode(
-                    get_string($confirmkey, 'mod_selfselectadvanced')
+                    get_string('joinacceptconsent', 'mod_selfselectadvanced')
                 ) . ');';
             }
             $form = html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false),

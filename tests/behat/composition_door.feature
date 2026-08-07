@@ -58,6 +58,43 @@ Feature: A composition maximum on confirmed members is a wall, a maximum on proj
     And the "Accept" "button" should be disabled
 
   @javascript
+  Scenario: An acceptance the rules refuse is not the leader's to confirm away
+    # Decision 64 (the g=44 breach of 2026-08-07): with "exactly two
+    # SCOPE members" and "at least four different departments" on five
+    # seats, a team of two same-department members can never finish -
+    # the two SCOPE seats leave one seat for the two further
+    # departments still missing. The engine refuses, and that refusal
+    # belongs to the staff override, never to the accepting leader's
+    # OK click - which until 1.20.17 wrote a rules override in the
+    # leader's name over the note "Should not allow it, but let us
+    # see". The button is DISABLED, with the reason beside it in plain
+    # words, and Decline stays live.
+    Given the following "users" exist:
+      | username | firstname | lastname | email          |
+      | student5 | Dev       | Five     | s5@example.com |
+    And the following "course enrolments" exist:
+      | user     | course | role    |
+      | student5 | C1     | student |
+    And the following "mod_selfselectadvanced > attributes" exist:
+      | user     | department | subdepartment |
+      | student5 | Design     | UX            |
+    And the following "mod_selfselectadvanced > quotas" exist:
+      | selfselectadvanced | dimension  | rtype    | mincount |
+      | ssa1               | department | distinct | 4        |
+    And the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name  | leader   | state   |
+      | ssa1               | Bravo | student4 | forming |
+    And I am on the "MDP groups" "mod_selfselectadvanced > join" page logged in as student5
+    And I set the field "Team you want to join" to "Bravo"
+    And I set the field "Why you are asking" to "Design together"
+    And I press "Send the request"
+    When I am on the "MDP groups" "selfselectadvanced activity" page logged in as student4
+    And I follow "Bravo"
+    Then I should see "could never be completed correctly"
+    And the "Accept" "button" should be disabled
+    And "Decline" "button" should exist
+
+  @javascript
   Scenario: The notice - only a pending invitation is affected, and no rule is claimed broken
     Given the following "mod_selfselectadvanced > members" exist:
       | ssagroup | user     | status  |

@@ -700,6 +700,7 @@ class fit {
             'hardmaxkey' => null,
             'hardmaxa' => null,
             'engine' => null,
+            'enginekey' => null,
             'consent' => [],
             'blockedinvitees' => [],
         ];
@@ -733,6 +734,7 @@ class fit {
             if (!self::quota_ok_after($activity, $target, [$userid], [], $resolver)) {
                 if ($target->state === state::FORMING) {
                     $free = max(0, $maxsize - $hard->seated);
+                    $verdict->enginekey = 'refusalcompositionunreachableteam';
                     $verdict->engine = get_string(
                         'refusalcompositionunreachableteam',
                         'mod_selfselectadvanced',
@@ -743,6 +745,7 @@ class fit {
                         ]
                     );
                 } else {
+                    $verdict->enginekey = 'refusaljoinquotatarget';
                     $verdict->engine = get_string(
                         'refusaljoinquotatarget',
                         'mod_selfselectadvanced',
@@ -809,6 +812,7 @@ class fit {
         ) {
             $source = groups::get($activity, $sourcegroupid);
             if (!self::quota_ok_after($activity, $source, [], [$userid], $resolver)) {
+                $verdict->enginekey = 'refusaljoinquotasource';
                 $verdict->engine = get_string(
                     'refusaljoinquotasource',
                     'mod_selfselectadvanced',

@@ -1301,7 +1301,11 @@ final class joinrequests_test extends \advanced_testcase {
         $this->assertTrue($staffdecision->confirmationrequired);
         $this->assertFalse($staffdecision->confirmacceptrequired);
         $this->assertSame(['L2'], $staffdecision->bypassrules);
-        $this->assertSame([], $staffdecision->autobypassrules, 'staff L2 must still require an explicit override');
+        $this->assertObjectNotHasProperty(
+            'autobypassrules',
+            $staffdecision,
+            'decision 64: staff L2 requires the explicit override - no auto-bypass surface exists to ride'
+        );
     }
 
     /**

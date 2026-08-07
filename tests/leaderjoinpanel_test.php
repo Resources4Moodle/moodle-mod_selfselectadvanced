@@ -366,15 +366,17 @@ final class leaderjoinpanel_test extends \advanced_testcase {
     }
 
     /**
-     * Decision 55, advisory side. A quota mismatch keeps Accept live,
-     * asks for confirmation, and the confirmed service call commits
-     * through the same move-scope bypass mechanism.
-     *
-     * MUTATION CAUGHT (run): forcing confirmationrequired=false in
-     * accept_decision() made this test fail because the rule mismatch
-     * was no longer marked for confirmation.
+     * Decision 55's advisory arm, SUPERSEDED by decision 64 (2026-08-07,
+     * the g=44 breach): a quota mismatch used to keep Accept live
+     * behind a confirmation whose OK click committed through the
+     * move-scope bypass - an override written in the LEADER'S name.
+     * Rules are the staff's to declare breakable, never the accepting
+     * leader's, so the same mismatch now DISABLES the leader's accept
+     * with the reason in plain words, and the confirmed service call
+     * REFUSES. The property this method has always pinned survives
+     * intact: the panel and the service answer with one voice.
      */
-    public function test_a_rule_based_refusal_keeps_accept_enabled_with_confirmation(): void {
+    public function test_a_rule_based_refusal_disables_accept_for_the_leader(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -405,26 +407,30 @@ final class leaderjoinpanel_test extends \advanced_testcase {
 
         $exported = $this->grouppage($activity, $apifacade, $beta, (int) $beta->leaderid);
         $row = $exported->joinrows[0];
-        $this->assertTrue($row->canaccept, 'a rule mismatch disabled the accept control');
-        $this->assertFalse($row->cannotaccept);
-        $this->assertTrue($row->confirmationrequired, 'a rule mismatch was not marked for confirmation');
-        $this->assertNotSame([], $row->warnings, 'the confirmation had no warning to show');
+        $this->assertFalse($row->canaccept, 'a rule refusal is not the leader\'s to confirm away');
+        $this->assertTrue($row->cannotaccept, 'the accept control renders disabled');
+        $this->assertNotSame('', $row->hardreason, 'with the reason beside it in plain words');
+        $this->assertFalse($row->confirmationrequired, 'and no bypass confirmation is offered to a student');
 
-        $decided = joinrequests::respond(
-            $activity,
-            (int) $row->requestid,
-            true,
-            '',
-            (int) $beta->leaderid,
-            [],
-            true
-        );
-        $this->assertSame('committed', $decided->status);
-        $this->assertTrue($DB->record_exists('selfselectadvanced_member', [
+        try {
+            joinrequests::respond(
+                $activity,
+                (int) $row->requestid,
+                true,
+                '',
+                (int) $beta->leaderid,
+                [],
+                true
+            );
+            $this->fail('The service must answer with the same voice as the disabled panel');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusaljoinrules', $e->errorcode);
+        }
+        $this->assertFalse($DB->record_exists('selfselectadvanced_member', [
             'groupid' => (int) $beta->id,
             'userid' => (int) $wanderer->id,
             'status' => groups::STATUS_CONFIRMED,
-        ]));
+        ]), 'and the roster did not move');
         $sink->close();
     }
 

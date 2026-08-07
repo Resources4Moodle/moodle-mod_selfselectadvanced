@@ -1890,5 +1890,31 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080701, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080702) {
+        // 1.20.17, decision 64: rules are the staff's to declare
+        // breakable, never the accepting leader's. The join-accept
+        // door's engine-tier refusals (and the source-minimum L1) were
+        // a confirmable warning whose OK click wrote a QUOTA/L1
+        // override in the LEADER'S name - observed live on 2026-08-07,
+        // when a student leader admitted a second same-department
+        // member under "SCOPE exactly 2" + "at least 4 distinct
+        // departments" on five seats. Every rule refusal on that door
+        // is now a hard stop for the ordinary decider (accept control
+        // disabled, reason in plain words); bypass exists only through
+        // :overriderules with a written reason. Refusal strings on the
+        // join and leave doors were reworded into natural language.
+        // No schema change.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.17 (2026080702). Rule refusals on the join-accept door are '
+                . 'staff-only bypasses; the accepting leader sees a disabled control with the '
+                . 'reason in plain words.',
+            'Behavioural change only; no schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080702, 'selfselectadvanced');
+    }
+
     return true;
 }

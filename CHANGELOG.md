@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.20.17 — rules are the staff's to declare breakable (2026-08-07)
+
+> Serial `2026080702` / `1.20.17`. Behavioural change only; no schema,
+> capability, message-provider or scheduled-task change. Decision 64.
+
+- **A student leader can no longer confirm away a rule refusal when accepting
+  a join request.** Observed live (g=44): under "exactly two SCOPE members"
+  plus "at least four distinct departments" on five seats, the engine refused
+  a second same-department member — and the accept screen offered the leader a
+  confirm dialog whose OK click wrote a QUOTA override *in the leader's name*
+  and committed the move. Every rule refusal on the accept door — the engine
+  tier and the source-team-minimum L1 included — is now a **hard stop for the
+  ordinary decider: the accept button is disabled with the reason beside it**,
+  and Decline stays live. Bypass exists only through the staff override
+  capability with a written reason, exactly as the explicitly posted override
+  path always required. The leader's confirm click survives solely for the
+  consent notice (pending invitations affected — no rule broken, nothing
+  bypassed, no override recorded).
+- **Refusals now speak plain language.** "Source keeps 0 confirmed members
+  (minimum 1)" became "Their current team would be left with 0 member(s),
+  below its minimum of 1."; "could no longer complete its composition" became
+  "could never be completed correctly: it would still need at least N more
+  member(s) who fit the team's rules, but only M seat(s) would be left."
+
 ## 1.20.16 — the candidate picker survives a failed search (2026-08-07)
 
 > Serial `2026080701` / `1.20.16`. JavaScript-only; no schema, capability,
