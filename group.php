@@ -179,7 +179,23 @@ if ($isleaderforming && $maylead) {
 }
 
 if ($action === 'submit' && $submitform && ($data = $submitform->get_data())) {
-    $api->lifecycle()->submit($group, isset($data->guide) ? (int) $data->guide : null, (int) $USER->id);
+    try {
+        $api->lifecycle()->submit($group, isset($data->guide) ? (int) $data->guide : null, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // The refusalguidechanged sentence exists solely for the race between the
+        // page load and this click - it must land as a sentence, not a
+        // stack trace. Same contract as the accept arm (1.20.18): a refusal is an
+        // answer, delivered as a notice, never the raw error page.
+        redirect(
+            $baseurl,
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     redirect(
         $baseurl,
         get_string('groupsubmitted', 'mod_selfselectadvanced'),
@@ -189,7 +205,21 @@ if ($action === 'submit' && $submitform && ($data = $submitform->get_data())) {
 }
 
 if ($action === 'nominate' && $nominateform && ($data = $nominateform->get_data())) {
-    $api->succession()->nominate($group, (int) $data->nominee, $data->stype, (int) $USER->id);
+    try {
+        $api->succession()->nominate($group, (int) $data->nominee, $data->stype, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // Same contract as the accept arm (1.20.18): a refusal is an
+        // answer, delivered as a notice, never the raw error page.
+        redirect(
+            $baseurl,
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     redirect(
         $baseurl,
         get_string('nominationsent', 'mod_selfselectadvanced'),
@@ -199,7 +229,21 @@ if ($action === 'nominate' && $nominateform && ($data = $nominateform->get_data(
 }
 
 if ($action === 'confirmnomination' && data_submitted() && confirm_sesskey()) {
-    $type = $api->succession()->confirm($group, (int) $USER->id);
+    try {
+        $type = $api->succession()->confirm($group, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // Same contract as the accept arm (1.20.18): a refusal is an
+        // answer, delivered as a notice, never the raw error page.
+        redirect(
+            $baseurl,
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     $notice = $type === 'stepout'
         ? get_string('successionstepoutdone', 'mod_selfselectadvanced')
         : get_string('successiontransferdone', 'mod_selfselectadvanced');
@@ -207,7 +251,21 @@ if ($action === 'confirmnomination' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'declinenomination' && data_submitted() && confirm_sesskey()) {
-    $api->succession()->decline($group, (int) $USER->id);
+    try {
+        $api->succession()->decline($group, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // Same contract as the accept arm (1.20.18): a refusal is an
+        // answer, delivered as a notice, never the raw error page.
+        redirect(
+            $baseurl,
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     redirect(
         $baseurl,
         get_string('nominationdeclined', 'mod_selfselectadvanced'),
@@ -217,7 +275,21 @@ if ($action === 'declinenomination' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'cancelnomination' && data_submitted() && confirm_sesskey()) {
-    $api->succession()->cancel($group, (int) $USER->id);
+    try {
+        $api->succession()->cancel($group, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // Same contract as the accept arm (1.20.18): a refusal is an
+        // answer, delivered as a notice, never the raw error page.
+        redirect(
+            $baseurl,
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     redirect(
         $baseurl,
         get_string('nominationcancelled', 'mod_selfselectadvanced'),
@@ -296,7 +368,21 @@ if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
 
 if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
     $memberid = required_param('m', PARAM_INT);
-    $api->invitations()->withdraw($group, $memberid, (int) $USER->id);
+    try {
+        $api->invitations()->withdraw($group, $memberid, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // The invitee accepting first is the documented ordinary race. Same contract as the accept arm (1.20.18): a refusal is an
+        // answer, delivered as a notice, never the raw error page.
+        redirect(
+            $baseurl,
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     redirect(
         $baseurl,
         get_string('invitationwithdrawn', 'mod_selfselectadvanced'),
@@ -334,7 +420,22 @@ if ($action === 'accept' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'decline' && data_submitted() && confirm_sesskey()) {
-    $api->invitations()->decline($group, (int) $USER->id);
+    try {
+        $api->invitations()->decline($group, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // The unfixed sibling of the accept arm: a withdrawn or
+        // expired invitation declined a moment too late. Same contract as the accept arm (1.20.18): a refusal is an
+        // answer, delivered as a notice, never the raw error page.
+        redirect(
+            $viewurl,
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     redirect(
         $viewurl,
         get_string('invitationdeclined', 'mod_selfselectadvanced', format_string($group->name)),
@@ -542,7 +643,22 @@ if ($action === 'freeze') {
     // extracted so the page cannot ask a different question.
     \mod_selfselectadvanced\local\freeze::require_freeze_team($activity, $group, (int) $USER->id);
     if (data_submitted() && confirm_sesskey()) {
-        $frozen = \mod_selfselectadvanced\local\freeze::freeze_group($activity, $group, (int) $USER->id);
+        try {
+            $frozen = \mod_selfselectadvanced\local\freeze::freeze_group($activity, $group, (int) $USER->id);
+        } catch (\moodle_exception $e) {
+            if ($e instanceof \coding_exception) {
+                throw $e;
+            }
+            // The membership-audit refusals are designed sentences
+            // (freeze.php: "STATE IS NOT ASKED HERE") - deliver them
+            // as the notice they were written to be.
+            redirect(
+                $baseurl,
+                $e->getMessage(),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        }
         $notice = get_string('groupfrozennotice', 'mod_selfselectadvanced', $group->pluginuid);
         $level = \core\output\notification::NOTIFY_SUCCESS;
         // Core refuses to put a deleted or non-enrolled person in a

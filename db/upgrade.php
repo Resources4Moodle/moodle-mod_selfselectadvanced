@@ -1938,5 +1938,32 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080703, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080704) {
+        // 1.20.19: the seam-audit batch (SEAM-AUDIT-20260807, the 5
+        // HIGH findings + the failure-honesty family + the critic's
+        // three). The move engine gains the decision-63 DISB verdict
+        // (default refusal, pierceable only by the move-scope override
+        // - maintainer ruling 2026-08-07: staff decisions always
+        // honoured); the override guard measures the same commitments
+        // basis as the gate; thirteen POST arms answer refusals with
+        // notices instead of raw error pages; notification bodies
+        // receive every placeholder they promise; the join-decide door
+        // asks the standing conflict-of-interest rule; restores shift
+        // the schedule dates; the guide-reminder markers join the
+        // privacy provider; the deadline reminder warns on the
+        // penalty's own basis. No schema change.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.19 (2026080704). Seam-audit batch: engine disband seal, '
+                . 'aligned cap arithmetic, refusals as notices everywhere, honest '
+                . 'notifications, COI on join-decide, restore date-shift, privacy and '
+                . 'reminder-basis completeness.',
+            'Behavioural changes only; no schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080704, 'selfselectadvanced');
+    }
+
     return true;
 }

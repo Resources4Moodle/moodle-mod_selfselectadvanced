@@ -1170,6 +1170,18 @@ class joinrequests {
             has_capability('mod/selfselectadvanced:manage', $context, $actorid)
             || has_capability('mod/selfselectadvanced:coordinate', $context, $actorid)
         ) {
+            // The maintainer's standing conflict rule ("Group
+            // coordinators should not act on their own teams"), from
+            // the single producer every sibling on-behalf seam already
+            // asks - eoi::decide_refusal, freeze, return_group,
+            // assign_guide, tickets, the override store. Until 1.20.19
+            // this was the one staff-for-an-absent-leader door without
+            // it (seam audit): an involved narrow-authority coordinator
+            // could answer requests for their own team.
+            // require_uninvolved() returns at once for a :manage
+            // holder, so the trusted arm is unaffected.
+            tickets::require_uninvolved($activity, $target, $actorid);
+
             return;
         }
 

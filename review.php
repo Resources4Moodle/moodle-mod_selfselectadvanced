@@ -86,7 +86,21 @@ if ($action === 'approve') {
         redirect($baseurl, $refusal->get_message(), null, \core\output\notification::NOTIFY_ERROR);
     }
     if (data_submitted() && confirm_sesskey()) {
-        $api->lifecycle()->approve($group, (int) $USER->id);
+        try {
+            $api->lifecycle()->approve($group, (int) $USER->id);
+        } catch (\moodle_exception $e) {
+            if ($e instanceof \coding_exception) {
+                throw $e;
+            }
+            // The pre-check above ran on the page-load row; do_approve
+            // re-asks under the lock and can refuse on the fresh one.
+            redirect(
+                $baseurl,
+                $e->getMessage(),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        }
         redirect(
             $queueurl,
             get_string('groupapprovednotice', 'mod_selfselectadvanced', $group->pluginuid),

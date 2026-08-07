@@ -106,6 +106,15 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
 
         $data = (object) $data;
         $data->course = $this->get_courseid();
+        // The schedule shifts with the restore (seam audit, 1.20.19):
+        // a term-rollover restore carried last term's window verbatim,
+        // so the whole new cohort landed after timecutoff and the
+        // window gate refused everything. Same idiom as core's
+        // mod_choice/mod_assign; apply_date_offset() is the identity
+        // when no date shift was requested, and 0 ("not set") maps to 0.
+        $data->timeopen = $this->apply_date_offset($data->timeopen);
+        $data->timedue = $this->apply_date_offset($data->timedue);
+        $data->timecutoff = $this->apply_date_offset($data->timecutoff);
         $newid = $DB->insert_record('selfselectadvanced', $data);
         $this->apply_activity_instance($newid);
     }
@@ -302,6 +311,11 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         if ($data->scope === 'group' && !$data->groupid) {
             return;
         }
+        // Per-target schedule overrides shift with the restore exactly
+        // as the instance dates do (nulls pass through untouched).
+        $data->timeopen = $this->apply_date_offset($data->timeopen ?? null);
+        $data->timedue = $this->apply_date_offset($data->timedue ?? null);
+        $data->timecutoff = $this->apply_date_offset($data->timecutoff ?? null);
         $data->usermodified = 0;
         $DB->insert_record('selfselectadvanced_override', $data);
     }

@@ -54,6 +54,13 @@ class deadline_reminder extends \core\task\scheduled_task {
                 continue;
             }
             $resolver = new resolver($activity);
+            // TWO baskets, on the penalty's own basis (seam audit,
+            // 1.20.19): SETTLED means confirmed in a FIRM or FROZEN
+            // team - the only memberships penalty\gradebook counts as
+            // shelter - and only the settled are safe to skip. The old
+            // single any-state set skipped forming-team members, who
+            // are exactly the students the deadline penalty will catch;
+            // they are reminded with their own honest sentence below.
             $confirmed = $DB->get_fieldset_sql(
                 "SELECT DISTINCT m.userid
                    FROM {selfselectadvanced_member} m
@@ -61,14 +68,27 @@ class deadline_reminder extends \core\task\scheduled_task {
                   WHERE g.activityid = ? AND m.status = ?",
                 [$activity->id(), \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED]
             );
+            $settled = $DB->get_fieldset_sql(
+                "SELECT DISTINCT m.userid
+                   FROM {selfselectadvanced_member} m
+                   JOIN {selfselectadvanced_group} g ON g.id = m.groupid
+                  WHERE g.activityid = ? AND m.status = ? AND g.state IN (?, ?)",
+                [
+                    $activity->id(),
+                    \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED,
+                    \mod_selfselectadvanced\local\state::FIRM,
+                    \mod_selfselectadvanced\local\state::FROZEN,
+                ]
+            );
             $prefkey = 'mod_selfselectadvanced_reminded_' . $activity->id();
             $enrolled = get_enrolled_users($activity->context(), 'mod/selfselectadvanced:respond', 0, 'u.id');
             // Hash set built once: a linear scan rebuilt per iteration
             // costs seconds of CPU on a course of several thousand.
             $confirmedset = array_flip(array_map('intval', $confirmed));
+            $settledset = array_flip(array_map('intval', $settled));
             foreach ($enrolled as $user) {
                 $userid = (int) $user->id;
-                if (isset($confirmedset[$userid])) {
+                if (isset($settledset[$userid])) {
                     continue;
                 }
                 $due = $resolver->effective_dates($userid, null)->timedue;
@@ -83,7 +103,7 @@ class deadline_reminder extends \core\task\scheduled_task {
                     'deadlinereminder',
                     $userid,
                     'msgremindersubject',
-                    'msgreminderbody',
+                    isset($confirmedset[$userid]) ? 'msgreminderformingbody' : 'msgreminderbody',
                     (object) ['activity' => $activity->name(), 'due' => userdate($due)],
                     new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]),
                     $activity->name()

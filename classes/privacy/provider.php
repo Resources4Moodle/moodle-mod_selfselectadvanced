@@ -155,6 +155,10 @@ class provider implements
             'mod_selfselectadvanced_digest',
             'privacy:metadata:preference:digest'
         );
+        $collection->add_user_preference(
+            'mod_selfselectadvanced_gremind_',
+            'privacy:metadata:preference:gremind'
+        );
 
         return $collection;
     }
@@ -1094,6 +1098,21 @@ class provider implements
                 $digest,
                 get_string('privacy:metadata:preference:digest', 'mod_selfselectadvanced')
             );
+        }
+
+        // The guide-reminder markers (seam audit, 1.20.19): one per
+        // guided group, written by the auto-approve task, keyed by
+        // group id - personal data the provider had not declared.
+        foreach ($DB->get_records('selfselectadvanced_group', null, 'id ASC', 'id') as $grow) {
+            $gremind = get_user_preferences('mod_selfselectadvanced_gremind_' . $grow->id, null, $userid);
+            if ($gremind !== null) {
+                writer::export_user_preference(
+                    'mod_selfselectadvanced',
+                    'mod_selfselectadvanced_gremind_' . $grow->id,
+                    $gremind,
+                    get_string('privacy:metadata:preference:gremind', 'mod_selfselectadvanced')
+                );
+            }
         }
     }
 

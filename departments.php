@@ -73,10 +73,25 @@ if ($action === 'add' || $action === 'rename') {
         redirect($baseurl);
     }
     if ($data = $form->get_data()) {
-        if ($action === 'add') {
-            depts::create($data->name, (int) ($data->parent ?? 0), (int) $USER->id);
-        } else {
-            depts::rename($id, $data->name, (int) $USER->id);
+        try {
+            if ($action === 'add') {
+                depts::create($data->name, (int) ($data->parent ?? 0), (int) $USER->id);
+            } else {
+                depts::rename($id, $data->name, (int) $USER->id);
+            }
+        } catch (\moodle_exception $e) {
+            if ($e instanceof \coding_exception) {
+                throw $e;
+            }
+            // A duplicate or bad name is an answer (errdeptduplicate),
+            // delivered as a notice like every sibling arm - never the
+            // raw error page.
+            redirect(
+                $baseurl,
+                $e->getMessage(),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
         }
         redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
     }

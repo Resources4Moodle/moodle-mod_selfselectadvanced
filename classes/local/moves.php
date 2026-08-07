@@ -60,7 +60,7 @@ class moves {
     public const MAX_COMMIT = 100;
 
     /** @var string[] The rule codes a move-scope override may bypass. */
-    public const BYPASSABLE = ['L1', 'L2', 'L3', 'L4', 'QUOTA'];
+    public const BYPASSABLE = ['L1', 'L2', 'L3', 'L4', 'QUOTA', 'DISB'];
 
     /** @var activity The activity. */
     private readonly activity $activity;
@@ -368,9 +368,27 @@ class moves {
                 $additions[(int) $move->targetgroupid][$uid] = $uid;
             }
         }
+        // Decision 63's seal, prefetched for the DISB verdict below:
+        // one query for every touched group's wind-up flag.
+        $touchedids = array_unique(array_merge(array_keys($removals), array_keys($additions)));
+        $disbanding = [];
+        if ($touchedids !== []) {
+            [$insql, $inparams] = $DB->get_in_or_equal($touchedids);
+            foreach (
+                $DB->get_records_select(
+                    'selfselectadvanced_group',
+                    "id $insql",
+                    $inparams,
+                    '',
+                    'id, timedisbandrequested'
+                ) as $grow
+            ) {
+                $disbanding[(int) $grow->id] = !empty($grow->timedisbandrequested);
+            }
+        }
         $confirmedin = [];
         $seatsin = [];
-        foreach (array_unique(array_merge(array_keys($removals), array_keys($additions))) as $gid) {
+        foreach ($touchedids as $gid) {
             $rows = $DB->get_records_select(
                 'selfselectadvanced_member',
                 'groupid = ? AND status IN (?, ?)',
@@ -527,6 +545,24 @@ class moves {
                     !in_array((int) $move->userid, $confirmedin[$targetid] ?? [], true),
                     false,
                     get_string('moveruleTGT', 'mod_selfselectadvanced')
+                );
+
+                // DISB: decision 63's seal - while a disband request
+                // stands, the team recruits NOBODY through any student
+                // door, and until 1.20.19 the move engine was the one
+                // silent pass: stage, validate and commit never read
+                // the flag. Judged again at commit on the row read
+                // inside the locks. BYPASSABLE by the move-scope
+                // override alone (maintainer ruling, 2026-08-07:
+                // "overrides, admin, editing teacher's decision always
+                // honoured") - a deliberate staff placement with a
+                // written reason pierces the seal; every student door
+                // still refuses hard, and cancel_disband remains the
+                // repair that reopens the team for everyone.
+                $verdicts['DISB'] = $this->verdict(
+                    empty($disbanding[$targetid]),
+                    in_array('DISB', $bypasses, true),
+                    get_string('refusaldisbanding', 'mod_selfselectadvanced')
                 );
             }
 

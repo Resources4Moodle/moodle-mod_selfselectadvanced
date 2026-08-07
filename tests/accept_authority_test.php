@@ -379,6 +379,60 @@ final class accept_authority_test extends \advanced_testcase {
     }
 
     /**
+     * The standing conflict rule reaches the join-decide door (seam
+     * audit, 1.20.19): "Group coordinators should not act on their own
+     * teams." A coordinator who GUIDES the target team may not answer
+     * its requests - either way - while a manager stays exempt
+     * (require_uninvolved's own trusted arm).
+     *
+     * MUTATION CAUGHT (run): removing the require_uninvolved() call
+     * from require_decider() re-admits the involved coordinator.
+     */
+    public function test_an_involved_coordinator_cannot_decide(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $team, $requester, , $staff] = $this->g44world();
+        $coordinator = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($coordinator->id, (int) $activity->cm()->course, 'teacher');
+        role_assign(
+            \mod_selfselectadvanced\local\coordinatorrole::ensure(),
+            $coordinator->id,
+            $activity->context()
+        );
+        // Involvement: the coordinator guides this very team.
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $coordinator->id, ['id' => (int) $team->id]);
+        $request = joinrequests::request($activity, (int) $team->id, 'May I join', (int) $requester->id);
+
+        try {
+            joinrequests::respond($activity, (int) $request->id, false, 'Not this one', (int) $coordinator->id);
+            $this->fail('A coordinator never acts on their own team');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalcoiinvolved', $e->errorcode);
+        }
+        $sink->close();
+    }
+
+    /**
+     * The exempt arm, in its own method (the PostgreSQL trap): a
+     * MANAGER declines the same request over the same involvement
+     * shape untouched - the trust deliberately placed in that role.
+     */
+    public function test_the_manager_stays_exempt_from_the_conflict_rule(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $team, $requester, , $staff] = $this->g44world();
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $staff->id, ['id' => (int) $team->id]);
+        $request = joinrequests::request($activity, (int) $team->id, 'May I join', (int) $requester->id);
+
+        $decided = joinrequests::respond($activity, (int) $request->id, false, 'Declined.', (int) $staff->id);
+
+        $this->assertSame('declined', $decided->status);
+        $sink->close();
+    }
+
+    /**
      * L1 is the SOURCE team's minimum, and decision 64 takes it from
      * the target leader too: draining a team below its minimum is a
      * hard stop for the leader and an explicit override for staff.

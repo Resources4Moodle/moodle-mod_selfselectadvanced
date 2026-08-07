@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.20.19 — the seam-audit batch (2026-08-07)
+
+> Serial `2026080704` / `1.20.19`. Behavioural changes only; no schema change.
+> Source: the 43-agent seam audit (`audit_state/SEAM-AUDIT-20260807.md`) — the
+> five HIGH findings, the whole failure-honesty family, and the completeness
+> critic's three, each fixed after its own RCA with a per-fix blast check.
+
+- **The move engine honours the wind-up seal (decision 63).** A staff move
+  into a team whose leader has requested disband was the one admission path
+  with no check at all. It now refuses by default (`DISB` verdict, re-judged
+  at commit inside the locks) and is pierceable **only** by the move-scope
+  override with a written reason — the maintainer's ruling verbatim:
+  overrides, admin and editing-teacher decisions are always honoured; every
+  student door still refuses hard.
+- **The override guard measures what the gate measures.** The guide-cap
+  reduction guard counted only guided teams while the enforcement gate counts
+  commitments (guided + forming pre-assignments) — a reduction could activate
+  silently and strand forming teams at submission. All four blocker counts now
+  call the single producers.
+- **Thirteen POST arms answer refusals with notices** (submit, freeze, four
+  succession arms, invitation decline/withdraw, guide assignment, department
+  add/rename, approve, move cancel, consent toggle) — no more raw error pages
+  anywhere a service can refuse; one guide-picker failure no longer silently
+  abandons the pickers after it.
+- **Notifications keep their promises.** "{$a->member} has accepted… {$a->size}
+  confirmed member(s)" printed literally; the producers now supply every
+  placeholder their sentences use.
+- **The join-decide door asks the conflict rule.** An involved group
+  coordinator can no longer answer requests for their own team (managers and
+  editing teachers exempt — the trusted arm, per the same ruling).
+- **Restores shift the schedule.** Term-rollover restores carried last term's
+  open/due/cutoff verbatim, locking the whole new cohort out; the three dates
+  (and per-target override dates) now roll forward like every core module's.
+- **The deadline reminder warns on the penalty's own basis.** A student
+  confirmed only in a *forming* team was skipped — and then penalised. They
+  are now warned with their own honest sentence ("your team is not yet
+  settled"); a firm or frozen seat remains shelter.
+- **Privacy completeness:** the per-guide reminder markers are declared and
+  exported by the privacy provider.
+
 ## 1.20.18 — refusals say exactly what is missing (2026-08-07)
 
 > Serial `2026080703` / `1.20.18`. Behavioural change only; no schema,

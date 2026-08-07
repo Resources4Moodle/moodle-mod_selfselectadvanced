@@ -60,7 +60,21 @@ if ($action === 'assignguide' && data_submitted() && confirm_sesskey()) {
     $groupid = required_param('g', PARAM_INT);
     $guideid = required_param('guide', PARAM_INT);
     $group = \mod_selfselectadvanced\local\groups::get($activity, $groupid);
-    $api->lifecycle()->assign_guide($group, $guideid, (int) $USER->id);
+    try {
+        $api->lifecycle()->assign_guide($group, $guideid, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // Same contract as group.php's arms (1.20.19): a refusal is an
+        // answer, delivered as a notice, never the raw error page.
+        redirect(
+            $baseurl,
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     redirect(
         $baseurl,
         get_string('guideassigned', 'mod_selfselectadvanced', $group->pluginuid),

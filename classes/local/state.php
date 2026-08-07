@@ -190,6 +190,8 @@ final class state {
             'group' => format_string($fresh->name),
             'pluginuid' => $fresh->pluginuid,
             'activity' => $this->activity->name(),
+            // The body promises {$a->size} (seam audit H5).
+            'size' => groups::count_confirmed((int) $fresh->id),
         ];
         if ($fresh->guideid) {
             notifier::send(

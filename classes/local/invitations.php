@@ -250,7 +250,15 @@ class invitations {
             (int) $fresh->leaderid,
             'msgacceptedsubject',
             'msgacceptedbody',
-            (object) ['user' => fullname(\core_user::get_user($userid)), 'group' => format_string($fresh->name)],
+            (object) [
+                'user' => fullname(\core_user::get_user($userid)),
+                // The body's own vocabulary (seam audit H5): the
+                // sentence promises {$a->member} and {$a->size}, so
+                // the producer supplies them.
+                'member' => fullname(\core_user::get_user($userid)),
+                'size' => groups::count_confirmed((int) $fresh->id),
+                'group' => format_string($fresh->name),
+            ],
             $this->group_url((int) $fresh->id),
             format_string($fresh->name)
         );
@@ -328,7 +336,11 @@ class invitations {
             (int) $fresh->leaderid,
             'msgdeclinedsubject',
             'msgdeclinedbody',
-            (object) ['user' => fullname(\core_user::get_user($userid)), 'group' => format_string($fresh->name)],
+            (object) [
+                'user' => fullname(\core_user::get_user($userid)),
+                'member' => fullname(\core_user::get_user($userid)),
+                'group' => format_string($fresh->name),
+            ],
             $this->group_url((int) $fresh->id),
             format_string($fresh->name)
         );

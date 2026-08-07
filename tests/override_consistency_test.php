@@ -90,6 +90,48 @@ final class override_consistency_test extends \advanced_testcase {
     }
 
     /**
+     * The guide-cap reduction guard measures the COMMITMENTS basis -
+     * guided teams PLUS forming pre-assignments - exactly as the
+     * enforcement gate does (seam audit H2, 1.20.19). A guide with one
+     * guided and two forming pre-assigned teams is at 3 commitments; a
+     * reduction to 2 must PARK with the blocker naming 3, where the
+     * old guided-states-only count saw 1 and activated it silently.
+     *
+     * MUTATION CAUGHT (run): restoring the private guided-states count
+     * in guard::blockers() lets this reduction activate.
+     */
+    public function test_guide_cap_reduction_measures_commitments(): void {
+        $this->resetAfterTest();
+        [$activity, $students, , $plugingen] = $this->setup_activity();
+        $guide = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($guide->id, (int) $activity->cm()->course, 'teacher');
+        $mkteam = function (string $name, string $state) use ($activity, $plugingen, $guide, $students) {
+            static $i = 1;
+            $plugingen->create_group([
+                'activityid' => $activity->id(),
+                'leaderid' => (int) $students[$i++]->id,
+                'name' => $name,
+                'state' => $state,
+                'guideid' => (int) $guide->id,
+            ]);
+        };
+        $mkteam('Guided', state::FIRM);
+        $mkteam('Forming A', state::FORMING);
+        $mkteam('Forming B', state::FORMING);
+
+        $record = store::save($activity, 'guide', (int) $guide->id, ['maxguided' => 2], 2);
+
+        $this->assertSame('pending', $record->status, 'the reduction parks instead of stranding');
+        $this->assertCount(1, $record->blockers);
+        $this->assertSame('maxguided', $record->blockers[0]->rule);
+        $this->assertSame(
+            3,
+            (int) $record->blockers[0]->current,
+            'measured on commitments - guided plus forming pre-assignments - like the gate'
+        );
+    }
+
+    /**
      * The most common override of all - "extend this one student" -
      * written as a lone timedue, merged against the activity's own
      * timeopen. Nothing validated that merge, so a window that opens

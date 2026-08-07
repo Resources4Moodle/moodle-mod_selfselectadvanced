@@ -47,18 +47,13 @@ class guard {
      * @return stdClass[] each {rule, current, limit, description, fixurl}
      */
     public static function blockers(activity $activity, stdClass $row): array {
-        global $DB;
-
         $blockers = [];
         $cmid = $activity->cm()->id;
 
         if ($row->scope === 'user' || $row->scope === 'guide') {
             $userid = (int) $row->userid;
             if ($row->scope === 'user' && $row->maxlead !== null) {
-                $current = (int) $DB->count_records('selfselectadvanced_group', [
-                    'activityid' => $activity->id(),
-                    'leaderid' => $userid,
-                ]);
+                $current = groups::count_leading($activity, $userid);
                 if ($current > (int) $row->maxlead) {
                     $blockers[] = self::blocker(
                         $activity,
@@ -71,13 +66,7 @@ class guard {
                 }
             }
             if ($row->scope === 'user' && $row->maxmembership !== null) {
-                $current = (int) $DB->count_records_sql(
-                    "SELECT COUNT(1)
-                       FROM {selfselectadvanced_member} m
-                       JOIN {selfselectadvanced_group} g ON g.id = m.groupid
-                      WHERE g.activityid = ? AND m.userid = ? AND m.status = ?",
-                    [$activity->id(), $userid, groups::STATUS_CONFIRMED]
-                );
+                $current = groups::count_memberships($activity, $userid);
                 if ($current > (int) $row->maxmembership) {
                     $blockers[] = self::blocker(
                         $activity,
@@ -90,16 +79,16 @@ class guard {
                 }
             }
             if ($row->scope === 'guide' && $row->maxguided !== null) {
-                [$insql, $params] = $DB->get_in_or_equal(
-                    [\mod_selfselectadvanced\local\state::PENDING_GUIDE,
-                        \mod_selfselectadvanced\local\state::FIRM,
-                        \mod_selfselectadvanced\local\state::FROZEN]
-                );
-                $current = (int) $DB->count_records_sql(
-                    "SELECT COUNT(1) FROM {selfselectadvanced_group}
-                      WHERE guideid = ? AND activityid = ? AND state $insql",
-                    array_merge([$userid, $activity->id()], $params)
-                );
+                // The COMMITMENTS basis, from the single producer -
+                // guided pending/firm/frozen teams PLUS forming teams
+                // that pre-assigned this guide (audit 1.11.0: "a guide
+                // at capacity through acceptances would still look
+                // free"). Until 1.20.19 this blocker held a private
+                // guided-states-only count, so a reduction the
+                // enforcement gate would refuse activated silently and
+                // stranded the forming teams at submission (seam audit
+                // H2).
+                $current = \mod_selfselectadvanced\local\eoi::guide_commitments($activity, $userid);
                 if ($current > (int) $row->maxguided) {
                     $blockers[] = self::blocker(
                         $activity,
@@ -115,11 +104,7 @@ class guard {
 
         if ($row->scope === 'group' && $row->maxsize !== null) {
             $groupid = (int) $row->groupid;
-            $seats = (int) $DB->count_records_sql(
-                "SELECT COUNT(1) FROM {selfselectadvanced_member}
-                  WHERE groupid = ? AND status IN (?, ?)",
-                [$groupid, groups::STATUS_CONFIRMED, groups::STATUS_INVITED]
-            );
+            $seats = groups::count_seats_taken($groupid);
             if ($seats > (int) $row->maxsize) {
                 $blockers[] = self::blocker(
                     $activity,

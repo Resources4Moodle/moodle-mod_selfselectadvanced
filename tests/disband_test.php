@@ -273,6 +273,76 @@ final class disband_test extends \advanced_testcase {
     }
 
     /**
+     * The move engine honours the seal (seam audit H1, 1.20.19): a
+     * staff move into a winding-up team is refused by the DISB verdict
+     * by default - and the deliberate move-scope override pierces it
+     * (maintainer ruling, 2026-08-07: "overrides, admin, editing
+     * teacher's decision always honoured"), while every student door
+     * keeps refusing hard.
+     *
+     * MUTATION CAUGHT (run): removing the DISB verdict from
+     * validate_set() lets the staged move validate clean.
+     */
+    public function test_the_move_engine_honours_the_seal(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $api, $group, $leader, , , $bystander] = $this->world();
+        $api->request_disband($group, 'Winding up.', FORMAT_PLAIN, (int) $leader->id);
+        $staff = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($staff->id, (int) $activity->cm()->course, 'editingteacher');
+
+        $staged = $api->moves()->stage((int) $bystander->id, null, (int) $group->id, false, null, (int) $staff->id);
+        $verdicts = $api->moves()->validate_set([(int) $staged->id]);
+
+        $this->assertFalse((bool) $verdicts->valid, 'the seal holds at the move door too');
+        $disb = $verdicts->permove[(int) $staged->id]['DISB'] ?? null;
+        $this->assertNotNull($disb, 'and it holds under its own name');
+        $this->assertFalse($disb['ok']);
+        $this->assertFalse($disb['bypassed'], 'not without the deliberate override');
+
+        // The deliberate staff override pierces it - always honoured.
+        \mod_selfselectadvanced\local\override\store::save_for_new_move(
+            $activity,
+            (int) $staged->id,
+            'DISB',
+            (int) $staff->id
+        );
+        $api->gatekeeper()->resolver()->invalidate();
+        $pierced = $api->moves()->validate_set([(int) $staged->id]);
+        $this->assertTrue((bool) $pierced->valid, 'the written staff decision is honoured');
+        $this->assertTrue($pierced->permove[(int) $staged->id]['DISB']['bypassed']);
+        $sink->close();
+    }
+
+    /**
+     * The seal catches DRIFT: a move staged before the request stands
+     * is refused when validated after it - the commit re-validation
+     * path decision 63 depends on.
+     */
+    public function test_the_seal_catches_a_move_staged_before_the_request(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $api, $group, $leader, , , $bystander] = $this->world();
+        $staff = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($staff->id, (int) $activity->cm()->course, 'editingteacher');
+
+        $staged = $api->moves()->stage((int) $bystander->id, null, (int) $group->id, false, null, (int) $staff->id);
+        $this->assertTrue(
+            (bool) $api->moves()->validate_set([(int) $staged->id])->valid,
+            'clean before the request'
+        );
+
+        $api->request_disband($group, 'Winding up.', FORMAT_PLAIN, (int) $leader->id);
+
+        $this->assertFalse(
+            (bool) $api->moves()->validate_set([(int) $staged->id])->valid,
+            'refused on the state that exists now, not the state at staging'
+        );
+        $sink->close();
+    }
+
+    /**
      * Staff dissolve remains the unconditional emergency exit, request
      * or no request - the maintainer's flow 3 depends on it.
      */

@@ -110,8 +110,13 @@ final class compliance_test extends \advanced_testcase {
     }
 
     /**
-     * The reminder task messages groupless students inside 24h of
-     * their effective due date, once only; grouped students are skipped.
+     * The reminder task warns everyone the deadline penalty would
+     * catch, once only, on the PENALTY'S OWN BASIS (seam audit,
+     * 1.20.19): only a confirmed seat in a FIRM or FROZEN team is
+     * shelter, so a groupless student hears "you are not yet in a
+     * group" and a forming-team member hears their own honest sentence
+     * - the team is not yet settled - where the old any-state basis
+     * silently skipped them and the penalty caught them anyway.
      */
     public function test_deadline_reminder(): void {
         $this->resetAfterTest();
@@ -125,12 +130,19 @@ final class compliance_test extends \advanced_testcase {
         ]);
         $inside = $generator->create_user();
         $generator->enrol_user($inside->id, $course->id, 'student');
-        $grouped = $generator->create_user();
-        $generator->enrol_user($grouped->id, $course->id, 'student');
+        $forming = $generator->create_user();
+        $generator->enrol_user($forming->id, $course->id, 'student');
+        $settled = $generator->create_user();
+        $generator->enrol_user($settled->id, $course->id, 'student');
         $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
         $plugingen->create_group([
             'activityid' => (int) $instance->id,
-            'leaderid' => (int) $grouped->id,
+            'leaderid' => (int) $forming->id,
+        ]);
+        $firmteam = $plugingen->create_group([
+            'activityid' => (int) $instance->id,
+            'leaderid' => (int) $settled->id,
+            'state' => \mod_selfselectadvanced\local\state::FIRM,
         ]);
 
         $sink = $this->redirectMessages();
@@ -142,10 +154,23 @@ final class compliance_test extends \advanced_testcase {
         $sink->close();
 
         $recipients = array_map(static fn($m) => (int) $m->useridto, $first);
-        $this->assertContains((int) $inside->id, $recipients);
-        $this->assertNotContains((int) $grouped->id, $recipients);
+        $this->assertContains((int) $inside->id, $recipients, 'the groupless are warned');
+        $this->assertContains(
+            (int) $forming->id,
+            $recipients,
+            'a forming-team member is warned too - the penalty would catch them'
+        );
+        $this->assertNotContains((int) $settled->id, $recipients, 'a firm seat is shelter');
+        $formingmsg = array_values(array_filter($first, static fn($m) => (int) $m->useridto === (int) $forming->id));
+        $this->assertStringContainsString(
+            'not yet settled',
+            $formingmsg[0]->fullmessage,
+            'and their sentence is the honest one - they HAVE a team, it is not settled'
+        );
         // Once only.
-        $this->assertNotContains((int) $inside->id, array_map(static fn($m) => (int) $m->useridto, $second));
+        $secondrecipients = array_map(static fn($m) => (int) $m->useridto, $second);
+        $this->assertNotContains((int) $inside->id, $secondrecipients);
+        $this->assertNotContains((int) $forming->id, $secondrecipients);
     }
 
     /**

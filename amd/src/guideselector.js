@@ -44,17 +44,29 @@ import Notification from 'core/notification';
  */
 export const init = async(placeholder, noSelection) => {
     const fields = document.querySelectorAll('select[data-ssa-guidepicker]');
+    let firsterror = null;
     for (const field of fields) {
-        await Autocomplete.enhanceField(
-            '#' + field.id,
-            false,
-            'mod_selfselectadvanced/guideselector',
-            placeholder,
-            false,
-            true,
-            noSelection,
-            true
-        );
+        try {
+            await Autocomplete.enhanceField(
+                '#' + field.id,
+                false,
+                'mod_selfselectadvanced/guideselector',
+                placeholder,
+                false,
+                true,
+                noSelection,
+                true
+            );
+        } catch (error) {
+            // One failed enhancement must not silently abandon every
+            // picker after it (seam audit, 1.20.19): the un-enhanced
+            // rows keep their plain select, the rest still enhance,
+            // and the first failure is named once.
+            firsterror = firsterror || error;
+        }
+    }
+    if (firsterror) {
+        Notification.exception(firsterror);
     }
 };
 

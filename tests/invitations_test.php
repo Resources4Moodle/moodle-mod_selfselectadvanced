@@ -194,7 +194,27 @@ final class invitations_test extends \advanced_testcase {
             groups::STATUS_CONFIRMED,
             $DB->get_field('selfselectadvanced_member', 'status', ['groupid' => $group->id, 'userid' => $invitee])
         );
-        // The leader got the acceptance notification.
+        // The leader got the acceptance notification - and its body is
+        // fully rendered: every placeholder the sentence promises is
+        // supplied by the producer (seam audit H5, 1.20.19 - the body
+        // read "{$a->member} has accepted... {$a->size} confirmed
+        // member(s)" LITERALLY in production).
+        $tolleader = array_values(array_filter(
+            $messages,
+            fn($m) => (int) $m->useridto === $leader && $m->eventtype === 'invitationresult'
+        ));
+        $this->assertNotEmpty($tolleader);
+        $this->assertStringNotContainsString(
+            '{$a',
+            $tolleader[0]->fullmessage,
+            'a notification never shows the reader a raw placeholder'
+        );
+        $this->assertStringContainsString(
+            '2 confirmed member(s)',
+            $tolleader[0]->fullmessage,
+            'the size the sentence promises is the real roster figure'
+        );
+        // The original assertion, kept verbatim.
         $this->assertNotEmpty(array_filter(
             $messages,
             fn($m) => (int) $m->useridto === $leader && $m->eventtype === 'invitationresult'

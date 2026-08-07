@@ -44,11 +44,25 @@ $context = $activity->context();
 // record with a non-empty mobile.
 $consentaction = optional_param('consentaction', '', PARAM_ALPHA);
 if (in_array($consentaction, ['grant', 'revoke'], true) && data_submitted() && confirm_sesskey()) {
-    \mod_selfselectadvanced\local\attributes\manager::set_consent(
-        (int) $USER->id,
-        $consentaction === 'grant',
-        (int) $USER->id
-    );
+    try {
+        \mod_selfselectadvanced\local\attributes\manager::set_consent(
+            (int) $USER->id,
+            $consentaction === 'grant',
+            (int) $USER->id
+        );
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // Same contract as group.php's arms (1.20.19): a refusal is an
+        // answer, delivered as a notice, never the raw error page.
+        redirect(
+            new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]),
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     redirect(new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]));
 }
 
