@@ -159,7 +159,8 @@
                             <input type="hidden" name="g" value="{{id}}">
                             <input type="hidden" name="action" value="accept">
                             <input type="hidden" name="sesskey" value="{{sesskey}}">
-                            <button type="submit" class="btn btn-primary btn-sm">
+                            <button type="submit" class="btn btn-primary btn-sm"
+                                {{#blocked}}disabled title="{{blockedreason}}"{{/blocked}}>
                                 {{#str}} accept, mod_selfselectadvanced {{/str}}
                             </button>
                         </form>

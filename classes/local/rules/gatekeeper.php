@@ -323,6 +323,7 @@ class gatekeeper {
             return new refusal('refusalcompositionunreachable', (object) [
                 'missing' => $feasibility->missing,
                 'free' => $free,
+                'needed' => $feasibility->needed,
             ]);
         }
 

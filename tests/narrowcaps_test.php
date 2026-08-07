@@ -951,7 +951,7 @@ final class narrowcaps_test extends \advanced_testcase {
         $CFG->upgraderunning = 0;
         accesslib_clear_all_caches_for_unit_testing();
 
-        $this->assertSame('2026080702', get_config('mod_selfselectadvanced', 'version'));
+        $this->assertSame('2026080703', get_config('mod_selfselectadvanced', 'version'));
         foreach ($newcaps as $capability) {
             $this->assertTrue(
                 $DB->record_exists('capabilities', ['name' => $capability]),

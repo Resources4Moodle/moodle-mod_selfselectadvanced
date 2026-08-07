@@ -501,7 +501,7 @@ class fit {
                 $verdict->caution = get_string(
                     'refusalcompositionunreachable',
                     'mod_selfselectadvanced',
-                    (object) ['missing' => $full->missing, 'free' => $free]
+                    (object) ['missing' => $full->missing, 'free' => $free, 'needed' => $full->needed]
                 );
             }
 
@@ -544,7 +544,7 @@ class fit {
             $verdict->caution = get_string(
                 'refusalcompositionunreachable',
                 'mod_selfselectadvanced',
-                (object) ['missing' => $hard->missing, 'free' => $free]
+                (object) ['missing' => $hard->missing, 'free' => $free, 'needed' => $hard->needed]
             );
         }
 
@@ -742,6 +742,7 @@ class fit {
                             'name' => format_string($target->name),
                             'missing' => $hard->missing,
                             'free' => $free,
+                            'needed' => $hard->needed,
                         ]
                     );
                 } else {
@@ -798,7 +799,7 @@ class fit {
                         $verdict->consent[] = get_string(
                             'refusalcompositionunreachable',
                             'mod_selfselectadvanced',
-                            (object) ['missing' => $full->missing, 'free' => $free]
+                            (object) ['missing' => $full->missing, 'free' => $free, 'needed' => $full->needed]
                         );
                     }
                 }

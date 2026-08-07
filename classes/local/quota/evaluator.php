@@ -169,6 +169,11 @@ class evaluator {
         $maxexceeded = null;
         $rulemin = [];              // Dimension => value => required members.
         $distinctbound = [];        // Dimension => further values a distinct rule needs.
+        // The CONCRETE unmet needs, in the panel's own vocabulary, for
+        // the refusal sentences (maintainer, 2026-08-07: "the message
+        // feels cryptic" - an aggregate count of members "who fit the
+        // team's rules" tells the reader nothing about WHICH rules).
+        $needlines = [];
         foreach ($rules as $rule) {
             if ($rule->rtype === 'distinct') {
                 $distinct = [];
@@ -178,9 +183,16 @@ class evaluator {
                         $distinct[\core_text::strtolower($value)] = true;
                     }
                 }
+                $short = max(0, (int) $rule->mincount - count($distinct));
+                if ($short > 0) {
+                    $needlines[] = get_string('quotaneeddistinct', 'mod_selfselectadvanced', (object) [
+                        'more' => $short,
+                        'dimension' => get_string('attr' . $rule->dimension, 'mod_selfselectadvanced'),
+                    ]);
+                }
                 $distinctbound[$rule->dimension] = max(
                     $distinctbound[$rule->dimension] ?? 0,
-                    (int) $rule->mincount - count($distinct),
+                    $short,
                     0
                 );
                 continue;
@@ -206,6 +218,13 @@ class evaluator {
                     $rulemin[$rule->dimension][$target] ?? 0,
                     (int) $rule->mincount
                 );
+                if ((int) $rule->mincount - $current > 0) {
+                    $needlines[] = get_string('quotaneedmin', 'mod_selfselectadvanced', (object) [
+                        'more' => (int) $rule->mincount - $current,
+                        'dimension' => get_string('attr' . $rule->dimension, 'mod_selfselectadvanced'),
+                        'value' => $rule->value,
+                    ]);
+                }
             }
         }
 
@@ -269,6 +288,9 @@ class evaluator {
         $slotmissing = 0;
         foreach ($slotresult->slots as $entry) {
             $slotmissing += (int) $entry->missing;
+            if ((int) $entry->missing > 0 && ($entry->deficiency ?? '') !== '') {
+                $needlines[] = $entry->deficiency;
+            }
         }
 
         return (object) [
@@ -276,6 +298,7 @@ class evaluator {
             // a compliant completion needs, so the largest of them is
             // what the free seats must cover.
             'missing' => max($slotmissing, $dimbound, 0),
+            'needed' => implode('; ', $needlines),
             'seated' => count(array_unique($memberids)),
             'maxexceeded' => $maxexceeded,
             // The seating this method already paid for. fit::for_groups

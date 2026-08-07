@@ -411,7 +411,7 @@ final class races_upsert_test extends \advanced_testcase {
         xmldb_selfselectadvanced_upgrade(2026073100);
         // Every later block runs too, so the recorded version lands on
         // the current tip - the re-run of the corrected twin merge.
-        $this->assertSame('2026080702', get_config('mod_selfselectadvanced', 'version'));
+        $this->assertSame('2026080703', get_config('mod_selfselectadvanced', 'version'));
 
         // Engine-native proof that the DDL step did what it claims: the
         // live column is nullable and a park row stores.

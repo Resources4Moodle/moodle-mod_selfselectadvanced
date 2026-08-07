@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.20.18 — refusals say exactly what is missing (2026-08-07)
+
+> Serial `2026080703` / `1.20.18`. Behavioural change only; no schema,
+> capability, message-provider or scheduled-task change.
+
+- **Unreachable-composition refusals name the concrete unmet needs.** Instead
+  of "it would still need at least 3 more member(s) who fit the team's rules",
+  the sentence now reads "…the team would still need: 2 more from Department
+  SCOPE; 3 more different Department value(s)." — the same vocabulary as the
+  Composition requirements panel, computed by the same engine over the same
+  roster, at every surface (join picker cautions, invite picker reasons, the
+  accept door, consent notes).
+- **A refused invitation acceptance is a notice, not an error page.** The
+  landing page now disables Accept for any refusal it can see coming (asking
+  the real gate — every refusal tier, where it previously transcribed only the
+  hard maximum), with the reason beside it and Decline still live; and if the
+  roster moves between page load and click, the answer is a redirect back with
+  the reason as a notification — never the raw Moodle error page with its dead
+  "More information about this error" link.
+- Verified against the live report that prompted it: an invitation that
+  *advances* the team's rules (a new department under a distinct-departments
+  rule) stays acceptable — pinned as a regression test either way.
+
 ## 1.20.17 — rules are the staff's to declare breakable (2026-08-07)
 
 > Serial `2026080702` / `1.20.17`. Behavioural change only; no schema,

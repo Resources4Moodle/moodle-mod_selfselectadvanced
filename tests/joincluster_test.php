@@ -337,7 +337,13 @@ final class joincluster_test extends \advanced_testcase {
         $expected = get_string(
             'refusalcompositionunreachableteam',
             'mod_selfselectadvanced',
-            (object) ['name' => 'Beta', 'missing' => 2, 'free' => 0]
+            (object) [
+                'name' => 'Beta',
+                'missing' => 2,
+                'free' => 0,
+                // 1.20.18: the sentence names the concrete unmet need.
+                'needed' => '2 more from ' . get_string('attrdepartment', 'mod_selfselectadvanced') . ' Scope',
+            ]
         );
 
         $verdict = fit::for_person($activity, $beta, (int) $wanderer->id, $request);

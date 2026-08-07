@@ -1916,5 +1916,27 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080702, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080703) {
+        // 1.20.18, the maintainer's three UX rulings of 2026-08-07:
+        // unreachable-composition refusals name the CONCRETE unmet
+        // needs in the panel's vocabulary instead of an aggregate
+        // count; a refused invitation acceptance answers with a notice
+        // and a redirect, never the raw error page; and an invitation
+        // whose acceptance the gate refuses renders with Accept
+        // disabled (the gate CALLED, not transcribed - every refusal
+        // tier, not just the hard maximum) while Decline stays live.
+        // No schema change.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.18 (2026080703). Refusals name the concrete unmet needs; a '
+                . 'refused acceptance is a notice, not an error page; an unacceptable '
+                . 'invitation disables Accept.',
+            'Behavioural change only; no schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080703, 'selfselectadvanced');
+    }
+
     return true;
 }

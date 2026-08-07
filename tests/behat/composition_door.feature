@@ -117,6 +117,10 @@ Feature: A composition maximum on confirmed members is a wall, a maximum on proj
     When I am on the "MDP groups" "selfselectadvanced activity" page logged in as student2
     Then I should see "This invitation cannot currently be accepted" in the ".selfselectadvanced-myinvitations" "css_element"
     And I should see "already has 2 confirmed member(s)" in the ".selfselectadvanced-myinvitations" "css_element"
+    # 1.20.18 (maintainer): a click whose only outcome is a refusal is
+    # not an offer - Accept renders disabled, Decline stays live.
+    And the "Accept" "button" should be disabled
+    And the "Decline" "button" should be enabled
 
   Scenario: The leader's pending list carries the same annotation
     Given the following "mod_selfselectadvanced > members" exist:

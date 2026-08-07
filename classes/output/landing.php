@@ -183,25 +183,33 @@ class landing implements renderable, templatable {
                 ]) as $group
             ) {
                 $row = $this->export_group_row($group, $cmid);
-                // Decision 60: an invitation the roster has outgrown is
-                // listed - the team is still waiting on this student -
-                // but the student is told the truth about the Accept
-                // button before clicking it, in the same sentence the
-                // gate would refuse them with. The invitation revives
-                // by itself if a seat-holder leaves.
+                // Decisions 60 + 64 (2026-08-07): an invitation the
+                // team has outgrown is listed - the team is still
+                // waiting on this student - but the Accept control is
+                // DISABLED, with the truth beside it in the same
+                // sentence the gate would refuse with. The question is
+                // asked of gatekeeper::can_accept() itself - CALLED,
+                // not transcribed - so this button and the accept
+                // service cannot drift into disagreeing: until 1.20.18
+                // this panel checked only the hard-maximum tier, so
+                // every OTHER refusal (unreachable completion, a
+                // settled or winding-up team) left Accept live and
+                // answered the click with a raw error page. The
+                // invitation revives by itself when the refusal lifts.
                 $row->blocked = false;
                 $row->blockedreason = '';
-                $door = \mod_selfselectadvanced\local\fit::door_verdict(
-                    $activity,
-                    $group,
-                    $this->userid
-                );
-                if ($door->hardmax !== null) {
+                $member = $DB->get_record('selfselectadvanced_member', [
+                    'groupid' => (int) $group->id,
+                    'userid' => $this->userid,
+                    'status' => groups::STATUS_INVITED,
+                ], '*', MUST_EXIST);
+                $refusal = $gatekeeper->can_accept($group, $member);
+                if ($refusal !== null) {
                     $row->blocked = true;
                     $row->blockedreason = get_string(
                         'invitationcurrentlyblocked',
                         'mod_selfselectadvanced',
-                        $door->hardmax
+                        $refusal->get_message()
                     );
                 }
                 $data->myinvitations[] = $row;

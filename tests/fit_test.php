@@ -379,10 +379,18 @@ final class fit_test extends \advanced_testcase {
         }
 
         $candidate = (int) $students[4]->id;
+        $dimension = get_string('attrdepartment', 'mod_selfselectadvanced');
         $expected = get_string(
             'refusalcompositionunreachable',
             'mod_selfselectadvanced',
-            (object) ['missing' => 4, 'free' => 2]
+            (object) [
+                'missing' => 4,
+                'free' => 2,
+                // 1.20.18 (maintainer, "the message feels cryptic"):
+                // the sentence names the CONCRETE unmet needs, in rule
+                // priority order.
+                'needed' => "2 more from {$dimension} DeptA; 2 more from {$dimension} DeptB",
+            ]
         );
 
         $row = fit::for_groups($activity, [$group], $candidate)[(int) $group->id];

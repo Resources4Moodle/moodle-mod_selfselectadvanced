@@ -306,7 +306,25 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'accept' && data_submitted() && confirm_sesskey()) {
-    $api->invitations()->accept($group, (int) $USER->id);
+    try {
+        $api->invitations()->accept($group, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // A refused acceptance is an ANSWER, not an accident
+        // (maintainer, 2026-08-07): back to the invitation list with
+        // the reason as a notice, never the raw error page with its
+        // dead documentation link. The landing page disables Accept
+        // for a refusal it can see coming; this catches the race
+        // where the roster moved between the page load and the click.
+        redirect(
+            $viewurl,
+            $e->getMessage(),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     redirect(
         $baseurl,
         get_string('invitationaccepted', 'mod_selfselectadvanced', format_string($group->name)),
