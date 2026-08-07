@@ -87,7 +87,14 @@ if ($contactid) {
     // proposal, so the guide can decide on something real.
     $contact = contacts::get($activity, $contactid);
     if ((int) $contact->guideid !== (int) $USER->id) {
-        throw new moodle_exception('refusalcontactnotyours', 'mod_selfselectadvanced');
+        // Reassigned between pages (MKT-05): back to the list with
+        // the reason, never the fatal renderer.
+        redirect(
+            $baseurl,
+            get_string('refusalcontactnotyours', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     $group = groups::get($activity, (int) $contact->groupid);
 

@@ -1986,5 +1986,29 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080705, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080706) {
+        // 1.20.21: wave 1 of the 2026-08-07 external release audit
+        // (audit_state/external-audits/20260807-1.20.20-deep-release).
+        // Expected workflow refusals travel TYPED (workflow_refusal)
+        // and ten more surfaces answer them with notices instead of
+        // the fatal error page - the stale Delete race (MKT-02), the
+        // freeze/unfreeze/proposal/team-edit/contact/contact-review/
+        // message preflights (MKT-05 s2.2). The invite control asks
+        // the invite door itself (MKT-03); an over-maximum roster is
+        // named with its figures and remedy (UX-02); stale-POST
+        // action tests replace the text-count pin (TEST-01). No
+        // schema change.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.21 (2026080706). External-audit wave 1: typed workflow '
+                . 'refusals, ten more notice-guarded surfaces, the invite control asks its '
+                . 'door, over-maximum named with figures.',
+            'Behavioural changes only; no schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080706, 'selfselectadvanced');
+    }
+
     return true;
 }

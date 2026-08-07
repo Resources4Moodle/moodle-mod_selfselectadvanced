@@ -198,6 +198,40 @@ class gatekeeper {
     }
 
     /**
+     * The candidate-independent half of the invite door, for the
+     * CONTROL (external audit MKT-03, 1.20.21): may this team invite
+     * ANYBODY right now? State, wind-up, window and seats - the arms
+     * that do not need a candidate - with the seats refusal choosing
+     * the same honest sentence the full door chooses. The team page's
+     * disabled Invite control consumes THIS, so the reason beside the
+     * control can never again drift from the gate (the 1.20.20
+     * renderer reconstructed eligibility from raw state and seat
+     * numbers and hard-coded the withdraw-an-invitation sentence for
+     * teams with nothing to withdraw).
+     *
+     * @param stdClass $group group row
+     * @param int|null $now injected clock for tests
+     * @return refusal|null null when the control may be offered
+     */
+    public function invite_door_refusal(stdClass $group, ?int $now = null): ?refusal {
+        if ($group->state !== state::FORMING) {
+            return new refusal('refusalwrongstate');
+        }
+        if (!empty($group->timedisbandrequested)) {
+            return new refusal('refusaldisbanding');
+        }
+        if ($refusal = $this->check_window((int) $group->leaderid, (int) $group->id, $now ?? time())) {
+            return $refusal;
+        }
+        $seats = $this->seat_position($group);
+        if ($seats->free < 1) {
+            return new refusal($seats->invited > 0 ? 'refusalnoseats' : 'refusalnoseatsconfirmed');
+        }
+
+        return null;
+    }
+
+    /**
      * The single evaluation of the invitation rules.
      *
      * Order is the documented one (see can_invite()). $stopatfirst buys
@@ -898,10 +932,16 @@ class gatekeeper {
         }
         $maxsize = $this->resolver->effective_maxsize((int) $group->id);
         if ($confirmed > $maxsize->value) {
-            // Over on CONFIRMED members alone: the sentence that names
-            // that fact (seam audit B8) - there may be nothing to
-            // withdraw at all.
-            return new refusal('refusalnoseatsconfirmed');
+            // OVER the maximum is not merely "full" (external audit
+            // UX-02, 1.20.21): after an override or setting reduction
+            // the roster must SHRINK or receive an exception before
+            // this action can proceed, and the sentence names the
+            // figures and the remedy.
+            return new refusal('refusalovermaxsize', (object) [
+                'current' => $confirmed,
+                'max' => $maxsize->value,
+                'excess' => $confirmed - $maxsize->value,
+            ]);
         }
         if (
             !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($this->activity, (int) $group->id)

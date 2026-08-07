@@ -26,9 +26,11 @@ namespace mod_selfselectadvanced;
  * catch-notify-redirect written on the accept arm in 1.20.18; the live
  * behaviour of one representative arm is verified on the deployed site
  * at every release (the stale-click curl check). WEAK BY DESIGN and
- * declared as such: this pins the presence of the pattern, the gate's
- * behat pins the success paths, and the deployed-site check pins one
- * real refusal end to end.
+ * declared as such: this pins the presence of the pattern as a canary;
+ * stale_action_test drives the actual stale-POST service calls and
+ * pins the typed refusal (external audit TEST-01), the gate's behat
+ * pins the success paths, and the deployed-site check pins one real
+ * refusal end to end.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -42,7 +44,7 @@ final class refusal_arms_test extends \advanced_testcase {
      */
     public static function arms(): array {
         return [
-            'group.php: submit, succession x4, withdraw, accept, decline, freeze' => ['group.php', 9],
+            'group.php: submit, succession x4, withdraw, accept, decline, freeze, delete' => ['group.php', 10],
             'manage.php: assignguide' => ['manage.php', 1],
             'departments.php: add/rename' => ['departments.php', 1],
             'review.php: approve' => ['review.php', 1],

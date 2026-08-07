@@ -448,7 +448,7 @@ class api {
         // gate below is unchanged and still decides everything else.
         authority::require_lead($this->activity, $userid);
         if ($refusal = $this->gatekeeper->can_delete_group($group, $userid)) {
-            throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
         }
 
         $lock = locks::acquire('group:' . $group->id);
@@ -456,8 +456,11 @@ class api {
             $transaction = $DB->start_delegated_transaction();
 
             $fresh = groups::get($this->activity, (int) $group->id);
+            // The stale-page race this recheck exists for (MKT-02):
+            // typed, so the controller can catch exactly this decision
+            // and answer with a notice instead of the fatal page.
             if ($refusal = $this->gatekeeper->can_delete_group($fresh, $userid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             // Confirmed roster captured before the rows disappear, for

@@ -46,7 +46,14 @@ require_capability('mod/selfselectadvanced:creategroup', $context);
 
 $group = groups::get($activity, $groupid);
 if ((int) $group->leaderid !== (int) $USER->id) {
-    throw new moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+    // No longer the leader: a workflow fact, told on the team page
+    // (MKT-05), never the fatal renderer.
+    redirect(
+        new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $groupid]),
+        get_string('refusalnotleader', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_ERROR
+    );
 }
 
 $api = new \mod_selfselectadvanced\local\api($activity);

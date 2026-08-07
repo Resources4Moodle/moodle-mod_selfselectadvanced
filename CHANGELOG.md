@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.20.21 — external-audit wave 1: expected refusals never look like crashes (2026-08-07)
+
+> Serial `2026080706` / `1.20.21`. Behavioural changes only; no schema change.
+> Source: the external release audit of the 1.20.20 archive
+> (`audit_state/external-audits/20260807-1.20.20-deep-release/`), wave 1 of 4.
+
+- **Expected workflow refusals now travel typed** (`workflow_refusal`), so a
+  controller can catch exactly the decisions the workflow plans for and let
+  genuine failures stay loud. The audit's MKT-02 race is closed: a Delete
+  confirmed on a stale page is re-refused under the lock and answered with a
+  notice on the team page — never Moodle's fatal error renderer with its dead
+  "More information" link. Nine more surfaces got the same contract: the
+  freeze and unfreeze preflights, the proposal arm, both team-edit refusals,
+  contact-a-guide, the guide's approach review, and staff messaging.
+- **The Invite control asks the invite door itself** (MKT-03): a new
+  candidate-independent gate predicate supplies both the control's state and
+  its disabled reason, so a team full of confirmed members reads the
+  confirmed-full sentence instead of advice to withdraw an invitation nobody
+  made — and an expired window now disables the control with the reason
+  instead of offering a form the service would refuse.
+- **Over-maximum is not "full"** (UX-02): a roster the settings outgrew is
+  refused with its figures and the remedy — "This team has 3 confirmed
+  members, but the current maximum is 2…" — instead of a sentence that
+  suggests waiting is enough.
+- **Stale-POST action tests** (TEST-01): the new suite drives the exact
+  render-mutate-resubmit race at the service seam and pins the typed refusal;
+  the old text-count test is demoted to a canary and now covers Delete too.
+
 ## 1.20.20 — seam-audit batch B: every control asks its gate (2026-08-07)
 
 > Serial `2026080705` / `1.20.20`. Behavioural changes only; no schema change.

@@ -358,7 +358,16 @@ class group_page implements renderable, templatable {
             'groupid' => $this->group->id,
             'userid' => $this->userid,
         ]);
-        $caninvite = $isleader && $isforming && $seats->free > 0 && $maylead;
+        // The invite CONTROL asks the invite DOOR (external audit
+        // MKT-03, 1.20.21): eligibility and the disabled reason both
+        // come from gatekeeper::invite_door_refusal(), never from a
+        // reconstruction of state and seat numbers with a hard-coded
+        // sentence - which is how a team full of confirmed members
+        // was still told to withdraw an invitation nobody had made.
+        $invitedoorrefusal = $isleader && $maylead
+            ? $this->api->gatekeeper()->invite_door_refusal($this->group)
+            : null;
+        $caninvite = $isleader && $maylead && $invitedoorrefusal === null;
 
         // Succession (spec 6.4, A3): active nomination banner for the
         // nominee, status plus cancel for the leader.
@@ -970,8 +979,8 @@ class group_page implements renderable, templatable {
             ]))->out(false),
             'caninvite' => $caninvite,
             'inviteformhtml' => $caninvite && $this->inviteform ? $this->inviteform->render() : '',
-            'invitedisabledreason' => $isleader && $isforming && $maylead && $seats->free < 1
-                ? get_string('refusalnoseats', 'mod_selfselectadvanced')
+            'invitedisabledreason' => $isleader && $isforming && $maylead && $invitedoorrefusal !== null
+                ? $invitedoorrefusal->get_message()
                 : '',
             'pendinginvites' => $pendinginvites,
             'haspendinginvites' => !empty($pendinginvites),

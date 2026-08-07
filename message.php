@@ -59,7 +59,13 @@ $PAGE->set_heading(format_string($course->fullname));
 // The service is the authority; this refusal only saves the sender a
 // wasted form. staffmessage::send() re-checks the same gate.
 if (!staffmessage::may_message($activity, (int) $USER->id, $to)) {
-    throw new moodle_exception('refusalcannotmessage', 'mod_selfselectadvanced');
+    // The relationship changed between pages (MKT-05).
+    redirect(
+        new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]),
+        get_string('refusalcannotmessage', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_ERROR
+    );
 }
 
 // Name fields only. This page exists BECAUSE nobody here is shown an

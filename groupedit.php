@@ -55,7 +55,14 @@ $editgroup = null;
 if ($gid) {
     $editgroup = \mod_selfselectadvanced\local\groups::get($activity, $gid);
     if ((int) $editgroup->leaderid !== (int) $USER->id && !$isstaff) {
-        throw new moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+        // Changed leadership between pages is a workflow fact, not a
+        // software failure (MKT-05).
+        redirect(
+            new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $gid]),
+            get_string('refusalnotleader', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     // AUTHORITY, RESTORED WITHOUT RE-BREAKING STAFF (AUTH-003). The
     // capability gate above answers the CREATE branch only, and moving
@@ -74,7 +81,12 @@ if ($gid) {
         \mod_selfselectadvanced\local\authority::require_lead($activity, (int) $USER->id);
     }
     if ($editgroup->state !== \mod_selfselectadvanced\local\state::FORMING) {
-        throw new moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+        redirect(
+            new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $gid]),
+            get_string('refusalwrongstate', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
 } else if (!$isstaff && ($refusal = $api->gatekeeper()->can_create_group((int) $USER->id))) {
     // Refusals surface before the form: quota exhausted or window

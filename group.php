@@ -641,7 +641,16 @@ if ($action === 'freeze') {
     // they pressed Freeze by a capability nobody had told them they
     // needed. freeze::require_freeze_team() IS the service's own gate,
     // extracted so the page cannot ask a different question.
-    \mod_selfselectadvanced\local\freeze::require_freeze_team($activity, $group, (int) $USER->id);
+    try {
+        \mod_selfselectadvanced\local\freeze::require_freeze_team($activity, $group, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        // A stale freeze link is ordinary multi-user work (MKT-05):
+        // the reason lands as a notice on the team page.
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
     if (data_submitted() && confirm_sesskey()) {
         try {
             $frozen = \mod_selfselectadvanced\local\freeze::freeze_group($activity, $group, (int) $USER->id);
@@ -722,7 +731,14 @@ if ($action === 'unfreeze') {
     // was refused on submit. The service re-checks under its lock and
     // stays authoritative; this call is the page saying the SAME thing
     // so nobody is sent to a door that refuses them.
-    \mod_selfselectadvanced\local\freeze::require_unfreeze_team($activity, $group, (int) $USER->id);
+    try {
+        \mod_selfselectadvanced\local\freeze::require_unfreeze_team($activity, $group, (int) $USER->id);
+    } catch (\moodle_exception $e) {
+        if ($e instanceof \coding_exception) {
+            throw $e;
+        }
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
     if (data_submitted() && confirm_sesskey()) {
         $unfreezereason = trim(optional_param('reason', '', PARAM_TEXT));
         try {
@@ -1187,14 +1203,24 @@ if ($action === 'proposal') {
         (int) $group->leaderid !== (int) $USER->id
         && !has_capability('mod/selfselectadvanced:manage', $context)
     ) {
-        throw new moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+        redirect(
+            $baseurl,
+            get_string('refusalnotleader', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     if (!$maypublishproposal && !$mayretractproposal) {
         // The leader of a team that has moved past forming. Refused for
         // WHEN they asked, not for who they are - see proposal::save()
         // for why the leader's window closes at submission and staff's
         // does not.
-        throw new moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+        redirect(
+            $baseurl,
+            get_string('refusalwrongstate', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     $fileoptions = [
         'maxfiles' => 1,
@@ -1243,7 +1269,20 @@ if ($action === 'delete') {
         redirect($baseurl, $refusal->get_message(), null, \core\output\notification::NOTIFY_ERROR);
     }
     if (data_submitted() && confirm_sesskey()) {
-        $api->delete_group($group, (int) $USER->id);
+        try {
+            $api->delete_group($group, (int) $USER->id);
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+            // MKT-02: the stale-page race the in-lock recheck exists
+            // for. The state moved between the confirmation page and
+            // this click; the person reads why on the team page,
+            // never Moodle's fatal error renderer.
+            redirect(
+                $baseurl,
+                $e->getMessage(),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        }
         redirect(
             $viewurl,
             get_string('groupdeleted', 'mod_selfselectadvanced', $group->pluginuid),

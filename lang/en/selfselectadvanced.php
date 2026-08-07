@@ -1320,6 +1320,7 @@ $string['refusalnotinvited'] = 'There is no pending invitation to act on.';
 $string['refusalnotleader'] = 'Only the group leader can do this.';
 $string['refusalnotnominee'] = 'There is no nomination awaiting your response.';
 $string['refusalnotopen'] = 'Group formation opens on {$a}.';
+$string['refusalovermaxsize'] = 'This team has {$a->current} confirmed members, but the current maximum is {$a->max}. {$a->excess} member(s) must leave or move, or staff must approve an exception, before this can go ahead.';
 $string['refusalproposalrequired'] = 'This activity requires a project proposal before submission - upload it on the group page first.';
 $string['refusalquota'] = 'The group does not yet satisfy the composition quota rules.';
 $string['refusalreassignstate'] = 'Only a submitted, firm or frozen team can have its guide reassigned.';

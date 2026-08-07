@@ -536,13 +536,17 @@ if ($tab === 'ask') {
             }
             // What the leader needs to decide with: whether this
             // student fits the team's requirements, and which seat they
-            // would take. Shown, never used to hide the request - the
-            // leader is entitled to accept somebody the rules would
-            // refuse today and sort the composition out afterwards.
-            // The REQUEST is handed over, so this verdict is the answer
-            // to "what would accepting this do" - the same object, from
-            // the same call, that the leader panel on group.php builds
-            // its row from.
+            // would take. Shown, never used to HIDE the request - the
+            // row stays listed so the leader knows who is waiting and
+            // can decline with a note. Since decision 64 the Accept
+            // control is DISABLED for a rule refusal (staff-only
+            // override); the old sentence here claiming the leader may
+            // "accept somebody the rules would refuse today" described
+            // the pre-64 world and was corrected by the 2026-08-07
+            // external audit (DOC-01). The REQUEST is handed over, so
+            // this verdict is the answer to "what would accepting this
+            // do" - the same object, from the same call, that the
+            // leader panel on group.php builds its row from.
             $verdict = \mod_selfselectadvanced\local\fit::for_person(
                 $activity,
                 $team,
