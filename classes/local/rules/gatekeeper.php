@@ -629,6 +629,8 @@ class gatekeeper {
      * @return refusal|null null when allowed
      */
     public function can_submit(stdClass $group, int $actorid, ?int $now = null): ?refusal {
+        global $DB;
+
         $now = $now ?? time();
 
         if ($group->state !== state::FORMING) {
@@ -666,6 +668,44 @@ class gatekeeper {
                 'max' => $maxsize->value,
                 'excess' => $confirmed - $maxsize->value,
             ]);
+        }
+
+        // THE FORMATION SIDECARS (decision 73). Four things a group can
+        // have in flight while it forms, each of which only its FORMING
+        // state can settle: a wind-up request, a member waiting to be
+        // let go, a leadership handover awaiting consent, and
+        // invitations nobody has answered. Submit used to advance past
+        // all four, and each then became unreachable - the member's
+        // one-click exit is forming-only, confirm-leave is forming-only,
+        // the nominee's accept is forming-only - so the intent stayed on
+        // the record with no way to act on it, and could come back to
+        // life if a guide later returned the group.
+        //
+        // Blocked rather than silently cancelled, because every one of
+        // them is somebody's stated intention and this plugin does not
+        // discard those on a person's behalf. Each carries the figures
+        // its remedy needs, so the leader is told what to do and not
+        // merely that they cannot proceed.
+        if (!empty($group->timedisbandrequested)) {
+            return new refusal('refusalsubmitdisbanding');
+        }
+        $leaving = $DB->count_records_select(
+            'selfselectadvanced_member',
+            'groupid = ? AND status = ? AND leaverequested IS NOT NULL',
+            [(int) $group->id, groups::STATUS_CONFIRMED]
+        );
+        if ($leaving > 0) {
+            return new refusal('refusalsubmitleavepending', $leaving);
+        }
+        if (!empty($group->successorid)) {
+            return new refusal('refusalsubmitnomination');
+        }
+        $invited = $DB->count_records('selfselectadvanced_member', [
+            'groupid' => (int) $group->id,
+            'status' => groups::STATUS_INVITED,
+        ]);
+        if ($invited > 0) {
+            return new refusal('refusalsubmitinvitespending', $invited);
         }
 
         // Proposal mandate (1.3.0): when the activity requires a

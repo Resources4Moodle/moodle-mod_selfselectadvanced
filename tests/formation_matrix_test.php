@@ -212,6 +212,96 @@ final class formation_matrix_test extends \advanced_testcase {
     }
 
     /**
+     * T05, T06, T07, T08 — the formation sidecars. Four things a group
+     * can have in flight while it forms, each settleable only while it
+     * is forming: a wind-up request, a member waiting to be let go, a
+     * leadership handover awaiting consent, and unanswered invitations.
+     *
+     * Submit used to advance past all four and strand them - the
+     * member's one-click exit is forming-only, confirm-leave is
+     * forming-only, the nominee's accept is forming-only - so the
+     * intent stayed on the record with no way to act on it. Decision 73
+     * blocks instead of silently cancelling, because each is somebody's
+     * stated intention.
+     *
+     * MUTATION CAUGHT (run): deleting any one of the four arms from
+     * can_submit() lets that row's group submit and fails its
+     * assertion.
+     *
+     * @dataProvider sidecar_provider
+     * @param string $sidecar which one to put in flight
+     * @param string $expected the refusal it must produce
+     */
+    public function test_t05_t08_a_formation_sidecar_blocks_submit(string $sidecar, string $expected): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $member = $w->plugingen->create_member([
+            'groupid' => (int) $w->group->id,
+            'userid' => (int) $w->students[0]->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        $this->assertNull(
+            $w->api->gatekeeper()->can_submit(
+                groups::get($w->activity, (int) $w->group->id),
+                (int) $w->leader->id
+            ),
+            'fixture: the group is submittable before the sidecar exists'
+        );
+
+        switch ($sidecar) {
+            case 'disband':
+                $DB->set_field(
+                    'selfselectadvanced_group',
+                    'timedisbandrequested',
+                    time(),
+                    ['id' => (int) $w->group->id]
+                );
+                break;
+            case 'leave':
+                $DB->set_field('selfselectadvanced_member', 'leaverequested', time(), ['id' => (int) $member->id]);
+                break;
+            case 'nomination':
+                $DB->set_field(
+                    'selfselectadvanced_group',
+                    'successorid',
+                    (int) $w->students[0]->id,
+                    ['id' => (int) $w->group->id]
+                );
+                break;
+            case 'invitation':
+                $w->plugingen->create_member([
+                    'groupid' => (int) $w->group->id,
+                    'userid' => (int) $w->students[1]->id,
+                    'status' => groups::STATUS_INVITED,
+                    'timeinvited' => time(),
+                ]);
+                break;
+        }
+
+        $refusal = $w->api->gatekeeper()->can_submit(
+            groups::get($w->activity, (int) $w->group->id),
+            (int) $w->leader->id
+        );
+        $this->assertSame($expected, $refusal?->stringkey, "the $sidecar sidecar did not block submit");
+    }
+
+    /**
+     * The four sidecars and the sentence each must produce.
+     *
+     * @return array[]
+     */
+    public static function sidecar_provider(): array {
+        return [
+            'T05 active disband' => ['disband', 'refusalsubmitdisbanding'],
+            'T06 pending leave' => ['leave', 'refusalsubmitleavepending'],
+            'T07 active nomination' => ['nomination', 'refusalsubmitnomination'],
+            'T08 pending invitation' => ['invitation', 'refusalsubmitinvitespending'],
+        ];
+    }
+
+    /**
      * T26 and T27 — a group formed under an old limit, whose maximum a
      * teacher then lowers. The matrix asks that the chosen policy
      * appear at Submit and at Approve, not only at Freeze. Decision 80

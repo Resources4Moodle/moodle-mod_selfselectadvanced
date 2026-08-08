@@ -145,8 +145,15 @@ final class races_stale_read_test extends \advanced_testcase {
         // The leader's page, loaded while the team was still forming.
         $stale = groups::get($activity, (int) $group->id);
 
-        // The team is submitted in the meantime.
-        $api->lifecycle()->submit(groups::get($activity, (int) $group->id), (int) $guide->id, (int) $leader->id);
+        // The group moves on in the meantime. Written directly rather
+        // than through submit(), because decision 73 now refuses a
+        // submit while a leave request is unanswered - which is a
+        // different property, proven separately in the formation
+        // matrix. What this test is about is confirm_leave's own
+        // staleness check, and it needs the group to have moved, not
+        // any particular route by which it moved.
+        $DB->set_field('selfselectadvanced_group', 'state', state::PENDING_GUIDE, ['id' => (int) $group->id]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $guide->id, ['id' => (int) $group->id]);
         $this->assertSame(state::PENDING_GUIDE, groups::get($activity, (int) $group->id)->state);
 
         $this->assert_refused(
