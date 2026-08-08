@@ -61,18 +61,18 @@ Feature: Asking to join another team, and the guide releasing a settled one
   Scenario: A student asks to join another team and its leader accepts
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
     Then I should see "You are in Team Blue at the moment."
-    And I set the field "Team you want to join" to "Team Gold"
+    And I set the field "Group you want to join" to "Team Gold"
     And I set the field "Why you are asking" to "Closer to my programme"
     And I press "Send the request"
-    Then I should see "Your request has gone to the team leader."
+    Then I should see "Your request has gone to the group leader."
     And I should see "You have asked to join Team Gold."
 
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student2
-    And I follow "Asked of my team"
+    And I follow "Asked of my group"
     Then I should see "Nina Three"
     And I should see "Closer to my programme"
     When I press "Accept"
-    Then I should see "Accepted. The student has been moved and the team re-composed."
+    Then I should see "Accepted. The student has been moved and the group re-composed."
 
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
     Then I should see "You are in Team Gold at the moment."
@@ -80,44 +80,44 @@ Feature: Asking to join another team, and the guide releasing a settled one
   @javascript
   Scenario: A student in two teams must say which one they leave
     When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student3
-    Then I should see "You are in these teams at the moment: Duo Red, Duo Amber."
-    And I should see "Team you would leave"
-    And I should not see "Keep my teams — join this one as well"
-    And I set the field "Team you want to join" to "Duo Green"
+    Then I should see "You are in these groups at the moment: Duo Red, Duo Amber."
+    And I should see "Group you would leave"
+    And I should not see "Keep my groups — join this one as well"
+    And I set the field "Group you want to join" to "Duo Green"
     And I set the field "Why you are asking" to "Nearer my lab"
     And I press "Send the request"
-    Then I should see "Choose the team you would leave, or choose to keep them all."
-    When I set the field "Team you would leave" to "Duo Amber"
+    Then I should see "Choose the group you would leave, or choose to keep them all."
+    When I set the field "Group you would leave" to "Duo Amber"
     And I press "Send the request"
-    Then I should see "Your request has gone to the team leader."
+    Then I should see "Your request has gone to the group leader."
     And I should see "Duo Amber" in the "Duo Green" "table_row"
 
     When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student2
-    And I follow "Asked of my team"
+    And I follow "Asked of my group"
     Then I should see "Would leave Duo Amber."
     When I press "Accept"
-    Then I should see "Accepted. The student has been moved and the team re-composed."
+    Then I should see "Accepted. The student has been moved and the group re-composed."
 
     When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student3
-    Then I should see "You are in these teams at the moment: Duo Red, Duo Green."
+    Then I should see "You are in these groups at the moment: Duo Red, Duo Green."
 
   @javascript
   Scenario: A student below the cap keeps their team and joins another
     When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student4
-    And I set the field "Team you want to join" to "Duo Green"
+    And I set the field "Group you want to join" to "Duo Green"
     And I set the field "Why you are asking" to "Two projects"
-    And I set the field "Team you would leave" to "Keep my teams — join this one as well"
+    And I set the field "Group you would leave" to "Keep my groups — join this one as well"
     And I press "Send the request"
-    Then I should see "Your request has gone to the team leader."
+    Then I should see "Your request has gone to the group leader."
 
     When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student2
-    And I follow "Asked of my team"
-    Then I should see "Would leave no team — this would be an extra membership."
+    And I follow "Asked of my group"
+    Then I should see "Would leave no group — this would be an extra membership."
     When I press "Accept"
-    Then I should see "Accepted. The student has been moved and the team re-composed."
+    Then I should see "Accepted. The student has been moved and the group re-composed."
 
     When I am on the "Dual labs" "mod_selfselectadvanced > join" page logged in as student4
-    Then I should see "You are in these teams at the moment: Duo Green, Duo Amber."
+    Then I should see "You are in these groups at the moment: Duo Green, Duo Amber."
 
   @javascript
   Scenario: A student in one team sees no extra question
@@ -127,46 +127,46 @@ Feature: Asking to join another team, and the guide releasing a settled one
     # - is what must be absent.
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
     Then I should see "You are in Team Blue at the moment."
-    And I should see "Team you would leave"
+    And I should see "Group you would leave"
     And I should see "Team Blue"
-    And I should not see "Keep my teams — join this one as well"
-    And I should not see "Choose the team you would leave, or choose to keep them all."
-    When I set the field "Team you want to join" to "Team Gold"
+    And I should not see "Keep my groups — join this one as well"
+    And I should not see "Choose the group you would leave, or choose to keep them all."
+    When I set the field "Group you want to join" to "Team Gold"
     And I set the field "Why you are asking" to "Closer to my programme"
     And I press "Send the request"
-    Then I should see "Your request has gone to the team leader."
+    Then I should see "Your request has gone to the group leader."
     And I should see "Team Blue" in the "Team Gold" "table_row"
 
   @javascript
   Scenario: The source team's leader cannot answer a request made to another team
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
-    And I set the field "Team you want to join" to "Team Gold"
+    And I set the field "Group you want to join" to "Team Gold"
     And I set the field "Why you are asking" to "Please"
     And I press "Send the request"
-    Then I should see "Your request has gone to the team leader."
+    Then I should see "Your request has gone to the group leader."
 
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student1
-    And I follow "Asked of my team"
-    Then I should see "Nobody has asked to join your team."
+    And I follow "Asked of my group"
+    Then I should see "Nobody has asked to join your group."
 
   @javascript
   Scenario: A coordinator can answer when the leader is away
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
-    And I set the field "Team you want to join" to "Team Gold"
+    And I set the field "Group you want to join" to "Team Gold"
     And I set the field "Why you are asking" to "Please"
     And I press "Send the request"
 
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as coord1
     # 1.20.6: a coordinator holds no :respond - it is the students'
-    # capability - so "Asked of my team" is now their ONLY tab and the page
+    # capability - so "Asked of my group" is now their ONLY tab and the page
     # lands them on it. Moodle renders an ACTIVE tab as text rather than an
     # anchor, so the old 'I follow' step had no link to find. The navigation
     # it used to perform is now done by the page itself, which is the point
     # of the fix: staff no longer arrive at a form the service refuses.
-    Then I should see "Asked of my team"
+    Then I should see "Asked of my group"
     And I should see "Nina Three"
     When I press "Accept"
-    Then I should see "Accepted. The student has been moved and the team re-composed."
+    Then I should see "Accepted. The student has been moved and the group re-composed."
 
   Scenario: A student takes back a request nobody has answered
     Given the following "mod_selfselectadvanced > joinrequests" exist:
@@ -176,7 +176,7 @@ Feature: Asking to join another team, and the guide releasing a settled one
     Then I should see "You have asked to join Team Gold."
     When I press "Withdraw it"
     Then I should see "Your request has been withdrawn."
-    And I should see "Team you want to join"
+    And I should see "Group you want to join"
 
   Scenario: The leader answers a request on their own team page
     # Decision 53: a forming leader should not have to discover
@@ -191,16 +191,16 @@ Feature: Asking to join another team, and the guide releasing a settled one
       | selfselectadvanced | user     | ssagroup  | reason                 |
       | ssa1               | student3 | Team Gold | Closer to my programme |
     When I am on the "Lab groups > Team Gold" "mod_selfselectadvanced > group" page logged in as student2
-    Then I should see "Asked to join this team"
+    Then I should see "Asked to join this group"
     And I should see "Nina Three"
     And I should see "Closer to my programme"
     And I should see "Would leave Team Blue."
     And I should see "1 of 4 seats filled"
     When I set the field "A word back (optional)" to "Glad to have you"
     And I click on "Accept" "button" in the "//div[contains(@class, 'selfselectadvanced-joinpanel')]" "xpath_element"
-    Then I should see "Accepted. The student has been moved and the team re-composed."
+    Then I should see "Accepted. The student has been moved and the group re-composed."
     # The queue is empty, so the panel goes with it - no empty scaffolding.
-    And I should not see "Asked to join this team"
+    And I should not see "Asked to join this group"
     # The roster and the composition both moved: Nina is on Team Gold's
     # roster now, with the two dimension columns her seat is judged by.
     And I should see "2 of 4 seats filled"
@@ -216,16 +216,16 @@ Feature: Asking to join another team, and the guide releasing a settled one
       | ssa1               | student3 | Team Gold | Closer to my programme |
     When I am on the "Lab groups > Team Gold" "mod_selfselectadvanced > group" page logged in as student4
     Then I should see "Team Gold"
-    And I should not see "Asked to join this team"
+    And I should not see "Asked to join this group"
     And I should not see "Closer to my programme"
     # The other arm of the same door: a coordinator standing in for an
     # absent leader answers from the same panel.
     When I am on the "Lab groups > Team Gold" "mod_selfselectadvanced > group" page logged in as coord1
-    Then I should see "Asked to join this team"
+    Then I should see "Asked to join this group"
     And I should see "Nina Three"
     When I click on "Decline" "button" in the "//div[contains(@class, 'selfselectadvanced-joinpanel')]" "xpath_element"
     Then I should see "Declined, and the student has been told."
-    And I should not see "Asked to join this team"
+    And I should not see "Asked to join this group"
 
   Scenario: A guide releases a team they froze, but not one staff froze
     Given the following "mod_selfselectadvanced > groups" exist:
@@ -260,7 +260,7 @@ Feature: Asking to join another team, and the guide releasing a settled one
     # 1.20.6: as above - an editing teacher holds :manage but not :respond, so
     # the answer tab is their only one and is already active. See the
     # coordinator scenario for why the 'I follow' step was removed.
-    Then I should see "Asked of my team"
+    Then I should see "Asked of my group"
     And I should see "Override composition rules…"
     # Without the override the refusal now NAMES the rule and its
     # figures, instead of the general "the rules refused it" (D6-5).
@@ -297,12 +297,12 @@ Feature: Asking to join another team, and the guide releasing a settled one
       | selfselectadvanced | user     | ssagroup  | reason                 |
       | ssa1               | student3 | Team Gold | Closer to my programme |
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
-    Then I should see "What a team leader sees when they answer you"
+    Then I should see "What a group leader sees when they answer you"
     And I should see "Department: Science"
     And I should see "Sub-department: Physics"
 
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student2
-    And I follow "Asked of my team"
+    And I follow "Asked of my group"
     Then I should see "Nina Three"
     And I should see "Department: Science"
     And I should see "Sub-department: Physics"
@@ -322,29 +322,29 @@ Feature: Asking to join another team, and the guide releasing a settled one
   @javascript
   Scenario: The full wind-up: request, one-click leave, delete, honest history
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student4
-    And I set the field "Team you want to join" to "Team Gold"
+    And I set the field "Group you want to join" to "Team Gold"
     And I set the field "Why you are asking" to "Gold looks right"
     And I press "Send the request"
     And I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
     And I follow "Team Gold"
     And I press "Accept"
-    Then I should see "Accepted. The student has been moved and the team re-composed."
+    Then I should see "Accepted. The student has been moved and the group re-composed."
     # A peopled team refuses the surprise delete and points at consent.
     And I should see "member(s) remain"
     When I follow "Request disband"
-    And I set the field "Why the team should wind up (sent to every member)" to "The pool cannot complete us."
+    And I set the field "Why the group should wind up (sent to every member)" to "The pool cannot complete us."
     And I press "Request disband"
     Then I should see "Your request has been sent to every member."
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student4
     And I follow "Team Gold"
-    Then I should see "The leader has asked this team to wind up"
+    Then I should see "The leader has asked this group to wind up"
     And I should see "The pool cannot complete us."
-    When I press "Leave this winding-up team"
-    Then I should see "You have left the team."
+    When I press "Leave this winding-up group"
+    Then I should see "You have left the group."
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
     And I follow "Team Gold"
     And I follow "Delete group"
     And I press "Delete group"
     And I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student4
-    Then I should see "Team no longer exists"
-    And I should see "Accepted — the team was later disbanded"
+    Then I should see "Group no longer exists"
+    And I should see "Accepted — the group was later disbanded"

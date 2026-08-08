@@ -35,15 +35,15 @@ Feature: Dissolving a team that can be neither repaired nor deleted
   Scenario: A solo-leader firm team is dissolved with a reason and its leader is parked
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
     And I follow "Husk"
-    Then I should see "Dissolve team"
-    When I follow "Dissolve team"
+    Then I should see "Dissolve group"
+    When I follow "Dissolve group"
     Then I should see "Every confirmed member is removed and recorded as parked"
     And I should see "Tara Two"
-    When I press "Dissolve team"
-    Then I should see "Give a reason for dissolving this team"
+    When I press "Dissolve group"
+    Then I should see "Give a reason for dissolving this group"
     And I should see "Every confirmed member is removed and recorded as parked"
     When I set the field "Reason for the override" to "Only member left the programme"
-    And I press "Dissolve team"
+    And I press "Dissolve group"
     Then I should see "dissolved. Its members have been parked."
     And I should not see "Husk"
     When I am on the "Lab groups" "mod_selfselectadvanced > flagged" page
@@ -52,21 +52,21 @@ Feature: Dissolving a team that can be neither repaired nor deleted
   @javascript
   Scenario: A student who asked to join a dissolved team can still open their requests
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
-    And I set the field "Team you want to join" to "Husk"
+    And I set the field "Group you want to join" to "Husk"
     And I set the field "Why you are asking" to "Nearer my lab"
     And I press "Send the request"
-    Then I should see "Your request has gone to the team leader."
+    Then I should see "Your request has gone to the group leader."
 
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
     And I follow "Husk"
-    And I follow "Dissolve team"
+    And I follow "Dissolve group"
     And I set the field "Reason for the override" to "Only member left the programme"
-    And I press "Dissolve team"
+    And I press "Dissolve group"
     Then I should see "dissolved. Its members have been parked."
 
     # The request row still names a team that no longer exists. Reading
     # it with MUST_EXIST turned the asker's own page into an exception.
     When I am on the "Lab groups" "mod_selfselectadvanced > join" page logged in as student3
-    Then I should see "Team no longer exists"
+    Then I should see "Group no longer exists"
     And I should not see "Can't find data record"
     And I should see "Only member left the programme"

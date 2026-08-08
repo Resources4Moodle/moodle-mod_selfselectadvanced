@@ -131,11 +131,11 @@ Feature: Transactional staged moves
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
     And I am on the "Lab groups" "mod_selfselectadvanced > stage move" page
     And I set the field "Student" to "Vik Four"
-    And I set the field "Remove without a destination team (park)" to "1"
+    And I set the field "Remove without a destination group (park)" to "1"
     And I set the field "Minimum group size (L1)" to "1"
     And I press "Stage a move"
     Then I should see "Move staged. It takes effect when committed."
-    And I should see "No team (removal)"
+    And I should see "No group (removal)"
     When I set the field "Select Vik Four" to "1"
     And I press "Commit selected moves"
     Then I should see "Confirm a commit that overrides the rules"

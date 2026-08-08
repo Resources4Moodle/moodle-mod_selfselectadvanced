@@ -108,7 +108,7 @@ Feature: Guide review of submitted groups
 
   # 1.20.6 item A: a guide landing on the activity used to get a
   # student-shaped page - a student-addressed approach notice, a
-  # "Joining another team" button that ended at a permission exception,
+  # "Joining another group" button that ended at a permission exception,
   # and one small dashboard link near the bottom. Their own decisions
   # appeared nowhere. The panel now leads the page, and the dashboard
   # link inside it is the SAME link the six existing "Guide dashboard"
@@ -122,6 +122,6 @@ Feature: Guide review of submitted groups
     And I should see "You are guiding 1 of 5 groups"
     And I should see "Team Wait" in the ".selfselectadvanced-guidepanel" "css_element"
     And I should see "(overdue)" in the ".selfselectadvanced-guidepanel" "css_element"
-    And I should not see "Joining another team"
+    And I should not see "Joining another group"
     When I follow "Guide dashboard"
     Then I should see "You are guiding 1 of 5 groups"

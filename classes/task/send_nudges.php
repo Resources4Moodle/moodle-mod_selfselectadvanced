@@ -61,6 +61,11 @@ use moodle_url;
  * a thrown adhoc task in full and would re-notify anyone who already
  * got their message.
  *
+ * And if the activity itself is gone by the time cron reaches this
+ * batch, the task says so and returns. Throwing there would be a
+ * poison message: the subject is never coming back, so the re-queued
+ * task fails identically for ever.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -84,7 +89,28 @@ class send_nudges extends adhoc_task {
     public function execute(): void {
         $data = $this->get_custom_data();
 
-        $activity = activity::from_instance((int) $data->activityid);
+        try {
+            $activity = activity::from_instance((int) $data->activityid);
+        } catch (\moodle_exception $e) {
+            // A POISON MESSAGE otherwise. The activity this batch names
+            // was deleted between the bulk-nudge click and this cron
+            // pass. Throwing here reports the task as failed, Moodle
+            // re-queues it, and it fails the same way on every pass for
+            // ever - burning a retry slot in the adhoc queue each time
+            // and filling the failed-task list with an error nobody can
+            // ever clear, because the fix would be to un-delete an
+            // activity. There is nobody left to nudge, so this run is
+            // finished, not failed.
+            //
+            // It is logged all the same: an adhoc task that quietly
+            // does nothing looks exactly like one that never ran, and
+            // the difference matters when someone asks why the nudges
+            // they sent never arrived.
+            mtrace('mod_selfselectadvanced: send_nudges dropped a batch for activity '
+                . (int) $data->activityid . ', which no longer exists: '
+                . get_class($e) . ': ' . $e->getMessage());
+            return;
+        }
         $provider = (string) $data->provider;
         $subjectkey = (string) $data->subjectkey;
         $bodykey = (string) $data->bodykey;

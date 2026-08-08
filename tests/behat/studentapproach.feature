@@ -40,7 +40,7 @@ Feature: Students approach guides, and group names follow the course's format
   Scenario: The switch refuses the guide-side modes on the settings form
     When I am on the "Approached" "selfselectadvanced activity editing" page logged in as teacher1
     And I expand all fieldsets
-    And I set the field "Guides can pick listed teams" to "1"
+    And I set the field "Guides can pick listed groups" to "1"
     And I press "Save and display"
     Then I should see "Students-approach mode requires expressions of interest to be disabled."
 

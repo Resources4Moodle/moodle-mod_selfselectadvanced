@@ -486,6 +486,43 @@ function selfselectadvanced_user_names(array $userids): array {
 }
 
 /**
+ * The full name of a userid, but ONLY when this activity's own candidate
+ * pool contains them.
+ *
+ * The invite arm of group.php names people back to the leader when a pick
+ * is refused, and the id it names them from arrived in a form post. That
+ * id is not trusted to name anybody. Until this function existed both
+ * branches handed whatever id was submitted to core_user::get_user() and
+ * printed the result, which turned a refusal notice into a site-wide
+ * userid-to-name oracle: a student could post -1, -2, -3 and read back
+ * the names of people in other courses, suspended accounts and staff, one
+ * per submit. Names are blessed among PARTICIPANTS, so a caller prints a
+ * name when this returns one and a sentence that identifies nobody when
+ * it returns null.
+ *
+ * Active enrolment is part of the question, not a detail of it: the
+ * candidate search never shows a suspended enrolment, so resolving a name
+ * for one would disclose an account the leader was never offered.
+ *
+ * Only a name is ever returned. A refusal notice is read by whoever leads
+ * a team, and the per-activity contact-privacy setting means no email
+ * address and no phone number may travel in one (cardinal rule).
+ *
+ * @param context_module $context the activity context whose pool decides
+ * @param int $userid the id being resolved, already made positive
+ * @return string|null the full name, or null when they are not a candidate
+ */
+function selfselectadvanced_candidate_name(context_module $context, int $userid): ?string {
+    if ($userid <= 0 || !is_enrolled($context, $userid, 'mod/selfselectadvanced:respond', true)) {
+        return null;
+    }
+
+    $user = \core_user::get_user($userid);
+
+    return $user ? fullname($user) : null;
+}
+
+/**
  * Serve files from the proposal filearea (itemid = plugin group id).
  *
  * WHO may read it is not decided here. It is

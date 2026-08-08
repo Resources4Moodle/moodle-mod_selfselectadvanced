@@ -139,11 +139,11 @@ Feature: Freezing firm groups into course groups
       | ssa1               | Team 21       | student1 | firm    | ##yesterday## |
       | ssa1               | Unique Needle | student1 | forming |               |
     When I am on the "Lab groups" "mod_selfselectadvanced > core sync" page logged in as coordteacher
-    Then I should see "Moodle group mirrors"
+    Then I should see "Course group mirrors"
     And "2" "link" should exist in the ".pagination" "css_element"
     When I click on "2" "link" in the ".pagination" "css_element"
     Then I should see "Team 21"
-    When I set the field "Team name or project ID contains" to "Unique"
+    When I set the field "Group name or project ID contains" to "Unique"
     And I press "Filter"
     Then I should see "Unique Needle"
     And I should not see "Team 01"

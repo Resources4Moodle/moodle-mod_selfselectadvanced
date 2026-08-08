@@ -98,8 +98,21 @@ final class state {
         // jointly exceed the cap. Same resource and same ordering as
         // the EOI paths: guide lock BEFORE group lock.
         $pretarget = $preassigned ?: (int) $guideid;
-        $guidelock = $pretarget ? locks::acquire('eoiguide:' . $pretarget) : null;
-        $lock = locks::acquire('group:' . $group->id);
+        // One acquire_all() takes the pair, never two bare acquires. When
+        // the group lock times out the guide lock is already held, and the
+        // bare pair leaked it: it blocked every other submit to that
+        // guide until its own timeout expired, and it left
+        // locks::held_count() non-zero for the rest of the process -
+        // the question notifier::send() asks to decide whether it is
+        // inside a lock. acquire_all() sorts into the same ascending
+        // order the pair took by hand (eoiguide rank 7 before group
+        // rank 8), so check_order() sees no change. do_approve() is the
+        // worked example.
+        $resources = ['group:' . (int) $group->id];
+        if ($pretarget) {
+            $resources[] = 'eoiguide:' . $pretarget;
+        }
+        $handles = locks::acquire_all($resources);
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -179,10 +192,9 @@ final class state {
             }
             throw $e;
         } finally {
-            $lock->release();
-            if ($guidelock) {
-                $guidelock->release();
-            }
+            // Reverse acquisition order: the group (rank 8) first, then
+            // the guide (rank 7), which is what release_all() does.
+            locks::release_all($handles);
         }
 
         $url = $this->review_url((int) $fresh->id);
@@ -291,8 +303,17 @@ final class state {
         // Per-guide serialisation before the group lock (same resource
         // and ordering as the EOI paths), or two concurrent assigns
         // could jointly exceed the guide's cap.
-        $guidelock = locks::acquire('eoiguide:' . $guideid);
-        $lock = locks::acquire('group:' . $group->id);
+        // Both through acquire_all(), because a timeout on the group
+        // lock used to leave the guide lock held by a handle nobody
+        // owned any more: every other assign or submit for that guide
+        // waited out its full timeout, and held_count() - what
+        // notifier::send() consults to know it is inside a lock - never
+        // came back down. Order is unchanged, eoiguide (rank 7) then
+        // group (rank 8), so check_order() is satisfied as before.
+        $handles = locks::acquire_all([
+            'eoiguide:' . $guideid,
+            'group:' . (int) $group->id,
+        ]);
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -366,8 +387,8 @@ final class state {
             }
             throw $e;
         } finally {
-            $lock->release();
-            $guidelock->release();
+            // Reverse acquisition order: group, then guide.
+            locks::release_all($handles);
         }
 
         // Outside every lock and transaction (requirement 2): one sync
@@ -835,21 +856,5 @@ final class state {
      */
     public static function is_legal(string $from, string $to): bool {
         return in_array($to, self::EDGES[$from] ?? [], true);
-    }
-
-    /**
-     * Assert that a group row is in one of the expected states.
-     *
-     * Gatekeeper state preconditions (review item S2) funnel through
-     * here so a stale POST can never act on a group whose state moved on.
-     *
-     * @param \stdClass $group group row
-     * @param string[] $expected acceptable states
-     * @throws \moodle_exception when the state does not match
-     */
-    public static function require_state(\stdClass $group, array $expected): void {
-        if (!in_array($group->state, $expected, true)) {
-            throw new \moodle_exception('errwrongstate', 'mod_selfselectadvanced', '', $group->state);
-        }
     }
 }

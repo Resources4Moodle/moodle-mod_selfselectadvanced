@@ -54,7 +54,7 @@ Feature: The guide request set completed - reduction, date extension, penalty wa
     And I set the field "Why, and which guides you suggest instead" to "Sabbatical; suggest Tina Teach"
     And I press "Ask for the reduction"
     Then I should see "Your request has gone to the Group Coordinators."
-    And I should see "You have asked to guide at most 0 team(s)."
+    And I should see "You have asked to guide at most 0 group(s)."
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
-    Then I should see "Team limit reduction"
+    Then I should see "Group limit reduction"
     And I should see "Gina Guide asks to be relieved of guiding"

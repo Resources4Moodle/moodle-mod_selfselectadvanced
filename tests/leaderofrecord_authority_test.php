@@ -376,7 +376,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
      * AUTH-001, the CONTROL half: group_page draws the two buttons from
      * two flags now, and the prohibited leader keeps exactly the one
      * that still works. Before this wave one flag drew both, so the
-     * "List this team for guides" button was live for an actor the
+     * "List this group for guides" button was live for an actor the
      * service refuses - no crafted POST required.
      *
      * Mutation this catches: put $showeoilist back to `$isleader &&

@@ -66,7 +66,21 @@ if ($action === 'add' || $action === 'rename') {
         'd' => $id,
     ]), ['action' => $action, 'id' => $id]);
     if ($action === 'rename' && $id) {
-        $record = $DB->get_record('selfselectadvanced_dept', ['id' => $id], '*', MUST_EXIST);
+        // This read runs on the POST as well as on the first draw, so
+        // MUST_EXIST here killed the rename BEFORE rename() was ever
+        // called: a second manager deleting the category while this form
+        // stood open sent the first one to the fatal error page for an
+        // ordinary two-manager race, and no catch further down could
+        // have seen it. A category that is gone is an answer.
+        $record = $DB->get_record('selfselectadvanced_dept', ['id' => $id]);
+        if (!$record) {
+            redirect(
+                $baseurl,
+                get_string('refusaldeptgone', 'mod_selfselectadvanced'),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        }
         $form->set_data(['name' => $record->name]);
     }
     if ($form->is_cancelled()) {
@@ -86,6 +100,25 @@ if ($action === 'add' || $action === 'rename') {
             redirect(
                 $baseurl,
                 $e->getMessage(),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        } catch (\dml_missing_record_exception $e) {
+            // The category being renamed was deleted by another manager
+            // while this one held the form open. rename() re-reads under
+            // the vocabulary lock, so the two serialise and whoever gets
+            // the lock second reads a row that is no longer there -
+            // MUST_EXIST fires and, before this arm, an ordinary race
+            // between two people looking at the same list produced the
+            // fatal error page. Widening the errorcode allowlist below
+            // instead would NOT have worked: core picks 'invalidrecord'
+            // when developer debugging is on and 'invalidrecordunknown'
+            // when it is off, so the allowlist would have matched on a
+            // dev box and rethrown on the live site that reported the
+            // problem. Catch the TYPE, which does not move.
+            redirect(
+                $baseurl,
+                get_string('refusaldeptgone', 'mod_selfselectadvanced'),
                 null,
                 \core\output\notification::NOTIFY_ERROR
             );
@@ -119,7 +152,14 @@ if ($action === 'progadd' && data_submitted() && confirm_sesskey()) {
     } catch (moodle_exception $e) {
         if ($e->errorcode !== 'errdeptname') {
             // Only the name-validation answer travels untyped; anything
-            // else is a genuine failure and stays loud.
+            // else is a genuine failure and stays loud. Unlike the delete
+            // arms below, this one needs no missing-record arm: adding a
+            // programme holds the vocabulary lock and does its existence
+            // test, its insert and the re-read of an existing row inside
+            // ONE transaction, and delete_program() takes the same lock,
+            // so no concurrent manager can remove the row in between. A
+            // catch here would be dead code, which is the fault this
+            // whole change exists to remove.
             throw $e;
         }
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
@@ -135,6 +175,20 @@ if ($action === 'progdelete' && data_submitted() && confirm_sesskey()) {
         depts::delete_program($pid, (int) $USER->id);
     } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    } catch (\dml_missing_record_exception $e) {
+        // Two managers both pressing Delete on the same programme is the
+        // likeliest race on this page. The service serialises them on the
+        // vocabulary lock, so the second one re-reads a row that is
+        // already gone and MUST_EXIST fires - for an outcome that is
+        // exactly what they asked for. The same arm covers a button that
+        // was rendered with d=0 because the programme disappeared between
+        // listing the names and looking its id up.
+        redirect(
+            $baseurl,
+            get_string('refusaldeptgone', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     redirect($baseurl);
 }
@@ -148,14 +202,29 @@ if (
     && data_submitted() && confirm_sesskey()
 ) {
     $id = required_param('d', PARAM_INT);
-    if ($action === 'delete') {
-        try {
+    try {
+        if ($action === 'delete') {
             depts::delete($id, (int) $USER->id);
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        } else {
+            depts::move($id, $action === 'up' ? -1 : 1, (int) $USER->id);
         }
-    } else {
-        depts::move($id, $action === 'up' ? -1 : 1, (int) $USER->id);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    } catch (\dml_missing_record_exception $e) {
+        // Delete, up and down all re-read the row under the vocabulary
+        // lock, so whichever of two managers gets the lock second finds
+        // the category the other has just deleted and MUST_EXIST fires.
+        // Reordering suffered it as well as deleting, and neither had a
+        // catch at all: an ordinary race between two people reading the
+        // same list ended on the fatal error page. depts::delete()'s
+        // coding_exception for a programme row is deliberately NOT caught
+        // here - that one is a developer's mistake and stays loud.
+        redirect(
+            $baseurl,
+            get_string('refusaldeptgone', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
     redirect($baseurl);
 }

@@ -26,7 +26,7 @@ use mod_selfselectadvanced\local\state;
  * The maintainer's finding: a non-editing teacher - the guide role -
  * landing on the activity saw a student-shaped page and none of their
  * own work. The 1.20.5 independent review found the same screen broken
- * from the other side (NAV-02): the "Joining another team" button was
+ * from the other side (NAV-02): the "Joining another group" button was
  * drawn for every viewer, while joinrequest.php admits only :respond,
  * :manage or :coordinate, so every stock guide on the live site was
  * offered a button that could only end at a permission exception.
@@ -587,7 +587,7 @@ final class guidelanding_test extends \advanced_testcase {
         $this->assertStringContainsString('You are guiding 4 of 5 groups', $html);
         $this->assertStringContainsString('(overdue)', $html, 'the overdue team must be marked as such');
         $this->assertStringNotContainsString(
-            'Joining another team',
+            'Joining another group',
             $html,
             'a stock guide was still offered the join page by name'
         );
@@ -597,7 +597,7 @@ final class guidelanding_test extends \advanced_testcase {
             'the guide is still addressed as a student'
         );
         $this->assertStringContainsString(
-            'Once a team submits to you, you have 2 hours to approve or return it.',
+            'Once a group submits to you, you have 2 hours to approve or return it.',
             $html
         );
 

@@ -851,7 +851,7 @@ final class freeze_test extends \advanced_testcase {
             freeze::discard_core_group($activity, groups::get($activity, (int) $frozen->id), 99);
             $this->fail('Expected refusaldiscardfrozen');
         } catch (\moodle_exception $e) {
-            $this->assertStringContainsString('cannot be discarded while the team is frozen', $e->getMessage());
+            $this->assertStringContainsString('cannot be discarded while the group is frozen', $e->getMessage());
         }
         $this->assertTrue(groups_group_exists($coreid));
 

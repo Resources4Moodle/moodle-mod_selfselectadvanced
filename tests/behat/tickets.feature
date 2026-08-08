@@ -40,7 +40,7 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     # route in - the dashboard is.
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
     And I follow "Groups I guide"
-    And I click on "Team page" "link" in the "Team Blue" "table_row"
+    And I click on "Group page" "link" in the "Team Blue" "table_row"
     And I set the field "Why is this change needed?" to "Swap in a data specialist"
     And I press "File request"
     Then I should see "Your request has been queued for the managers and coordinators."
@@ -65,7 +65,7 @@ Feature: The sequential ticket queue for composition changes and unfreezes
   Scenario: A duplicate live request is refused
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
     And I follow "Groups I guide"
-    And I click on "Team page" "link" in the "Team Blue" "table_row"
+    And I click on "Group page" "link" in the "Team Blue" "table_row"
     And I set the field "Why is this change needed?" to "Swap in a data specialist"
     And I press "File request"
     And I set the field "Why is this change needed?" to "Asking twice"

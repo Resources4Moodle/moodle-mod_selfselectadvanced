@@ -49,12 +49,12 @@ Feature: A composition maximum on confirmed members is a wall, a maximum on proj
       | ssagroup | user     | status    |
       | Alpha    | student2 | confirmed |
     And I am on the "MDP groups" "mod_selfselectadvanced > join" page logged in as student3
-    And I set the field "Team you want to join" to "Alpha"
+    And I set the field "Group you want to join" to "Alpha"
     And I set the field "Why you are asking" to "Bad decision to leave"
     And I press "Send the request"
     When I am on the "MDP groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Alpha"
-    Then I should see "This team already has 2 confirmed member(s) with \"SCOPE\""
+    Then I should see "This group already has 2 confirmed member(s) with \"SCOPE\""
     And the "Accept" "button" should be disabled
 
   @javascript
@@ -85,7 +85,7 @@ Feature: A composition maximum on confirmed members is a wall, a maximum on proj
       | selfselectadvanced | name  | leader   | state   |
       | ssa1               | Bravo | student4 | forming |
     And I am on the "MDP groups" "mod_selfselectadvanced > join" page logged in as student5
-    And I set the field "Team you want to join" to "Bravo"
+    And I set the field "Group you want to join" to "Bravo"
     And I set the field "Why you are asking" to "Design together"
     And I press "Send the request"
     When I am on the "MDP groups" "selfselectadvanced activity" page logged in as student4
@@ -100,14 +100,14 @@ Feature: A composition maximum on confirmed members is a wall, a maximum on proj
       | ssagroup | user     | status  |
       | Alpha    | student2 | invited |
     And I am on the "MDP groups" "mod_selfselectadvanced > join" page logged in as student3
-    And I set the field "Team you want to join" to "Alpha"
+    And I set the field "Group you want to join" to "Alpha"
     And I set the field "Why you are asking" to "Room for me?"
     And I press "Send the request"
     When I am on the "MDP groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Alpha"
     Then I should see "pending invitation(s) could then no longer be accepted"
     And I click on "Accept" "button" confirming the dialogue
-    And I should see "Accepted. The student has been moved and the team re-composed."
+    And I should see "Accepted. The student has been moved and the group re-composed."
 
   Scenario: The truth on the invitee's landing page - a blocked invitation says so before the click
     Given the following "mod_selfselectadvanced > members" exist:

@@ -190,9 +190,18 @@ if ($data = $form->get_data()) {
             // meanwhile does not undo the new move that just staged.
             try {
                 $api->moves()->cancel((int) $data->replaces, (int) $USER->id);
-            } catch (dml_missing_record_exception $e) {
+            } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
                 // Another manager already committed or cancelled it: the
                 // replacement move staged above still stands regardless.
+                // cancel() answers that race with a typed refusal now, so
+                // a catch pinned to the missing-record exception matched
+                // nothing and the refusal fell through to the outer arm,
+                // which painted "the stage failed" on a field of a stage
+                // that had in fact succeeded - and the manager, believing
+                // it, submitted a second identical move. A foreign or
+                // unknown id still raises MUST_EXIST loudly and is NOT
+                // caught here, because that is a crafted request rather
+                // than a race.
                 debugging($e->getMessage(), DEBUG_DEVELOPER);
             }
         }

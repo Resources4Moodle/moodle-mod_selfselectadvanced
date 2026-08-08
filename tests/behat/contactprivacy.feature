@@ -40,7 +40,7 @@ Feature: The activity protects participant contact details
 
   Scenario: The team drill-down shows no address to anybody
     Given I am on the "Lab groups" "mod_selfselectadvanced > eoi list" page logged in as guide1
-    When I follow "Team members"
+    When I follow "Group members"
     Then I should see "Two"
     And I should not see "student2@example.com"
     And "Email the whole team" "link" should not exist
@@ -60,7 +60,7 @@ Feature: The activity protects participant contact details
       | selfselectadvanced | ssagroup | guide    | status  |
       | ssa1               | Alpha    | teacher1 | pending |
     And I am on the "Lab groups" "mod_selfselectadvanced > eoi list" page logged in as teacher1
-    When I follow "Team members"
+    When I follow "Group members"
     Then I should see "Two"
     And I should not see "student2@example.com"
     And I should not see "student1@example.com"
@@ -81,7 +81,7 @@ Feature: The activity protects participant contact details
     And I set the field "Protect participant contact details" to "0"
     And I press "Save and display"
     When I am on the "Lab groups" "mod_selfselectadvanced > eoi list" page logged in as guide1
-    And I follow "Team members"
+    And I follow "Group members"
     Then I should see "Two"
     And I should not see "student2@example.com"
 
@@ -96,8 +96,8 @@ Feature: The activity protects participant contact details
     Then I should see "Your mobile number is hidden. Only a site administrator, or staff the site has deliberately allowed to see participant identity fields, can still read it."
     And I should not see "Staff with full view can still see it"
     When I press "Share my number"
-    Then I should see "Your mobile number is shared with your confirmed teammates, the guide assigned to your team, a staff member handling a request you raised, and the teachers who manage this activity."
-    And I should not see "team leaders, teammates and guides"
+    Then I should see "Your mobile number is shared with your confirmed group members, the guide assigned to your group, a staff member handling a request you raised, and the teachers who manage this activity."
+    And I should not see "group leaders, group members and guides"
     # With protection OFF the audience is wider, and the line says so
     # rather than claiming an exclusivity the code does not enforce. A
     # SECOND activity carries the switch off, because the consent flag
@@ -112,7 +112,7 @@ Feature: The activity protects participant contact details
 
   Scenario: Mobile stays consent-gated for the assigned guide
     Given I am on the "Lab groups" "mod_selfselectadvanced > eoi list" page logged in as guide1
-    When I follow "Team members"
+    When I follow "Group members"
     Then I should see "Not shared"
     And I should not see "+91 987654321"
 
@@ -161,10 +161,10 @@ Feature: The activity protects participant contact details
       | user     | mobile        | shareconsent |
       | student1 | +91 900000111 | 1            |
     And I am on the "Lab groups" "mod_selfselectadvanced > eoi list" page logged in as guide1
-    When I follow "Team members"
+    When I follow "Group members"
     Then I should see "+91 900000111"
     When I am on the "Lab groups" "mod_selfselectadvanced > eoi list" page logged in as guide2
-    And I follow "Team members"
+    And I follow "Group members"
     Then I should see "Not shared"
     And I should not see "+91 900000111"
 
@@ -184,7 +184,7 @@ Feature: The activity protects participant contact details
 
   Scenario: Send a message reaches the student without an address
     Given I am on the "Lab groups" "mod_selfselectadvanced > eoi list" page logged in as guide1
-    And I follow "Team members"
+    And I follow "Group members"
     And I should not see "@example.com"
     When I click on "Send a message" "link" in the "Tara" "table_row"
     Then I should see "Send a message to Tara Two"
@@ -199,7 +199,7 @@ Feature: The activity protects participant contact details
   @javascript
   Scenario: The message arrives in the student's own notifications
     Given I am on the "Lab groups" "mod_selfselectadvanced > eoi list" page logged in as guide1
-    And I follow "Team members"
+    And I follow "Group members"
     And I click on "Send a message" "link" in the "Tara" "table_row"
     And I set the field "Subject" to "About Thursday"
     And I set the field "Message" to "Please come and see me."

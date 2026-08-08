@@ -206,7 +206,7 @@ Feature: Every authority this activity grants has a control that spends it
     And I should see "Ticket queue"
     And I should see "Composition"
     And I should see "Group Coordinators"
-    And I should see "New team"
+    And I should see "New group"
     And I should see "Notification templates"
     And "Run auto-grouping now" "button" should exist
 
@@ -221,14 +221,14 @@ Feature: Every authority this activity grants has a control that spends it
   Scenario: A coordinator reaches both narrow intervention pages from their dashboard
     When I am on the "Lab groups" "mod_selfselectadvanced > coordinator" page logged in as coordteacher
     Then I should see "Assign or change guide"
-    And I should see "Change team composition"
+    And I should see "Change group composition"
     # No :manage, so the full-dashboard link stays absent.
     And I should not see "Manager dashboard"
     When I follow "Assign or change guide"
     Then I should see "Manager dashboard"
     And I should see "Awaiting a guide"
     When I am on the "Lab groups" "mod_selfselectadvanced > coordinator" page
-    And I follow "Change team composition"
+    And I follow "Change group composition"
     Then I should see "Pending moves"
 
   # The narrow arm withdrawn: the cards vanish with the authority,
@@ -240,7 +240,7 @@ Feature: Every authority this activity grants has a control that spends it
       | mod/selfselectadvanced:managecomposition | Prevent    | groupcoordinator | Course       | C1        |
     When I am on the "Lab groups" "mod_selfselectadvanced > coordinator" page logged in as coordteacher
     Then I should not see "Assign or change guide"
-    And I should not see "Change team composition"
+    And I should not see "Change group composition"
     And I should see "Ticket queue"
     And I should see "Overrides"
     And I should see "Flagged report"
@@ -252,5 +252,5 @@ Feature: Every authority this activity grants has a control that spends it
   Scenario: A manager visiting the coordinator dashboard keeps both cards through the manage arm
     When I am on the "Lab groups" "mod_selfselectadvanced > coordinator" page logged in as teacher1
     Then I should see "Assign or change guide"
-    And I should see "Change team composition"
+    And I should see "Change group composition"
     And I should see "Manager dashboard"

@@ -50,16 +50,31 @@ class reconcile_penalties extends \core\task\scheduled_task {
             } catch (\moodle_exception $e) {
                 continue;
             }
-            $count = ledger::recompute_all($activity);
-            // Every pending row, but a window at a time: a single
-            // settings edit can park an activity's whole override set
-            // (T-08), so asking for all of them in one query is the
-            // unbounded read house rule 3 names - on the one caller
-            // that runs for every activity on the site. The overrides
-            // page sweeps only the window it renders, which makes this
-            // the safety net for the rows beyond it, so it must still
-            // reach the last row.
-            \mod_selfselectadvanced\local\override\store::recheck_all_pending($activity, get_admin()->id);
+            try {
+                $count = ledger::recompute_all($activity);
+                // Every pending row, but a window at a time: a single
+                // settings edit can park an activity's whole override
+                // set (T-08), so asking for all of them in one query is
+                // the unbounded read house rule 3 names - on the one
+                // caller that runs for every activity on the site. The
+                // overrides page sweeps only the window it renders,
+                // which makes this the safety net for the rows beyond
+                // it, so it must still reach the last row.
+                \mod_selfselectadvanced\local\override\store::recheck_all_pending($activity, get_admin()->id);
+            } catch (\Throwable $e) {
+                // This is the nightly net under every activity on the
+                // site, so one broken activity must not take the rest
+                // down with it. recompute_all() holds an activity lock
+                // that throws errlocktimeout after ten seconds when a
+                // teacher is saving that activity's settings at the
+                // same moment, and the pending-override recheck reads
+                // rows that can vanish mid-pass; either one ended the
+                // run at that activity's id and left every later
+                // ledger stale until the following night.
+                mtrace("mod_selfselectadvanced: reconcile failed for activity {$row->id}: "
+                    . get_class($e) . ': ' . $e->getMessage());
+                continue;
+            }
             if ($count) {
                 mtrace("mod_selfselectadvanced: reconciled $count penalty rows in activity {$row->id}");
             }

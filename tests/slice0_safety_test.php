@@ -20,6 +20,11 @@ use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\workflow_refusal;
 
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->dirroot . '/mod/selfselectadvanced/lib.php');
+
 /**
  * Slice 0 of the reconciled plan (audit_state/RECONCILED-PLAN-20260808.md):
  * the four safety findings the two 1.20.22 audits left with a live-exposure
@@ -36,6 +41,7 @@ use mod_selfselectadvanced\local\workflow_refusal;
  * @covers     \mod_selfselectadvanced\local\rules\gatekeeper
  * @covers     \mod_selfselectadvanced\local\invitations
  * @covers     \mod_selfselectadvanced\table\coresync_report_table
+ * @covers     ::selfselectadvanced_candidate_name
  */
 final class slice0_safety_test extends \advanced_testcase {
     /**
@@ -211,9 +217,62 @@ final class slice0_safety_test extends \advanced_testcase {
     }
 
     /**
-     * F05 and F10 live in page/template code with no callable seam, so
-     * these pin the contract at source; the behavioural proof for both
-     * is the live check run against the deployed site at release.
+     * F10: the invite arm names people back to the leader when a pick is
+     * refused, and the id it names them from arrived in a form post.
+     * Both branches used to resolve it with core_user::get_user() written
+     * out inline, which is what made the notice a site-wide
+     * userid-to-name oracle AND what left the rule with nothing a test
+     * could call. The decision has one name now, so ask it directly.
+     *
+     * MUTATION CAUGHT (run): dropping the is_enrolled() arm from
+     * selfselectadvanced_candidate_name() fails the outsider and the
+     * suspended-enrolment assertions below.
+     */
+    public function test_candidate_name_is_given_only_for_the_pool(): void {
+        $this->resetAfterTest();
+        [$activity, , , , $course] = $this->world();
+        $context = $activity->context();
+        $generator = $this->getDataGenerator();
+
+        $insider = $generator->create_user(['firstname' => 'Pooja', 'lastname' => 'Nair']);
+        $generator->enrol_user($insider->id, $course->id, 'student');
+        $named = selfselectadvanced_candidate_name($context, (int) $insider->id);
+        $this->assertSame(fullname($insider), $named, 'someone the leader could have picked is named');
+        $this->assertStringContainsString('Nair', (string) $named, 'and it is a name, not an id echoed back');
+
+        // The forged id: a real site account with no business in this course.
+        $outsider = $generator->create_user();
+        $this->assertNull(
+            selfselectadvanced_candidate_name($context, (int) $outsider->id),
+            'a site user with no enrolment here must not be named back to the leader'
+        );
+
+        // Enrolled here but suspended. The candidate search never showed
+        // them, so naming them would disclose an account the leader was
+        // never offered.
+        $suspended = $generator->create_user();
+        $generator->enrol_user($suspended->id, $course->id, 'student', 'manual', 0, 0, ENROL_USER_SUSPENDED);
+        $this->assertNull(
+            selfselectadvanced_candidate_name($context, (int) $suspended->id),
+            'a suspended enrolment is not an active candidate, so it gets no name'
+        );
+
+        // And the sentence the page prints instead has nowhere to put a
+        // name. That placeholder-free wording is what makes the refusal
+        // neutral rather than merely unnamed today.
+        $this->assertStringNotContainsString(
+            '{$a',
+            get_string('refusalnotcandidate', 'mod_selfselectadvanced'),
+            'the sentence a non-candidate gets must carry no placeholder'
+        );
+    }
+
+    /**
+     * F05 lives in template markup with no callable seam. Reading the
+     * markup IS its coverage: nothing exercises the rendered dialog, and
+     * no live check of it was ever obtained - the invite form would not
+     * validate through curl, so that attempt produced no evidence and
+     * none is claimed for it here.
      *
      * F05: the consent message must not be interpolated into a JS
      * string literal. HTML-escaping cannot protect that context - the
@@ -222,9 +281,12 @@ final class slice0_safety_test extends \advanced_testcase {
      * a SyntaxError, and because the form pre-sets confirmaccept=1 the
      * click then submits with consent asserted and no dialog shown.
      *
-     * F10: neither name-resolving branch of the invite arm may reach
-     * core_user::get_user() without first proving the id belongs to
-     * this activity's candidate pool.
+     * F10 was pinned here the same way, by counting is_enrolled() in the
+     * page's source, until the pool decision was given a name;
+     * test_candidate_name_is_given_only_for_the_pool() proves the
+     * behaviour now. What is left here is the half no unit test can see:
+     * that the page keeps no SECOND route from a submitted invite id to a
+     * printed name, which is how the oracle got in the first time.
      */
     public function test_page_and_template_contracts(): void {
         $template = file_get_contents(__DIR__ . '/../templates/group_page.mustache');
@@ -240,13 +302,16 @@ final class slice0_safety_test extends \advanced_testcase {
         );
 
         $page = file_get_contents(__DIR__ . '/../group.php');
-        $resolves = preg_match_all('/core_user::get_user\(/', $page);
-        $guards = preg_match_all("/is_enrolled\(\\\$context, [^,]+, 'mod\/selfselectadvanced:respond', true\)/", $page);
-        $this->assertGreaterThan(0, $resolves, 'scanned the wrong file');
-        $this->assertGreaterThanOrEqual(
+        $this->assertStringContainsString("\$action === 'invite'", $page, 'scanned the wrong file');
+        $this->assertSame(
             2,
-            $guards,
-            'both invite-arm name lookups must be gated on candidate-pool membership'
+            preg_match_all('/selfselectadvanced_candidate_name\(\$context, /', $page),
+            'both invite-arm name lookups must go through the candidate-pool helper'
+        );
+        $this->assertSame(
+            0,
+            preg_match_all('/get_user\(-?\$flaggedid\)|get_user\(\$inviteeid\)/', $page),
+            'a submitted invite id must never reach core_user::get_user() directly again'
         );
     }
 }

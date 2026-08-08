@@ -32,7 +32,7 @@ Feature: Students control mobile-sharing consent
     Then I should see "Your mobile number is hidden."
     And I should see "Share my number"
     When I press "Share my number"
-    Then I should see "Your mobile number is shared with your confirmed teammates"
+    Then I should see "Your mobile number is shared with your confirmed group members"
     And I should see "Stop sharing my number"
     When I press "Stop sharing my number"
     Then I should see "Your mobile number is hidden."

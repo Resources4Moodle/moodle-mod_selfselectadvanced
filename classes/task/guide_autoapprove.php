@@ -19,6 +19,7 @@ namespace mod_selfselectadvanced\task;
 use mod_selfselectadvanced\activity;
 use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\state;
+use mod_selfselectadvanced\local\workflow_refusal;
 
 /**
  * Guide decision window sweep (1.4.0): in activities that enable
@@ -150,7 +151,34 @@ class guide_autoapprove extends \core\task\scheduled_task {
                 $api->lifecycle()->approve_auto($group, $adminid);
                 $approved++;
                 mtrace("selfselectadvanced: auto-approved group {$group->pluginuid}");
+            } catch (workflow_refusal $e) {
+                // A rule said no. The refusal already rolled its own
+                // transaction back, so nothing of this team survives -
+                // including any relief it would have needed (T-04 3d).
+                mtrace("selfselectadvanced: auto-approve skipped {$group->pluginuid}: "
+                    . get_class($e) . ': ' . $e->getMessage());
+                continue;
+            } catch (\Throwable $e) {
+                // NOT a refusal the workflow planned for - a lock that
+                // timed out, a write the database rejected. It cannot
+                // be rethrown without costing every later team in this
+                // batch its approval, so it is logged as loudly as a
+                // log line can manage: named by class, and worded so it
+                // can never be mistaken for a rule declining.
+                mtrace("selfselectadvanced: auto-approve FAILED for {$group->pluginuid}, team not approved: "
+                    . get_class($e) . ': ' . $e->getMessage());
+                continue;
+            }
 
+            // Past this line the approval is COMMITTED, and what
+            // follows is only the announcement. They were one try
+            // block, so a manager lookup or a messaging backend that
+            // threw was reported as "auto-approve skipped" - a lie in
+            // the cron log, because the team WAS approved and is firm.
+            // Whoever read that line went hunting for a submission to
+            // decide by hand and found one already decided. Two facts,
+            // two outcomes, two log lines.
+            try {
                 if ($managers === null) {
                     // Resolved ONCE per activity, and only when there
                     // is something to announce: the manager set does
@@ -161,7 +189,19 @@ class guide_autoapprove extends \core\task\scheduled_task {
                         'u.id'
                     );
                 }
-                foreach ($managers as $manager) {
+            } catch (\Throwable $e) {
+                // Cached as an EMPTY set deliberately: a capability
+                // lookup that just failed will fail identically for
+                // every remaining team of this activity, and one line
+                // per activity is a report where one line per team is
+                // noise that buries the approvals themselves.
+                $managers = [];
+                mtrace("selfselectadvanced: cannot resolve who to tell about auto-approvals in activity"
+                    . " {$instance->id}; the approvals stand but go unannounced: "
+                    . get_class($e) . ': ' . $e->getMessage());
+            }
+            foreach ($managers as $manager) {
+                try {
                     \mod_selfselectadvanced\local\notifier::send(
                         $activity,
                         'groupapproved',
@@ -179,12 +219,13 @@ class guide_autoapprove extends \core\task\scheduled_task {
                         ]),
                         format_string($group->name)
                     );
+                } catch (\Throwable $e) {
+                    // One unreachable manager must not silence the rest
+                    // of them, and must not read as a failed approval
+                    // either - the team is firm whatever messaging did.
+                    mtrace("selfselectadvanced: group {$group->pluginuid} was auto-approved but manager"
+                        . " {$manager->id} could not be told: " . get_class($e) . ': ' . $e->getMessage());
                 }
-            } catch (\moodle_exception $e) {
-                // The refusal already rolled its own transaction back,
-                // so nothing of this team survives - including any
-                // relief it would have needed (T-04 3d).
-                mtrace("selfselectadvanced: auto-approve skipped {$group->pluginuid}: " . $e->getMessage());
             }
         }
 
@@ -254,50 +295,64 @@ class guide_autoapprove extends \core\task\scheduled_task {
         ], 0, $batch);
 
         foreach ($pending as $group) {
-            $elapsed = $now - (int) $group->timesubmitted;
-            $stage = 0;
-            if ($elapsed >= (int) ($window * 0.9)) {
-                $stage = 90;
-            } else if ($elapsed >= (int) ($window * 0.5)) {
-                $stage = 50;
-            }
-            if (!$stage || (int) $group->remindstage >= $stage) {
-                continue;
-            }
-            $submitted = \mod_selfselectadvanced\local\notifier::send(
-                $activity,
-                'guidequeue',
-                (int) $group->guideid,
-                'msgguideremindersubject',
-                'msgguidereminderbody',
-                (object) [
-                    'group' => format_string($group->name),
-                    'pluginuid' => $group->pluginuid,
-                    'activity' => $activity->name(),
-                    'deadline' => userdate((int) $group->timesubmitted + $window),
-                ],
-                new \moodle_url('/mod/selfselectadvanced/review.php', [
-                    'id' => $activity->cm()->id,
-                    'g' => (int) $group->id,
-                ]),
-                format_string($group->name)
-            );
-            // The marker name is unchanged on purpose: submit(),
-            // assign_guide() and return_group() clear it by that name.
-            //
-            // And it is written only AFTER a send that reported
-            // submission (MSG-003): marker-before-send turned one
-            // refused reminder into a stage the guide never hears of,
-            // because the SQL above excludes marked rows for ever. The
-            // inverse risk is accepted on purpose - a crash between
-            // the send and the marker re-sends one reminder on the
-            // next run, and a duplicate beats a permanent silence.
-            if ($submitted) {
-                set_user_preference('mod_selfselectadvanced_gremind_' . $group->id, $stage, (int) $group->guideid);
-                mtrace("selfselectadvanced: {$stage}% reminder for {$group->pluginuid}");
-            } else {
-                mtrace("selfselectadvanced: {$stage}% reminder for {$group->pluginuid}"
-                    . " was refused by messaging; the marker is unwritten so the next run retries");
+            // Per team, because the batch is ordered by guide: an
+            // exception out of one send (a guide whose account was
+            // deleted after the query, a messaging backend that is
+            // down for one processor) used to abandon the rest of the
+            // page, and the teams behind it were reminded only if a
+            // later run happened to draw them ahead of the same bad
+            // row - which, the batch being ordered, it never did.
+            try {
+                $elapsed = $now - (int) $group->timesubmitted;
+                $stage = 0;
+                if ($elapsed >= (int) ($window * 0.9)) {
+                    $stage = 90;
+                } else if ($elapsed >= (int) ($window * 0.5)) {
+                    $stage = 50;
+                }
+                if (!$stage || (int) $group->remindstage >= $stage) {
+                    continue;
+                }
+                $submitted = \mod_selfselectadvanced\local\notifier::send(
+                    $activity,
+                    'guidequeue',
+                    (int) $group->guideid,
+                    'msgguideremindersubject',
+                    'msgguidereminderbody',
+                    (object) [
+                        'group' => format_string($group->name),
+                        'pluginuid' => $group->pluginuid,
+                        'activity' => $activity->name(),
+                        'deadline' => userdate((int) $group->timesubmitted + $window),
+                    ],
+                    new \moodle_url('/mod/selfselectadvanced/review.php', [
+                        'id' => $activity->cm()->id,
+                        'g' => (int) $group->id,
+                    ]),
+                    format_string($group->name)
+                );
+                // The marker name is unchanged on purpose: submit(),
+                // assign_guide() and return_group() clear it by that name.
+                //
+                // And it is written only AFTER a send that reported
+                // submission (MSG-003): marker-before-send turned one
+                // refused reminder into a stage the guide never hears of,
+                // because the SQL above excludes marked rows for ever. The
+                // inverse risk is accepted on purpose - a crash between
+                // the send and the marker re-sends one reminder on the
+                // next run, and a duplicate beats a permanent silence.
+                if ($submitted) {
+                    set_user_preference('mod_selfselectadvanced_gremind_' . $group->id, $stage, (int) $group->guideid);
+                    mtrace("selfselectadvanced: {$stage}% reminder for {$group->pluginuid}");
+                } else {
+                    mtrace("selfselectadvanced: {$stage}% reminder for {$group->pluginuid}"
+                        . " was refused by messaging; the marker is unwritten so the next run retries");
+                }
+            } catch (\Throwable $e) {
+                // The marker is unwritten on this path too, so the next
+                // run offers this team its reminder again.
+                mtrace("selfselectadvanced: reminder failed for {$group->pluginuid}: "
+                    . get_class($e) . ': ' . $e->getMessage());
             }
         }
     }

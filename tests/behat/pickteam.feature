@@ -28,16 +28,16 @@ Feature: Guides pick a listed team
   Scenario: A guide sees a listed team in the browse table
     Given I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
-    And I press "List this team for guides"
+    And I press "List this group for guides"
     Then I should see "Listed for guides"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as guide1
     And I follow "Guide dashboard"
-    And I follow "Browse listed teams"
+    And I follow "Browse listed groups"
     Then I should see "Team Blue" in the ".selfselectadvanced-pickteamtable" "css_element"
     And I should see "Pendulums" in the ".selfselectadvanced-pickteamtable" "css_element"
     And I should see "Sam One" in the ".selfselectadvanced-pickteamtable" "css_element"
     And I should see "Guides interested"
-    And I should see "Pick this team"
+    And I should see "Pick this group"
 
   Scenario: Filtering the listing by topic narrows the rows
     Given the following "mod_selfselectadvanced > groups" exist:
@@ -45,13 +45,13 @@ Feature: Guides pick a listed team
       | ssa1               | Team Green | Orbits | student2 |
     And I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
-    And I press "List this team for guides"
+    And I press "List this group for guides"
     And I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
     And I follow "Team Green"
-    And I press "List this team for guides"
+    And I press "List this group for guides"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as guide1
     And I follow "Guide dashboard"
-    And I follow "Browse listed teams"
+    And I follow "Browse listed groups"
     Then I should see "Team Blue" in the ".selfselectadvanced-pickteamtable" "css_element"
     And I should see "Team Green" in the ".selfselectadvanced-pickteamtable" "css_element"
     When I set the field "rq" to "Pendulums"
@@ -68,23 +68,23 @@ Feature: Guides pick a listed team
       | ssa2                | Team Gold | Orbits2 | student1 |
     And I am on the "Lab groups 2" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Gold"
-    And I press "List this team for guides"
+    And I press "List this group for guides"
     When I am on the "Lab groups 2" "selfselectadvanced activity" page logged in as guide1
     And I follow "Guide dashboard"
-    And I follow "Browse listed teams"
+    And I follow "Browse listed groups"
     Then I should see "Team Gold" in the ".selfselectadvanced-pickteamtable" "css_element"
-    And I should see "Pick this team"
+    And I should see "Pick this group"
     And I should not see "Guides interested"
 
   Scenario: A guide picks a listed team and the leader is notified
     Given I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
-    And I press "List this team for guides"
+    And I press "List this group for guides"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as guide1
     And I follow "Guide dashboard"
-    And I follow "Browse listed teams"
-    And I follow "Pick this team"
+    And I follow "Browse listed groups"
+    And I follow "Pick this group"
     Then I should see "Express interest in guiding"
-    When I set the field "Remarks to the team leader" to "Excited to help with this project."
-    And I press "Pick this team"
+    When I set the field "Remarks to the group leader" to "Excited to help with this project."
+    And I press "Pick this group"
     Then I should see "Changes saved"

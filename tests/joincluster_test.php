@@ -424,7 +424,7 @@ final class joincluster_test extends \advanced_testcase {
 
     /**
      * ONE PREDICATE, TWO SURFACES. group_page.php's leader panel calls
-     * fit::for_person() without the request row; the "Asked of my team"
+     * fit::for_person() without the request row; the "Asked of my group"
      * tab hands it over. Both must answer the same thing about the same
      * request, or the maintainer's contradiction simply moves from one
      * page to the other.

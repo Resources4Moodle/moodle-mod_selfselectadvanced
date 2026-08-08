@@ -312,26 +312,21 @@ if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
         // Re-asked NOW rather than replayed from the list: the roster
         // may have moved since the search rendered, and the sentence
         // the leader reads must be the one the gate would use.
-        // THE ID IS NOT TRUSTED TO NAME ANYBODY (audit F10, 1.20.23).
-        // This branch used to hand any submitted negative id straight
-        // to core_user::get_user() and print the full name it returned,
-        // which made the notice a site-wide userid-to-name oracle: a
-        // student could post -1, -2, -3 and read back the names of
-        // people in other courses, suspended accounts and staff, one
-        // per submit. Names are blessed among PARTICIPANTS; this
-        // resolved them for the whole site. A name is printed only for
-        // somebody this activity's own candidate pool contains, and
-        // anybody else is refused without being identified.
-        $ineligible = is_enrolled($context, -$flaggedid, 'mod/selfselectadvanced:respond', true)
-            ? \core_user::get_user(-$flaggedid)
-            : null;
-        if (!$ineligible) {
+        // THE ID IS NOT TRUSTED TO NAME ANYBODY (audit F10, 1.20.23):
+        // selfselectadvanced_candidate_name() carries the reasoning and
+        // the userid-to-name oracle it prevents. The rule used to be
+        // written out longhand here and again in the loop below, and
+        // two inline copies are exactly why nothing could call it - the
+        // only proof available was counting is_enrolled() in this file's
+        // source. It has one home and a test of its own now.
+        $ineligiblename = selfselectadvanced_candidate_name($context, -$flaggedid);
+        if ($ineligiblename === null) {
             $problems[] = get_string('refusalnotcandidate', 'mod_selfselectadvanced');
             continue;
         }
         $refusal = $api->gatekeeper()->can_invite($group, -$flaggedid);
         $problems[] = get_string('errineligiblepick', 'mod_selfselectadvanced', (object) [
-            'name' => fullname($ineligible),
+            'name' => $ineligiblename,
             'reason' => $refusal?->get_message()
                 ?? get_string('refusalgone', 'mod_selfselectadvanced'),
         ]);
@@ -348,12 +343,10 @@ if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
             // WHO it was about, so it is prefixed with the name.
             // Named only when the pool contains them - same oracle rule
             // as the flagged branch above.
-            $refused = is_enrolled($context, $inviteeid, 'mod/selfselectadvanced:respond', true)
-                ? \core_user::get_user($inviteeid)
-                : null;
-            $problems[] = $refused
+            $refusedname = selfselectadvanced_candidate_name($context, $inviteeid);
+            $problems[] = $refusedname !== null
                 ? get_string('errineligiblepick', 'mod_selfselectadvanced', (object) [
-                    'name' => fullname($refused),
+                    'name' => $refusedname,
                     'reason' => $e->getMessage(),
                 ])
                 : $e->getMessage();

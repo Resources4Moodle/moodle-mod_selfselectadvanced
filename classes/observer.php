@@ -88,6 +88,22 @@ class observer {
                     }
                 }
                 $transaction->allow_commit();
+            } catch (\Throwable $e) {
+                // Core's event manager catches whatever an observer
+                // throws and turns it into a debugging() line, so a
+                // missing rollback here is both invisible and lethal:
+                // the delegated frame is never disposed, and on
+                // PostgreSQL the aborted physical transaction fails
+                // every query that follows in the request - the groups
+                // after this one, the move cancellations below, and the
+                // rest of core's delete_user() - all of them dying of a
+                // fault nobody was shown. Rolling our own frame back
+                // pops it and lets any caller's rollback reach the
+                // bottom; same idiom as guide_gone() below.
+                if (isset($transaction) && !$transaction->is_disposed()) {
+                    $transaction->rollback($e);
+                }
+                throw $e;
             } finally {
                 $lock->release();
             }
@@ -130,6 +146,17 @@ class observer {
                     $DB->set_field_select('selfselectadvanced_move', 'timemodified', $now, "id $insql", $inparams);
                 }
                 $transaction->allow_commit();
+            } catch (\Throwable $e) {
+                // Same reason as the member loop above: the dispatcher
+                // swallows this exception into a debugging(), and an
+                // undisposed delegated frame fails every later query of
+                // the request on PostgreSQL - which here would take the
+                // remaining activities' move cancellations and the
+                // guide handling below down with it, silently.
+                if (isset($transaction) && !$transaction->is_disposed()) {
+                    $transaction->rollback($e);
+                }
+                throw $e;
             } finally {
                 $lock->release();
             }
@@ -215,14 +242,36 @@ class observer {
 
         $actorid = (int) get_admin()->id;
         foreach ($rows as $row) {
-            $activity = activity::from_instance((int) $row->activityid);
-            \mod_selfselectadvanced\local\override\store::save(
-                $activity,
-                'group',
-                (int) $row->groupid,
-                ['quotaexempt' => 1],
-                $actorid
-            );
+            try {
+                $activity = activity::from_instance((int) $row->activityid);
+                \mod_selfselectadvanced\local\override\store::save(
+                    $activity,
+                    'group',
+                    (int) $row->groupid,
+                    ['quotaexempt' => 1],
+                    $actorid
+                );
+            } catch (\Throwable $e) {
+                // Contained per activity, recorded, and the loop goes
+                // on - the shape the cron sweeps use. One instance
+                // whose course module has gone makes from_instance()
+                // throw, and one contended override row makes save()
+                // time out; either used to end the whole loop, so every
+                // settled team listed after it quietly kept no
+                // exemption and would be refused later over a
+                // suspension none of them control, which is the exact
+                // harm this handler exists to prevent. Continuing costs
+                // nothing: save() has already rolled its own frame
+                // back, and the throw had nowhere to go - core's event
+                // manager catches it and writes precisely the
+                // debugging() written here.
+                debugging(
+                    'mod_selfselectadvanced: no suspension quota exemption written for group '
+                        . (int) $row->groupid . ' in activity ' . (int) $row->activityid
+                        . ': ' . $e->getMessage(),
+                    DEBUG_DEVELOPER
+                );
+            }
         }
     }
 
@@ -344,6 +393,18 @@ class observer {
                     }
                 }
                 $transaction->allow_commit();
+            } catch (\Throwable $e) {
+                // This event arrives in BULK - cohort and LDAP sync and
+                // course reset unenrol hundreds of users at a time -
+                // and the dispatcher turns what an observer throws into
+                // a debugging() nobody reads. Without this arm one
+                // failed group leaves an undisposed frame that fails
+                // every remaining query of that sync run on PostgreSQL,
+                // so the whole batch dies of an error never reported.
+                if (isset($transaction) && !$transaction->is_disposed()) {
+                    $transaction->rollback($e);
+                }
+                throw $e;
             } finally {
                 $lock->release();
             }

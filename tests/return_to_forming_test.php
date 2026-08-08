@@ -40,7 +40,7 @@ use mod_selfselectadvanced\local\state;
  * dissolve_group() always ran, because a live join request targeting a
  * leader-deleted team held its asker's one-request slot against a team
  * that no longer existed, and the history table read "Accepted" beside
- * "Team no longer exists".
+ * "Group no longer exists".
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>

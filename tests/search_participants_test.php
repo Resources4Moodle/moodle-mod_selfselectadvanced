@@ -76,7 +76,7 @@ final class search_participants_test extends \advanced_testcase {
 
         $inteam = array_values(array_filter($labels, static fn($l) => str_contains($l, 'Alpha')));
         $this->assertCount(1, $inteam, 'the team a person belongs to must be shown');
-        $this->assertNotEmpty(array_filter($labels, static fn($l) => str_contains($l, 'no team yet')));
+        $this->assertNotEmpty(array_filter($labels, static fn($l) => str_contains($l, 'no group yet')));
 
         // Searching by register number finds exactly that student.
         $byregno = search_participants::execute((int) $activity->cm()->id, '26BEC0002');

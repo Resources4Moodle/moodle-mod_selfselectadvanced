@@ -185,7 +185,7 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     And "blank.pdf" "link" should exist
     When I am on the "Lab groups > Team Paper" "mod_selfselectadvanced > group" page logged in as student2
     Then I should see "blank.pdf"
-    And I should see "Available once you have joined the team"
+    And I should see "Available once you have joined the group"
     And "blank.pdf" "link" should not exist
     When I am on the "Lab groups > Team Paper" "mod_selfselectadvanced > group" page logged in as guide1
     Then "blank.pdf" "link" should exist
@@ -320,16 +320,16 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
       | ssa2               | Team Lime | Radar  | student1 |
       | ssa2               | Team Leaf | Sonar  | student1 |
     When I am on the "Interest lab > Team Lime" "mod_selfselectadvanced > group" page logged in as student1
-    And I press "List this team for guides"
+    And I press "List this group for guides"
     Then I should see "Listed for guides"
     And I should see "Withdraw from listing"
     When I am on the "Interest lab > Team Leaf" "mod_selfselectadvanced > group" page logged in as student1
-    Then I should see "List this team for guides"
+    Then I should see "List this group for guides"
     Given the following "permission overrides" exist:
       | capability                         | permission | role    | contextlevel    | reference |
       | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa2      |
     When I am on the "Interest lab > Team Leaf" "mod_selfselectadvanced > group" page logged in as student1
-    Then I should not see "List this team for guides"
+    Then I should not see "List this group for guides"
     When I am on the "Interest lab > Team Lime" "mod_selfselectadvanced > group" page logged in as student1
     Then I should see "Listed for guides"
     And I should see "Withdraw from listing"

@@ -52,7 +52,20 @@ class expire_invitations extends \core\task\scheduled_task {
                 // Instance mid-deletion: skip.
                 continue;
             }
-            $count = (new api($activity))->invitations()->expire_due();
+            try {
+                $count = (new api($activity))->invitations()->expire_due();
+            } catch (\Throwable $e) {
+                // One activity must not cost every later one its sweep.
+                // expire_due() re-reads each member row MUST_EXIST under
+                // the group lock and rethrows after rolling back, so an
+                // invitation deleted between the batch query and the
+                // lock - or a lock that times out under contention -
+                // aborted the whole run, and every activity with a
+                // higher id stayed unexpired until the next cron tick.
+                mtrace("mod_selfselectadvanced: invitation expiry failed for activity {$row->id}: "
+                    . get_class($e) . ': ' . $e->getMessage());
+                continue;
+            }
             if ($count) {
                 mtrace("mod_selfselectadvanced: expired $count invitation(s) in activity {$row->id}");
             }

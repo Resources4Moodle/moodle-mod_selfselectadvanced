@@ -57,7 +57,21 @@ class expire_eoi extends \core\task\scheduled_task {
             } catch (\moodle_exception $e) {
                 continue;
             }
-            $expired = eoi::expire_due($activity);
+            try {
+                $expired = eoi::expire_due($activity);
+            } catch (\Throwable $e) {
+                // The sweep is per activity, so the failure has to be
+                // per activity too. expire_due() takes a group lock for
+                // every pending row and re-reads it MUST_EXIST inside,
+                // then notifies the guides afterwards: a row deleted
+                // mid-sweep, a lock that times out under contention or
+                // one unreachable recipient ended the whole run, and
+                // every activity with a higher id kept holding interest
+                // past its window until the next cron tick.
+                mtrace("mod_selfselectadvanced: interest expiry failed for activity {$instance->id}: "
+                    . get_class($e) . ': ' . $e->getMessage());
+                continue;
+            }
             if ($expired > 0) {
                 mtrace("mod_selfselectadvanced: expired $expired interest(s) in activity {$instance->id}");
             }

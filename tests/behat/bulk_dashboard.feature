@@ -74,6 +74,6 @@ Feature: Bulk operations, the manager dashboard and the flagged report
   Scenario: Group anomalies have a tab of their own
     When I am on the "Lab groups" "mod_selfselectadvanced > flagged" page logged in as teacher1
     Then I should see "Group anomalies"
-    And I should not see "No team is in an anomalous position."
+    And I should not see "No group is in an anomalous position."
     When I follow "Group anomalies (0)"
-    Then I should see "No team is in an anomalous position."
+    Then I should see "No group is in an anomalous position."

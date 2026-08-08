@@ -2052,5 +2052,28 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080802, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080803) {
+        // Punch-list items P1, P2 and P3. P1 aligns every user-facing
+        // string to the plugin's own name - the entity is a GROUP,
+        // Moodle's own row is a COURSE GROUP, and "team" is gone
+        // (decision 69, as the maintainer reversed it). P2 makes the
+        // scheduled sweeps survive one bad row instead of abandoning
+        // every later activity. P3 closes two debts: the invite arm's
+        // name lookup now has a callable seam and a real test, and a
+        // guard that had never once run was removed rather than left
+        // looking like protection.
+        // Behavioural and presentational; no schema change.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.24 (2026080803). Vocabulary aligned to "group"; cron and '
+                . 'observer sweeps survive a single failing item; invite-arm name lookup '
+                . 'given a testable seam; the callerless state guard removed.',
+            'Behavioural and presentational changes only; no schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080803, 'selfselectadvanced');
+    }
+
     return true;
 }

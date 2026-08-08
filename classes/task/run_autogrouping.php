@@ -45,17 +45,31 @@ class run_autogrouping extends \core\task\scheduled_task {
         global $DB;
 
         foreach ($DB->get_records('selfselectadvanced', ['autogroup' => 2], 'id ASC', 'id') as $row) {
+            // The WHOLE per-activity body is guarded, not just the
+            // lookup. Only activity::from_instance() used to be caught,
+            // so one activity that engine::run() choked on (a pool row
+            // pointing at a deleted user, a lock it could not take)
+            // ended the sweep at that id: every activity with a higher
+            // id was silently never auto-grouped, and stayed that way
+            // on every later run too, because the sweep dies at the
+            // same row each time.
             try {
                 $activity = activity::from_instance((int) $row->id);
-            } catch (\moodle_exception $e) {
-                continue;
+                if (!engine::sweep_due($activity)) {
+                    continue;
+                }
+                $agrun = engine::run($activity, 0);
+                mtrace("mod_selfselectadvanced: autogroup run {$agrun->id} in activity {$row->id}: "
+                    . "{$agrun->groupsformed} groups, {$agrun->placed} placed, {$agrun->unplaced} unplaced");
+            } catch (\Throwable $e) {
+                // The class is named beside the message because the two
+                // answer different questions: "can not find data record"
+                // out of a missing course module is ordinary tidying,
+                // the same words out of a dml_write_exception mean the
+                // database refused the write and somebody has to look.
+                mtrace("mod_selfselectadvanced: autogroup sweep failed for activity {$row->id}: "
+                    . get_class($e) . ': ' . $e->getMessage());
             }
-            if (!engine::sweep_due($activity)) {
-                continue;
-            }
-            $agrun = engine::run($activity, 0);
-            mtrace("mod_selfselectadvanced: autogroup run {$agrun->id} in activity {$row->id}: "
-                . "{$agrun->groupsformed} groups, {$agrun->placed} placed, {$agrun->unplaced} unplaced");
         }
     }
 }

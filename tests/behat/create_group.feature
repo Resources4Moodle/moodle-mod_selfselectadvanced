@@ -90,13 +90,13 @@ Feature: Students create groups under the lead cap
     # capability, which the page used to demand of everybody before the
     # branch that admits a manager (D6-4).
     When I am on the "Late labs" "mod_selfselectadvanced > manage" page logged in as teacher1
-    And I follow "New team"
-    Then I should see "Leader of the new team"
+    And I follow "New group"
+    Then I should see "Leader of the new group"
     When I set the following fields to these values:
       | Group name    | Repair team     |
       | Title of work | Salvage work    |
       | Brief of work | Late formation. |
-    And I set the field "Leader of the new team" to "Tara Two"
+    And I set the field "Leader of the new group" to "Tara Two"
     And I press "Create group"
     Then I should see "Repair team"
     And I should see "Tara" in the ".selfselectadvanced-roster" "css_element"

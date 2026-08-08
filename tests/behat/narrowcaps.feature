@@ -79,7 +79,7 @@ Feature: Coordinators do roster and guide work without manage
       | ssa1               | student2 | Team A      | Team B      |
     When I am on the "Lab groups" "mod_selfselectadvanced > moves" page logged in as coordteacher
     And I press "Commit selected moves"
-    Then I should see "You cannot act on this team because you are the assigned guide of it"
+    Then I should see "You cannot act on this group because you are the assigned guide of it"
     And I should see "Tara Two"
 
   Scenario: An editing teacher is not restrained by the conflict-of-interest rule

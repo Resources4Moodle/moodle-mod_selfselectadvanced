@@ -1,5 +1,85 @@
 # Changelog
 
+## 1.20.24 — punch-list P1, P2, P3: one vocabulary, sweeps that survive a bad row, two debts paid (2026-08-08)
+
+> Serial `2026080803` / `1.20.24`. Behavioural and presentational; no schema
+> change. Punch-list items P1–P3 from `audit_state/PUNCH-LIST-20260808.md`.
+
+### P1 — the plugin speaks one vocabulary (decision 69)
+
+The plugin is *Group self-selection (Advanced)*, so its entity is a **group**;
+Moodle core's own row is a **course group**; "team" is gone. Before this the
+language file was split roughly 58/42 between the two words for the same
+object, which is how a reader ended up being told about "teams" on a page
+called Groups.
+
+- **302 string values rewritten**, out of 1,506. Every one keeps its `{$a}`
+  placeholders and literal brace tokens, its literal-`\n` versus real-newline
+  encoding, and its quoting — checked mechanically before and after, not by
+  eye. **No string key, database value, class, constant, capability or event
+  name was renamed:** `pickteam`, `viewteam`, `jointeam` and
+  `:viewassignedteams` are stable identifiers, and renaming them would be a
+  capability and database migration for no reader's benefit.
+- Where a sentence names both, they are now told apart — the plugin's group,
+  and the **course group** it mirrors into Moodle on freeze.
+- `mobilecaution` was reworded rather than swapped: a literal swap would have
+  produced "group coordination" in the same breath as "group chats" and the
+  **Group Coordinator** role name.
+- Behat text repaired in step (62 assertion literals across 17 feature
+  files). Fixture group names such as "Team Blue" are data and are untouched.
+- **A glossary check now guards it in the gate**: a banned term in any
+  user-facing string value, or in any Behat assertion literal that is not
+  fixture data the scenario itself created, fails the build. Proven against
+  three deliberately broken trees, including one where the check's own
+  fixture-matching was too strict — that was fixed in the check, not by
+  loosening the tree.
+
+### P2 — a sweep survives one bad row
+
+Seven scheduled sweeps abandoned every remaining activity when a single one
+threw: a row deleted between the batch query and the lock that re-reads it, a
+lock timing out under a concurrent settings save, or one unreachable message
+recipient. Each now contains the failure per item, records the class and
+message where an operator can see it, and carries on.
+
+- `expire_invitations`, `expire_eoi`, `reconcile_penalties`,
+  `run_autogrouping`, `send_nudges`, `guide_autoapprove`, and the decision-61
+  enrolment observer, which was forfeiting the quota exemption for every
+  later settled group.
+- `send_nudges` is adhoc: when the activity it names has been deleted it now
+  logs and returns instead of throwing, which had it re-queued and failing
+  forever.
+- `guide_autoapprove` stopped reporting a failed *notification* as a skipped
+  *approval*. The group was approved; the log said otherwise.
+- Observer transactions gained rollback arms. On PostgreSQL an unfinished
+  transaction poisons every later query in the request, so a swallowed
+  exception turned one failed observer into a cascade.
+- A two-lock path released its first handle when the second timed out;
+  previously it leaked until its own timeout, blocking every other writer.
+- Two dead exception pins removed: `moveedit`'s edit-and-restage caught a
+  type `moves::cancel()` stopped throwing in 1.20.22 — so the race it existed
+  to swallow was rendered as a form error claiming the stage had failed when
+  it had already succeeded, inviting a resubmit and a duplicate move. The
+  departments page now answers a concurrently deleted row with a notice
+  instead of the error page.
+
+### P3 — two debts paid rather than carried
+
+- **A docblock claimed evidence that did not exist.** The 1.20.23 test said
+  the invite arm's page contracts were proven by a live check at release;
+  that check was attempted and never obtained. Rather than soften the words,
+  the decision itself was given a home: `selfselectadvanced_candidate_name()`
+  now owns "name this person only if the activity's candidate pool contains
+  them", both invite branches call it, and a real test proves it — a pool
+  member is named, an outsider and a suspended enrolment are not.
+- **A guard that had never run was removed.** `state::require_state()` had
+  zero callers anywhere and its string was unreachable, while advertising
+  that stale POSTs "funnel through here". They do not: each service re-reads
+  the group inside its lock and re-asks the gatekeeper, which is strictly
+  stronger. Wiring it would have added a second copy of a correct check —
+  somewhere to drift, not safety — and it threw the wrong kind of exception
+  for this codebase. Deleted, with its unreachable string.
+
 ## 1.20.23 — audit slice 0: the safety findings (2026-08-08)
 
 > Serial `2026080802` / `1.20.23`. Behavioural changes only; no schema change.

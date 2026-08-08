@@ -36,14 +36,14 @@ Feature: A guide's request queue and asking for a higher team limit
     When I am on the "Lab groups" "mod_selfselectadvanced > guide queue" page logged in as guide1
     And I follow "What I have asked for"
     Then I should see "your limit is 2"
-    When I set the field "Teams asked for" to "5"
+    When I set the field "Groups asked for" to "5"
     And I set the field "Reason" to "Two final-year cohorts this term"
     And I press "Send the request"
     Then I should see "Your request has gone to the Group Coordinators."
-    And I should see "You have asked to guide up to 5 teams."
+    And I should see "You have asked to guide up to 5 groups."
 
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
-    Then I should see "Team limit"
+    Then I should see "Group limit"
     And I should see "asking for 5"
     When I press "Take up"
     And I set the field with xpath "//input[@name='resolution']" to "Agreed for this term"
@@ -58,10 +58,10 @@ Feature: A guide's request queue and asking for a higher team limit
   Scenario: A guide takes back a request nobody has picked up
     When I am on the "Lab groups" "mod_selfselectadvanced > guide queue" page logged in as guide1
     And I follow "What I have asked for"
-    And I set the field "Teams asked for" to "4"
+    And I set the field "Groups asked for" to "4"
     And I set the field "Reason" to "Asked too soon"
     And I press "Send the request"
-    Then I should see "You have asked to guide up to 4 teams."
+    Then I should see "You have asked to guide up to 4 groups."
     When I press "Withdraw it"
     Then I should see "Your request has been withdrawn."
     And I should see "Ask for a higher limit"
@@ -69,7 +69,7 @@ Feature: A guide's request queue and asking for a higher team limit
   Scenario: A coordinator does not see their own request in the queue they work
     When I am on the "Lab groups" "mod_selfselectadvanced > guide queue" page logged in as coord1
     And I follow "What I have asked for"
-    And I set the field "Teams asked for" to "6"
+    And I set the field "Groups asked for" to "6"
     And I set the field "Reason" to "My own request"
     And I press "Send the request"
     Then I should see "Your request has gone to the Group Coordinators."
@@ -84,6 +84,6 @@ Feature: A guide's request queue and asking for a higher team limit
       | selfselectadvanced | ssagroup  | guide  | sentby   | message              |
       | ssa1               | Team Blue | guide1 | student1 | Please guide us      |
     When I am on the "Lab groups" "mod_selfselectadvanced > guide queue" page logged in as guide1
-    Then I should see "A team has approached you"
+    Then I should see "A group has approached you"
     And I should see "Team Blue"
     And I should see "Please guide us"

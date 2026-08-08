@@ -55,7 +55,7 @@ Feature: A guide reaches the team they are assigned to without seeing everything
       | mod/selfselectadvanced:viewall | Prevent    | teacher | Course       | C1        |
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
     And I follow "Groups I guide"
-    And I click on "Team page" "link" in the "Alpha" "table_row"
+    And I click on "Group page" "link" in the "Alpha" "table_row"
     Then I should see "Members"
     And I should see "Two" in the "Tara" "table_row"
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page
@@ -132,7 +132,7 @@ Feature: A guide reaches the team they are assigned to without seeing everything
       | capability                     | permission | role    | contextlevel | reference |
       | mod/selfselectadvanced:viewall | Prevent    | teacher | Course       | C1        |
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
-    And I follow "Teams you guide"
+    And I follow "Groups you guide"
     Then I should see "Groups guided by Gina Guide"
     And I should see "Alpha"
     When I click on "Back" "link" in the ".selfselectadvanced-guideloadfooter" "css_element"
@@ -159,7 +159,7 @@ Feature: A guide reaches the team they are assigned to without seeing everything
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
     And I follow "Groups I guide"
     Then I should see "Alpha"
-    And "Team page" "link" should not exist in the "Alpha" "table_row"
+    And "Group page" "link" should not exist in the "Alpha" "table_row"
     # And the refusal it would have led to is real.
     Then the "Lab groups > Alpha" "group" page refuses me and discloses nothing of "Tara"
 
@@ -193,7 +193,7 @@ Feature: A guide reaches the team they are assigned to without seeing everything
     # The matched partner is not optional: a refusal scenario alone would
     # pass just as well if the page were broken.
     When I am on the "Lab groups > Delta" "mod_selfselectadvanced > eoi members" page
-    Then I should see "Team members"
+    Then I should see "Group members"
     And I should see "Five" in the "Will" "table_row"
     And I should not see "s5@example.com"
     # No row here can carry an action - a guide still awaiting a
@@ -218,7 +218,7 @@ Feature: A guide reaches the team they are assigned to without seeing everything
       | selfselectadvanced | ssagroup | guide  | status   |
       | ssa1               | Echo     | guide1 | accepted |
     When I am on the "Lab groups > Echo" "mod_selfselectadvanced > eoi members" page logged in as guide1
-    Then I should see "Team members"
+    Then I should see "Group members"
     And I should see "Two" in the "Tara" "table_row"
 
   # DECISION 20, state two: the SAME fixture, with the handover
@@ -237,7 +237,7 @@ Feature: A guide reaches the team they are assigned to without seeing everything
       | ssa1               | Echo     | guide1 | accepted |
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide2
     And I follow "Guide handover"
-    Then I should see "Gina Guide proposed handing this team over to Hari Helper."
+    Then I should see "Gina Guide proposed handing this group over to Hari Helper."
     When I press "Accept handover"
     Then I should see "Changes saved"
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1

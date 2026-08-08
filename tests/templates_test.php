@@ -112,6 +112,6 @@ final class templates_test extends \advanced_testcase {
         $this->assertCount(1, $messages);
         // Back to the shipped wording, inside the 1.17.0 message shape.
         $this->assertStringContainsString('Hello Tara', $messages[0]->fullmessage);
-        $this->assertStringContainsString('You have been invited to join the team', $messages[0]->fullmessage);
+        $this->assertStringContainsString('You have been invited to join the group', $messages[0]->fullmessage);
     }
 }
