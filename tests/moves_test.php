@@ -321,9 +321,16 @@ final class moves_test extends \advanced_testcase {
         // A cancelled move cannot be committed (not pending any more).
         $this->assertSame(0, $api->moves()->commit_set([(int) $move->id], 99));
 
-        // Cancelling it again is refused.
-        $this->expectException(\dml_missing_record_exception::class);
-        $api->moves()->cancel((int) $move->id, 99);
+        // Cancelling it again is refused as the ordinary two-worker
+        // race it is (1.20.22): TYPED, so the queue page answers with
+        // a notice, and the row keeps its first outcome.
+        try {
+            $api->moves()->cancel((int) $move->id, 99);
+            $this->fail('Expected the gone move to refuse the second cancel');
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+            $this->assertSame('refusalmovegone', $e->errorcode);
+        }
+        $this->assertSame('cancelled', $DB->get_field('selfselectadvanced_move', 'status', ['id' => $move->id]));
     }
 
     /**

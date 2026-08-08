@@ -2010,5 +2010,24 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080706, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080801) {
+        // Wave 1.5 of the external-audit response (consolidated master
+        // audit, decision 68): the failure-transport contract is
+        // finished - every expected workflow refusal travels as
+        // workflow_refusal, human-action controllers catch exactly that
+        // type, and validation allowlists rethrow what they do not map.
+        // Behavioural changes only; no schema change.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.22 (2026080801). External-audit wave 1.5: the typed '
+                . 'refusal contract is complete across all services and controllers, '
+                . 'stale races answer as notices, genuine failures stay loud.',
+            'Behavioural changes only; no schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080801, 'selfselectadvanced');
+    }
+
     return true;
 }

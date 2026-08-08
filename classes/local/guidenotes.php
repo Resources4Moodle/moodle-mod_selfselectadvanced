@@ -93,7 +93,7 @@ class guidenotes {
             // the stale author instead of letting them overwrite the
             // new guide's notes.
             if ($refusal = $gatekeeper->can_grade_team($fresh, $actorid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $DB->update_record('selfselectadvanced_group', (object) [

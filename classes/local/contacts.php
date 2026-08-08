@@ -74,10 +74,10 @@ class contacts {
 
         $max = (int) ($activity->settings()->contactmax ?? 0);
         if ($max < 1) {
-            throw new \moodle_exception('refusalcontactdisabled', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalcontactdisabled', 'mod_selfselectadvanced');
         }
         if (!has_capability('mod/selfselectadvanced:guide', $activity->context(), $guideid)) {
-            throw new \moodle_exception('refusalnotaguide', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalnotaguide', 'mod_selfselectadvanced');
         }
 
         $lock = locks::acquire('group:' . $group->id);
@@ -88,13 +88,13 @@ class contacts {
             // caller's copy (the lesson of 1.16.0).
             $group = groups::get($activity, (int) $group->id);
             if ((int) $group->leaderid !== $userid) {
-                throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
             }
             if ($group->state !== state::FORMING) {
-                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
             }
             if (!empty($group->guideid)) {
-                throw new \moodle_exception('refusalcontacthasguide', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalcontacthasguide', 'mod_selfselectadvanced');
             }
 
             // The ACTOR'S authority, asked in-service like eoi::set_listed's
@@ -106,7 +106,7 @@ class contacts {
 
             $used = $DB->count_records('selfselectadvanced_contact', ['groupid' => $group->id]);
             if ($used >= $max) {
-                throw new \moodle_exception('refusalcontactmax', 'mod_selfselectadvanced', '', $max);
+                throw new workflow_refusal('refusalcontactmax', 'mod_selfselectadvanced', '', $max);
             }
             if (
                 $DB->record_exists('selfselectadvanced_contact', [
@@ -114,7 +114,7 @@ class contacts {
                 'guideid' => $guideid,
                 ])
             ) {
-                throw new \moodle_exception('refusalcontactduplicate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalcontactduplicate', 'mod_selfselectadvanced');
             }
 
             $now = time();
@@ -200,10 +200,10 @@ class contacts {
         // below.
         $contact = self::get($activity, $contactid);
         if ((int) $contact->guideid !== $userid) {
-            throw new \moodle_exception('refusalcontactnotyours', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalcontactnotyours', 'mod_selfselectadvanced');
         }
         if ($contact->status !== self::STATUS_SENT) {
-            throw new \moodle_exception('refusalcontactanswered', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalcontactanswered', 'mod_selfselectadvanced');
         }
 
         // A team that is still forming has its guide PRE-ASSIGNED, the
@@ -228,20 +228,20 @@ class contacts {
             // leader's notification - said declined (T-02 R4).
             $contact = self::get($activity, $contactid);
             if ((int) $contact->guideid !== $userid) {
-                throw new \moodle_exception('refusalcontactnotyours', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalcontactnotyours', 'mod_selfselectadvanced');
             }
             if ($contact->status !== self::STATUS_SENT) {
-                throw new \moodle_exception('refusalcontactanswered', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalcontactanswered', 'mod_selfselectadvanced');
             }
 
             if ($accept) {
                 if ($group->state !== state::FORMING || !empty($group->guideid)) {
-                    throw new \moodle_exception('refusalcontacthasguide', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusalcontacthasguide', 'mod_selfselectadvanced');
                 }
                 // Judged under the lock: a guide who filled up while
                 // this approach was waiting cannot take another team.
                 if ((new api($activity))->gatekeeper()->can_take_guide($userid)) {
-                    throw new \moodle_exception('refusalcontactfull', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusalcontactfull', 'mod_selfselectadvanced');
                 }
                 $DB->set_field('selfselectadvanced_group', 'guideid', $userid, ['id' => $group->id]);
                 $DB->set_field('selfselectadvanced_group', 'timemodified', time(), ['id' => $group->id]);

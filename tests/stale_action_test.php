@@ -32,8 +32,10 @@ use mod_selfselectadvanced\local\workflow_refusal;
  * NOTIFY_ERROR occurrences in a file cannot prove a particular service
  * call is inside the right catch. These tests drive the SERVICE the
  * stale POST would drive and pin the exception TYPE, which is what the
- * controller's catch keys on; refusal_arms_test keeps only the weaker
- * per-file pattern pin as a canary.
+ * controller's catch keys on. Since 1.20.22, stale_matrix_test extends
+ * this harness across fifteen more seams and refusal_arms_test asserts
+ * the source contract itself (no untyped refusal, no swallowing catch)
+ * instead of counting strings.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>

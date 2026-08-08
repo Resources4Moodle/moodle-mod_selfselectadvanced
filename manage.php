@@ -62,10 +62,7 @@ if ($action === 'assignguide' && data_submitted() && confirm_sesskey()) {
     $group = \mod_selfselectadvanced\local\groups::get($activity, $groupid);
     try {
         $api->lifecycle()->assign_guide($group, $guideid, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // Same contract as group.php's arms (1.20.19): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(

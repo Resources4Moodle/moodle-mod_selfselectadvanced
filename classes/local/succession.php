@@ -99,7 +99,7 @@ class succession {
 
             $fresh = groups::get($this->activity, (int) $group->id);
             if ($refusal = $this->gatekeeper->can_nominate($fresh, $nomineeid, $type, $actorid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $DB->update_record('selfselectadvanced_group', (object) [
@@ -179,7 +179,7 @@ class succession {
 
             $fresh = groups::get($this->activity, (int) $group->id);
             if ($refusal = $this->gatekeeper->can_confirm_succession($fresh, $userid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();
@@ -300,7 +300,7 @@ class succession {
         // fact about the row and has never been a grant.
         authority::require_lead($this->activity, $actorid);
         if ((int) $group->leaderid !== $actorid) {
-            throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
         }
         $this->clear($group, $actorid, false);
     }
@@ -321,10 +321,10 @@ class succession {
 
             $fresh = groups::get($this->activity, (int) $group->id);
             if (empty($fresh->successorid)) {
-                throw new \moodle_exception('refusalnotnominee', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalnotnominee', 'mod_selfselectadvanced');
             }
             if ($declining && (int) $fresh->successorid !== $actorid) {
-                throw new \moodle_exception('refusalnotnominee', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalnotnominee', 'mod_selfselectadvanced');
             }
             $nomineeid = (int) $fresh->successorid;
 

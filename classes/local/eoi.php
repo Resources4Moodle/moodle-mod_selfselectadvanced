@@ -96,10 +96,10 @@ class eoi {
         if (!empty($activity->settings()->studentapproach)) {
             // Belt and braces beside express(): student-approach mode
             // has no guide-initiated interest to be listed for.
-            throw new \moodle_exception('refusalstudentapproach', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalstudentapproach', 'mod_selfselectadvanced');
         }
         if (empty($activity->settings()->eoienabled)) {
-            throw new \moodle_exception('refusaleoidisabled', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusaleoidisabled', 'mod_selfselectadvanced');
         }
 
         $lock = locks::acquire('group:' . $groupid);
@@ -111,10 +111,10 @@ class eoi {
             // write, and both of those decide this question.
             $group = groups::get($activity, $groupid);
             if ((int) $group->leaderid !== $actorid) {
-                throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
             }
             if ($group->state !== state::FORMING) {
-                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
             }
             if ($listed) {
                 authority::require_lead($activity, $actorid);
@@ -183,10 +183,10 @@ class eoi {
             // Belt and braces beside the settings validator: even a
             // directly-flipped eoienabled cannot reopen guide-initiated
             // interest in student-approach mode (strategy 1.16 A).
-            throw new \moodle_exception('refusalstudentapproach', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalstudentapproach', 'mod_selfselectadvanced');
         }
         if (empty($activity->settings()->eoienabled)) {
-            throw new \moodle_exception('refusaleoidisabled', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusaleoidisabled', 'mod_selfselectadvanced');
         }
 
         // Two locks, always guide before group: the open-interest cap
@@ -203,10 +203,10 @@ class eoi {
                 empty($group->listed) || $group->state !== state::FORMING
                 || !empty($group->guideid)
             ) {
-                throw new \moodle_exception('refusaleoinotlisted', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaleoinotlisted', 'mod_selfselectadvanced');
             }
             if (self::has_pending($groupid, $guideid)) {
-                throw new \moodle_exception('refusaleoidup', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaleoidup', 'mod_selfselectadvanced');
             }
             $max = (int) $activity->settings()->eoimax;
             $open = $DB->count_records('selfselectadvanced_eoi', [
@@ -215,7 +215,7 @@ class eoi {
                 'status' => self::STATUS_PENDING,
             ]);
             if ($max > 0 && $open >= $max) {
-                throw new \moodle_exception('refusaleoimax', 'mod_selfselectadvanced', '', $max);
+                throw new workflow_refusal('refusaleoimax', 'mod_selfselectadvanced', '', $max);
             }
             // The per-GROUP waitlist cap (1.14.0): under the group
             // lock, so two simultaneous picks cannot both squeeze into
@@ -227,7 +227,7 @@ class eoi {
                     'status' => self::STATUS_PENDING,
                 ]);
                 if ($groupopen >= $groupmax) {
-                    throw new \moodle_exception('refusaleoigroupfull', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusaleoigroupfull', 'mod_selfselectadvanced');
                 }
             }
             // AUTHORITY, NOT A NUMBER (audit C5).
@@ -250,7 +250,7 @@ class eoi {
             // every downstream verb refused with no way back that did
             // not need staff.
             if ($refusal = (new api($activity))->gatekeeper()->can_take_guide($guideid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();
@@ -348,7 +348,7 @@ class eoi {
             // withdraw must not overwrite that decision.
             $row = self::get($activity, $eoiid);
             if ((int) $row->guideid !== $guideid || $row->status !== self::STATUS_PENDING) {
-                throw new \moodle_exception('refusaleoinotpending', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaleoinotpending', 'mod_selfselectadvanced');
             }
             self::transition($activity, $row, self::STATUS_WITHDRAWN, $guideid);
 
@@ -477,7 +477,7 @@ class eoi {
 
             $row = self::get($activity, $eoiid);
             if ($row->status !== self::STATUS_PENDING) {
-                throw new \moodle_exception('refusaleoinotpending', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaleoinotpending', 'mod_selfselectadvanced');
             }
             $group = groups::get($activity, (int) $row->groupid);
             // Accepting an interest IS a guide assignment, so the
@@ -496,12 +496,12 @@ class eoi {
             // throws - nothing is written, sent or fired here (house
             // rule 1).
             if ($refusal = self::decide_refusal($activity, $group, $actorid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             if ($accept) {
                 if ($group->state !== state::FORMING || !empty($group->guideid)) {
-                    throw new \moodle_exception('refusaleoinotlisted', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusaleoinotlisted', 'mod_selfselectadvanced');
                 }
                 // Belt and braces, the same pair express() wears (3C
                 // audit follow-up B): flipping studentapproach on, or
@@ -511,10 +511,10 @@ class eoi {
                 // half is guarded - a pending interest must always be
                 // clearable, so rejecting stays open in every state.
                 if (!empty($activity->settings()->studentapproach)) {
-                    throw new \moodle_exception('refusalstudentapproach', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusalstudentapproach', 'mod_selfselectadvanced');
                 }
                 if (empty($activity->settings()->eoienabled)) {
-                    throw new \moodle_exception('refusaleoidisabled', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusaleoidisabled', 'mod_selfselectadvanced');
                 }
                 // The same authority express() asks, asked again about
                 // the SAME guide at the moment the row is written: an
@@ -524,7 +524,7 @@ class eoi {
                 // guide, so this is where :guide has to be true.
                 // See express() for why a number was never enough.
                 if ($refusal = (new api($activity))->gatekeeper()->can_take_guide((int) $row->guideid)) {
-                    throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                    throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
                 }
                 $DB->set_field('selfselectadvanced_group', 'guideid', $row->guideid, ['id' => $group->id]);
                 $DB->set_field('selfselectadvanced_group', 'timemodified', time(), ['id' => $group->id]);
@@ -624,7 +624,7 @@ class eoi {
 
             $group = groups::get($activity, $groupid);
             if ($group->state !== state::FORMING || (int) $group->guideid !== $guideid) {
-                throw new \moodle_exception('refusaleoinotassigned', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaleoinotassigned', 'mod_selfselectadvanced');
             }
             $DB->set_field('selfselectadvanced_group', 'guideid', null, ['id' => $groupid]);
             $DB->set_field('selfselectadvanced_group', 'timemodified', time(), ['id' => $groupid]);

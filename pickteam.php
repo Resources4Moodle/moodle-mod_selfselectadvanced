@@ -82,7 +82,7 @@ if ($groupid > 0) {
         try {
             \mod_selfselectadvanced\local\eoi::express($activity, $group->id, (int) $USER->id, $remarks, $remarksformat);
             redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             $expresserror = $e->getMessage();
             $prefillremarks = $remarks;
         }

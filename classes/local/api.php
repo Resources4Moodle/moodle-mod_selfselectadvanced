@@ -156,7 +156,7 @@ class api {
                 throw new \moodle_exception('errmovenotparticipant', 'mod_selfselectadvanced');
             }
             if ($refusal = $this->leader_capacity_refusal($leaderid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
         } else {
             // AUTHORITY first, eligibility second. can_create_group()
@@ -168,7 +168,7 @@ class api {
             authority::require_lead($this->activity, $userid);
             $leaderid = $userid;
             if ($refusal = $this->gatekeeper->can_create_group($userid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
         }
         // NAME UNIQUENESS WAS REMOVED HERE, maintainer decision 2026-08-05.
@@ -205,10 +205,10 @@ class api {
             // Re-check under the lock: a parallel creation may have consumed the slot.
             if ($staff) {
                 if ($refusal = $this->leader_capacity_refusal($leaderid)) {
-                    throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                    throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
                 }
             } else if ($refusal = $this->gatekeeper->can_create_group($userid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
             // Renaming carries no uniqueness check either - see the note on
             // the creation path above. Same ruling, same reason.
@@ -376,12 +376,12 @@ class api {
             $isstaff = has_capability('mod/selfselectadvanced:manage', $this->activity->context(), $actorid);
             if (!$isstaff) {
                 if ((int) $group->leaderid !== $actorid) {
-                    throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
                 }
                 authority::require_lead($this->activity, $actorid);
             }
             if ($group->state !== state::FORMING) {
-                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
             }
 
             $now = time();
@@ -604,13 +604,13 @@ class api {
 
             $fresh = groups::get($this->activity, (int) $group->id);
             if ($fresh->state !== state::FORMING) {
-                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
             }
             if ((int) $fresh->leaderid !== $userid) {
-                throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
             }
             if (!empty($fresh->timedisbandrequested)) {
-                throw new \moodle_exception('refusaldisbandlive', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaldisbandlive', 'mod_selfselectadvanced');
             }
             $memberids = array_map('intval', $DB->get_fieldset_select(
                 'selfselectadvanced_member',
@@ -621,7 +621,7 @@ class api {
             if (!$memberids) {
                 // An empty team needs no consent - Delete is already
                 // open to its leader.
-                throw new \moodle_exception('refusaldisbandempty', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaldisbandempty', 'mod_selfselectadvanced');
             }
 
             $now = time();
@@ -690,10 +690,10 @@ class api {
 
             $fresh = groups::get($this->activity, (int) $group->id);
             if ((int) $fresh->leaderid !== $userid) {
-                throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
             }
             if (empty($fresh->timedisbandrequested)) {
-                throw new \moodle_exception('refusaldisbandnone', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaldisbandnone', 'mod_selfselectadvanced');
             }
             $memberids = array_map('intval', $DB->get_fieldset_select(
                 'selfselectadvanced_member',
@@ -806,7 +806,7 @@ class api {
                 [$this->activity->id(), (int) $fresh->id]
             );
             if ($awarded) {
-                throw new \moodle_exception('errdissolveaward', 'mod_selfselectadvanced');
+                throw new workflow_refusal('errdissolveaward', 'mod_selfselectadvanced');
             }
             $liveticket = $DB->record_exists_select(
                 'selfselectadvanced_ticket',
@@ -819,7 +819,7 @@ class api {
                 ]
             );
             if ($liveticket) {
-                throw new \moodle_exception('errdissolveticket', 'mod_selfselectadvanced');
+                throw new workflow_refusal('errdissolveticket', 'mod_selfselectadvanced');
             }
 
             // The plugin-owned mirror is REMEMBERED here and deleted

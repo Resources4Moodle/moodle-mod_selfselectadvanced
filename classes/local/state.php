@@ -89,7 +89,7 @@ final class state {
         // the group goes straight to the guide the leader chose.
         $preassigned = !empty($group->guideid) ? (int) $group->guideid : 0;
         if ($leaderselects && !$guideid && !$preassigned) {
-            throw new \moodle_exception('refusalguiderequired', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalguiderequired', 'mod_selfselectadvanced');
         }
 
         // The guide's capacity gate below only holds under per-guide
@@ -110,19 +110,19 @@ final class state {
                 // An EOI decision changed the group's guide between the
                 // pre-lock read and now: the lock held is the wrong
                 // guide's, so the leader must review and resubmit.
-                throw new \moodle_exception('refusalguidechanged', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalguidechanged', 'mod_selfselectadvanced');
             }
             if ($leaderselects && !$target) {
-                throw new \moodle_exception('refusalguiderequired', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalguiderequired', 'mod_selfselectadvanced');
             }
             if ($refusal = $this->gatekeeper->can_submit($fresh, $actorid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
             if (
                 ($leaderselects || $preassigned)
                 && ($refusal = $this->gatekeeper->can_take_guide($target, (int) $fresh->id))
             ) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();
@@ -298,7 +298,7 @@ final class state {
 
             $fresh = groups::get($this->activity, (int) $group->id);
             if (!in_array($fresh->state, [self::PENDING_GUIDE, self::FIRM, self::FROZEN], true)) {
-                throw new \moodle_exception('refusalreassignstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalreassignstate', 'mod_selfselectadvanced');
             }
             // Conflict of interest (1.16 D) on the RE-READ row, inside
             // the lock: a narrow-authority actor may not pick the guide
@@ -321,7 +321,7 @@ final class state {
                 $oldguide !== (int) $guideid
                 && ($refusal = $this->gatekeeper->can_take_guide($guideid))
             ) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $fresh->guideid = $guideid;
@@ -466,7 +466,7 @@ final class state {
                 tickets::require_queue_authority($this->activity, $actorid);
                 tickets::require_uninvolved($this->activity, $fresh, $actorid);
             } else if ($refusal = $this->gatekeeper->can_return($fresh, $actorid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
             $oldguideid = (int) ($fresh->guideid ?? 0);
 
@@ -626,7 +626,7 @@ final class state {
                 // not on the sweep's batch snapshot (T-04 3b).
                 $plan = $this->gatekeeper->autoapprove_plan($fresh);
                 if ($plan->refusal !== null) {
-                    throw new \moodle_exception(
+                    throw new workflow_refusal(
                         $plan->refusal->stringkey,
                         'mod_selfselectadvanced',
                         '',
@@ -646,7 +646,7 @@ final class state {
                         // A pre-existing guarded reduction keeps the
                         // merged row pending; approving on relief the
                         // resolver cannot see would be unexplained.
-                        throw new \moodle_exception('refusalreliefpending', 'mod_selfselectadvanced');
+                        throw new workflow_refusal('refusalreliefpending', 'mod_selfselectadvanced');
                     }
                     // The resolver cached every override row of the
                     // activity before this write; nothing downstream may
@@ -654,7 +654,7 @@ final class state {
                     $this->gatekeeper->resolver()->invalidate();
                 }
             } else if ($refusal = $this->gatekeeper->can_approve($fresh, $actorid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();

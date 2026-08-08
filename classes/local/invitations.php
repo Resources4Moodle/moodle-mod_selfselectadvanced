@@ -75,10 +75,10 @@ class invitations {
         // as leader"). Being named on the row is not a grant.
         authority::require_lead($this->activity, $actorid);
         if ((int) $group->leaderid !== $actorid) {
-            throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
         }
         if ($refusal = $this->gatekeeper->can_invite($group, $inviteeid)) {
-            throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
         }
 
         $lock = locks::acquire('group:' . $group->id);
@@ -87,7 +87,7 @@ class invitations {
 
             $fresh = groups::get($this->activity, (int) $group->id);
             if ($refusal = $this->gatekeeper->can_invite($fresh, $inviteeid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();
@@ -208,7 +208,7 @@ class invitations {
             ], '*', MUST_EXIST);
 
             if ($refusal = $this->gatekeeper->can_accept($fresh, $member)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();
@@ -301,7 +301,7 @@ class invitations {
                 'userid' => $userid,
             ], '*', MUST_EXIST);
             if ($member->status !== groups::STATUS_INVITED) {
-                throw new \moodle_exception('refusalnotinvited', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalnotinvited', 'mod_selfselectadvanced');
             }
 
             $now = time();
@@ -375,7 +375,7 @@ class invitations {
                 'groupid' => $fresh->id,
             ], '*', MUST_EXIST);
             if ($refusal = $this->gatekeeper->can_withdraw($fresh, $member, $actorid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();
@@ -607,7 +607,7 @@ class invitations {
                 'userid' => $userid,
             ], '*', MUST_EXIST);
             if ($refusal = $this->gatekeeper->can_request_leave($fresh, $member, $userid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();
@@ -678,7 +678,7 @@ class invitations {
                 'groupid' => $fresh->id,
             ], '*', MUST_EXIST);
             if ($refusal = $this->gatekeeper->can_confirm_leave($fresh, $member, $actorid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $now = time();
@@ -740,15 +740,15 @@ class invitations {
 
             $fresh = groups::get($this->activity, (int) $group->id);
             if ($fresh->state !== state::FORMING) {
-                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
             }
             if (empty($fresh->timedisbandrequested)) {
-                throw new \moodle_exception('refusaldisbandnone', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaldisbandnone', 'mod_selfselectadvanced');
             }
             if ((int) $fresh->leaderid === $userid) {
                 // The leader does not leave their own wind-up; they
                 // delete once alone, or cancel.
-                throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
             }
             $member = $DB->get_record('selfselectadvanced_member', [
                 'groupid' => $fresh->id,

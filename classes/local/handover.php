@@ -74,17 +74,17 @@ class handover {
 
             $group = groups::get($this->activity, $groupid);
             if (!in_array($group->state, self::STATES, true)) {
-                throw new \moodle_exception('refusalhandoverstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalhandoverstate', 'mod_selfselectadvanced');
             }
             $this->require_proposing_guide($group, $actorid);
             if ($nomineeid === $actorid) {
-                throw new \moodle_exception('refusalhandoverself', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalhandoverself', 'mod_selfselectadvanced');
             }
             if (!empty($group->guidesuccessorid)) {
-                throw new \moodle_exception('refusalhandoverpending', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalhandoverpending', 'mod_selfselectadvanced');
             }
             if ($refusal = $this->gatekeeper->can_take_guide($nomineeid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $DB->update_record('selfselectadvanced_group', (object) [
@@ -156,13 +156,13 @@ class handover {
 
             $group = groups::get($this->activity, $groupid);
             if ((int) ($group->guidesuccessorid ?? 0) !== $actorid) {
-                throw new \moodle_exception('refusalhandovernonominee', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalhandovernonominee', 'mod_selfselectadvanced');
             }
             if (!in_array($group->state, self::STATES, true)) {
-                throw new \moodle_exception('refusalhandoverstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalhandoverstate', 'mod_selfselectadvanced');
             }
             if ($refusal = $this->gatekeeper->can_take_guide($actorid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
 
             $oldguide = (int) $group->guideid;
@@ -259,7 +259,7 @@ class handover {
 
             $group = groups::get($this->activity, $groupid);
             if ((int) ($group->guidesuccessorid ?? 0) !== $actorid) {
-                throw new \moodle_exception('refusalhandovernonominee', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalhandovernonominee', 'mod_selfselectadvanced');
             }
             $this->clear($group, $actorid);
             $transaction->allow_commit();
@@ -311,7 +311,7 @@ class handover {
             // proposal back, so it answers to the same question.
             $this->require_proposing_guide($group, $actorid);
             if (empty($group->guidesuccessorid)) {
-                throw new \moodle_exception('refusalhandovernonominee', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalhandovernonominee', 'mod_selfselectadvanced');
             }
             $this->clear($group, $actorid);
             $transaction->allow_commit();
@@ -389,7 +389,7 @@ class handover {
             !teamaccess::is_assigned_guide($this->activity, $group, $actorid)
             || !has_capability('mod/selfselectadvanced:guide', $this->activity->context(), $actorid)
         ) {
-            throw new \moodle_exception('refusalhandovernotguide', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalhandovernotguide', 'mod_selfselectadvanced');
         }
     }
 

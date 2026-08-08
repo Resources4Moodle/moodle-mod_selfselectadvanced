@@ -151,7 +151,8 @@ final class races_regression_test extends \advanced_testcase {
         $this->assertSame('cancelled', $DB->get_field('selfselectadvanced_move', 'status', ['id' => $tocancel->id]));
 
         // A committed move can no longer be cancelled: the re-read
-        // filters on 'pending' and MUST_EXIST refuses.
+        // sees the status has moved and refuses TYPED (1.20.22), so
+        // the loser of the race reads a sentence, not a stack trace.
         $committed = $api->moves()->stage((int) $wanderer->id, (int) $alpha->id, (int) $beta->id, false, null, 99);
         $api->moves()->commit_set([(int) $committed->id], 99);
 
@@ -159,8 +160,8 @@ final class races_regression_test extends \advanced_testcase {
         try {
             $api->moves()->cancel((int) $committed->id, 99);
             $this->fail('Expected the committed move to be uncancellable');
-        } catch (\dml_missing_record_exception $e) {
-            $this->assertStringContainsString('selfselectadvanced_move', $e->getMessage());
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+            $this->assertSame('refusalmovegone', $e->errorcode);
         }
         $cancelledevents = array_filter(
             $sink->get_events(),

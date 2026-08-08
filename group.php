@@ -181,10 +181,7 @@ if ($isleaderforming && $maylead) {
 if ($action === 'submit' && $submitform && ($data = $submitform->get_data())) {
     try {
         $api->lifecycle()->submit($group, isset($data->guide) ? (int) $data->guide : null, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // The refusalguidechanged sentence exists solely for the race between the
         // page load and this click - it must land as a sentence, not a
         // stack trace. Same contract as the accept arm (1.20.18): a refusal is an
@@ -207,10 +204,7 @@ if ($action === 'submit' && $submitform && ($data = $submitform->get_data())) {
 if ($action === 'nominate' && $nominateform && ($data = $nominateform->get_data())) {
     try {
         $api->succession()->nominate($group, (int) $data->nominee, $data->stype, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
@@ -231,10 +225,7 @@ if ($action === 'nominate' && $nominateform && ($data = $nominateform->get_data(
 if ($action === 'confirmnomination' && data_submitted() && confirm_sesskey()) {
     try {
         $type = $api->succession()->confirm($group, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
@@ -253,10 +244,7 @@ if ($action === 'confirmnomination' && data_submitted() && confirm_sesskey()) {
 if ($action === 'declinenomination' && data_submitted() && confirm_sesskey()) {
     try {
         $api->succession()->decline($group, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
@@ -277,10 +265,7 @@ if ($action === 'declinenomination' && data_submitted() && confirm_sesskey()) {
 if ($action === 'cancelnomination' && data_submitted() && confirm_sesskey()) {
     try {
         $api->succession()->cancel($group, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
@@ -339,7 +324,7 @@ if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
         try {
             $api->invitations()->send($group, $inviteeid, (int) $USER->id);
             $sent++;
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             // The combination case (maintainer, 2026-08-06): a candidate
             // eligible ALONE can be refused once an earlier pick in this
             // same batch consumed the seats or the rule capacity their
@@ -370,10 +355,7 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
     $memberid = required_param('m', PARAM_INT);
     try {
         $api->invitations()->withdraw($group, $memberid, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // The invitee accepting first is the documented ordinary race. Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
@@ -394,10 +376,7 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
 if ($action === 'accept' && data_submitted() && confirm_sesskey()) {
     try {
         $api->invitations()->accept($group, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // A refused acceptance is an ANSWER, not an accident
         // (maintainer, 2026-08-07): back to the invitation list with
         // the reason as a notice, never the raw error page with its
@@ -422,10 +401,7 @@ if ($action === 'accept' && data_submitted() && confirm_sesskey()) {
 if ($action === 'decline' && data_submitted() && confirm_sesskey()) {
     try {
         $api->invitations()->decline($group, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // The unfixed sibling of the accept arm: a withdrawn or
         // expired invitation declined a moment too late. Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
@@ -457,7 +433,7 @@ if ($action === 'requestleave' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -473,7 +449,7 @@ if ($action === 'confirmleave' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -500,7 +476,7 @@ if (($action === 'eoilist' || $action === 'eoiunlist') && data_submitted() && co
             (int) $USER->id
         );
         redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -551,7 +527,7 @@ if ($action === 'eoirespond') {
                 ? get_string('eoistatusaccepted', 'mod_selfselectadvanced')
                 : get_string('eoistatusrejected', 'mod_selfselectadvanced');
             redirect($baseurl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
     }
@@ -621,7 +597,7 @@ if ($action === 'joinrespond' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -643,10 +619,7 @@ if ($action === 'freeze') {
     // extracted so the page cannot ask a different question.
     try {
         \mod_selfselectadvanced\local\freeze::require_freeze_team($activity, $group, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // A stale freeze link is ordinary multi-user work (MKT-05):
         // the reason lands as a notice on the team page.
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
@@ -654,10 +627,7 @@ if ($action === 'freeze') {
     if (data_submitted() && confirm_sesskey()) {
         try {
             $frozen = \mod_selfselectadvanced\local\freeze::freeze_group($activity, $group, (int) $USER->id);
-        } catch (\moodle_exception $e) {
-            if ($e instanceof \coding_exception) {
-                throw $e;
-            }
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             // The membership-audit refusals are designed sentences
             // (freeze.php: "STATE IS NOT ASKED HERE") - deliver them
             // as the notice they were written to be.
@@ -717,7 +687,7 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -733,10 +703,7 @@ if ($action === 'unfreeze') {
     // so nobody is sent to a door that refuses them.
     try {
         \mod_selfselectadvanced\local\freeze::require_unfreeze_team($activity, $group, (int) $USER->id);
-    } catch (\moodle_exception $e) {
-        if ($e instanceof \coding_exception) {
-            throw $e;
-        }
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
     if (data_submitted() && confirm_sesskey()) {
@@ -748,7 +715,7 @@ if ($action === 'unfreeze') {
                 (int) $USER->id,
                 $unfreezereason
             );
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
         $notice = get_string('groupunfrozennotice', 'mod_selfselectadvanced', $group->pluginuid);
@@ -870,7 +837,7 @@ if ($action === 'dissolve') {
         }
         try {
             $api->dissolve_group($group, $dissolvereason, (int) $USER->id);
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
         redirect(
@@ -952,7 +919,7 @@ if ($action === 'disbandrequest') {
         }
         try {
             $api->request_disband($group, $disbandreason, FORMAT_PLAIN, (int) $USER->id);
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
         redirect(
@@ -1010,7 +977,7 @@ if ($action === 'canceldisband' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -1026,7 +993,7 @@ if ($action === 'selfleave' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -1052,7 +1019,7 @@ if ($action === 'returnforming') {
         }
         try {
             $api->lifecycle()->return_group($group, $returnreason, (int) $USER->id);
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
         redirect(
@@ -1156,7 +1123,7 @@ if ($action === 'discardcoregroup') {
                 null,
                 \core\output\notification::NOTIFY_SUCCESS
             );
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
     }
@@ -1252,7 +1219,7 @@ if ($action === 'proposal') {
                 null,
                 \core\output\notification::NOTIFY_SUCCESS
             );
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
     }

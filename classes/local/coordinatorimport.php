@@ -360,7 +360,7 @@ class coordinatorimport {
     public static function appoint(activity $activity, int $userid): void {
         $coursecontext = \context_course::instance($activity->cm()->course);
         if (!is_enrolled($coursecontext, $userid)) {
-            throw new \moodle_exception('coordinatorimportnotenrolled', 'mod_selfselectadvanced');
+            throw new workflow_refusal('coordinatorimportnotenrolled', 'mod_selfselectadvanced');
         }
         $roleid = coordinatorrole::roleid();
         $modcontext = $activity->context();
@@ -374,7 +374,7 @@ class coordinatorimport {
             return;
         }
         if (!in_array($userid, self::eligible_userids($activity), true)) {
-            throw new \moodle_exception('coordinatorineligible', 'mod_selfselectadvanced');
+            throw new workflow_refusal('coordinatorineligible', 'mod_selfselectadvanced');
         }
 
         role_assign($roleid, $userid, $modcontext->id, 'mod_selfselectadvanced', 0);
@@ -549,7 +549,7 @@ class coordinatorimport {
         $plugin = enrol_get_plugin('manual');
         $instance = $DB->get_record('enrol', ['courseid' => $courseid, 'enrol' => 'manual'], '*', IGNORE_MISSING);
         if (!$plugin || !$instance) {
-            throw new \moodle_exception('coordinatorimportnomanual', 'mod_selfselectadvanced');
+            throw new workflow_refusal('coordinatorimportnomanual', 'mod_selfselectadvanced');
         }
         $plugin->enrol_user($instance, $userid);
     }

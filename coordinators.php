@@ -92,7 +92,7 @@ if (in_array($action, ['appoint', 'remove'], true) && data_submitted() && confir
             $notice = get_string('coordinatorremoved', 'mod_selfselectadvanced');
         }
         redirect($returnurl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($returnurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }

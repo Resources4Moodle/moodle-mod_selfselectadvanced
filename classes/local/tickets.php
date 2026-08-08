@@ -130,7 +130,7 @@ class tickets {
             throw new \coding_exception('Unknown ticket type ' . $type);
         }
         if (trim(html_to_text($request)) === '') {
-            throw new \moodle_exception('refusalticketreason', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
 
         $lock = locks::acquire('group:' . $group->id);
@@ -151,26 +151,26 @@ class tickets {
             $isguide = (int) $group->guideid === $userid && $userid > 0;
             $isleader = (int) $group->leaderid === $userid;
             if ($type === self::TYPE_COMPCHANGE && !$isguide) {
-                throw new \moodle_exception('refusalticketnotguide', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalticketnotguide', 'mod_selfselectadvanced');
             }
             if ($type === self::TYPE_UNFREEZE && !$isguide && !$isleader) {
-                throw new \moodle_exception('refusalticketnotparty', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalticketnotparty', 'mod_selfselectadvanced');
             }
             if ($type === self::TYPE_UNFREEZE && $group->state !== state::FROZEN) {
-                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
             }
             if ($type === self::TYPE_COMPCHANGE && !in_array($group->state, [state::FIRM, state::FROZEN], true)) {
-                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
             }
             // Flow (e): only the team's OWN assigned guide may ask, and
             // only once there IS a guide relationship - a submitted,
             // firm or frozen team. Forming teams have no guide to ask.
             if (in_array($type, [self::TYPE_DATES, self::TYPE_PENALTY], true)) {
                 if (!$isguide) {
-                    throw new \moodle_exception('refusalticketnotguide', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusalticketnotguide', 'mod_selfselectadvanced');
                 }
                 if (!in_array($group->state, [state::PENDING_GUIDE, state::FIRM, state::FROZEN], true)) {
-                    throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
                 }
             }
 
@@ -185,7 +185,7 @@ class tickets {
                 ]
             );
             if ($live) {
-                throw new \moodle_exception('refusalticketduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
+                throw new workflow_refusal('refusalticketduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
             }
 
             $now = time();
@@ -252,17 +252,17 @@ class tickets {
 
         require_capability('mod/selfselectadvanced:guide', $activity->context(), $userid);
         if (trim(html_to_text($request)) === '') {
-            throw new \moodle_exception('refusalticketreason', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
 
         // Asking for nothing, or for less than the activity's own
         // ceiling allows, is not a request anybody can act on.
         $ceiling = (new api($activity))->gatekeeper()->resolver()->guide_capacity_ceiling($userid);
         if ($requested < 1) {
-            throw new \moodle_exception('refusalguidecapzero', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalguidecapzero', 'mod_selfselectadvanced');
         }
         if ($requested <= $ceiling->value) {
-            throw new \moodle_exception('refusalguidecapnotmore', 'mod_selfselectadvanced', '', $ceiling->value);
+            throw new workflow_refusal('refusalguidecapnotmore', 'mod_selfselectadvanced', '', $ceiling->value);
         }
 
         // Serialised on the guide, not on a team: two requests from the
@@ -288,7 +288,7 @@ class tickets {
                 ]
             );
             if ($live) {
-                throw new \moodle_exception('refusalticketduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
+                throw new workflow_refusal('refusalticketduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
             }
 
             $now = time();
@@ -356,15 +356,15 @@ class tickets {
 
         require_capability('mod/selfselectadvanced:guide', $activity->context(), $userid);
         if (trim(html_to_text($request)) === '') {
-            throw new \moodle_exception('refusalticketreason', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
 
         $ceiling = (new api($activity))->gatekeeper()->resolver()->guide_capacity_ceiling($userid);
         if ($requested < 0) {
-            throw new \moodle_exception('refusalguidereducenegative', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalguidereducenegative', 'mod_selfselectadvanced');
         }
         if ($requested >= $ceiling->value) {
-            throw new \moodle_exception('refusalguidereducenotless', 'mod_selfselectadvanced', '', $ceiling->value);
+            throw new workflow_refusal('refusalguidereducenotless', 'mod_selfselectadvanced', '', $ceiling->value);
         }
 
         // Serialised on the guide, and the duplicate guard spans BOTH
@@ -388,7 +388,7 @@ class tickets {
                 ]
             );
             if ($live) {
-                throw new \moodle_exception('refusalticketduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
+                throw new workflow_refusal('refusalticketduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
             }
 
             $now = time();
@@ -580,7 +580,7 @@ class tickets {
             throw new \coding_exception('grant_guidecap called on a ' . $ticket->type . ' ticket');
         }
         if ($ticket->status !== self::STATUS_CLAIMED) {
-            throw new \moodle_exception('refusalticketnotclaimed', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalticketnotclaimed', 'mod_selfselectadvanced');
         }
 
         // Granting IS setting an exception, so it is gated on the
@@ -612,10 +612,10 @@ class tickets {
         // one this replaces, and it is stated here rather than papered
         // over.
         if (trim(html_to_text($resolution)) === '') {
-            throw new \moodle_exception('refusalticketreason', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
         if ((int) $ticket->claimedby !== $userid) {
-            throw new \moodle_exception(
+            throw new workflow_refusal(
                 'refusalticketnotclaimant',
                 'mod_selfselectadvanced',
                 '',
@@ -665,10 +665,10 @@ class tickets {
                 throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
             }
             if ((int) $fresh->requestedby !== $userid) {
-                throw new \moodle_exception('refusalticketnotyours', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalticketnotyours', 'mod_selfselectadvanced');
             }
             if ($fresh->status !== self::STATUS_OPEN) {
-                throw new \moodle_exception('refusalticketclaimed', 'mod_selfselectadvanced', '', $fresh->status);
+                throw new workflow_refusal('refusalticketclaimed', 'mod_selfselectadvanced', '', $fresh->status);
             }
 
             $fresh->status = self::STATUS_WITHDRAWN;
@@ -767,7 +767,7 @@ class tickets {
         if ($group !== null) {
             self::require_uninvolved($activity, $group, $userid);
         } else if ((int) $ticket->requestedby === $userid) {
-            throw new \moodle_exception('refusalcoiself', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalcoiself', 'mod_selfselectadvanced');
         }
 
         $lock = locks::acquire('ticket:' . $ticketid);
@@ -776,7 +776,7 @@ class tickets {
 
             $fresh = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticketid], '*', MUST_EXIST);
             if ($fresh->status !== self::STATUS_OPEN) {
-                throw new \moodle_exception(
+                throw new workflow_refusal(
                     'refusalticketclaimed',
                     'mod_selfselectadvanced',
                     '',
@@ -803,7 +803,7 @@ class tickets {
             if ($claimed->status !== self::STATUS_CLAIMED || (int) $claimed->claimedby !== $userid) {
                 // Belt and braces: someone slipped between read and
                 // write despite the lock - refuse rather than share.
-                throw new \moodle_exception(
+                throw new workflow_refusal(
                     'refusalticketclaimed',
                     'mod_selfselectadvanced',
                     '',
@@ -860,7 +860,7 @@ class tickets {
             throw new \coding_exception('Unknown ticket outcome ' . $outcome);
         }
         if ($outcome !== self::STATUS_OPEN && trim(html_to_text($resolution)) === '') {
-            throw new \moodle_exception('refusalticketreason', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
 
         // The queue-worker authority, RE-ASKED (audit A-5), before the
@@ -893,11 +893,11 @@ class tickets {
                 throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
             }
             if ($fresh->status !== self::STATUS_CLAIMED) {
-                throw new \moodle_exception('refusalticketnotclaimed', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalticketnotclaimed', 'mod_selfselectadvanced');
             }
             $ismanager = has_capability('mod/selfselectadvanced:manage', $activity->context(), $userid);
             if ((int) $fresh->claimedby !== $userid && !($outcome === self::STATUS_OPEN && $ismanager)) {
-                throw new \moodle_exception(
+                throw new workflow_refusal(
                     'refusalticketnotclaimant',
                     'mod_selfselectadvanced',
                     '',
@@ -1039,7 +1039,7 @@ class tickets {
     public static function require_uninvolved(activity $activity, stdClass $group, int $userid): void {
         $involvement = self::involvement($activity, $group, $userid);
         if ($involvement !== null) {
-            throw new \moodle_exception('refusalcoiinvolved', 'mod_selfselectadvanced', '', $involvement);
+            throw new workflow_refusal('refusalcoiinvolved', 'mod_selfselectadvanced', '', $involvement);
         }
     }
 
@@ -1177,7 +1177,7 @@ class tickets {
             return;
         }
         if (in_array($scope, ['user', 'guide'], true) && $targetid === $userid) {
-            throw new \moodle_exception('refusalcoiself', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalcoiself', 'mod_selfselectadvanced');
         }
         if ($scope === 'group') {
             self::require_uninvolved($activity, groups::get($activity, $targetid), $userid);
@@ -1198,7 +1198,7 @@ class tickets {
                 MUST_EXIST
             );
             if ((int) $move->userid === $userid) {
-                throw new \moodle_exception('refusalcoiself', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalcoiself', 'mod_selfselectadvanced');
             }
             if ($move->sourcegroupid) {
                 self::require_uninvolved($activity, groups::get($activity, (int) $move->sourcegroupid), $userid);

@@ -34,11 +34,13 @@ namespace mod_selfselectadvanced\local;
  * work - state raced ahead, authority changed, a rule said no. Never
  * for malformed parameters, missing records that indicate tampering,
  * or anything a developer needs to hear about. Controllers catch this
- * type and answer with a redirect + notification; migration of the
- * scattered untyped refusal throws onto this type is incremental
- * (wave 2 of the audit response), and until a service's throws are
- * typed its controller keeps the older broad-catch-rethrow-coding
- * idiom.
+ * type and answer with a redirect + notification. As of 1.20.22
+ * (wave 1.5) the migration is COMPLETE: every `refusal*`-keyed throw
+ * and every gatekeeper-refusal transport travels typed, and the gate
+ * holds the line with a static guard against new untyped ones.
+ * Field-level validation (`err*` keys) deliberately stays outside
+ * this type - a page may map those to form errors through an
+ * errorcode allowlist that rethrows anything unknown.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>

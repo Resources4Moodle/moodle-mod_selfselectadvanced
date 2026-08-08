@@ -104,14 +104,21 @@ if (in_array($action, ['queueaccept', 'queuereturn'], true) && data_submitted() 
         } else {
             $comment = trim(required_param('comment', PARAM_TEXT));
             if ($comment === '') {
-                throw new moodle_exception('returncommentrequired', 'mod_selfselectadvanced');
+                // Validation, answered before the service is asked - the
+                // typed catch below is for workflow refusals only.
+                redirect(
+                    $back,
+                    get_string('returncommentrequired', 'mod_selfselectadvanced'),
+                    null,
+                    \core\output\notification::NOTIFY_ERROR
+                );
             }
             $api->lifecycle()->return_group($group, $comment, (int) $USER->id);
             $back->params(['decided' => $groupid, 'decidedas' => 'returned']);
             $notice = get_string('groupreturnednotice', 'mod_selfselectadvanced', $group->pluginuid);
         }
         redirect($back, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($back, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -127,7 +134,7 @@ if (
         \mod_selfselectadvanced\local\volunteering::set($activity, (int) $USER->id, $capacity);
         $notice = get_string('volunteersaved', 'mod_selfselectadvanced');
         $notifytype = \core\output\notification::NOTIFY_SUCCESS;
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         $notice = $e->getMessage();
         $notifytype = \core\output\notification::NOTIFY_ERROR;
     }
@@ -221,7 +228,7 @@ if ($action === 'stepout') {
                 null,
                 \core\output\notification::NOTIFY_SUCCESS
             );
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect(
                 new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
                 $e->getMessage(),
@@ -277,7 +284,7 @@ if (
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect(
             new moodle_url('/mod/selfselectadvanced/guide.php', ['id' => $cm->id]),
             $e->getMessage(),

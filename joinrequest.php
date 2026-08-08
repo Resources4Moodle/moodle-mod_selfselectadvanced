@@ -144,7 +144,7 @@ if ($action === 'ask' && $askform !== null && ($data = $askform->get_data())) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect(
             new moodle_url($baseurl, ['tab' => 'ask']),
             $e->getMessage(),
@@ -164,7 +164,7 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect(
             new moodle_url($baseurl, ['tab' => 'ask']),
             $e->getMessage(),
@@ -198,7 +198,7 @@ if (in_array($action, ['accept', 'decline'], true) && data_submitted() && confir
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect(
             new moodle_url($baseurl, ['tab' => 'answer']),
             $e->getMessage(),

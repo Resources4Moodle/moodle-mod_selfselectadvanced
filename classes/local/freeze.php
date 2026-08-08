@@ -861,7 +861,7 @@ class freeze {
             $onbehalf = has_capability('mod/selfselectadvanced:manage', $context, $actorid)
                 || has_capability('mod/selfselectadvanced:coordinate', $context, $actorid);
             if (!$onbehalf) {
-                throw new \moodle_exception('refusalnotassignedguide', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalnotassignedguide', 'mod_selfselectadvanced');
             }
             tickets::require_uninvolved($activity, $group, $actorid);
 
@@ -947,7 +947,7 @@ class freeze {
             $isrepair = $fresh->state === state::FROZEN;
             if (!$isrepair) {
                 if ($refusal = $gatekeeper->can_freeze($fresh)) {
-                    throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                    throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
                 }
                 // The authority question, asked of the row re-read under
                 // this method's own lock. It is CALLED, not written out
@@ -1012,7 +1012,7 @@ class freeze {
 
         if ($violators) {
             self::flag_membership_audit($activity, $fresh, $violators, $actorid);
-            throw new \moodle_exception(
+            throw new workflow_refusal(
                 'refusalmembershipaudit',
                 'mod_selfselectadvanced',
                 '',
@@ -1207,9 +1207,9 @@ class freeze {
         switch (self::release_refusal($activity, $group, $actorid)) {
             case self::RELEASE_CONFLICT:
                 tickets::require_uninvolved($activity, $group, $actorid);
-                throw new \moodle_exception('refusalcoiinvolved', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalcoiinvolved', 'mod_selfselectadvanced');
             case self::RELEASE_STAFFFROZE:
-                throw new \moodle_exception('refusalreleasestafffroze', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalreleasestafffroze', 'mod_selfselectadvanced');
             case self::RELEASE_CAPABILITY:
                 authority::require_unfreeze($activity, $actorid);
                 throw new \required_capability_exception(
@@ -1260,7 +1260,7 @@ class freeze {
 
             $fresh = groups::get($activity, (int) $group->id);
             if ($fresh->state !== state::FROZEN) {
-                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
             }
 
             // THE DOOR, asked of the row read under the lock and
@@ -1328,7 +1328,7 @@ class freeze {
             // delta-free release (the ordinary guide-release flow) still
             // needs no reason at all.
             if (($removedids || $addedids) && trim($reason) === '') {
-                throw new \moodle_exception('errunfreezereasonrequired', 'mod_selfselectadvanced');
+                throw new workflow_refusal('errunfreezereasonrequired', 'mod_selfselectadvanced');
             }
 
             foreach ($removedids as $userid) {
@@ -1481,7 +1481,7 @@ class freeze {
 
         $fresh = groups::get($activity, (int) $group->id);
         if ($fresh->state === state::FROZEN) {
-            throw new \moodle_exception('refusaldiscardfrozen', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusaldiscardfrozen', 'mod_selfselectadvanced');
         }
 
         $lock = locks::acquire('group:' . $group->id);
@@ -1490,10 +1490,10 @@ class freeze {
 
             $fresh = groups::get($activity, (int) $group->id);
             if ($fresh->state === state::FROZEN) {
-                throw new \moodle_exception('refusaldiscardfrozen', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaldiscardfrozen', 'mod_selfselectadvanced');
             }
             if (empty($fresh->coregroupid)) {
-                throw new \moodle_exception('refusalnodiscardtarget', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalnodiscardtarget', 'mod_selfselectadvanced');
             }
             $oldid = (int) $fresh->coregroupid;
             $DB->set_field('selfselectadvanced_group', 'coregroupid', null, ['id' => $fresh->id]);

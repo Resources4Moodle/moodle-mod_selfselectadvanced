@@ -1303,6 +1303,7 @@ $string['refusalleaveleader'] = 'A team leader cannot request to leave. Nominate
 $string['refusalleavenotmember'] = 'You are not a confirmed member of this team.';
 $string['refusalmembershipaudit'] = 'This group cannot be pushed to the course groups yet: {$a} would exceed their membership cap. The managers have been asked to raise the cap or grant overrides first.';
 $string['refusalmembershipcap'] = 'You are already a member of {$a->current} of {$a->max} groups.';
+$string['refusalmovegone'] = 'Somebody else has already committed or cancelled this move, so there is nothing left to cancel. The queue below shows the current picture.';
 $string['refusalmovesourcerequired'] = 'This student is already confirmed in "{$a}". Pick that group as the source; leaving the source blank would create a second membership.';
 $string['refusalmovetargetalready'] = 'This student is already a confirmed member of "{$a}", so there is nothing to move them into — but committing the move would still remove them from the team it takes them out of. Pick a different target team, or park the student if the removal is what you meant.';
 $string['refusalnodiscardtarget'] = 'This team has no mirrored course group to discard.';

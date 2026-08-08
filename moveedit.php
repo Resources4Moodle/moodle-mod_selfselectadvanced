@@ -204,8 +204,10 @@ if ($data = $form->get_data()) {
         );
     } catch (moodle_exception $e) {
         // Map each known refusal to the field it is actually about; any
-        // other refusal (including ones added later) lands on 'target',
-        // the one field that is always present and always required.
+        // other TYPED refusal (including ones added later) lands on
+        // 'target', the one field that is always present and always
+        // required. An untyped code outside this validation map is a
+        // genuine failure and stays loud - the rethrow below.
         $fieldbyerror = [
             'errmovenotmember' => 'source',
             'errmovesuccessorrequired' => 'successor',
@@ -226,6 +228,12 @@ if ($data = $form->get_data()) {
             'errmovesamegroup' => 'target',
             'refusalmovetargetalready' => 'target',
         ];
+        if (
+            !($e instanceof \mod_selfselectadvanced\local\workflow_refusal)
+            && !isset($fieldbyerror[$e->errorcode])
+        ) {
+            throw $e;
+        }
         $form->set_element_error($fieldbyerror[$e->errorcode] ?? 'target', $e->getMessage());
     }
 }

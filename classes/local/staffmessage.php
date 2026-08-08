@@ -144,7 +144,7 @@ class staffmessage {
         string $body
     ): void {
         if (!self::may_message($activity, $viewerid, $subjectid)) {
-            throw new \moodle_exception('refusalcannotmessage', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalcannotmessage', 'mod_selfselectadvanced');
         }
 
         $sender = \core_user::get_user($viewerid);

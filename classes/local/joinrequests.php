@@ -323,7 +323,7 @@ class joinrequests {
 
         require_capability('mod/selfselectadvanced:respond', $activity->context(), $userid);
         if (trim($reason) === '') {
-            throw new \moodle_exception('refusaljoinreason', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusaljoinreason', 'mod_selfselectadvanced');
         }
 
         $target = groups::get($activity, $targetgroupid);
@@ -332,7 +332,7 @@ class joinrequests {
         // own team, so the general "already in it" answer would fire
         // and tell them less than the truth.
         if ((int) $target->leaderid === $userid) {
-            throw new \moodle_exception('refusaljoinownteam', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusaljoinownteam', 'mod_selfselectadvanced');
         }
         self::require_join_changeable($target, true);
 
@@ -409,7 +409,7 @@ class joinrequests {
                 ]
             );
             if ($live) {
-                throw new \moodle_exception('refusaljoinduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
+                throw new workflow_refusal('refusaljoinduplicate', 'mod_selfselectadvanced', '', (int) $live->id);
             }
 
             // The choice is re-judged on the roster as it is NOW: the
@@ -499,7 +499,7 @@ class joinrequests {
         // for, whichever of their teams the database happens to list
         // first.
         if (isset($currents[$targetgroupid])) {
-            throw new \moodle_exception('refusaljoinalready', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusaljoinalready', 'mod_selfselectadvanced');
         }
 
         if ($sourcegroupid === self::SOURCE_ADDITIONAL) {
@@ -513,7 +513,7 @@ class joinrequests {
                 // The same rigour the manager flow already gets from
                 // moves::stage() (refusalmovesourcerequired): name the
                 // teams and refuse to choose for them.
-                throw new \moodle_exception(
+                throw new workflow_refusal(
                     'refusaljoinsourcerequired',
                     'mod_selfselectadvanced',
                     '',
@@ -533,7 +533,7 @@ class joinrequests {
             // Server-side ownership of the posted id (IDOR): a source
             // is only ever a team this student is confirmed in.
             if (!isset($currents[$sourcegroupid])) {
-                throw new \moodle_exception('refusaljoinsourcenotyours', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaljoinsourcenotyours', 'mod_selfselectadvanced');
             }
             $source = $currents[$sourcegroupid];
         }
@@ -593,7 +593,7 @@ class joinrequests {
      */
     private static function require_join_changeable(stdClass $group, bool $target): void {
         if ($key = self::join_change_refusal($group, $target)) {
-            throw new \moodle_exception($key, 'mod_selfselectadvanced');
+            throw new workflow_refusal($key, 'mod_selfselectadvanced');
         }
     }
 
@@ -608,7 +608,7 @@ class joinrequests {
     private static function require_headroom(activity $activity, array $currents, int $userid): void {
         $cap = (new resolver($activity))->effective_maxmembership($userid)->value;
         if (count($currents) >= $cap) {
-            throw new \moodle_exception('refusaljoinnoheadroom', 'mod_selfselectadvanced', '', (object) [
+            throw new workflow_refusal('refusaljoinnoheadroom', 'mod_selfselectadvanced', '', (object) [
                 'current' => count($currents),
                 'max' => $cap,
             ]);
@@ -663,7 +663,7 @@ class joinrequests {
         try {
             $request = self::get($activity, $requestid);
             if ($request->status !== self::STATUS_REQUESTED) {
-                throw new \moodle_exception('refusaljoinnotopen', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaljoinnotopen', 'mod_selfselectadvanced');
             }
             $target = groups::get($activity, (int) $request->targetgroupid);
             self::require_decider($activity, $target, $actorid);
@@ -874,7 +874,7 @@ class joinrequests {
                 'status' => groups::STATUS_CONFIRMED,
             ]);
             if (!$stillthere) {
-                throw new \moodle_exception(
+                throw new workflow_refusal(
                     'refusaljoinsourcegone',
                     'mod_selfselectadvanced',
                     '',
@@ -906,7 +906,7 @@ class joinrequests {
                 'status' => groups::STATUS_CONFIRMED,
             ]);
             if ($alreadyin) {
-                throw new \moodle_exception(
+                throw new workflow_refusal(
                     'refusaljointargetalready',
                     'mod_selfselectadvanced',
                     '',
@@ -928,10 +928,10 @@ class joinrequests {
             $staffbypass = $bypass;
             if ($staffbypass) {
                 if (!has_capability('mod/selfselectadvanced:overriderules', $activity->context(), $actorid)) {
-                    throw new \moodle_exception('refusaljoinbypasscap', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusaljoinbypasscap', 'mod_selfselectadvanced');
                 }
                 if (trim($note) === '') {
-                    throw new \moodle_exception('errmoveoverridereasonrequired', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('errmoveoverridereasonrequired', 'mod_selfselectadvanced');
                 }
             }
 
@@ -945,7 +945,7 @@ class joinrequests {
                 'errmovesololeader',
             ], true);
             if (!$decision->canaccept && !$staffbypass && !$enginewillname) {
-                throw new \moodle_exception(
+                throw new workflow_refusal(
                     'refusaljoinrules',
                     'mod_selfselectadvanced',
                     '',
@@ -958,7 +958,7 @@ class joinrequests {
                 // composition" around notes whose whole point is that
                 // NO rule is broken - the decider only has to read the
                 // consequence before proceeding.
-                throw new \moodle_exception(
+                throw new workflow_refusal(
                     'refusaljoinconsent',
                     'mod_selfselectadvanced',
                     '',
@@ -1006,7 +1006,7 @@ class joinrequests {
             if (empty($verdicts->valid)) {
                 // Refusing here rolls the staging back with everything
                 // else, so nothing survives a refusal.
-                throw new \moodle_exception(
+                throw new workflow_refusal(
                     'refusaljoinrules',
                     'mod_selfselectadvanced',
                     '',
@@ -1088,10 +1088,10 @@ class joinrequests {
 
             $request = self::get($activity, $requestid);
             if ((int) $request->userid !== $userid) {
-                throw new \moodle_exception('refusaljoinnotyours', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaljoinnotyours', 'mod_selfselectadvanced');
             }
             if ($request->status !== self::STATUS_REQUESTED) {
-                throw new \moodle_exception('refusaljoinnotopen', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusaljoinnotopen', 'mod_selfselectadvanced');
             }
             $DB->update_record('selfselectadvanced_move', (object) [
                 'id' => $requestid,
@@ -1229,7 +1229,7 @@ class joinrequests {
             return;
         }
 
-        throw new \moodle_exception('refusaljoinnotleader', 'mod_selfselectadvanced');
+        throw new workflow_refusal('refusaljoinnotleader', 'mod_selfselectadvanced');
     }
 
     /**

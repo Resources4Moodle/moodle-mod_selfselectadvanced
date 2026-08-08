@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\local\attributes;
 
 use mod_selfselectadvanced\local\locks;
+use mod_selfselectadvanced\local\workflow_refusal;
 use moodle_exception;
 use stdClass;
 
@@ -133,7 +134,7 @@ class depts {
             $parentrecord = $DB->get_record('selfselectadvanced_dept', ['id' => $parent], '*', MUST_EXIST);
         }
         if ($DB->record_exists('selfselectadvanced_dept', ['parent' => $parent, 'name' => $name])) {
-            throw new moodle_exception('errdeptduplicate', 'mod_selfselectadvanced', '', $name);
+            throw new workflow_refusal('errdeptduplicate', 'mod_selfselectadvanced', '', $name);
         }
 
         return [$name, $parentrecord];
@@ -476,7 +477,7 @@ class depts {
             $record = $DB->get_record('selfselectadvanced_dept', ['id' => $id], '*', MUST_EXIST);
             $clash = $DB->get_record('selfselectadvanced_dept', ['parent' => $record->parent, 'name' => $name]);
             if ($clash && (int) $clash->id !== $id) {
-                throw new moodle_exception('errdeptduplicate', 'mod_selfselectadvanced', '', $name);
+                throw new workflow_refusal('errdeptduplicate', 'mod_selfselectadvanced', '', $name);
             }
             $transaction = $DB->start_delegated_transaction();
             $DB->update_record('selfselectadvanced_dept', (object) [
@@ -531,7 +532,7 @@ class depts {
                 throw new \coding_exception('depts::delete() refuses programme rows; use delete_program()');
             }
             if ($DB->record_exists('selfselectadvanced_dept', ['parent' => $id])) {
-                throw new moodle_exception('errdeptchildren', 'mod_selfselectadvanced', '', $record->name);
+                throw new workflow_refusal('errdeptchildren', 'mod_selfselectadvanced', '', $record->name);
             }
             $field = (int) $record->depth === 1 ? 'department' : 'subdepartment';
             $inuse = $DB->record_exists_select(
@@ -540,7 +541,7 @@ class depts {
                 ['name' => $record->name]
             );
             if ($inuse) {
-                throw new moodle_exception('errdeptinuse', 'mod_selfselectadvanced', '', $record->name);
+                throw new workflow_refusal('errdeptinuse', 'mod_selfselectadvanced', '', $record->name);
             }
             $transaction = $DB->start_delegated_transaction();
             $DB->delete_records('selfselectadvanced_dept', ['id' => $id]);
@@ -594,7 +595,7 @@ class depts {
                 ['name' => $record->name]
             );
             if ($inuse) {
-                throw new moodle_exception('errdeptinuse', 'mod_selfselectadvanced', '', $record->name);
+                throw new workflow_refusal('errdeptinuse', 'mod_selfselectadvanced', '', $record->name);
             }
             $transaction = $DB->start_delegated_transaction();
             $DB->delete_records('selfselectadvanced_dept', ['id' => $id]);

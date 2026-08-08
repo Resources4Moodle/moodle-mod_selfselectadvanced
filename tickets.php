@@ -61,7 +61,7 @@ if ($action === 'claim' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -77,7 +77,7 @@ if ($action === 'grant' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -98,7 +98,7 @@ if (in_array($action, ['resolve', 'decline', 'release'], true) && data_submitted
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
@@ -227,7 +227,7 @@ foreach ($queue as $ticket) {
             if ($tgroup) {
                 try {
                     \mod_selfselectadvanced\local\tickets::require_uninvolved($activity, $tgroup, (int) $USER->id);
-                } catch (\moodle_exception $e) {
+                } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
                     $claimrefusal = $e->getMessage();
                 }
             }

@@ -195,7 +195,7 @@ final class coordinatorcontext_migration_test extends \advanced_testcase {
 
         // The ladder TIP, not this test's own savepoint: every later
         // block runs too, so it moves with every version.php serial.
-        $this->assertSame('2026080706', get_config('mod_selfselectadvanced', 'version'));
+        $this->assertSame('2026080801', get_config('mod_selfselectadvanced', 'version'));
         $this->assertContains(
             CONTEXT_MODULE,
             array_map('intval', array_values(get_role_contextlevels($roleid))),

@@ -185,7 +185,7 @@ class moves {
                     static fn($group) => format_string($group->name),
                     $memberships
                 ));
-                throw new \moodle_exception('refusalmovesourcerequired', 'mod_selfselectadvanced', '', $names);
+                throw new workflow_refusal('refusalmovesourcerequired', 'mod_selfselectadvanced', '', $names);
             }
         }
 
@@ -217,7 +217,7 @@ class moves {
                 'status' => groups::STATUS_CONFIRMED,
             ])
         ) {
-            throw new \moodle_exception(
+            throw new workflow_refusal(
                 'refusalmovetargetalready',
                 'mod_selfselectadvanced',
                 '',
@@ -783,7 +783,7 @@ class moves {
         // activity lock plus one per touched group, so the size of the
         // selection is the size of the hold (D6-8).
         if (count($moveids) > self::MAX_COMMIT) {
-            throw new \moodle_exception(
+            throw new workflow_refusal(
                 'errmovetoomanyselected',
                 'mod_selfselectadvanced',
                 '',
@@ -860,7 +860,7 @@ class moves {
                         }
                     }
                 }
-                throw new \moodle_exception('errmovesetinvalid', 'mod_selfselectadvanced', '', (object) [
+                throw new workflow_refusal('errmovesetinvalid', 'mod_selfselectadvanced', '', (object) [
                     'user' => $failuser,
                     'rule' => $failrule,
                 ]);
@@ -876,7 +876,7 @@ class moves {
                 }
             }
             if ($bypassedbymove && trim($overridereason) === '') {
-                throw new \moodle_exception('errmoveoverridereasonrequired', 'mod_selfselectadvanced');
+                throw new workflow_refusal('errmoveoverridereasonrequired', 'mod_selfselectadvanced');
             }
 
             $moves = $this->load_pending($moveids);
@@ -1208,8 +1208,15 @@ class moves {
             $move = $DB->get_record('selfselectadvanced_move', [
                 'id' => $moveid,
                 'activityid' => $this->activity->id(),
-                'status' => 'pending',
             ], '*', MUST_EXIST);
+            if ($move->status !== 'pending') {
+                // Two workers, one queue: the move this page listed was
+                // committed or cancelled by somebody else before this
+                // click landed. An ordinary race, answered as one - while
+                // a foreign or unknown id stays MUST_EXIST-loud above,
+                // because that is a crafted request, not a race.
+                throw new workflow_refusal('refusalmovegone', 'mod_selfselectadvanced');
+            }
             $DB->update_record('selfselectadvanced_move', (object) [
                 'id' => $move->id,
                 'status' => 'cancelled',

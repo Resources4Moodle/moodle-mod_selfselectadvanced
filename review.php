@@ -88,10 +88,7 @@ if ($action === 'approve') {
     if (data_submitted() && confirm_sesskey()) {
         try {
             $api->lifecycle()->approve($group, (int) $USER->id);
-        } catch (\moodle_exception $e) {
-            if ($e instanceof \coding_exception) {
-                throw $e;
-            }
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             // The pre-check above ran on the page-load row; do_approve
             // re-asks under the lock and can refuse on the fresh one.
             redirect(
@@ -157,7 +154,7 @@ if ($action === 'savenotes' && data_submitted() && confirm_sesskey()) {
     $notesformat = optional_param('guidenotesformat', FORMAT_HTML, PARAM_INT);
     try {
         \mod_selfselectadvanced\local\guidenotes::save($activity, $group, $notes, $notesformat, (int) $USER->id);
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
     redirect(
@@ -185,7 +182,7 @@ if ($action === 'saveaward' && data_submitted() && confirm_sesskey()) {
             $award === '' ? null : unformat_float($award),
             (int) $USER->id
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
     redirect(
@@ -207,9 +204,20 @@ if ($action === 'returngroup' && data_submitted() && confirm_sesskey()) {
     // format against its own PARAM_TEXT comment.
     $comment = required_param('comment', PARAM_RAW);
     $commentformat = optional_param('commentformat', FORMAT_HTML, PARAM_INT);
+    if (trim($comment) === '') {
+        // The service's own emptiness test, asked here first so the
+        // typed catch below stays workflow-refusals-only. Same string
+        // the service would have used.
+        redirect(
+            $baseurl,
+            get_string('errcommentrequired', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
     try {
         $api->lifecycle()->return_group($group, $comment, (int) $USER->id, $commentformat);
-    } catch (\moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
     redirect(

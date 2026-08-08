@@ -74,7 +74,7 @@ class volunteering {
         // Student-approach mode: guides advertise nothing, so
         // volunteering a capacity is refused outright (strategy 1.16 A).
         if (!empty($activity->settings()->studentapproach)) {
-            throw new \moodle_exception('refusalstudentapproach', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalstudentapproach', 'mod_selfselectadvanced');
         }
 
         // The actor's authority, asked INSIDE the service (AUTH-001,
@@ -90,12 +90,12 @@ class volunteering {
         // :guide was prohibited mid-advertisement must still be able to
         // take themselves off the board (wave-2 blind audit, low 2).
         if ($capacity > 0 && !has_capability('mod/selfselectadvanced:guide', $activity->context(), $userid)) {
-            throw new \moodle_exception('refusalnotaguide', 'mod_selfselectadvanced');
+            throw new workflow_refusal('refusalnotaguide', 'mod_selfselectadvanced');
         }
 
         $ceiling = (new resolver($activity))->guide_capacity_ceiling($userid)->value;
         if ($capacity < 0 || $capacity > $ceiling) {
-            throw new \moodle_exception('refusalvolunteercapacity', 'mod_selfselectadvanced', '', $ceiling);
+            throw new workflow_refusal('refusalvolunteercapacity', 'mod_selfselectadvanced', '', $ceiling);
         }
 
         $now = time();

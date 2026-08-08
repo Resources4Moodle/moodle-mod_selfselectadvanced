@@ -195,10 +195,10 @@ final class proposal {
                 $isowner = (int) $group->leaderid === $actorid
                     || has_capability(self::MANAGE, $activity->context(), $actorid);
                 if (!$isowner) {
-                    throw new \moodle_exception('refusalnotleader', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
                 }
                 if ($group->state !== state::FORMING) {
-                    throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                    throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
                 }
                 // The leader of a forming team, publishing, without the
                 // capability: the one case F3 keeps open for retraction

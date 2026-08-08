@@ -79,13 +79,22 @@ if ($action === 'add' || $action === 'rename') {
             } else {
                 depts::rename($id, $data->name, (int) $USER->id);
             }
-        } catch (\moodle_exception $e) {
-            if ($e instanceof \coding_exception) {
-                throw $e;
-            }
-            // A duplicate or bad name is an answer (errdeptduplicate),
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+            // A duplicate name is an answer (errdeptduplicate),
             // delivered as a notice like every sibling arm - never the
             // raw error page.
+            redirect(
+                $baseurl,
+                $e->getMessage(),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        } catch (\moodle_exception $e) {
+            if ($e->errorcode !== 'errdeptname') {
+                // Only the name-validation answer travels untyped;
+                // anything else is a genuine failure and stays loud.
+                throw $e;
+            }
             redirect(
                 $baseurl,
                 $e->getMessage(),
@@ -105,7 +114,14 @@ if ($action === 'add' || $action === 'rename') {
 if ($action === 'progadd' && data_submitted() && confirm_sesskey()) {
     try {
         depts::create_program(required_param('progname', PARAM_TEXT), (int) $USER->id);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     } catch (moodle_exception $e) {
+        if ($e->errorcode !== 'errdeptname') {
+            // Only the name-validation answer travels untyped; anything
+            // else is a genuine failure and stays loud.
+            throw $e;
+        }
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
     redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
@@ -117,7 +133,7 @@ if ($action === 'progdelete' && data_submitted() && confirm_sesskey()) {
     $pid = required_param('d', PARAM_INT);
     try {
         depts::delete_program($pid, (int) $USER->id);
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
     redirect($baseurl);
@@ -135,7 +151,7 @@ if (
     if ($action === 'delete') {
         try {
             depts::delete($id, (int) $USER->id);
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
     } else {

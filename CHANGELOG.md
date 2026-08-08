@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.20.22 — external-audit wave 1.5: the typed-refusal contract is finished (2026-08-08)
+
+> Serial `2026080801` / `1.20.22`. Behavioural changes only; no schema change.
+> Source: the consolidated master audit of 1.20.21
+> (`audit_state/external-audits/20260808-1.20.21-consolidated-master/`), which
+> verified wave 1's direction and found its architecture unfinished (§4.2):
+> the typed class existed at two Delete sites while ~150 expected refusals
+> still travelled as bare `moodle_exception`, and 61 broad controller catches
+> could disguise a genuine failure as a friendly notice — the mirror image of
+> the fatal-page bug. Decision 68.
+
+- **Every expected refusal now travels typed.** All 122 `refusal*`-keyed
+  service throws, all 28 gatekeeper-refusal transports, and the rule-refusals
+  that carried legacy `err*` keys (dissolve blocked by an award or live
+  request, department in use / has children / duplicate name, coordinator
+  eligibility and import) construct `workflow_refusal`. Field-level
+  validation (`err*required`, name validation, the move form's field-mapped
+  family) deliberately stays outside the type.
+- **No controller swallows the rest.** The 61 broad `moodle_exception`
+  catches across 18 pages are narrowed to the typed class; the four that
+  legitimately map validation codes to form fields or notices keep an
+  explicit errorcode allowlist and rethrow everything else. A database or
+  coding failure on a POST arm is loud again, everywhere.
+- **Two stale races the sweep uncovered are closed:** cancelling a move that
+  another worker committed meanwhile answered with a raw missing-record
+  exception (now `refusalmovegone`, with the sentence naming what happened),
+  and an unfreeze whose roster delta appeared after the confirmation page
+  rendered demanded its reason via the fatal renderer (now typed).
+- **The gate holds the line** (audit §4.3 steps 4–5): a new `refusal-typing`
+  static check fails the build on any new untyped `refusal*` throw, untyped
+  gatekeeper transport, or swallowing broad catch — proven against four
+  deliberately broken trees before wiring in. The same two questions are
+  mirrored as PHPUnit asserts so GitHub Actions asks them too.
+- **The stale-action harness now covers the matrix** (audit §15.2): fifteen
+  service seams — submit, invite, accept, leave, succession, both contact
+  doors, EOI, approve, return, freeze, unfreeze, join-accept, handover,
+  ticket claim, move cancel, team edit — each proven to answer a
+  render-mutate-resubmit race with the typed refusal and an unchanged row.
+  The old NOTIFY_ERROR-counting canary (§4.4 named it non-discriminating) is
+  replaced by the contract asserts.
+- **Maturity now tells the truth** (§10, decision 70): `MATURITY_RC` until
+  the remaining waves land and the exact candidate passes the full matrix.
+
 ## 1.20.21 — external-audit wave 1: expected refusals never look like crashes (2026-08-07)
 
 > Serial `2026080706` / `1.20.21`. Behavioural changes only; no schema change.

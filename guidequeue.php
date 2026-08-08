@@ -72,7 +72,7 @@ if ($action === 'askreduce' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect(
             new moodle_url($baseurl, ['tab' => 'mine']),
             $e->getMessage(),
@@ -94,7 +94,7 @@ if ($action === 'askcap' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect(
             new moodle_url($baseurl, ['tab' => 'mine']),
             $e->getMessage(),
@@ -115,7 +115,7 @@ if ($action === 'withdrawcap' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         redirect(
             new moodle_url($baseurl, ['tab' => 'mine']),
             $e->getMessage(),

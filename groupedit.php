@@ -129,7 +129,7 @@ if ($data = $form->get_data()) {
                 (int) $data->brief['format'],
                 (int) $USER->id
             );
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect(
                 new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $editgroup->id]),
                 $e->getMessage(),
@@ -154,9 +154,17 @@ if ($data = $form->get_data()) {
             $staffmode ? (int) $data->leader : null,
             $staffmode
         );
-    } catch (moodle_exception $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
         // The nominated leader's own caps refuse here, and the manager
         // must be able to pick somebody else without losing the form.
+        $form->set_element_error($staffmode ? 'leader' : 'name', $e->getMessage());
+        $group = null;
+    } catch (moodle_exception $e) {
+        if ($e->errorcode !== 'errmovenotparticipant') {
+            // Anything but the picked-person validation is a genuine
+            // failure and stays loud.
+            throw $e;
+        }
         $form->set_element_error($staffmode ? 'leader' : 'name', $e->getMessage());
         $group = null;
     }

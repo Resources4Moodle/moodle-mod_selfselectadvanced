@@ -1,0 +1,595 @@
+<?php
+// This file is part of Moodle - https://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+
+namespace mod_selfselectadvanced;
+
+use mod_selfselectadvanced\local\api;
+use mod_selfselectadvanced\local\contacts;
+use mod_selfselectadvanced\local\eoi;
+use mod_selfselectadvanced\local\freeze;
+use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\joinrequests;
+use mod_selfselectadvanced\local\state;
+use mod_selfselectadvanced\local\tickets;
+use mod_selfselectadvanced\local\workflow_refusal;
+
+/**
+ * The generic stale-action harness (consolidated master audit §15.2,
+ * wave 1.5): for every human transition, prepare a world in which the
+ * action is allowed, move exactly one relevant fact underneath the
+ * open page, submit the stale action at the SERVICE seam, and pin two
+ * things - the refusal travels as the TYPED workflow_refusal the
+ * controller catches, and the domain state did not partially change.
+ *
+ * These are the seams whose transport changed in 1.20.22. Delete and
+ * the invite-door shapes stay in stale_action_test (1.20.21);
+ * proposal::save is excluded here because its fixture is a draft file
+ * area, and its two refusals travel through the same typed transport
+ * the refusal-typing gate guard pins statically.
+ *
+ * @package    mod_selfselectadvanced
+ * @copyright  2026 JSP <jsp@jsp.net.in>
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers     \mod_selfselectadvanced\local\workflow_refusal
+ * @covers     \mod_selfselectadvanced\local\api
+ * @covers     \mod_selfselectadvanced\local\state
+ * @covers     \mod_selfselectadvanced\local\invitations
+ */
+final class stale_matrix_test extends \advanced_testcase {
+    /**
+     * One world, explicitly peopled: a forming leader-led team plus
+     * spare students, two guides and an editing teacher.
+     *
+     * @param array $modsettings create_module overrides
+     * @return \stdClass bag: activity, api, course, group, leader,
+     *         students[3], guide, guide2, staff, staff2, gen, plugingen
+     */
+    private function world(array $modsettings = []): \stdClass {
+        $w = new \stdClass();
+        $w->gen = $this->getDataGenerator();
+        $w->plugingen = $w->gen->get_plugin_generator('mod_selfselectadvanced');
+        $w->course = $w->gen->create_course();
+        $instance = $w->gen->create_module('selfselectadvanced', array_merge([
+            'course' => $w->course->id,
+            'minsize' => 1,
+            'maxsize' => 6,
+            'maxlead' => 1,
+            'maxmembership' => 2,
+            'contactmax' => 2,
+            'eoienabled' => 1,
+        ], $modsettings));
+        $w->activity = activity::from_instance((int) $instance->id);
+        $w->api = new api($w->activity);
+        $enrol = function (string $role) use ($w): \stdClass {
+            $user = $w->gen->create_user();
+            $w->gen->enrol_user($user->id, $w->course->id, $role);
+
+            return $user;
+        };
+        $w->leader = $enrol('student');
+        $w->students = [$enrol('student'), $enrol('student'), $enrol('student')];
+        $w->guide = $enrol('teacher');
+        $w->guide2 = $enrol('teacher');
+        $w->staff = $enrol('editingteacher');
+        $w->staff2 = $enrol('editingteacher');
+        $group = $w->plugingen->create_group([
+            'activityid' => $w->activity->id(),
+            'leaderid' => (int) $w->leader->id,
+            'name' => 'Matrix',
+        ]);
+        $w->group = groups::get($w->activity, (int) $group->id);
+
+        return $w;
+    }
+
+    /**
+     * Fresh row for the world's team.
+     *
+     * @param \stdClass $w the world
+     * @return \stdClass current group row
+     */
+    private function fresh(\stdClass $w): \stdClass {
+        return groups::get($w->activity, (int) $w->group->id);
+    }
+
+    /**
+     * Run the stale action and pin the transport type.
+     *
+     * @param callable $act the service call the stale POST would make
+     * @param string|null $errorcode exact reason code, when pinned
+     * @return workflow_refusal the caught refusal, for extra asserts
+     */
+    private function assert_refuses_typed(callable $act, ?string $errorcode = null): workflow_refusal {
+        try {
+            $act();
+        } catch (\moodle_exception $e) {
+            $this->assertInstanceOf(
+                workflow_refusal::class,
+                $e,
+                "expected a TYPED refusal, got {$e->errorcode} as " . get_class($e)
+            );
+            if ($errorcode !== null) {
+                $this->assertSame($errorcode, $e->errorcode);
+            } else {
+                $this->assertMatchesRegularExpression(
+                    '/^(refusal|err)/',
+                    $e->errorcode,
+                    'the machine reason stays a stable plugin code'
+                );
+            }
+
+            return $e;
+        }
+        $this->fail('The stale action must be refused');
+    }
+
+    /**
+     * Submit after leadership moved: the old leader's page is open,
+     * the crown has passed, the POST lands typed and the team stays
+     * FORMING.
+     */
+    public function test_submit_by_superseded_leader(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $this->assertNull($w->api->gatekeeper()->can_submit($w->group, (int) $w->leader->id));
+
+        $DB->set_field('selfselectadvanced_group', 'leaderid', (int) $w->students[0]->id, ['id' => $w->group->id]);
+
+        $this->assert_refuses_typed(
+            fn() => $w->api->lifecycle()->submit($w->group, null, (int) $w->leader->id)
+        );
+        $this->assertSame(state::FORMING, $this->fresh($w)->state, 'no partial transition');
+    }
+
+    /**
+     * Invite after the last seat filled behind the picker.
+     */
+    public function test_invite_after_last_seat_filled(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world(['maxsize' => 2]);
+        $candidate = $w->students[0];
+        $this->assertNull($w->api->gatekeeper()->can_invite($w->group, (int) $candidate->id));
+
+        // The world moves: somebody else takes the seat.
+        $w->plugingen->create_member([
+            'groupid' => $w->group->id,
+            'userid' => (int) $w->students[1]->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+
+        $e = $this->assert_refuses_typed(
+            fn() => $w->api->invitations()->send($this->fresh($w), (int) $candidate->id, (int) $w->leader->id)
+        );
+        $this->assertStringStartsWith('refusal', $e->errorcode);
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_member', [
+            'groupid' => (int) $w->group->id,
+            'userid' => (int) $candidate->id,
+        ]), 'no invitation row appeared');
+    }
+
+    /**
+     * Accept after the invitation was withdrawn: the documented
+     * ordinary race, now pinned to the type at the seam.
+     */
+    public function test_accept_after_withdrawal(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $invitee = $w->students[0];
+        $member = $w->plugingen->create_member([
+            'groupid' => $w->group->id,
+            'userid' => (int) $invitee->id,
+            'status' => groups::STATUS_INVITED,
+            'timeinvited' => time(),
+        ]);
+        $this->assertNull($w->api->gatekeeper()->can_accept($this->fresh($w), $DB->get_record(
+            'selfselectadvanced_member',
+            ['id' => (int) $member->id]
+        )));
+
+        $w->api->invitations()->withdraw($this->fresh($w), (int) $member->id, (int) $w->leader->id);
+
+        $this->assert_refuses_typed(
+            fn() => $w->api->invitations()->accept($this->fresh($w), (int) $invitee->id),
+            'refusalnotinvited'
+        );
+        $this->assertSame(
+            groups::STATUS_REMOVED,
+            $DB->get_field('selfselectadvanced_member', 'status', ['id' => (int) $member->id]),
+            'the withdrawal stands'
+        );
+    }
+
+    /**
+     * A leave request filed after the team was submitted.
+     */
+    public function test_request_leave_after_submission(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $member = $w->plugingen->create_member([
+            'groupid' => $w->group->id,
+            'userid' => (int) $w->students[0]->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+
+        $DB->set_field('selfselectadvanced_group', 'state', state::PENDING_GUIDE, ['id' => $w->group->id]);
+
+        $this->assert_refuses_typed(
+            fn() => $w->api->invitations()->request_leave($this->fresh($w), (int) $w->students[0]->id)
+        );
+        $this->assertEmpty(
+            (int) $DB->get_field('selfselectadvanced_member', 'leaverequested', ['id' => (int) $member->id]),
+            'no leave request was recorded'
+        );
+    }
+
+    /**
+     * A succession nomination by the superseded leader.
+     */
+    public function test_nominate_by_superseded_leader(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $w->plugingen->create_member([
+            'groupid' => $w->group->id,
+            'userid' => (int) $w->students[0]->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+
+        $DB->set_field('selfselectadvanced_group', 'leaderid', (int) $w->students[0]->id, ['id' => $w->group->id]);
+
+        $this->assert_refuses_typed(
+            fn() => $w->api->succession()->nominate(
+                $w->group,
+                (int) $w->students[0]->id,
+                'transfer',
+                (int) $w->leader->id
+            )
+        );
+        $this->assertEmpty(
+            (int) $this->fresh($w)->successorid,
+            'no nomination was written'
+        );
+    }
+
+    /**
+     * Contact-a-guide after an accepted expression already assigned
+     * one.
+     */
+    public function test_contact_after_guide_arrived(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $w->guide2->id, ['id' => $w->group->id]);
+
+        $this->assert_refuses_typed(
+            fn() => contacts::send(
+                $w->activity,
+                $this->fresh($w),
+                (int) $w->guide->id,
+                'please guide us',
+                FORMAT_PLAIN,
+                (int) $w->leader->id
+            ),
+            'refusalcontacthasguide'
+        );
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_contact'), 'nothing was filed');
+    }
+
+    /**
+     * A guide's response to a contact that was reassigned meanwhile -
+     * one of the nine 1.20.21 surfaces, pinned at the seam.
+     */
+    public function test_contact_respond_by_reassigned_guide(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $contact = contacts::send(
+            $w->activity,
+            $w->group,
+            (int) $w->guide->id,
+            'please guide us',
+            FORMAT_PLAIN,
+            (int) $w->leader->id
+        );
+
+        $this->assert_refuses_typed(
+            fn() => contacts::respond(
+                $w->activity,
+                (int) $contact->id,
+                true,
+                '',
+                FORMAT_PLAIN,
+                (int) $w->guide2->id
+            ),
+            'refusalcontactnotyours'
+        );
+        $this->assertSame(
+            contacts::STATUS_SENT,
+            $DB->get_field('selfselectadvanced_contact', 'status', ['id' => (int) $contact->id]),
+            'the contact still awaits its addressee'
+        );
+    }
+
+    /**
+     * An expression of interest on a team unlisted underneath the
+     * guide's open pick page.
+     */
+    public function test_eoi_express_after_unlisting(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $DB->set_field('selfselectadvanced_group', 'listed', 1, ['id' => $w->group->id]);
+        $DB->set_field('selfselectadvanced_group', 'timelisted', time(), ['id' => $w->group->id]);
+
+        $DB->set_field('selfselectadvanced_group', 'listed', 0, ['id' => $w->group->id]);
+
+        $this->assert_refuses_typed(
+            fn() => eoi::express($w->activity, (int) $w->group->id, (int) $w->guide->id, 'me', FORMAT_PLAIN),
+            'refusaleoinotlisted'
+        );
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_eoi'), 'no interest row appeared');
+    }
+
+    /**
+     * Approve after the team returned to forming.
+     */
+    public function test_approve_after_return_to_forming(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $DB->set_field('selfselectadvanced_group', 'state', state::PENDING_GUIDE, ['id' => $w->group->id]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $w->guide->id, ['id' => $w->group->id]);
+        $this->assertNull($w->api->gatekeeper()->can_approve($this->fresh($w), (int) $w->guide->id));
+
+        $DB->set_field('selfselectadvanced_group', 'state', state::FORMING, ['id' => $w->group->id]);
+
+        $this->assert_refuses_typed(
+            fn() => $w->api->lifecycle()->approve($this->fresh($w), (int) $w->guide->id)
+        );
+        $this->assertSame(state::FORMING, $this->fresh($w)->state, 'no approval was stamped');
+    }
+
+    /**
+     * Return after the approval was already undone.
+     */
+    public function test_return_after_already_returned(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $DB->set_field('selfselectadvanced_group', 'state', state::PENDING_GUIDE, ['id' => $w->group->id]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $w->guide->id, ['id' => $w->group->id]);
+        $stale = $this->fresh($w);
+        $this->assertNull($w->api->gatekeeper()->can_return($stale, (int) $w->guide->id));
+
+        $DB->set_field('selfselectadvanced_group', 'state', state::FORMING, ['id' => $w->group->id]);
+
+        $this->assert_refuses_typed(
+            fn() => $w->api->lifecycle()->return_group($stale, 'roster needs work', (int) $w->guide->id)
+        );
+        $this->assertSame(state::FORMING, $this->fresh($w)->state);
+    }
+
+    /**
+     * Freeze after the state moved off FIRM.
+     */
+    public function test_freeze_after_state_moved(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $DB->set_field('selfselectadvanced_group', 'state', state::FIRM, ['id' => $w->group->id]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $w->guide->id, ['id' => $w->group->id]);
+        $stale = $this->fresh($w);
+
+        $DB->set_field('selfselectadvanced_group', 'state', state::FORMING, ['id' => $w->group->id]);
+
+        $this->assert_refuses_typed(
+            fn() => freeze::freeze_group($w->activity, $stale, (int) $w->guide->id)
+        );
+        $this->assertEmpty((int) $this->fresh($w)->coregroupid, 'no course group was minted');
+    }
+
+    /**
+     * The unfreeze reason gate as a RACE: no roster delta when the
+     * confirmation page rendered, so its reason field was optional -
+     * the roster then moved, and the empty-reason POST must land as
+     * the typed refusal, not a fatal page (the errunfreezereasonrequired
+     * retype this wave exists for exactly this).
+     */
+    public function test_unfreeze_reason_required_when_delta_appears(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        $w = $this->world();
+        $DB->set_field('selfselectadvanced_group', 'state', state::FIRM, ['id' => $w->group->id]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $w->guide->id, ['id' => $w->group->id]);
+        $member = $w->plugingen->create_member([
+            'groupid' => $w->group->id,
+            'userid' => (int) $w->students[0]->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        freeze::freeze_group($w->activity, $this->fresh($w), (int) $w->guide->id);
+        $this->runAdhocTasks();
+
+        // The world moves: a member's plugin row leaves the roster, so
+        // the restore now carries a delta and demands its reason.
+        $DB->set_field('selfselectadvanced_member', 'status', groups::STATUS_REMOVED, ['id' => (int) $member->id]);
+
+        $this->assert_refuses_typed(
+            fn() => freeze::unfreeze($w->activity, $this->fresh($w), (int) $w->guide->id, ''),
+            'errunfreezereasonrequired'
+        );
+        $this->assertSame(state::FROZEN, $this->fresh($w)->state, 'the team stays locked');
+    }
+
+    /**
+     * A join request decided by the superseded leader.
+     */
+    public function test_join_accept_by_superseded_leader(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $request = joinrequests::request($w->activity, (int) $w->group->id, 'let me in', (int) $w->students[0]->id);
+
+        $DB->set_field('selfselectadvanced_group', 'leaderid', (int) $w->students[1]->id, ['id' => $w->group->id]);
+
+        $this->assert_refuses_typed(
+            fn() => joinrequests::respond($w->activity, (int) $request->id, true, '', (int) $w->leader->id, [], false),
+            'refusaljoinnotleader'
+        );
+        $this->assertSame(
+            joinrequests::STATUS_REQUESTED,
+            $DB->get_field('selfselectadvanced_move', 'status', ['id' => (int) $request->id]),
+            'the request still awaits the real leader'
+        );
+        $this->assertSame(0, $DB->count_records('selfselectadvanced_member', [
+            'groupid' => (int) $w->group->id,
+            'userid' => (int) $w->students[0]->id,
+        ]), 'nobody joined');
+    }
+
+    /**
+     * A handover accepted after it was cancelled.
+     */
+    public function test_handover_accept_after_cancel(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $DB->set_field('selfselectadvanced_group', 'state', state::FIRM, ['id' => $w->group->id]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $w->guide->id, ['id' => $w->group->id]);
+        $w->api->handover()->propose((int) $w->group->id, (int) $w->guide2->id, (int) $w->guide->id);
+
+        $w->api->handover()->cancel((int) $w->group->id, (int) $w->guide->id);
+
+        $this->assert_refuses_typed(
+            fn() => $w->api->handover()->accept((int) $w->group->id, (int) $w->guide2->id)
+        );
+        $this->assertSame(
+            (int) $w->guide->id,
+            (int) $this->fresh($w)->guideid,
+            'the guide did not change'
+        );
+    }
+
+    /**
+     * The exclusive claim, pinned to the TYPE (the message and row
+     * outcome are pinned in tickets_test): the second worker's stale
+     * queue page answers with a notice, never the fatal renderer.
+     */
+    public function test_ticket_claim_already_claimed(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        $w = $this->world();
+        $DB->set_field('selfselectadvanced_group', 'state', state::FIRM, ['id' => $w->group->id]);
+        $DB->set_field('selfselectadvanced_group', 'guideid', (int) $w->guide->id, ['id' => $w->group->id]);
+        $ticket = tickets::file(
+            $w->activity,
+            $this->fresh($w),
+            tickets::TYPE_COMPCHANGE,
+            'swap one member',
+            FORMAT_PLAIN,
+            (int) $w->guide->id
+        );
+        tickets::claim($w->activity, (int) $ticket->id, (int) $w->staff->id);
+
+        $this->assert_refuses_typed(
+            fn() => tickets::claim($w->activity, (int) $ticket->id, (int) $w->staff2->id),
+            'refusalticketclaimed'
+        );
+        $this->assertSame(
+            (int) $w->staff->id,
+            (int) $DB->get_field('selfselectadvanced_ticket', 'claimedby', ['id' => (int) $ticket->id])
+        );
+    }
+
+    /**
+     * Cancelling a move that was committed meanwhile: the
+     * dml-exception hole this wave closed - two workers, one queue,
+     * and the loser must read an answer, not a stack trace.
+     *
+     * MUTATION CAUGHT (run): restoring MUST_EXIST to cancel()'s
+     * pending read fails this test with dml_missing_record_exception.
+     */
+    public function test_move_cancel_after_commit(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $staged = $w->api->moves()->stage(
+            (int) $w->students[0]->id,
+            null,
+            (int) $w->group->id,
+            false,
+            null,
+            (int) $w->staff->id
+        );
+
+        $DB->set_field('selfselectadvanced_move', 'status', 'committed', ['id' => (int) $staged->id]);
+
+        $this->assert_refuses_typed(
+            fn() => $w->api->moves()->cancel((int) $staged->id, (int) $w->staff->id),
+            'refusalmovegone'
+        );
+        $this->assertSame(
+            'committed',
+            $DB->get_field('selfselectadvanced_move', 'status', ['id' => (int) $staged->id]),
+            'the committed move was not relabelled'
+        );
+    }
+
+    /**
+     * A team edit by the superseded leader.
+     */
+    public function test_group_edit_by_superseded_leader(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $oldtitle = (string) $w->group->title;
+
+        $DB->set_field('selfselectadvanced_group', 'leaderid', (int) $w->students[0]->id, ['id' => $w->group->id]);
+
+        $this->assert_refuses_typed(
+            fn() => $w->api->update_group_details($w->group, 'New title', 'New brief', FORMAT_HTML, (int) $w->leader->id),
+            'refusalnotleader'
+        );
+        $this->assertSame(
+            $oldtitle,
+            (string) $this->fresh($w)->title,
+            'the edit did not land'
+        );
+    }
+}

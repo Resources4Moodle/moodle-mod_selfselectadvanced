@@ -98,7 +98,7 @@ if ($withdrawaction === 'withdraw') {
         try {
             \mod_selfselectadvanced\local\eoi::withdraw($activity, $eoiid, (int) $USER->id);
             redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
-        } catch (moodle_exception $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
             redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
     }

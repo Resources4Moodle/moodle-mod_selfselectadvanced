@@ -22,6 +22,7 @@ use mod_selfselectadvanced\local\locks;
 use mod_selfselectadvanced\local\override\resolver;
 use mod_selfselectadvanced\local\rules\gatekeeper;
 use mod_selfselectadvanced\local\state;
+use mod_selfselectadvanced\local\workflow_refusal;
 use stdClass;
 
 /**
@@ -250,7 +251,7 @@ class ledger {
             // the page cannot grant more than the service allows: a
             // binding mutated to grade unconditionally now meets this.
             if ($refusal = $gatekeeper->can_grade_team($fresh, $actorid)) {
-                throw new \moodle_exception($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
             // An award belongs to a team that has been approved. The
             // page has always drawn the field for firm and frozen teams
@@ -259,7 +260,7 @@ class ledger {
             // would also wedge it, since dissolve_group() refuses to
             // close any team carrying one.
             if (!in_array($fresh->state, [state::FIRM, state::FROZEN], true)) {
-                throw new \moodle_exception('refusalwrongstate', 'mod_selfselectadvanced');
+                throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
             }
 
             $transaction = $DB->start_delegated_transaction();
