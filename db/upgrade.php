@@ -2121,5 +2121,24 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080805, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080806) {
+        // Two checks, no behaviour change. The contact-privacy matrix
+        // asserts actual values rather than hidden columns across every
+        // viewer, both settings and every surface it can drive; the
+        // caller check fails the build on a public guard that nothing
+        // calls, which is how a guard promising stale-POST protection
+        // sat unwired long enough for two audits to argue about its
+        // transport without noticing.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.27 (2026080806). Contact-privacy value matrix and a '
+                . 'caller check for public guards; tests only, no behaviour change.',
+            'No behaviour or schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080806, 'selfselectadvanced');
+    }
+
     return true;
 }

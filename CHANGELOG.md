@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.20.27 — two checks the plugin did not have (2026-08-08)
+
+> Serial `2026080806` / `1.20.27`. Tests only; no behaviour, language or
+> schema change.
+
+- **Contact privacy is now checked by value, not by absence of a column.**
+  The cardinal rule — a student's email and phone hidden from guides and
+  peers except where a connection exists — was implemented and partly tested,
+  but nothing walked the whole matrix asserting what a person actually
+  receives. A column can be hidden while the value leaks through a data
+  attribute, a CSV cell, a web-service response or a message body. The new
+  matrix seeds a distinctive address and number and asserts their absence
+  from the entire payload for every viewer who must not see them, across both
+  settings and every surface it can drive.
+- **A public guard that nothing calls now fails the build.** One did: a method
+  whose docblock promised stale-POST protection had zero callers anywhere, so
+  it had never run and its error string was unreachable — and two independent
+  audits read it without asking who called it. It was removed in 1.20.24; this
+  stops the next one. The allowlist is empty, deliberately.
+
+**One thing the matrix surfaced, recorded rather than changed:** the email
+rule in the code is *stricter* than the project's own summary of it. The
+summary says editing teachers and managers are trusted with contact details;
+`contactprivacy.php` states that no surface renders, links or exports an email
+address to anybody, `:manage` included. Phone follows the trusted-viewer rule;
+email does not. The matrix follows the implementation. The `db/install.xml`
+comment still describes the older shape and was left alone as out of scope.
+
 ## 1.20.26 — creating a group and leading one are separate permissions (2026-08-08)
 
 > Serial `2026080805` / `1.20.26`. Capability and authority split; no schema
