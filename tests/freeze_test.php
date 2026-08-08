@@ -942,7 +942,7 @@ final class freeze_test extends \advanced_testcase {
             }
             $seen++;
             if ($seen === 2) {
-                throw new \moodle_exception('errlocktimeout', 'mod_selfselectadvanced');
+                throw new \mod_selfselectadvanced\local\workflow_refusal('errlocktimeout', 'mod_selfselectadvanced');
             }
         });
         try {

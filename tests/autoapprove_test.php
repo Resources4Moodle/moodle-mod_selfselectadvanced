@@ -755,7 +755,7 @@ final class autoapprove_test extends \advanced_testcase {
         // (rank 5) already held - exactly what errlocktimeout does.
         locks::set_test_hook(function (string $resource) use ($gid): void {
             if ($resource === 'group:' . $gid) {
-                throw new \moodle_exception('errlocktimeout', 'mod_selfselectadvanced');
+                throw new \mod_selfselectadvanced\local\workflow_refusal('errlocktimeout', 'mod_selfselectadvanced');
             }
         });
 

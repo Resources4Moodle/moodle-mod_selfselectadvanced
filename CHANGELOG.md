@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.20.25 — statuses that say what they mean, and two refusals that stop crashing (2026-08-08)
+
+> Serial `2026080804` / `1.20.25`. Behavioural and presentational; no schema
+> change.
+
+- **`Firm` is now `Approved` and `Frozen` is now `Locked`** (decision 76).
+  These were the state machine's words, and they are good words for a state
+  machine — but a student meets them once, in a badge, with no glossary, and
+  neither is guessable. `Forming` and `Awaiting guide` already say what they
+  are and keep their names. Stored values, keys and the state machine itself
+  are untouched, exactly as with the group vocabulary. The analytics export
+  moves from the raw stored value to the label in the same change, so no
+  spreadsheet contradicts a screen.
+- **A lost lock is no longer a crash.** Two people acting on one group inside
+  ten seconds means one of them loses the wait, and that refusal's own
+  sentence has always read like a notice — "Another change to this group is
+  in progress. Please try again." It was delivered on the fatal error page
+  regardless, because the 1.20.22 migration sorted refusals by how their key
+  was *spelled* and this one begins `err`. It now travels typed, so the fifty
+  or so controller arms already written for this answer it properly. The test
+  doubles that inject the timeout were retyped **first**, because they
+  asserted only the base class and would have stayed green either way.
+- **A join request outliving its student is no longer a crash either.** The
+  waiting list is built from open requests and never asked whether the
+  requester is still a participant, so a request survives a withdrawal, a
+  suspension or an enrolment running out. The leader saw the name, saw a live
+  Accept, pressed it, and got the move engine's own participant error — the
+  fatal page, for doing the one thing the page offered him. He now reads that
+  the student is no longer taking part, and the request stays open so he can
+  decline it with a note.
+
 ## 1.20.24 — punch-list P1, P2, P3: one vocabulary, sweeps that survive a bad row, two debts paid (2026-08-08)
 
 > Serial `2026080803` / `1.20.24`. Behavioural and presentational; no schema

@@ -452,6 +452,85 @@ final class stale_matrix_test extends \advanced_testcase {
     }
 
     /**
+     * The requester left the course between asking and being answered
+     * (R2, 1.20.25). The waiting list never asks whether a requester is
+     * still a participant, so the leader is shown a name and a live
+     * Accept for somebody who has withdrawn, been suspended, or whose
+     * enrolment simply ran out. Pressing it used to hand him the move
+     * engine's own untyped participant error, which is to say the fatal
+     * page - for doing the one thing the page offered.
+     *
+     * MUTATION CAUGHT (run): removing the is_enrolled arm from
+     * do_accept() lets the engine error escape untyped and fails the
+     * typed assertion here.
+     */
+    public function test_join_accept_after_the_requester_left_the_course(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world();
+        $asker = $w->students[0];
+        $request = joinrequests::request($w->activity, (int) $w->group->id, 'let me in', (int) $asker->id);
+
+        // They leave the course. The request does not know that.
+        $DB->set_field(
+            'user_enrolments',
+            'status',
+            ENROL_USER_SUSPENDED,
+            ['userid' => (int) $asker->id]
+        );
+
+        $e = $this->assert_refuses_typed(
+            fn() => joinrequests::respond(
+                $w->activity,
+                (int) $request->id,
+                true,
+                '',
+                (int) $w->leader->id,
+                [],
+                false
+            ),
+            'refusaljoinleft'
+        );
+        $this->assertStringNotContainsString(
+            'errmove',
+            $e->getMessage(),
+            'the leader reads about the student, not about the move engine'
+        );
+        $this->assertSame(
+            joinrequests::STATUS_REQUESTED,
+            $DB->get_field('selfselectadvanced_move', 'status', ['id' => (int) $request->id]),
+            'and the request stays open so the leader can decline it with a note'
+        );
+    }
+
+    /**
+     * Two people act on one group inside ten seconds and one loses the
+     * lock. That is a stopwatch expiring, not a fault, and its sentence
+     * has always read like a notice - it was simply delivered on the
+     * fatal page because the key happens to begin "err" (R2, 1.20.25).
+     */
+    public function test_a_lock_timeout_is_an_ordinary_refusal(): void {
+        $this->resetAfterTest();
+        $this->assertTrue(
+            is_subclass_of(workflow_refusal::class, \moodle_exception::class),
+            'fixture check'
+        );
+        \mod_selfselectadvanced\local\locks::set_test_hook(function (string $resource): void {
+            throw new workflow_refusal('errlocktimeout', 'mod_selfselectadvanced');
+        });
+        try {
+            $w = $this->world();
+            $this->assert_refuses_typed(
+                fn() => $w->api->invitations()->send($w->group, (int) $w->students[0]->id, (int) $w->leader->id),
+                'errlocktimeout'
+            );
+        } finally {
+            \mod_selfselectadvanced\local\locks::set_test_hook(null);
+        }
+    }
+
+    /**
      * A join request decided by the superseded leader.
      */
     public function test_join_accept_by_superseded_leader(): void {

@@ -860,6 +860,21 @@ class joinrequests {
             if ($source !== null) {
                 self::require_join_changeable($source, false);
             }
+            // THE STUDENT MAY HAVE LEFT THE COURSE ENTIRELY. The waiting
+            // list is built from open requests belonging to this group
+            // and never asks whether the requester is still a
+            // participant, so a request outlives a withdrawal, a
+            // suspension or an enrolment simply running out. The leader
+            // has no way to know: the name still sits in "Requests
+            // waiting for you", and pressing Accept used to take the
+            // engine's own errmovenotparticipant - an untyped error - and
+            // put the leader on the fatal error page for doing the one
+            // thing the page offered him. Refused here in the workflow's
+            // words instead, with the request left OPEN so he can decline
+            // it with a note, exactly like the two guards below.
+            if (!is_enrolled($activity->context(), (int) $request->userid, 'mod/selfselectadvanced:respond', true)) {
+                throw new workflow_refusal('refusaljoinleft', 'mod_selfselectadvanced');
+            }
             // The student chose this team at ask time; the roster may have
             // moved since. Removing somebody from a team they already left
             // is not a move the engine can make - stage() would raise

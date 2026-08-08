@@ -81,7 +81,7 @@ Feature: Guide review of submitted groups
     Then I should see "approved"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Firm"
-    Then I should see "Firm"
+    Then I should see "Approved"
     And the Moodle group mirror for "Team Firm" in "Lab groups" should contain "student1, student2, guide1"
 
   Scenario: A lapsed decision window firms the team and records the exception
@@ -91,7 +91,7 @@ Feature: Guide review of submitted groups
     And I run the scheduled task "\mod_selfselectadvanced\task\guide_autoapprove"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
     And I follow "Team Late"
-    Then I should see "Firm"
+    Then I should see "Approved"
 
   Scenario: A guide already over their team limit keeps the team in the queue
     Given the following "mod_selfselectadvanced > overrides" exist:

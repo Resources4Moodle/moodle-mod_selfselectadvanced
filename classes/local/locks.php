@@ -109,7 +109,15 @@ final class locks {
         $factory = lock_config::get_lock_factory('mod_selfselectadvanced');
         $lock = $factory->get_lock($resource, $timeout);
         if (!$lock) {
-            throw new \moodle_exception('errlocktimeout', 'mod_selfselectadvanced');
+            // A stopwatch expiring is the definition of an ordinary fact
+            // of the multi-user world, and this key's own sentence has
+            // always read like a notice - "Another change to this group
+            // is in progress. Please try again." It was delivered on the
+            // fatal error page anyway, because the 1.20.22 migration
+            // sorted refusals by how their key was SPELLED and this one
+            // begins "err". Two people acting on one group inside ten
+            // seconds is not a fault worth a stack trace.
+            throw new workflow_refusal('errlocktimeout', 'mod_selfselectadvanced');
         }
 
         $handle = new lockhandle(++self::$seq, $resource, $lock);

@@ -33,7 +33,7 @@ Feature: Freezing firm groups into course groups
     Then I should see "frozen into a course group"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1
     And I follow "Team Blue"
-    Then I should see "Frozen"
+    Then I should see "Locked"
     When I follow "Unfreeze"
     Then I should see "returns to firm"
     # Since the mirror is retained across a release, the confirm page
@@ -44,7 +44,7 @@ Feature: Freezing firm groups into course groups
     And I should not see "The mirrored course group is deleted"
     When I press "Unfreeze"
     Then I should see "unfrozen and restored"
-    And I should see "Firm"
+    And I should see "Approved"
 
   Scenario: A guide may release a team they froze, but not one staff froze
     Given the following "mod_selfselectadvanced > groups" exist:

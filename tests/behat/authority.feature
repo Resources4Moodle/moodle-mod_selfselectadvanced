@@ -229,7 +229,7 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     And I press "Accept"
     Then I should see "approved"
     When I am on the "Lab groups > Team Cedar" "mod_selfselectadvanced > group" page logged in as student1
-    Then I should see "Firm"
+    Then I should see "Approved"
 
   # D1, the same team with "act as a project guide" itself withdrawn -
   # the capability whose string names review, return AND approve, and

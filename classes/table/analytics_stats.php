@@ -227,7 +227,12 @@ class analytics_stats {
             $rows[] = (object) [
                 'rawname' => $group->name,
                 'pluginuid' => $group->pluginuid,
-                'state' => $group->state,
+                // The LABEL, not the stored value. Every other export and
+                // every screen shows the label, and once "firm" became
+                // "Approved" this column would otherwise have disagreed
+                // with the rest of the plugin in a file somebody opens in
+                // a spreadsheet and reads on its own (decision 76).
+                'state' => get_string('state' . str_replace('_', '', $group->state), 'mod_selfselectadvanced'),
                 'timecreated' => (int) $group->timecreated,
                 'timelisted' => (int) ($group->timelisted ?? 0),
                 'firstinterest' => (int) ($firstinterest[$group->id] ?? 0),

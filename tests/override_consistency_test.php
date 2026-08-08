@@ -1165,7 +1165,7 @@ final class override_consistency_test extends \advanced_testcase {
         $contended = 'override:user:' . (int) $students[1]->id;
         locks::set_test_hook(static function (string $resource) use ($contended): void {
             if ($resource === $contended) {
-                throw new \moodle_exception('errlocktimeout', 'mod_selfselectadvanced');
+                throw new \mod_selfselectadvanced\local\workflow_refusal('errlocktimeout', 'mod_selfselectadvanced');
             }
         });
         try {

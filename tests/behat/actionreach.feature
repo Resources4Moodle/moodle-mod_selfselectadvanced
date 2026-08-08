@@ -89,7 +89,7 @@ Feature: Every authority this activity grants has a control that spends it
     Then I should see "A Moodle course group is created"
     When I press "Freeze"
     Then I should see "frozen into a course group"
-    And I should see "Frozen"
+    And I should see "Locked"
 
   # ---------------------------------------------------------------- ACT-003
   # The role created to freeze on a guide's behalf, on the dashboard

@@ -54,7 +54,7 @@ Feature: Bulk operations, the manager dashboard and the flagged report
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page
     And I follow "Groups I guide"
     Then I should see "Freeze selected groups"
-    And I should see "Firm" in the "Team Fir" "table_row"
+    And I should see "Approved" in the "Team Fir" "table_row"
 
   Scenario: The manager dashboard filters by state and offers unfreeze
     When I am on the "Lab groups" "mod_selfselectadvanced > manage" page logged in as teacher1

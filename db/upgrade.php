@@ -2075,5 +2075,23 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080803, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080804) {
+        // The status labels say what they mean (decision 76), and two
+        // refusals that a person can genuinely reach stop arriving as
+        // the fatal error page: a lock lost by ten seconds, and a join
+        // request whose student has left the course since asking.
+        // Behavioural and presentational; no schema change.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.25 (2026080804). Firm becomes Approved and Frozen becomes '
+                . 'Locked; the analytics export uses the label; a lost lock and a departed '
+                . 'requester are answered as notices instead of the error page.',
+            'Behavioural and presentational changes only; no schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080804, 'selfselectadvanced');
+    }
+
     return true;
 }
