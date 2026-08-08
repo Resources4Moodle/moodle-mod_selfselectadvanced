@@ -65,16 +65,14 @@ if ($gid) {
         );
     }
     // AUTHORITY, RESTORED WITHOUT RE-BREAKING STAFF (AUTH-003). The
-    // capability gate above answers the CREATE branch only, and moving
-    // it there in D6-4 was deliberate: :creategroup is a STUDENT
-    // capability an editing teacher does not hold, so demanding it of
-    // everybody made the manager repair path unreachable. The side
-    // effect nobody wrote down was that the EDIT branch then asked no
-    // capability at all - and under decision 38 the raw leaderid it
-    // asks instead is exactly what a PROHIBITED leader still owns.
+    // creation gate above is intentionally separate from this edit
+    // branch: :creategroup controls starting a new group, while :lead
+    // controls an existing leader's actions. Both are student
+    // capabilities that an editing teacher does not need for the staff
+    // repair path, so the question is asked HERE only of the leader.
     //
-    // So the question is asked HERE, of the leader path only, leaving
-    // the staff path exactly as D6-4 left it.
+    // The raw leaderid is ownership, not authority: an administrator
+    // may prohibit :lead while leaving the row unchanged.
     // api::update_group_details() asks the same pair again at the
     // write, because a page gate is not a gate: a direct POST skips it.
     if (!$isstaff) {

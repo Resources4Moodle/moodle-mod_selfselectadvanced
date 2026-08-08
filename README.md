@@ -90,7 +90,8 @@ activity instance.
 | Capability | Default archetypes |
 |---|---|
 | `mod/selfselectadvanced:addinstance` | editingteacher, manager |
-| `mod/selfselectadvanced:creategroup` | student |
+| `mod/selfselectadvanced:creategroup` | student — create a new group |
+| `mod/selfselectadvanced:lead` | student — act as leader of an existing group |
 | `mod/selfselectadvanced:respond` | student |
 | `mod/selfselectadvanced:guide` | teacher (non-editing) |
 | `mod/selfselectadvanced:freeze` | teacher (non-editing) |
@@ -105,6 +106,21 @@ activity instance.
 | `mod/selfselectadvanced:viewparticipantidentity` | none (granted deliberately) — see participants' identity and mobile columns inside this activity; AND-ed onto the core identity capabilities, never a substitute for them. Since 1.20.1 it does **not** reopen an email address while contact privacy is on: nothing does |
 
 Every action checks the capability, never the role name.
+
+### Pausing new group creation without stranding leaders
+
+Release 1.20.26 separates `mod/selfselectadvanced:creategroup` from
+`mod/selfselectadvanced:lead`. On upgrade, Moodle clones each role's recorded
+`:creategroup` permission — including ALLOW, PREVENT and PROHIBIT — to `:lead`,
+so the upgrade itself does not change who may lead an existing group.
+
+After upgrading, an administrator who wants to pause **new** group creation can
+prohibit `mod/selfselectadvanced:creategroup` at the activity while leaving
+`mod/selfselectadvanced:lead` unchanged. Existing leaders can then continue to
+invite members, edit, submit and otherwise run their groups. The activity's
+`timeopen` / `timecutoff` formation window remains the normal date-based
+control; the capability split is for role- or activity-specific permission
+policy and does not add a duplicate setting.
 
 ## Admin walkthrough (one full lifecycle)
 

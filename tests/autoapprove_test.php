@@ -419,8 +419,20 @@ final class autoapprove_test extends \advanced_testcase {
     }
 
     /**
-     * 6. A relief the resolver cannot see defers the team, and the
-     *    manager's own override row is left exactly as it was.
+     * 6. The manager's own override row is left exactly as it was.
+     *
+     *    The fixture is a manager cap of 1 on a roster of 3, which is
+     *    what made the merged relief row park - and, since decision 80,
+     *    is also an over-maximum roster, which the plan refuses before
+     *    any relief is attempted. The reported reason therefore changed
+     *    from "relief pending" to the over-maximum sentence, and it is
+     *    the better answer: no exemption makes an over-size group
+     *    lockable, so the manager has to act either way, and now they
+     *    are told the figures and the remedy instead of an internal
+     *    fact about an override row.
+     *
+     *    What this test actually guards is unchanged and still asserted
+     *    below: the sweep touches nothing on its way out.
      */
     public function test_pending_relief_defers_and_leaves_the_manager_row_untouched(): void {
         global $DB;
@@ -454,7 +466,11 @@ final class autoapprove_test extends \advanced_testcase {
 
         $this->assertSame(state::PENDING_GUIDE, $this->state_of((int) $group->id));
         $this->assertStringContainsString(
-            get_string('refusalreliefpending', 'mod_selfselectadvanced'),
+            get_string('refusalovermaxsize', 'mod_selfselectadvanced', (object) [
+                'current' => 3,
+                'max' => 1,
+                'excess' => 2,
+            ]),
             $output
         );
         // Byte-identical: the merged write was rolled back with the

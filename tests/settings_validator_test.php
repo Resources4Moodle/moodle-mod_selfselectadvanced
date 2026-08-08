@@ -56,6 +56,33 @@ final class settings_validator_test extends \basic_testcase {
     }
 
     /**
+     * Decision 75: "Manager assigns the guide" means the manager
+     * assigns the guide. Expressions of interest hand that choice to
+     * the leader - a guide offers, the leader accepts, and the group
+     * arrives at review already carrying the guide it picked - so the
+     * pair is refused at the form rather than left to contradict the
+     * setting's own help text in production.
+     *
+     * MUTATION CAUGHT (run): deleting the guidemode arm from
+     * settings_validator::validate() fails the first assertion here.
+     */
+    public function test_manager_mode_and_expressions_of_interest_are_incompatible(): void {
+        $both = $this->valid() + ['guidemode' => 1, 'eoienabled' => 1];
+        $this->assertSame(
+            ['eoienabled' => 'errmanagermodeeoi'],
+            settings_validator::validate($both),
+            'a teacher must not be able to save a setting that means the opposite of what it says'
+        );
+
+        // Each alone is a coherent activity and stays legal.
+        $this->assertSame([], settings_validator::validate($this->valid() + ['guidemode' => 1, 'eoienabled' => 0]));
+        $this->assertSame([], settings_validator::validate($this->valid() + ['guidemode' => 0, 'eoienabled' => 1]));
+
+        // And leader-selects mode with neither is untouched.
+        $this->assertSame([], settings_validator::validate($this->valid()));
+    }
+
+    /**
      * Boundary: equal values are legal (minsize = maxsize, maxlead = maxmembership).
      */
     public function test_equal_boundaries_pass(): void {

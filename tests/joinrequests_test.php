@@ -234,7 +234,7 @@ final class joinrequests_test extends \advanced_testcase {
         $request = joinrequests::request($activity, (int) $beta->id, 'Please', (int) $wanderer->id);
 
         $this->assertTrue(authority::may_lead($activity, $leaderid), 'fixture: the leader must start authorised');
-        $this->prohibit($activity, authority::CREATEGROUP, 'student');
+        $this->prohibit($activity, authority::LEAD, 'student');
         $this->assertFalse(authority::may_lead($activity, $leaderid));
         $this->assertSame(
             $leaderid,

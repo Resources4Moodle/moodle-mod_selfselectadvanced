@@ -31,7 +31,7 @@ $functions = [
             . 'with per-candidate eligibility and reasons.',
         'type' => 'read',
         'ajax' => true,
-        'capabilities' => 'mod/selfselectadvanced:creategroup',
+        'capabilities' => 'mod/selfselectadvanced:lead',
     ],
     'mod_selfselectadvanced_search_groups' => [
         'classname' => \mod_selfselectadvanced\external\search_groups::class,

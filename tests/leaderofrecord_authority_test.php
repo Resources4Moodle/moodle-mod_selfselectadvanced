@@ -28,7 +28,7 @@ use mod_selfselectadvanced\local\state;
  *
  * Four sites, one root cause (external review AUTH-001..004). Decision
  * 38 says a team always has exactly one leader and that leadership is
- * TRANSFERRED, never removed - so a student whose :creategroup an
+ * TRANSFERRED, never removed - so a student whose :lead an
  * administrator has PROHIBITED stays in group.leaderid. Every one of
  * the four sites below authorised on that raw identity, so every one of
  * them went on admitting exactly the person the administrator had just
@@ -266,7 +266,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
 
     /**
      * AUTH-001: LISTING is a publication - it puts the team in front of
-     * every guide in the activity - so a leader whose :creategroup has
+     * every guide in the activity - so a leader whose :lead has
      * been prohibited is refused, and the field is not written.
      *
      * Mutation this catches: delete the `if ($listed) { require_lead
@@ -282,7 +282,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
         $group = $this->team($activity, $leader, 'Prohibited listing');
 
         $this->assertTrue(authority::may_lead($activity, $leader), 'fixture: the capability must start live');
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
         $this->assertFalse(authority::may_lead($activity, $leader));
 
         // Ownership and lifecycle are both untouched: the only thing
@@ -295,7 +295,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
             eoi::set_listed($activity, (int) $group->id, true, $leader);
             $this->fail('set_listed() listed a team for a leader whose capability is prohibited');
         } catch (\required_capability_exception $e) {
-            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
+            $this->assertSame(get_capability_string(authority::LEAD), $e->a);
         }
 
         $after = $DB->get_record('selfselectadvanced_group', ['id' => (int) $group->id], '*', MUST_EXIST);
@@ -330,7 +330,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
             'fixture: the team must be listed before the retraction can mean anything'
         );
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
         $this->assertFalse(authority::may_lead($activity, $leader));
 
         eoi::set_listed($activity, (int) $group->id, false, $leader);
@@ -393,7 +393,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
         $this->assertTrue($before->showeoilist, 'fixture: the list button must start live');
         $this->assertTrue($before->showeoiunlist, 'fixture: the unlist button must start live');
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         $after = $this->grouppage($activity, $api, (int) $group->id, $leader);
         $this->assertFalse($after->showeoilist, 'the LIST button was still drawn for a prohibited leader');
@@ -445,7 +445,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
         $group = $this->team($activity, $leader, 'Refused paper');
         $this->seed_proposal($activity, (int) $group->id, 'original.pdf');
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
         $this->assertFalse(proposal::may_publish($activity, $group, $leader));
 
         try {
@@ -458,7 +458,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
             );
             $this->fail('proposal::save() accepted an upload from a prohibited leader');
         } catch (\required_capability_exception $e) {
-            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
+            $this->assertSame(get_capability_string(authority::LEAD), $e->a);
         }
 
         $names = array_map(
@@ -492,7 +492,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
         $this->seed_proposal($activity, (int) $group->id, 'original.pdf');
         $this->assertSame(1, proposal::count_files($activity, (int) $group->id), 'fixture: seed the file first');
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
         $this->assertFalse(proposal::may_publish($activity, $group, $leader));
         $this->assertTrue(proposal::may_retract($activity, $group, $leader));
 
@@ -577,7 +577,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
             authority::may_lead($activity, (int) $staff->id),
             'fixture: an editing teacher does not hold the STUDENT capability (D6-4)'
         );
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         $kept = proposal::save(
             $activity,
@@ -643,7 +643,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
     }
 
     /**
-     * AUTH-003: the leader of record is refused once :creategroup is
+     * AUTH-003: the leader of record is refused once :lead is
      * prohibited, and the two texts every browsing guide reads are
      * unchanged.
      *
@@ -660,7 +660,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
         $group = $this->team($activity, $leader, 'Locked details');
         $original = $DB->get_record('selfselectadvanced_group', ['id' => (int) $group->id], '*', MUST_EXIST);
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
         $this->assertSame(
             $leader,
             (int) $DB->get_field('selfselectadvanced_group', 'leaderid', ['id' => (int) $group->id]),
@@ -671,7 +671,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
             $api->update_group_details($group, 'Hijacked', '<p>Hijacked</p>', FORMAT_HTML, $leader);
             $this->fail('update_group_details() accepted a leader whose capability is prohibited');
         } catch (\required_capability_exception $e) {
-            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
+            $this->assertSame(get_capability_string(authority::LEAD), $e->a);
         }
 
         $after = $DB->get_record('selfselectadvanced_group', ['id' => (int) $group->id], '*', MUST_EXIST);
@@ -681,7 +681,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
 
     /**
      * AUTH-003, THE REGRESSION THIS FIX MUST NOT CAUSE. D6-4 moved the
-     * capability check below the branch precisely because :creategroup
+     * capability check below the branch precisely because :lead
      * is a STUDENT capability an editing teacher does not hold, and
      * demanding it of everybody made the staff repair path unreachable.
      * Restoring the gate for the leader must leave staff exactly where
@@ -700,7 +700,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
         $group = $this->team($activity, $leader, 'Staff repair');
 
         $this->assertFalse(authority::may_lead($activity, (int) $staff->id));
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         $api->update_group_details($group, 'Repaired', '<p>Repaired</p>', FORMAT_HTML, (int) $staff->id);
 
@@ -802,7 +802,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
         $leader = (int) $students[0]->id;
         [$group, $eoirow] = $this->interested($activity, $leader, (int) $guides[0]->id, 'Unwilling');
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
         $this->assertSame(
             $leader,
             (int) $DB->get_field('selfselectadvanced_group', 'leaderid', ['id' => (int) $group->id]),
@@ -841,7 +841,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
         $leader = (int) $students[0]->id;
         [, $eoirow] = $this->interested($activity, $leader, (int) $guides[0]->id, 'Unwilling too');
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         try {
             eoi::respond($activity, (int) $eoirow->id, false, $leader);
@@ -870,7 +870,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
         $leader = (int) $students[0]->id;
         [$group, $eoirow] = $this->interested($activity, $leader, (int) $guides[0]->id, 'Staff decides');
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         eoi::respond($activity, (int) $eoirow->id, true, (int) $staff->id);
 
@@ -901,7 +901,7 @@ final class leaderofrecord_authority_test extends \advanced_testcase {
         $this->assertTrue($before->caneoirespond, 'fixture: the decision buttons must start live');
         $this->assertTrue($before->haseoirows, 'fixture: there must be an interest to decide');
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         $after = $this->grouppage($activity, $api, (int) $group->id, $leader);
         $this->assertFalse($after->caneoirespond, 'Accept/Decline were still drawn for a prohibited leader');

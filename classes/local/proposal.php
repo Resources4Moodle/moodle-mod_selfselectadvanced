@@ -31,7 +31,7 @@ use stdClass;
  * Why it exists (AUTH-002). Until 1.20.3 group.php decided on the raw
  * leaderid, ran file_save_draft_area_files() inline, and there was no
  * service to call and nothing to test but the page. Under decision 38 a
- * leader whose :creategroup has been prohibited is STILL the leader of
+ * leader whose :lead has been prohibited is STILL the leader of
  * record, so the raw identity test admitted exactly the actor an
  * administrator had just refused - and a direct POST skipped the page
  * anyway.
@@ -107,7 +107,7 @@ final class proposal {
      *
      * Wider than may_publish() by exactly one case, and that case is
      * the point of the F3 invariant: the leader of record of a forming
-     * team whose :creategroup has been prohibited. They may not publish
+     * team whose :lead has been prohibited. They may not publish
      * and they may still retract.
      *
      * @param activity $activity the activity

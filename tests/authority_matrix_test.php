@@ -348,10 +348,10 @@ final class authority_matrix_test extends \advanced_testcase {
     // D2: submit is a leader verb.
 
     /**
-     * Prohibiting :creategroup must stop submit() moving the team out
+     * Prohibiting :lead must stop submit() moving the team out
      * of forming - every other gate being perfect.
      */
-    public function test_submit_writes_nothing_when_creategroup_is_prohibited(): void {
+    public function test_submit_writes_nothing_when_lead_is_prohibited(): void {
         $this->resetAfterTest();
         [$activity, $api, , $students, $guides] = $this->scene();
         $leader = (int) $students[0]->id;
@@ -365,7 +365,7 @@ final class authority_matrix_test extends \advanced_testcase {
         // Every non-authority gate passes before the prohibit.
         $this->assertNull($api->gatekeeper()->can_submit($group, $leader));
 
-        $this->prohibit($activity, 'student', 'mod/selfselectadvanced:creategroup');
+        $this->prohibit($activity, 'student', 'mod/selfselectadvanced:lead');
 
         try {
             $api->lifecycle()->submit($group, (int) $guides[0]->id, $leader);
@@ -394,7 +394,7 @@ final class authority_matrix_test extends \advanced_testcase {
             'status' => groups::STATUS_CONFIRMED,
         ]);
         $group = groups::get($activity, (int) $group->id);
-        $this->prohibit($activity, 'student', 'mod/selfselectadvanced:creategroup');
+        $this->prohibit($activity, 'student', 'mod/selfselectadvanced:lead');
 
         try {
             $api->lifecycle()->submit($group, (int) $guides[0]->id, $leader);
@@ -454,7 +454,7 @@ final class authority_matrix_test extends \advanced_testcase {
         ))->export_for_template($output);
         $this->assertTrue((bool) $before->showsubmit);
 
-        $this->prohibit($activity, 'student', 'mod/selfselectadvanced:creategroup');
+        $this->prohibit($activity, 'student', 'mod/selfselectadvanced:lead');
 
         $after = (new \mod_selfselectadvanced\output\group_page(
             $api,

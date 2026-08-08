@@ -376,7 +376,7 @@ class group_page implements renderable, templatable {
         // created, and this banner is where it is acquired. The three
         // controls it carries are gated on the capability that names
         // the action - :respond for the nominee's Accept/Decline pair,
-        // :creategroup for the leader's Cancel - so a PROHIBIT removes
+        // :lead for the leader's Cancel - so a PROHIBIT removes
         // the button rather than leaving a form that ends at a
         // no-permission page.
         //
@@ -964,7 +964,7 @@ class group_page implements renderable, templatable {
             // places the template consults this flag are both leader
             // CONTROLS - Withdraw on a pending invitation, and Cancel
             // nomination - and both of the services behind them require
-            // :creategroup. The roster's per-row leader badge is a
+            // :lead. The roster's per-row leader badge is a
             // different variable in a different scope and still says
             // who leads. Ownership itself is unchanged and is asserted
             // on the group row by the tests, not read off here.

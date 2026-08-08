@@ -159,7 +159,7 @@ class search_guides extends external_api {
         // team's guide" true only for somebody who also holds
         // :coordinate or :manage.
         $allowed = false;
-        foreach (['respond', 'creategroup', 'guide', 'manage', 'coordinate', 'assignguide'] as $capability) {
+        foreach (['respond', 'lead', 'guide', 'manage', 'coordinate', 'assignguide'] as $capability) {
             if (has_capability('mod/selfselectadvanced:' . $capability, $context)) {
                 $allowed = true;
                 break;

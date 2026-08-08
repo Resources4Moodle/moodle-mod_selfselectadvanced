@@ -84,13 +84,13 @@ class search_candidates extends external_api {
         // A-1). groups::get() answers the first - does this row belong
         // to the activity the caller named - and `leaderid === $USER->id`
         // answers RECORD OWNERSHIP. Neither is authority. A leader
-        // whose :creategroup an administrator has PROHIBITED still owns
+        // whose :lead an administrator has PROHIBITED still owns
         // the row, so they fell through to the search and enumerated
         // every enrolled candidate's id, name, eligibility verdict and
         // localised refusal reason over AJAX - the exact pool the
         // invitation flow they may no longer perform is built from.
         //
-        // The service DECLARATION names :creategroup in db/services.php,
+        // The service DECLARATION names :lead in db/services.php,
         // and that is metadata: core checks a web service function's
         // declared capability for the token/user in the SERVICE
         // configuration, not on every AJAX call from a logged-in
@@ -98,12 +98,12 @@ class search_candidates extends external_api {
         // this activity's context. Enforcement is here or nowhere.
         //
         // CALLED, not transcribed: the same authority::require_lead()
-        // that api::create_group() and invitations::invite() ask, so a
-        // prohibition takes the whole verb - the page, the service and
-        // its picker - rather than two thirds of it. The manager branch
+        // that invitations::send() asks, so a prohibition takes the
+        // whole invitation verb - the page, the service and its picker -
+        // rather than two thirds of it. The manager branch
         // is untouched: :manage is a different grant, and narrowing it
-        // to :creategroup would break the staff repair path (an editing
-        // teacher does not hold :creategroup at all, D6-4).
+        // to :lead would break the staff repair path (an editing
+        // teacher does not hold :lead at all).
         $group = groups::get($activity, $groupid);
         if ((int) $group->leaderid !== (int) $USER->id) {
             require_capability('mod/selfselectadvanced:manage', $activity->context());

@@ -145,6 +145,7 @@ class landing implements renderable, templatable {
 
         if (
             has_capability('mod/selfselectadvanced:creategroup', $context, $this->userid, false)
+                || has_capability('mod/selfselectadvanced:lead', $context, $this->userid, false)
                 || has_capability('mod/selfselectadvanced:respond', $context, $this->userid, false)
         ) {
             $data->isstudent = true;

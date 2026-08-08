@@ -609,11 +609,17 @@ class moves {
                 ])
             );
 
-            // L3 when the move designates a leader (target) or a
-            // successor (source). stage() refuses makeleader on a park,
-            // so $targetid is never null here - the guard states it
-            // rather than trusting a row written by an older release.
+            // Leadership capability and L3 are separate rules. A manager may
+            // override an L3 limit with a recorded reason, but cannot install a
+            // person whom the activity does not currently allow to lead. This
+            // is evaluated again at commit time, so a staged move cannot outlive
+            // a later :lead prohibition and silently create an inert leader.
             if ($move->makeleader && $targetid !== null) {
+                $verdicts['LEAD'] = $this->verdict(
+                    authority::may_lead($this->activity, (int) $move->userid),
+                    false,
+                    get_string('refusalnomineecannotlead', 'mod_selfselectadvanced')
+                );
                 $verdicts['L3'] = $this->leadverdict((int) $move->userid, $moves, $bypasses);
 
                 // Deliberate leadership change (not code-bypassable):
@@ -639,6 +645,11 @@ class moves {
                 );
             }
             if ($move->successorid) {
+                $verdicts['LEADS'] = $this->verdict(
+                    authority::may_lead($this->activity, (int) $move->successorid),
+                    false,
+                    get_string('refusalnomineecannotlead', 'mod_selfselectadvanced')
+                );
                 $verdicts['L3S'] = $this->leadverdict((int) $move->successorid, $moves, $bypasses);
             }
 

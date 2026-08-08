@@ -156,6 +156,13 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->disabledIf('guidevolunteer', 'studentapproach', 'checked');
         $mform->disabledIf('guidemode', 'studentapproach', 'checked');
         $mform->disabledIf('eoienabled', 'studentapproach', 'checked');
+        // Decision 75: expressions of interest let the LEADER choose the
+        // guide, so they cannot be offered on an activity whose own
+        // setting promises the MANAGER allocates them. Greyed out here
+        // as well as refused by the validator, because a control a
+        // teacher can tick and then be told off for is a worse
+        // explanation than one that visibly does not apply.
+        $mform->disabledIf('eoienabled', 'guidemode', 'eq', 1);
 
         // Formation window.
         $mform->addElement('header', 'formationwindow', get_string('formationwindow', 'mod_selfselectadvanced'));

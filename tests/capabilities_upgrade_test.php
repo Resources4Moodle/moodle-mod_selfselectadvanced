@@ -16,6 +16,8 @@
 
 namespace mod_selfselectadvanced;
 
+use mod_selfselectadvanced\local\authority;
+
 /**
  * The 1.20 Moodle Manager grants have to reach an UPGRADED site.
  *
@@ -162,7 +164,7 @@ final class capabilities_upgrade_test extends \advanced_testcase {
         // privacy -> 2026073190 least-privilege capabilities -> 2026073200 the
         // 1.20.0 release serial -> 2026073210 the 1.20.1 release serial ->
         // 2026073220 the 1.20.2 release serial).
-        $this->assertSame('2026080804', get_config('mod_selfselectadvanced', 'version'));
+        $this->assertSame('2026080805', get_config('mod_selfselectadvanced', 'version'));
 
         foreach ($roles as $role) {
             foreach (self::MANAGERCAPS as $capability) {
@@ -190,6 +192,53 @@ final class capabilities_upgrade_test extends \advanced_testcase {
                 'a Moodle Manager cannot ' . $capability . ' after the upgrade'
             );
         }
+    }
+
+    /**
+     * The 1.20.26 capability split preserves a custom role's recorded
+     * creation prohibition when :lead is introduced.
+     */
+    public function test_lead_clones_a_custom_creategroup_prohibition_on_upgrade(): void {
+        global $CFG, $DB;
+
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', ['course' => $course->id]);
+        $cm = get_coursemodule_from_instance('selfselectadvanced', (int) $instance->id, $course->id, false, MUST_EXIST);
+        $context = \context_module::instance((int) $cm->id);
+        $user = $generator->create_user();
+        $generator->enrol_user($user->id, $course->id, 'student');
+
+        $roleid = create_role('Creation paused', 'selfselectadvanced_creationpaused', 'Upgrade fixture');
+        set_role_contextlevels($roleid, [CONTEXT_MODULE]);
+        role_change_permission($roleid, $context, authority::CREATEGROUP, CAP_PROHIBIT);
+        role_assign($roleid, (int) $user->id, $context->id);
+        accesslib_clear_all_caches_for_unit_testing();
+        $this->assertFalse(has_capability(authority::CREATEGROUP, $context, (int) $user->id));
+
+        // The test suite is installed from the current db/access.php, so
+        // remove the new capability to recreate a real 1.20.25 site.
+        $DB->delete_records('role_capabilities', ['capability' => authority::LEAD]);
+        $DB->delete_records('capabilities', ['name' => authority::LEAD]);
+        accesslib_clear_all_caches_for_unit_testing();
+        $this->assertFalse($DB->record_exists('capabilities', ['name' => authority::LEAD]));
+
+        require_once($CFG->libdir . '/upgradelib.php');
+        require_once($CFG->dirroot . '/mod/selfselectadvanced/db/upgrade.php');
+        set_config('version', 2026080804, 'mod_selfselectadvanced');
+        xmldb_selfselectadvanced_upgrade(2026080804);
+        $CFG->upgraderunning = 0;
+        accesslib_clear_all_caches_for_unit_testing();
+
+        $this->assertTrue($DB->record_exists('capabilities', ['name' => authority::LEAD]));
+        $permission = $DB->get_field('role_capabilities', 'permission', [
+            'contextid' => $context->id,
+            'roleid' => $roleid,
+            'capability' => authority::LEAD,
+        ]);
+        $this->assertSame(CAP_PROHIBIT, (int) $permission);
+        $this->assertFalse(has_capability(authority::LEAD, $context, (int) $user->id));
     }
 
     /**

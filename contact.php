@@ -42,7 +42,7 @@ require_login($course, true, $cm);
 
 $activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
 $context = $activity->context();
-require_capability('mod/selfselectadvanced:creategroup', $context);
+require_capability('mod/selfselectadvanced:lead', $context);
 
 $group = groups::get($activity, $groupid);
 if ((int) $group->leaderid !== (int) $USER->id) {

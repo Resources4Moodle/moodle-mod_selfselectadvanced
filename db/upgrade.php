@@ -2093,5 +2093,33 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080804, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080805) {
+        // 1.20.26 separates permission to create a new group from
+        // permission to lead one that already exists. The new :lead
+        // capability clones :creategroup on upgrade so every recorded
+        // ALLOW, PREVENT or PROHIBIT keeps the site's existing policy
+        // until an administrator deliberately separates the two powers.
+        //
+        // update_capabilities() builds its "new capabilities" list
+        // from the file's capabilities that are ABSENT from the
+        // capabilities table, and only that list reaches
+        // assign_legacy_capabilities() (lib/accesslib.php - the
+        // $newcaps loop). :lead is genuinely absent on a 1.20.25 site,
+        // so this call registers it and runs clonepermissionsfrom while
+        // the existing :creategroup row is available as the source.
+        update_capabilities('mod_selfselectadvanced');
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.26 (2026080805). Group creation and existing-group leadership '
+                . 'are separate capabilities; existing :creategroup permissions were cloned to :lead.',
+            'No schema change. Administrators may now prohibit :creategroup alone to stop new groups '
+                . 'without removing the controls of existing group leaders.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080805, 'selfselectadvanced');
+    }
+
     return true;
 }

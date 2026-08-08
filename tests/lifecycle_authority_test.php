@@ -39,11 +39,11 @@ use mod_selfselectadvanced\local\teamaccess;
  *   groups". REVIEW was gated in 1.20.1 (review.php's door), the AWARD
  *   in wave 3B; RETURN and APPROVE admitted on `guideid === actorid`
  *   alone and are gated here.
- * - :creategroup  "Create groups and act as leader". Create, invite,
+ * - :lead  "Act as the leader of a group". Before the 1.20.26
+ *   split these verbs used the leader half of :creategroup. Invite,
  *   withdraw, confirm-leave, nominate, cancel and delete were gated by
- *   the earlier waves; SUBMIT TO GUIDE - the verb that moves a team out
- *   of FORMING, consumes a guide's declared capacity and mails them -
- *   was gated by neither the page nor the service, and is gated here.
+ *   earlier waves; SUBMIT TO GUIDE was the missed leader verb and is
+ *   pinned here under its current capability.
  *
  * Every test drives the PRODUCTION service the page calls, never a
  * transcription of its condition, and every refusal is followed by a
@@ -390,8 +390,8 @@ final class lifecycle_authority_test extends \advanced_testcase {
     // Audit item D2.
 
     /**
-     * D2: submit. The verb :creategroup's own string covers under "act
-     * as leader", and the one the two previous waves both walked past.
+     * D2: submit. It is an existing-group leader verb and therefore
+     * belongs to :lead after the 1.20.26 capability split.
      * The team stays FORMING and acquires no guide.
      */
     public function test_submit_refuses_a_prohibited_leader(): void {
@@ -404,7 +404,7 @@ final class lifecycle_authority_test extends \advanced_testcase {
         $group = groups::get($activity, (int) $group->id);
         $this->assertNull($api->gatekeeper()->can_submit($group, $leader));
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
         $this->assertFalse(authority::may_lead($activity, $leader));
 
         // Ownership, state and every rule gate are still perfect: the
@@ -415,7 +415,7 @@ final class lifecycle_authority_test extends \advanced_testcase {
             $api->lifecycle()->submit($group, (int) $guide->id, $leader);
             $this->fail('submit() accepted a leader whose capability is prohibited');
         } catch (\required_capability_exception $e) {
-            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
+            $this->assertSame(get_capability_string(authority::LEAD), $e->a);
         }
 
         $this->assertSame(state::FORMING, $this->state_of((int) $group->id));
@@ -456,7 +456,7 @@ final class lifecycle_authority_test extends \advanced_testcase {
         $leader = (int) $students[0]->id;
 
         $group = $api->create_group($leader, 'Submitter', 'T', '<p>b</p>', FORMAT_HTML);
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         try {
             $api->lifecycle()->submit(groups::get($activity, (int) $group->id), (int) $guide->id, $leader);
@@ -506,7 +506,7 @@ final class lifecycle_authority_test extends \advanced_testcase {
         ))->export_for_template($renderer);
         $this->assertTrue((bool) $before->showsubmit, 'the fixture must draw it before the prohibit');
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         $after = (new \mod_selfselectadvanced\output\group_page(
             $api,

@@ -143,8 +143,16 @@ final class feasibility_test extends \advanced_testcase {
             'groupid' => $group->id,
             'userid' => (int) $students['k1']->id,
         ], '*', MUST_EXIST);
+        // The key changed with decision 82 and the coverage did not:
+        // the acceptance door now asks the SHARED verdict's engine tier,
+        // the same one join-acceptance has always asked, so both routes
+        // to this membership give one answer. The tier names the group
+        // it is talking about, which the old full-invited re-ask could
+        // not - and the old basis would also have refused this acceptor
+        // on OTHER people's unanswered invitations, which decision 60
+        // forbids.
         $this->assertSame(
-            'refusalcompositionunreachable',
+            'refusalcompositionunreachableteam',
             $api->gatekeeper()->can_accept($group, $member)?->stringkey
         );
 

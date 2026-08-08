@@ -41,13 +41,26 @@ $capabilities = [
         'clonepermissionsfrom' => 'moodle/course:manageactivities',
     ],
 
-    // Create groups and act as leader.
+    // Create a new group. Leadership of an existing group is a separate
+    // capability, so a site may pause creation without stranding leaders.
     'mod/selfselectadvanced:creategroup' => [
         'captype' => 'write',
         'contextlevel' => CONTEXT_MODULE,
         'archetypes' => [
             'student' => CAP_ALLOW,
         ],
+    ],
+
+    // Act as the leader of an existing group. On upgrade, copy every
+    // role's recorded creation permission so the split changes nothing
+    // until an administrator deliberately separates the two powers.
+    'mod/selfselectadvanced:lead' => [
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => [
+            'student' => CAP_ALLOW,
+        ],
+        'clonepermissionsfrom' => 'mod/selfselectadvanced:creategroup',
     ],
 
     // Accept or decline invitations and nominations; defines the candidate pool.

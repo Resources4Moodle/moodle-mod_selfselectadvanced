@@ -531,6 +531,191 @@ final class stale_matrix_test extends \advanced_testcase {
     }
 
     /**
+     * ROUTE PARITY (decision 82). Two ways exist to become a confirmed
+     * member of the same group with the same eventual roster: the
+     * leader invites and the student accepts, or the student asks and
+     * the leader accepts. They must agree on the hard composition
+     * question, because the roster they would produce is identical and
+     * a rule that depends on which door you came through is not a rule.
+     *
+     * Until this ruling they did not. Join acceptance asked the shared
+     * verdict's engine tier; invitation acceptance computed the very
+     * same verdict, honoured only its maximum, and then re-asked a
+     * weaker question over a basis that counted other people's
+     * unanswered invitations.
+     *
+     * MUTATION CAUGHT (run): restoring the old full-invited re-ask in
+     * can_accept() makes the two doors return different keys and fails
+     * the identity assertion below.
+     */
+    public function test_both_join_routes_give_one_composition_answer(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world(['maxsize' => 3, 'minsize' => 3]);
+        $plugingen = $w->plugingen;
+
+        // A composition the group cannot finish once this candidate is
+        // in it: one dimension, a minimum of two distinct values, and
+        // only one seat left after the candidate takes theirs.
+        $DB->insert_record('selfselectadvanced_quota', (object) [
+            'activityid' => $w->activity->id(),
+            'dimension' => 'department',
+            'rtype' => 'distinct',
+            'value' => null,
+            'mincount' => 3,
+            'maxcount' => 0,
+            'priority' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        $candidate = $w->students[0];
+        $fresh = groups::get($w->activity, (int) $w->group->id);
+
+        // Door 1: the student asks, the leader would accept.
+        $request = joinrequests::request($w->activity, (int) $w->group->id, 'let me in', (int) $candidate->id);
+        $askdecision = joinrequests::accept_decision(
+            $w->activity,
+            $DB->get_record('selfselectadvanced_move', ['id' => (int) $request->id], '*', MUST_EXIST),
+            (int) $w->leader->id
+        );
+        joinrequests::withdraw($w->activity, (int) $request->id, (int) $candidate->id);
+
+        // Door 2: the leader invites, the student would accept. Same
+        // person, same group, same eventual roster.
+        $member = $w->plugingen->create_member([
+            'groupid' => (int) $w->group->id,
+            'userid' => (int) $candidate->id,
+            'status' => groups::STATUS_INVITED,
+            'timeinvited' => time(),
+        ]);
+        $row = $DB->get_record('selfselectadvanced_member', ['id' => (int) $member->id], '*', MUST_EXIST);
+        $acceptrefusal = $w->api->gatekeeper()->can_accept(groups::get($w->activity, (int) $w->group->id), $row);
+
+        // Whatever the rules say about that roster, both doors say it.
+        $this->assertSame(
+            !$askdecision->canaccept,
+            $acceptrefusal !== null,
+            'one eventual roster, two routes, and they disagreed about whether it is allowed'
+        );
+        if (!$askdecision->canaccept) {
+            $this->assertSame(
+                $askdecision->hardkey,
+                $acceptrefusal?->stringkey,
+                'both doors refuse, but for reasons a person would read as different rules'
+            );
+        }
+    }
+
+    /**
+     * Decision 72: an administrator adjusting a role while somebody has
+     * a page open is an ordinary fact of a live site, not a fault. The
+     * services still throw core's permission exception - so web
+     * services, cron and CLI keep failing loudly, where a missing
+     * capability really is a configuration fault - but the page arms
+     * answer it as a notice, because the person pressed a button that
+     * was on the page a moment earlier and did nothing wrong.
+     *
+     * MUTATION CAUGHT (run): narrowing group.php's catches back to the
+     * typed refusal alone fails the count assertion here, and removing
+     * the required_capability_exception branch from
+     * selfselectadvanced_refusal_notice() fails the sentence assertion.
+     */
+    public function test_a_revoked_capability_reads_as_a_notice_not_a_fault(): void {
+        global $CFG;
+        $this->resetAfterTest();
+        require_once($CFG->dirroot . '/mod/selfselectadvanced/lib.php');
+
+        // The helper is the decision, so ask it directly.
+        $capability = new \required_capability_exception(
+            \context_system::instance(),
+            'mod/selfselectadvanced:creategroup',
+            'nopermissions',
+            ''
+        );
+        $notice = selfselectadvanced_refusal_notice($capability);
+        $this->assertSame(
+            get_string('refusalauthoritygone', 'mod_selfselectadvanced'),
+            $notice,
+            'a capability taken away mid-session is explained in the plugin&apos;s own words'
+        );
+        $this->assertStringNotContainsString(
+            'Sorry',
+            $notice,
+            'and not in core&apos;s generic permission wording, which reads like a fault'
+        );
+
+        // A workflow refusal still speaks for itself.
+        $workflow = new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
+        $this->assertSame(
+            $workflow->getMessage(),
+            selfselectadvanced_refusal_notice($workflow),
+            'the workflow&apos;s own sentence is never replaced'
+        );
+
+        // And every page arm that catches a refusal catches this too -
+        // the half no unit test can reach, since a page has no seam.
+        $page = file_get_contents(__DIR__ . '/../group.php');
+        $this->assertSame(
+            substr_count($page, 'catch (\mod_selfselectadvanced\local\workflow_refusal'),
+            substr_count($page, '| \required_capability_exception $e) {'),
+            'an arm that answers a workflow refusal must answer a revoked capability the same way'
+        );
+        $this->assertSame(
+            0,
+            substr_count($page, '$e->getMessage()'),
+            'and none of them may print the raw message, which would leak core&apos;s wording'
+        );
+    }
+
+    /**
+     * Decision 80: grandfathering is not automatically fair. A group
+     * formed at five under an old limit, whose maximum a teacher then
+     * lowers, used to sail through Submit and Approve and meet its
+     * first objection at Freeze - after a guide had already spent the
+     * review effort on a group that could never be locked. Submit now
+     * says so, in the same sentence with the same figures that Freeze
+     * has always used, so all three doors describe one rule.
+     *
+     * MUTATION CAUGHT (run): removing the over-maximum arm from
+     * can_submit() lets the group submit and fails the assertion here.
+     */
+    public function test_over_maximum_is_refused_at_submit_not_first_at_freeze(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        $w = $this->world(['minsize' => 1, 'maxsize' => 5]);
+
+        // Three confirmed on a roster formed while five were allowed.
+        foreach ([0, 1] as $i) {
+            $w->plugingen->create_member([
+                'groupid' => (int) $w->group->id,
+                'userid' => (int) $w->students[$i]->id,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+        }
+        $fresh = groups::get($w->activity, (int) $w->group->id);
+        $this->assertNull(
+            $w->api->gatekeeper()->can_submit($fresh, (int) $w->leader->id),
+            'fixture: this group is submittable while the limit allows it'
+        );
+
+        // The teacher lowers the maximum under them.
+        $DB->set_field('selfselectadvanced', 'maxsize', 2, ['id' => $w->activity->id()]);
+        $activity = activity::from_instance($w->activity->id());
+        $refusal = (new api($activity))->gatekeeper()->can_submit(
+            groups::get($activity, (int) $w->group->id),
+            (int) $w->leader->id
+        );
+
+        $this->assertSame('refusalovermaxsize', $refusal?->stringkey);
+        $this->assertSame(3, (int) $refusal->a->current);
+        $this->assertSame(2, (int) $refusal->a->max);
+        $this->assertSame(1, (int) $refusal->a->excess, 'the remedy is sized: one member over');
+    }
+
+    /**
      * A join request decided by the superseded leader.
      */
     public function test_join_accept_by_superseded_leader(): void {

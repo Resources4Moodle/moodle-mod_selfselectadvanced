@@ -100,7 +100,7 @@ class guides {
         // on the one page where a student holds the keyboard:
         // contact.php:79 reads a guidefilter parameter, :162 renders it
         // as a visible text input, and :183 passes it here - behind
-        // require_capability(':creategroup') at :45, a student
+        // require_capability(':lead') at its page door, a student
         // capability. Under the full-address rule, a plain student
         // leading a group can still reach the guide by the complete
         // address they were given; partial address probes do not engage

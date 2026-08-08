@@ -55,15 +55,16 @@ final class state {
      * the group enters the manager's assignment queue.
      *
      * AUTHORITY (1.20.1, audit D2). This is the leader verb the two
-     * previous authority waves both walked past: :creategroup is named
-     * "Create groups and act as leader", 3A gated creation and the
-     * roster verbs, 3B gated succession - and submitting, the verb that
+     * previous authority waves both walked past: the old combined
+     * :creategroup capability covered both creation and leader verbs.
+     * The split now names this existing-group authority :lead, and
+     * submitting, the verb that
      * moves a team out of FORMING, consumes a guide's declared capacity
      * and mails them, was gated by neither the page nor this service.
      * gatekeeper::can_submit() tests lifecycle state, the window, L1,
      * the proposal mandate, quota compliance and `leaderid === actorid`
      * - rule eligibility and record ownership, never authority - so a
-     * student whose :creategroup had been prohibited was correctly
+     * student whose leader authority had been prohibited was correctly
      * refused Delete group and Invite members and could still submit.
      *
      * Asked HERE and asked FIRST: before the guide lock, before the
@@ -667,6 +668,18 @@ final class state {
                         // A pre-existing guarded reduction keeps the
                         // merged row pending; approving on relief the
                         // resolver cannot see would be unexplained.
+                        //
+                        // DEFENSIVE, not currently reachable, and worth
+                        // saying so rather than letting a future reader
+                        // assume it fires. The sweep writes GROUP-scoped
+                        // relief, and override\guard::blockers() parks a
+                        // group-scoped row for exactly one reason - the
+                        // roster exceeding its maximum - which decision
+                        // 80 now refuses earlier, in the plan. The branch
+                        // stays because the invariant it defends is the
+                        // real one: never approve on relief the resolver
+                        // cannot see. It becomes reachable again the day
+                        // blockers() grows a second group-scoped arm.
                         throw new workflow_refusal('refusalreliefpending', 'mod_selfselectadvanced');
                     }
                     // The resolver cached every override row of the

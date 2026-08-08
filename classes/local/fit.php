@@ -701,6 +701,14 @@ class fit {
             'hardmaxa' => null,
             'engine' => null,
             'enginekey' => null,
+            // The engine tier's placeholder data, kept beside its key
+            // exactly as hardmaxa is kept beside hardmaxkey. Without it
+            // a caller could read the rendered sentence but could not
+            // rebuild the refusal object its own door returns, which is
+            // why the invitation door could not consume this tier and
+            // re-asked a weaker question of its own instead
+            // (decision 82).
+            'enginea' => null,
             'consent' => [],
             'blockedinvitees' => [],
         ];
@@ -735,22 +743,24 @@ class fit {
                 if ($target->state === state::FORMING) {
                     $free = max(0, $maxsize - $hard->seated);
                     $verdict->enginekey = 'refusalcompositionunreachableteam';
+                    $verdict->enginea = (object) [
+                        'name' => format_string($target->name),
+                        'missing' => $hard->missing,
+                        'free' => $free,
+                        'needed' => $hard->needed,
+                    ];
                     $verdict->engine = get_string(
                         'refusalcompositionunreachableteam',
                         'mod_selfselectadvanced',
-                        (object) [
-                            'name' => format_string($target->name),
-                            'missing' => $hard->missing,
-                            'free' => $free,
-                            'needed' => $hard->needed,
-                        ]
+                        $verdict->enginea
                     );
                 } else {
                     $verdict->enginekey = 'refusaljoinquotatarget';
+                    $verdict->enginea = format_string($target->name);
                     $verdict->engine = get_string(
                         'refusaljoinquotatarget',
                         'mod_selfselectadvanced',
-                        format_string($target->name)
+                        $verdict->enginea
                     );
                 }
             } else if ($invited !== []) {
@@ -819,10 +829,11 @@ class fit {
             $source = groups::get($activity, $sourcegroupid);
             if (!self::quota_ok_after($activity, $source, [], [$userid], $resolver)) {
                 $verdict->enginekey = 'refusaljoinquotasource';
+                $verdict->enginea = format_string($source->name);
                 $verdict->engine = get_string(
                     'refusaljoinquotasource',
                     'mod_selfselectadvanced',
-                    format_string($source->name)
+                    $verdict->enginea
                 );
             }
         }

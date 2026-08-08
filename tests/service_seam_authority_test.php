@@ -54,10 +54,10 @@ require_once($CFG->libdir . '/csvlib.class.php');
  * The six (1.20.1 external audit, wave 3D):
  *
  * - A-1 external\search_candidates authorised a leader on RAW
- *   OWNERSHIP. A student whose :creategroup was prohibited still
- *   enumerated every enrolled candidate's id, name, eligibility and
- *   refusal reason over AJAX. The capability in db/services.php is
- *   metadata, not enforcement.
+ *   OWNERSHIP. The original defect used :creategroup's leader half;
+ *   after the 1.20.26 split the same service invariant belongs to
+ *   :lead. The capability in db/services.php is metadata, not
+ *   enforcement.
  * - A-2 freeze::unfreeze() had NO POSITIVE AUTHORITY GATE at all -
  *   three conditional clauses and a fall-through into the roster
  *   restore.
@@ -194,7 +194,7 @@ final class service_seam_authority_test extends \externallib_advanced_testcase {
     }
 
     /**
-     * A-1: the live AJAX endpoint refuses a leader whose :creategroup
+     * A-1: the live AJAX endpoint refuses a leader whose :lead
      * has been prohibited, and hands back no part of the pool.
      *
      * The negative control above the prohibition is what makes this a
@@ -221,7 +221,7 @@ final class service_seam_authority_test extends \externallib_advanced_testcase {
 
         // The administrator takes the capability away. Ownership of the
         // group row is untouched - which is precisely the point.
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
         $this->assertFalse(authority::may_lead($activity, (int) $leader->id));
         $this->assertSame(
             (int) $leader->id,
@@ -237,13 +237,13 @@ final class service_seam_authority_test extends \externallib_advanced_testcase {
             );
             $this->fail('search_candidates::execute() served a prohibited leader');
         } catch (\required_capability_exception $e) {
-            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
+            $this->assertSame(get_capability_string(authority::LEAD), $e->a);
         }
     }
 
     /**
      * A-1, the other half: the manager branch is untouched. An editing
-     * teacher does not hold :creategroup at all, so a fix that reached
+     * teacher does not hold :lead at all, so a fix that reached
      * for it here would have broken the staff route into the picker.
      */
     public function test_search_candidates_still_serves_a_manager(): void {
@@ -254,7 +254,7 @@ final class service_seam_authority_test extends \externallib_advanced_testcase {
         $this->setUser($leader);
         $group = $api->create_group((int) $leader->id, 'Searchers', 'T', '<p>b</p>', FORMAT_HTML);
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
         $this->setUser($staff);
         $this->assertFalse(authority::may_lead($activity, (int) $staff->id));
 

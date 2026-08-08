@@ -122,7 +122,7 @@ if ($isleaderforming && $maylead && empty($group->successorid)) {
         if ((int) $member->userid === (int) $group->leaderid) {
             continue;
         }
-        if ($refusal = $api->gatekeeper()->check_nominee_leadslot((int) $member->userid)) {
+        if ($refusal = $api->gatekeeper()->check_nominee_can_lead((int) $member->userid)) {
             $excluded[] = [
                 'userid' => (int) $member->userid,
                 'name' => fullname($member),
@@ -145,7 +145,7 @@ if ($isleaderforming && $maylead && empty($group->successorid)) {
 $submitform = null;
 if ($isleaderforming && $maylead) {
     // AUTHORITY, added in 1.20.1 (audit D2): submitting to a guide is a
-    // LEADER verb - "Create groups and act as leader" - and it is the
+    // LEADER verb governed by :lead, and it is the
     // one this page drew from $isleaderforming alone while the invite,
     // nominate and delete controls beside it had already been gated.
     // state::submit() now refuses the same actor, so leaving the form
@@ -181,14 +181,14 @@ if ($isleaderforming && $maylead) {
 if ($action === 'submit' && $submitform && ($data = $submitform->get_data())) {
     try {
         $api->lifecycle()->submit($group, isset($data->guide) ? (int) $data->guide : null, (int) $USER->id);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
         // The refusalguidechanged sentence exists solely for the race between the
         // page load and this click - it must land as a sentence, not a
         // stack trace. Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
             $baseurl,
-            $e->getMessage(),
+            selfselectadvanced_refusal_notice($e),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -204,12 +204,12 @@ if ($action === 'submit' && $submitform && ($data = $submitform->get_data())) {
 if ($action === 'nominate' && $nominateform && ($data = $nominateform->get_data())) {
     try {
         $api->succession()->nominate($group, (int) $data->nominee, $data->stype, (int) $USER->id);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
         // Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
             $baseurl,
-            $e->getMessage(),
+            selfselectadvanced_refusal_notice($e),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -225,12 +225,12 @@ if ($action === 'nominate' && $nominateform && ($data = $nominateform->get_data(
 if ($action === 'confirmnomination' && data_submitted() && confirm_sesskey()) {
     try {
         $type = $api->succession()->confirm($group, (int) $USER->id);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
         // Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
             $baseurl,
-            $e->getMessage(),
+            selfselectadvanced_refusal_notice($e),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -244,12 +244,12 @@ if ($action === 'confirmnomination' && data_submitted() && confirm_sesskey()) {
 if ($action === 'declinenomination' && data_submitted() && confirm_sesskey()) {
     try {
         $api->succession()->decline($group, (int) $USER->id);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
         // Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
             $baseurl,
-            $e->getMessage(),
+            selfselectadvanced_refusal_notice($e),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -265,12 +265,12 @@ if ($action === 'declinenomination' && data_submitted() && confirm_sesskey()) {
 if ($action === 'cancelnomination' && data_submitted() && confirm_sesskey()) {
     try {
         $api->succession()->cancel($group, (int) $USER->id);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
         // Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
             $baseurl,
-            $e->getMessage(),
+            selfselectadvanced_refusal_notice($e),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -335,7 +335,7 @@ if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
         try {
             $api->invitations()->send($group, $inviteeid, (int) $USER->id);
             $sent++;
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
             // The combination case (maintainer, 2026-08-06): a candidate
             // eligible ALONE can be refused once an earlier pick in this
             // same batch consumed the seats or the rule capacity their
@@ -347,9 +347,9 @@ if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
             $problems[] = $refusedname !== null
                 ? get_string('errineligiblepick', 'mod_selfselectadvanced', (object) [
                     'name' => $refusedname,
-                    'reason' => $e->getMessage(),
+                    'reason' => selfselectadvanced_refusal_notice($e),
                 ])
-                : $e->getMessage();
+                : selfselectadvanced_refusal_notice($e);
         }
     }
     $notice = get_string('invitationssent', 'mod_selfselectadvanced', $sent);
@@ -370,12 +370,12 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
     $memberid = required_param('m', PARAM_INT);
     try {
         $api->invitations()->withdraw($group, $memberid, (int) $USER->id);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
         // The invitee accepting first is the documented ordinary race. Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
             $baseurl,
-            $e->getMessage(),
+            selfselectadvanced_refusal_notice($e),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -391,7 +391,7 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
 if ($action === 'accept' && data_submitted() && confirm_sesskey()) {
     try {
         $api->invitations()->accept($group, (int) $USER->id);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
         // A refused acceptance is an ANSWER, not an accident
         // (maintainer, 2026-08-07): back to the invitation list with
         // the reason as a notice, never the raw error page with its
@@ -400,7 +400,7 @@ if ($action === 'accept' && data_submitted() && confirm_sesskey()) {
         // where the roster moved between the page load and the click.
         redirect(
             $viewurl,
-            $e->getMessage(),
+            selfselectadvanced_refusal_notice($e),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -416,13 +416,13 @@ if ($action === 'accept' && data_submitted() && confirm_sesskey()) {
 if ($action === 'decline' && data_submitted() && confirm_sesskey()) {
     try {
         $api->invitations()->decline($group, (int) $USER->id);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
         // The unfixed sibling of the accept arm: a withdrawn or
         // expired invitation declined a moment too late. Same contract as the accept arm (1.20.18): a refusal is an
         // answer, delivered as a notice, never the raw error page.
         redirect(
             $viewurl,
-            $e->getMessage(),
+            selfselectadvanced_refusal_notice($e),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -448,8 +448,8 @@ if ($action === 'requestleave' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
 
@@ -464,8 +464,8 @@ if ($action === 'confirmleave' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
 
@@ -491,8 +491,8 @@ if (($action === 'eoilist' || $action === 'eoiunlist') && data_submitted() && co
             (int) $USER->id
         );
         redirect($baseurl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
 
@@ -542,8 +542,8 @@ if ($action === 'eoirespond') {
                 ? get_string('eoistatusaccepted', 'mod_selfselectadvanced')
                 : get_string('eoistatusrejected', 'mod_selfselectadvanced');
             redirect($baseurl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+            redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
         }
     }
     $guidename = fullname(\core_user::get_user((int) $eoirow->guideid));
@@ -612,8 +612,8 @@ if ($action === 'joinrespond' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
 
@@ -634,21 +634,21 @@ if ($action === 'freeze') {
     // extracted so the page cannot ask a different question.
     try {
         \mod_selfselectadvanced\local\freeze::require_freeze_team($activity, $group, (int) $USER->id);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
         // A stale freeze link is ordinary multi-user work (MKT-05):
         // the reason lands as a notice on the team page.
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
     }
     if (data_submitted() && confirm_sesskey()) {
         try {
             $frozen = \mod_selfselectadvanced\local\freeze::freeze_group($activity, $group, (int) $USER->id);
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
             // The membership-audit refusals are designed sentences
             // (freeze.php: "STATE IS NOT ASKED HERE") - deliver them
             // as the notice they were written to be.
             redirect(
                 $baseurl,
-                $e->getMessage(),
+                selfselectadvanced_refusal_notice($e),
                 null,
                 \core\output\notification::NOTIFY_ERROR
             );
@@ -702,8 +702,8 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
 
@@ -718,8 +718,8 @@ if ($action === 'unfreeze') {
     // so nobody is sent to a door that refuses them.
     try {
         \mod_selfselectadvanced\local\freeze::require_unfreeze_team($activity, $group, (int) $USER->id);
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
     }
     if (data_submitted() && confirm_sesskey()) {
         $unfreezereason = trim(optional_param('reason', '', PARAM_TEXT));
@@ -730,8 +730,8 @@ if ($action === 'unfreeze') {
                 (int) $USER->id,
                 $unfreezereason
             );
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+            redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
         }
         $notice = get_string('groupunfrozennotice', 'mod_selfselectadvanced', $group->pluginuid);
         // Nothing is discarded any more: the course group is kept, and
@@ -852,8 +852,8 @@ if ($action === 'dissolve') {
         }
         try {
             $api->dissolve_group($group, $dissolvereason, (int) $USER->id);
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+            redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
         }
         redirect(
             $viewurl,
@@ -934,8 +934,8 @@ if ($action === 'disbandrequest') {
         }
         try {
             $api->request_disband($group, $disbandreason, FORMAT_PLAIN, (int) $USER->id);
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+            redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
         }
         redirect(
             $baseurl,
@@ -992,8 +992,8 @@ if ($action === 'canceldisband' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
 
@@ -1008,8 +1008,8 @@ if ($action === 'selfleave' && data_submitted() && confirm_sesskey()) {
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
 
@@ -1034,8 +1034,8 @@ if ($action === 'returnforming') {
         }
         try {
             $api->lifecycle()->return_group($group, $returnreason, (int) $USER->id);
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+            redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
         }
         redirect(
             $baseurl,
@@ -1138,8 +1138,8 @@ if ($action === 'discardcoregroup') {
                 null,
                 \core\output\notification::NOTIFY_SUCCESS
             );
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+            redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
         }
     }
     // Confirmation page: what the course group is still being used for
@@ -1234,8 +1234,8 @@ if ($action === 'proposal') {
                 null,
                 \core\output\notification::NOTIFY_SUCCESS
             );
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-            redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+            redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
         }
     }
     echo $OUTPUT->header();
@@ -1253,14 +1253,14 @@ if ($action === 'delete') {
     if (data_submitted() && confirm_sesskey()) {
         try {
             $api->delete_group($group, (int) $USER->id);
-        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+        } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
             // MKT-02: the stale-page race the in-lock recheck exists
             // for. The state moved between the confirmation page and
             // this click; the person reads why on the team page,
             // never Moodle's fatal error renderer.
             redirect(
                 $baseurl,
-                $e->getMessage(),
+                selfselectadvanced_refusal_notice($e),
                 null,
                 \core\output\notification::NOTIFY_ERROR
             );
@@ -1449,7 +1449,7 @@ if ($ticketforms !== '') {
 // with no guide yet, where the activity allows it. Its own page, so
 // nothing here changes for anyone else. $maylead is part of the
 // condition (seam audit B3, 1.20.20) because contact.php gates on
-// :creategroup and contacts::send() asks authority::require_lead() -
+// :lead and contacts::send() asks authority::require_lead() -
 // the neighbouring Edit control asked both questions while this link
 // kept the raw leader-of-record copy, so a decision-38 prohibited
 // leader met a raw no-permission page one click later.

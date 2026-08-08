@@ -303,29 +303,41 @@ class engine {
             // any other pending invitations of theirs (audit: non-accept
             // paths were leaving rivals pending forever). Rows are kept
             // per user for the post-commit notification below.
-            $invitationservice = new \mod_selfselectadvanced\local\invitations(
-                $activity,
-                new \mod_selfselectadvanced\local\rules\gatekeeper($activity, $resolver)
-            );
+            $gatekeeper = new \mod_selfselectadvanced\local\rules\gatekeeper($activity, $resolver);
+            $invitationservice = new \mod_selfselectadvanced\local\invitations($activity, $gatekeeper);
             $cascadedbyuser = [];
             foreach ($plan->groups as $index => $members) {
-                // System-designated leader: first member with a free L3 slot.
+                // System-designated leader: first member who may lead and has
+                // a free L3 slot. Before the capability split this checked L3
+                // only, so auto-grouping could install a user whose :lead had
+                // been prohibited and leave an inert group behind.
                 $leaderid = 0;
                 foreach ($members as $candidate) {
-                    if (
-                        !(new \mod_selfselectadvanced\local\rules\gatekeeper($activity, $resolver))
-                        ->check_nominee_leadslot($candidate)
-                    ) {
+                    if (!$gatekeeper->check_nominee_can_lead($candidate)) {
                         $leaderid = $candidate;
                         break;
                     }
                 }
                 if (!$leaderid && $members) {
-                    // Nobody has a free L3 slot: designate the first
-                    // member anyway rather than insert a leaderless
-                    // group; the excess is grandfathered and the group
-                    // shows on the flagged report (audit item 15).
-                    $leaderid = (int) reset($members);
+                    // Preserve the existing L3-grandfathering policy: when
+                    // every authorised leader is already at their lead limit,
+                    // choose the first person who still has :lead and let the
+                    // flagged report expose the excess. The capability itself
+                    // is not grandfathered.
+                    foreach ($members as $candidate) {
+                        if (\mod_selfselectadvanced\local\authority::may_lead($activity, (int) $candidate)) {
+                            $leaderid = (int) $candidate;
+                            break;
+                        }
+                    }
+                }
+                if (!$leaderid) {
+                    // No member of this planned group is authorised to lead it.
+                    // Do not manufacture an inert leader: leave the students as
+                    // residue for staff to resolve and continue with the other
+                    // planned groups.
+                    $log['residue'] = array_values(array_unique(array_merge($log['residue'], $members)));
+                    continue;
                 }
                 // Names must stay unique across the whole course
                 // (1.16.0). The generated name carries a sequence and a
@@ -411,9 +423,9 @@ class engine {
                 'triggeredby' => $triggeredby,
                 'timestarted' => $now,
                 'timefinished' => time(),
-                'groupsformed' => count($plan->groups),
+                'groupsformed' => count($log['groups']),
                 'placed' => $placed,
-                'unplaced' => count($plan->residue),
+                'unplaced' => count($log['residue']),
                 'log' => json_encode($log),
             ];
             $agrun->id = $DB->insert_record('selfselectadvanced_agrun', $agrun);

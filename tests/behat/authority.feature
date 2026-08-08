@@ -41,6 +41,22 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     Then I should not see "Create group"
 
+  Scenario: Pausing new group creation leaves an existing leader's controls live
+    Given the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name       | leader   |
+      | ssa1               | Team Split | student1 |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    Then I should see "Create group"
+    Given the following "permission overrides" exist:
+      | capability                         | permission | role    | contextlevel    | reference |
+      | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa1      |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    Then I should not see "Create group"
+    When I am on the "Lab groups > Team Split" "mod_selfselectadvanced > group" page logged in as student1
+    Then I should see "Invite members"
+    And I should see "Edit title and brief"
+    And I should see "Submit to guide"
+
   Scenario: The bulk freeze control goes with the freeze capability
     Given the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name     | leader   | guide  | state | timeapproved  |
@@ -87,7 +103,7 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     And I should see "Confirm leave"
     Given the following "permission overrides" exist:
       | capability                         | permission | role    | contextlevel    | reference |
-      | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa1      |
+      | mod/selfselectadvanced:lead | Prohibit   | student | Activity module | ssa1      |
     When I am on the "Lab groups > Team Ash" "mod_selfselectadvanced > group" page logged in as student1
     # Still their team, still forming, still on the page: the only thing
     # that moved is the administrator's decision.
@@ -159,7 +175,7 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     Then I should see "Cancel nomination"
     Given the following "permission overrides" exist:
       | capability                         | permission | role    | contextlevel    | reference |
-      | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa1      |
+      | mod/selfselectadvanced:lead | Prohibit   | student | Activity module | ssa1      |
     When I am on the "Lab groups > Team Yew" "mod_selfselectadvanced > group" page logged in as student1
     Then I should see "Tara Two has been nominated as the new leader."
     And I should not see "Cancel nomination"
@@ -261,7 +277,7 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     And I should see "Invite members"
     Given the following "permission overrides" exist:
       | capability                         | permission | role    | contextlevel    | reference |
-      | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa1      |
+      | mod/selfselectadvanced:lead | Prohibit   | student | Activity module | ssa1      |
     When I am on the "Lab groups > Team Bay" "mod_selfselectadvanced > group" page logged in as student1
     Then I should see "Team Bay"
     And I should not see "Submit to guide"
@@ -288,7 +304,7 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     And I should see "Upload or replace the proposal"
     Given the following "permission overrides" exist:
       | capability                         | permission | role    | contextlevel    | reference |
-      | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa1      |
+      | mod/selfselectadvanced:lead | Prohibit   | student | Activity module | ssa1      |
     When I am on the "Lab groups > Team Larch" "mod_selfselectadvanced > group" page logged in as student1
     # Still their team and still forming: the only thing that moved is
     # the administrator's decision.
@@ -296,7 +312,7 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     And I should not see "Edit title and brief"
     And I should not see "Upload or replace the proposal"
     # The staff repair path is untouched, which is the regression this
-    # fix had to avoid: :creategroup is a STUDENT capability an editing
+    # fix had to avoid: :lead is a STUDENT capability an editing
     # teacher never held, and demanding it above the branch is what made
     # the manager path unreachable in the first place (D6-4).
     When I am on the "Lab groups > Team Larch" "mod_selfselectadvanced > group" page logged in as teacher1
@@ -327,7 +343,7 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     Then I should see "List this group for guides"
     Given the following "permission overrides" exist:
       | capability                         | permission | role    | contextlevel    | reference |
-      | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa2      |
+      | mod/selfselectadvanced:lead | Prohibit   | student | Activity module | ssa2      |
     When I am on the "Interest lab > Team Leaf" "mod_selfselectadvanced > group" page logged in as student1
     Then I should not see "List this group for guides"
     When I am on the "Interest lab > Team Lime" "mod_selfselectadvanced > group" page logged in as student1
@@ -355,7 +371,7 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     And I should see "Decline" in the ".selfselectadvanced-eoirows" "css_element"
     Given the following "permission overrides" exist:
       | capability                         | permission | role    | contextlevel    | reference |
-      | mod/selfselectadvanced:creategroup | Prohibit   | student | Activity module | ssa2      |
+      | mod/selfselectadvanced:lead | Prohibit   | student | Activity module | ssa2      |
     When I am on the "Interest lab > Team Lily" "mod_selfselectadvanced > group" page logged in as student1
     Then I should see "Gina Guide" in the ".selfselectadvanced-eoirows" "css_element"
     And I should not see "Accept" in the ".selfselectadvanced-eoirows" "css_element"

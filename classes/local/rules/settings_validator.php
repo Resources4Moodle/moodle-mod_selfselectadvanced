@@ -109,6 +109,31 @@ final class settings_validator {
             }
         }
 
+        // THE PUBLIC PROMISE WINS (decision 75). "Manager assigns the
+        // guide" tells the teacher, in its own help text, that groups
+        // arrive without a guide and a manager allocates one. Expressions
+        // of interest quietly contradict that: a guide expresses interest,
+        // the leader accepts, eoi::respond() writes group.guideid there
+        // and then, and submit gives a preassigned guide precedence over
+        // the mode - so the group goes straight to the guide the LEADER
+        // chose and never reaches the manager's queue. Both features are
+        // coherent alone; together the setting means the opposite of what
+        // it says. Refused at the form, so a teacher cannot configure a
+        // contradiction and discover it from behaviour weeks later.
+        // Only when student-approach mode is OFF. With it on, the block
+        // above has already refused both halves of this pair for a
+        // reason that explains more, and writing a second message onto
+        // the same field would replace the better explanation with a
+        // narrower one - which is exactly what it did before this guard
+        // existed, as the student-approach test noticed immediately.
+        if (
+            empty($data['studentapproach'])
+            && (int) ($data['guidemode'] ?? 0) === 1
+            && !empty($data['eoienabled'])
+        ) {
+            $errors['eoienabled'] = 'errmanagermodeeoi';
+        }
+
         // The project-id template must be able to mint a distinct id
         // for every team, and must not carry a placeholder the plugin
         // does not know how to fill (strategy 1.17 A1).

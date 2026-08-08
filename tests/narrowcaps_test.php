@@ -951,7 +951,7 @@ final class narrowcaps_test extends \advanced_testcase {
         $CFG->upgraderunning = 0;
         accesslib_clear_all_caches_for_unit_testing();
 
-        $this->assertSame('2026080804', get_config('mod_selfselectadvanced', 'version'));
+        $this->assertSame('2026080805', get_config('mod_selfselectadvanced', 'version'));
         foreach ($newcaps as $capability) {
             $this->assertTrue(
                 $DB->record_exists('capabilities', ['name' => $capability]),
@@ -1000,7 +1000,7 @@ final class narrowcaps_test extends \advanced_testcase {
         accesslib_clear_all_caches_for_unit_testing();
 
         $context = $activity->context();
-        foreach (['respond', 'creategroup', 'guide', 'manage', 'coordinate'] as $other) {
+        foreach (['respond', 'creategroup', 'lead', 'guide', 'manage', 'coordinate'] as $other) {
             $this->assertFalse(
                 has_capability('mod/selfselectadvanced:' . $other, $context, (int) $actor->id),
                 'the actor holds ' . $other . ' as well, so this test could not fail'

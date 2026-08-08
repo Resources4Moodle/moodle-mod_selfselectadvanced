@@ -49,8 +49,11 @@ use mod_selfselectadvanced\activity;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class authority {
-    /** @var string Create a team and act as its leader (spec T1, T7). */
+    /** @var string Create a new group (spec T1). */
     public const CREATEGROUP = 'mod/selfselectadvanced:creategroup';
+
+    /** @var string Act as the leader of an existing group. */
+    public const LEAD = 'mod/selfselectadvanced:lead';
 
     /** @var string Accept or decline invitations and nominations (spec 6.2). */
     public const RESPOND = 'mod/selfselectadvanced:respond';
@@ -73,17 +76,16 @@ final class authority {
     /**
      * May this actor act as a team leader in this activity?
      *
-     * Creating a team, inviting into it, withdrawing an invitation and
-     * confirming a member's leave are all the same authority - the
-     * capability is named "Create groups and act as leader" - so they
-     * all ask this one question.
+     * Leadership is deliberately separate from creating a new group. A
+     * site may prohibit :creategroup after formation without taking the
+     * controls of groups that already exist away from their leaders.
      *
      * @param activity $activity the activity
      * @param int $actorid the person acting
      * @return bool true when the capability is effective for them here
      */
     public static function may_lead(activity $activity, int $actorid): bool {
-        return has_capability(self::CREATEGROUP, $activity->context(), $actorid);
+        return has_capability(self::LEAD, $activity->context(), $actorid);
     }
 
     /**
@@ -94,7 +96,7 @@ final class authority {
      * @throws \required_capability_exception when the capability is not effective
      */
     public static function require_lead(activity $activity, int $actorid): void {
-        require_capability(self::CREATEGROUP, $activity->context(), $actorid);
+        require_capability(self::LEAD, $activity->context(), $actorid);
     }
 
     /**

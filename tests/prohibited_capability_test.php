@@ -55,11 +55,11 @@ use mod_selfselectadvanced\task\bulkfreeze_adhoc;
  *
  * And the three the 1.20.1 blind audit found still open afterwards:
  *
- * - F-1 the whole succession workflow was ungated. With :creategroup
- *   AND :respond both prohibited a student was nominated, confirmed,
- *   and became the team's leader. Leadership can be ACQUIRED as well as
- *   created, and :respond's own string has said "invitations AND
- *   NOMINATIONS" since it was written.
+ * - F-1 the whole succession workflow was ungated. The original fix
+ *   used :creategroup for the current leader and :respond for the
+ *   nominee. Release 1.20.26 splits leadership into :lead: the leader
+ *   verbs now ask :lead, while confirmation requires both :respond and
+ *   :lead because it installs the nominee as leader.
  * - F-2 gatekeeper::can_grade_team() admitted the assigned guide on
  *   identity alone - the same shape the freeze service had closed one
  *   file away, on the path that writes a mark into the gradebook.
@@ -143,11 +143,13 @@ final class prohibited_capability_test extends \advanced_testcase {
         [$activity, $api, $students] = $this->fixture();
         $leader = (int) $students[0]->id;
 
-        // The fixture is only meaningful if the capability was live.
+        // The fixture is only meaningful if both powers start live.
+        $this->assertTrue(has_capability(authority::CREATEGROUP, $activity->context(), $leader));
         $this->assertTrue(authority::may_lead($activity, $leader));
 
         $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
-        $this->assertFalse(authority::may_lead($activity, $leader));
+        $this->assertFalse(has_capability(authority::CREATEGROUP, $activity->context(), $leader));
+        $this->assertTrue(authority::may_lead($activity, $leader));
 
         try {
             $api->create_group($leader, 'Team Prohibited', 'T', '<p>b</p>', FORMAT_HTML);
@@ -174,6 +176,7 @@ final class prohibited_capability_test extends \advanced_testcase {
         [$activity, $api, $students, , $staff] = $this->fixture();
 
         $this->assertFalse(authority::may_lead($activity, (int) $staff->id));
+        $this->assertTrue(authority::may_lead($activity, (int) $students[0]->id));
         $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
 
         $group = $api->create_group(
@@ -204,7 +207,7 @@ final class prohibited_capability_test extends \advanced_testcase {
         $leader = (int) $students[0]->id;
 
         $group = $api->create_group($leader, 'Doomed', 'T', '<p>b</p>', FORMAT_HTML);
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         // Ownership and state are both still perfect: the ONLY thing
         // that changed is the administrator's decision.
@@ -214,7 +217,7 @@ final class prohibited_capability_test extends \advanced_testcase {
             $api->delete_group($group, $leader);
             $this->fail('delete_group() accepted a leader whose capability is prohibited');
         } catch (\required_capability_exception $e) {
-            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
+            $this->assertSame(get_capability_string(authority::LEAD), $e->a);
         }
 
         $this->assertTrue($DB->record_exists('selfselectadvanced_group', ['id' => $group->id]));
@@ -222,8 +225,8 @@ final class prohibited_capability_test extends \advanced_testcase {
 
     /**
      * A-02: the leader's roster verbs - invite, withdraw, confirm a
-     * leave - are the same authority as creating the team, and all
-     * three refuse once it is prohibited.
+     * leave - are all existing-group leader authority, and all three
+     * refuse once :lead is prohibited.
      */
     public function test_leader_roster_verbs_refuse_a_prohibited_leader(): void {
         global $DB;
@@ -245,7 +248,7 @@ final class prohibited_capability_test extends \advanced_testcase {
             'userid' => (int) $students[1]->id,
         ], '*', MUST_EXIST);
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         $attempts = [
             fn() => $api->invitations()->send($group, (int) $students[2]->id, $leader),
@@ -447,7 +450,7 @@ final class prohibited_capability_test extends \advanced_testcase {
         // Ownership and every rule still pass: only the administrator's
         // decision has moved.
         $this->assertNull($api->gatekeeper()->can_nominate($group, $nominee, 'transfer', $leader));
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
         $this->assertFalse(authority::may_lead($activity, $leader));
 
         $messagesink = $this->redirectMessages();
@@ -455,7 +458,7 @@ final class prohibited_capability_test extends \advanced_testcase {
             $api->succession()->nominate($group, $nominee, 'transfer', $leader);
             $this->fail('nominate() named a successor for a prohibited leader');
         } catch (\required_capability_exception $e) {
-            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
+            $this->assertSame(get_capability_string(authority::LEAD), $e->a);
         }
 
         $this->assertNull(
@@ -477,13 +480,13 @@ final class prohibited_capability_test extends \advanced_testcase {
         [$group, $leader, $nominee] = $this->nominable_team($activity, $api, $students);
         $api->succession()->nominate($group, $nominee, 'transfer', $leader);
 
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
 
         try {
             $api->succession()->cancel(groups::get($activity, (int) $group->id), $leader);
             $this->fail('cancel() cleared a nomination for a prohibited leader');
         } catch (\required_capability_exception $e) {
-            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
+            $this->assertSame(get_capability_string(authority::LEAD), $e->a);
         }
 
         $this->assertSame(
@@ -494,19 +497,12 @@ final class prohibited_capability_test extends \advanced_testcase {
     }
 
     /**
-     * F-1, THE RELEASE BLOCKER: confirming a nomination is the one call
-     * in the plugin that HANDS somebody leadership, and it asked the
-     * gatekeeper about ownership and lifecycle and nobody about
-     * authority. Measured on both engines before the fix: with
-     * :creategroup and :respond both prohibited the nominee confirmed
-     * and became leaderid.
-     *
-     * The capability asked is :respond and not :creategroup - the
-     * nominee is answering a nomination, which is what the capability
-     * is named for, and a site that pauses new teams must still be able
-     * to finish a handover.
+     * F-1 after the capability split: confirmation still requires
+     * :respond because the nominee is answering a nomination, and it
+     * also requires :lead because confirmation installs that person as
+     * leader. Pausing :creategroup no longer participates in this path.
      */
-    public function test_succession_confirm_refuses_a_prohibited_nominee(): void {
+    public function test_succession_confirm_refuses_a_nominee_without_lead(): void {
         global $DB;
         $this->resetAfterTest();
         [$activity, $api, $students] = $this->fixture();
@@ -514,24 +510,22 @@ final class prohibited_capability_test extends \advanced_testcase {
         $api->succession()->nominate($group, $nominee, 'transfer', $leader);
         $group = groups::get($activity, (int) $group->id);
 
-        // The audit's exact fixture: BOTH prohibited, and every rule
-        // still satisfied.
-        $this->prohibit(authority::CREATEGROUP, $activity->context(), 'student');
-        $this->prohibit(authority::RESPOND, $activity->context(), 'student');
+        $this->assertTrue(authority::may_respond($activity, $nominee));
+        $this->assertTrue(authority::may_lead($activity, $nominee));
+        $this->prohibit(authority::LEAD, $activity->context(), 'student');
+        $this->assertTrue(authority::may_respond($activity, $nominee));
         $this->assertFalse(authority::may_lead($activity, $nominee));
-        $this->assertFalse(authority::may_respond($activity, $nominee));
-        $this->assertNull(
-            $api->gatekeeper()->can_confirm_succession($group, $nominee),
-            'fixture: every RULE must still pass, or this measures the wrong thing'
-        );
+        $refusal = $api->gatekeeper()->can_confirm_succession($group, $nominee);
+        $this->assertNotNull($refusal);
+        $this->assertSame('refusalnomineecannotlead', $refusal->stringkey);
 
         $eventsink = $this->redirectEvents();
         $messagesink = $this->redirectMessages();
         try {
             $api->succession()->confirm($group, $nominee);
-            $this->fail('confirm() made a prohibited nominee the leader of the team');
-        } catch (\required_capability_exception $e) {
-            $this->assertSame(get_capability_string(authority::RESPOND), $e->a);
+            $this->fail('confirm() made a nominee without :lead the group leader');
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+            $this->assertSame('refusalnomineecannotlead', $e->errorcode);
         }
 
         $row = $DB->get_record('selfselectadvanced_group', ['id' => (int) $group->id], '*', MUST_EXIST);

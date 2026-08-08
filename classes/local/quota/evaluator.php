@@ -485,6 +485,16 @@ class evaluator {
             'compliant' => true,
             'unknowncount' => $unknown,
             'hasrules' => !empty($rules),
+            // Whether the seat solver PROVED its answer or fell back to
+            // a heuristic that can only under-report how many seats a
+            // roster fills. The flag existed on the solver's own result
+            // and stopped here: this report read the ok/missing numbers
+            // and dropped the one field saying how much to trust them,
+            // so a group that genuinely satisfies its composition could
+            // be recorded as failing it. Carried now, because one
+            // caller writes a permanent exemption on the strength of
+            // this verdict (decision 79).
+            'exact' => true,
         ];
 
         foreach ($rules as $rule) {
@@ -512,6 +522,10 @@ class evaluator {
         if (!$slotresult->ok) {
             $report->compliant = false;
         }
+        // A non-compliant verdict is only as good as the seating behind
+        // it. Counting rules are always exact; the seat plan is not,
+        // beyond the solver's envelope.
+        $report->exact = $report->exact && (bool) ($slotresult->exact ?? true);
 
         return $report;
     }

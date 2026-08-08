@@ -60,7 +60,7 @@ class eoi {
      *
      * Until this method existed there was no service at all: group.php
      * decided on the raw leaderid, updated the field inline and left no
-     * trace. Under decision 38 a leader whose :creategroup has been
+     * trace. Under decision 38 a leader whose :lead has been
      * prohibited REMAINS the leader of record - leadership is
      * transferred, never removed - so owning the row went on answering
      * a question it was never able to answer.
@@ -88,7 +88,7 @@ class eoi {
      * @param bool $listed true to list, false to withdraw the listing
      * @param int $actorid the person acting; the leader of record
      * @throws \moodle_exception on any refusal
-     * @throws \required_capability_exception when LISTING without :creategroup
+     * @throws \required_capability_exception when LISTING without :lead
      */
     public static function set_listed(activity $activity, int $groupid, bool $listed, int $actorid): void {
         global $DB;
@@ -457,7 +457,7 @@ class eoi {
      * @param activity $activity the activity
      * @param int $eoiid the interest
      * @param bool $accept true to accept, false to reject
-     * @param int $actorid the leader ACTING UNDER :creategroup, or a
+     * @param int $actorid the leader ACTING UNDER :lead, or a
      *        holder of :assignguide or :manage - the narrow holder
      *        additionally refused on a team they are involved in, or
      *        one they have an interest of their own pending on
@@ -512,6 +512,16 @@ class eoi {
                 // clearable, so rejecting stays open in every state.
                 if (!empty($activity->settings()->studentapproach)) {
                     throw new workflow_refusal('refusalstudentapproach', 'mod_selfselectadvanced');
+                }
+                // And the same belt for manager-assign mode (decision
+                // 75). The settings form refuses the pair now, but an
+                // activity configured before that rule existed can still
+                // be carrying both, and a mode switched to manager while
+                // interests are pending must not leave an ACCEPT alive
+                // that hands the leader the very choice the mode says
+                // the manager makes.
+                if ((int) ($activity->settings()->guidemode ?? 0) === 1) {
+                    throw new workflow_refusal('refusaleoimanagermode', 'mod_selfselectadvanced');
                 }
                 if (empty($activity->settings()->eoienabled)) {
                     throw new workflow_refusal('refusaleoidisabled', 'mod_selfselectadvanced');

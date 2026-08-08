@@ -37,13 +37,12 @@ use stdClass;
  * \local\authority before it takes a lock, on the same split the rest
  * of the plugin uses:
  *
- * - nominate() and cancel() are the LEADER's verbs, so they ask
- *   :creategroup ("Create groups and act as leader") exactly as
- *   invitations::send(), withdraw() and confirm_leave() do.
- * - confirm() and decline() are the NOMINEE's answer, so they ask
- *   :respond, whose own string is "Accept or decline invitations AND
- *   NOMINATIONS" - promised in lang/en and in authority::RESPOND's
- *   docblock, and until this wave implemented for invitations only.
+ * - nominate() and cancel() are the LEADER's verbs, so they ask :lead,
+ *   the same authority as invitations::send(), withdraw() and
+ *   confirm_leave().
+ * - confirm() and decline() are the NOMINEE's answer, so both ask
+ *   :respond. Confirm additionally requires :lead because it installs
+ *   the nominee as leader; decline does not install anybody.
  *
  * Measured before the fix on both engines: with :creategroup and
  * :respond both PROHIBITed at the activity context a student was
@@ -82,7 +81,7 @@ class succession {
      * @param int $actorid the acting leader
      * @throws \moodle_exception when the gatekeeper refuses
      * @throws \required_capability_exception when the leader does not
-     *         hold :creategroup
+     *         hold :lead
      */
     public function nominate(stdClass $group, int $nomineeid, string $type, int $actorid): void {
         global $DB;
@@ -161,15 +160,17 @@ class succession {
     public function confirm(stdClass $group, int $userid): string {
         global $DB;
 
-        // BEFORE the locks, the writes, the event and the message. This
-        // is the one call in the plugin that HANDS somebody leadership,
-        // and it asks the responder's capability rather than the
-        // leader's: the nominee is answering a nomination, which is
-        // literally what :respond is named for. Note what it must NOT
-        // ask - :creategroup - because the nominee is not creating a
-        // team, and a site that allows responses while pausing new
-        // teams must still be able to complete a handover.
+        // BEFORE the locks, the writes, the event and the message. The
+        // nominee is answering a nomination, so :respond still applies.
+        // The old code deliberately avoided :creategroup so pausing new
+        // groups could not strand a handover. The split makes that
+        // workaround unnecessary: :lead now asks only whether this
+        // person may run an existing group, which is exactly what a
+        // successful confirmation is about.
         authority::require_respond($this->activity, $userid);
+        if (!authority::may_lead($this->activity, $userid)) {
+            throw new workflow_refusal('refusalnomineecannotlead', 'mod_selfselectadvanced');
+        }
 
         // L3 lead counts span groups: activity lock first (audit item 6).
         $activitylock = locks::acquire('activity:' . $this->activity->id());
@@ -293,7 +294,7 @@ class succession {
      * @param int $actorid the acting leader
      * @throws \moodle_exception when the caller is not the leader
      * @throws \required_capability_exception when the leader does not
-     *         hold :creategroup
+     *         hold :lead
      */
     public function cancel(stdClass $group, int $actorid): void {
         // Authority first, then ownership: "you are the leader" is a

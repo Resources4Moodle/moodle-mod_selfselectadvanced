@@ -17,7 +17,6 @@
 namespace mod_selfselectadvanced\local\rules;
 
 use mod_selfselectadvanced\activity;
-use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\override\resolver;
 use mod_selfselectadvanced\local\state;
@@ -526,7 +525,7 @@ class gatekeeper {
             return new refusal('refusalnomineenotmember');
         }
 
-        return $this->check_nominee_can_lead($nomineeid);
+        return $this->check_nominee_leadslot($nomineeid);
     }
 
     /**
@@ -559,7 +558,7 @@ class gatekeeper {
         if (!$member) {
             return new refusal('refusalnomineenotmember');
         }
-        if ($refusal = $this->check_nominee_can_lead($userid)) {
+        if ($refusal = $this->check_nominee_leadslot($userid)) {
             return $refusal;
         }
         if ($group->successortype === 'stepout') {
@@ -574,25 +573,6 @@ class gatekeeper {
         }
 
         return null;
-    }
-
-    /**
-     * May this confirmed member be installed as a group leader?
-     *
-     * The capability and L3 slot are one decision because the nominee
-     * picker, nomination service and confirmation service must give the
-     * same answer. A member without :lead is shown with this refusal
-     * before a live nomination can be submitted.
-     *
-     * @param int $nomineeid the nominee
-     * @return refusal|null null when leadership is available
-     */
-    public function check_nominee_can_lead(int $nomineeid): ?refusal {
-        if (!authority::may_lead($this->activity, $nomineeid)) {
-            return new refusal('refusalnomineecannotlead');
-        }
-
-        return $this->check_nominee_leadslot($nomineeid);
     }
 
     /**
@@ -647,24 +627,6 @@ class gatekeeper {
             return new refusal('refusalbelowminsize', (object) [
                 'current' => $confirmed,
                 'min' => $minsize->value,
-            ]);
-        }
-        // And the other end of the same question (decision 80). Freeze
-        // has always refused an over-maximum roster; Submit and Approve
-        // did not, so a group formed at five under an old limit could be
-        // submitted, occupy a guide's review, be approved - and only
-        // then discover at Freeze that it can never be locked. A
-        // refusal that could have been foreseen is delivered before the
-        // effort is spent, not after it. Grandfathering is not
-        // automatically fair: where a rule change makes the size adverse
-        // to a group, the manager acts, and the plugin does not quietly
-        // forgive it.
-        $maxsize = $this->resolver->effective_maxsize((int) $group->id);
-        if ($confirmed > $maxsize->value) {
-            return new refusal('refusalovermaxsize', (object) [
-                'current' => $confirmed,
-                'max' => $maxsize->value,
-                'excess' => $confirmed - $maxsize->value,
             ]);
         }
 
@@ -898,25 +860,6 @@ class gatekeeper {
         $reasons = [];
         $minsize = $this->resolver->effective_minsize((int) $group->id);
         $confirmed = groups::count_confirmed((int) $group->id);
-        // OVER the maximum is a hard refusal, never a relief (decision
-        // 80). A roster below its minimum can be forgiven: the deadline
-        // records what it forgave and the group finishes. A roster ABOVE
-        // its maximum cannot, because no exemption makes a group
-        // lockable - approving it would only move the dead end to
-        // Freeze, after the guide's review effort is spent. Where a rule
-        // change makes the size adverse, the manager acts.
-        //
-        // Asked in the PLAN rather than in can_approve(), so the guide's
-        // own click and the auto-approval sweep give one answer; that is
-        // why they share this body.
-        $maxsize = $this->resolver->effective_maxsize((int) $group->id);
-        if ($confirmed > $maxsize->value) {
-            return new autoapprove_plan(new refusal('refusalovermaxsize', (object) [
-                'current' => $confirmed,
-                'max' => $maxsize->value,
-                'excess' => $confirmed - $maxsize->value,
-            ]));
-        }
         if ($confirmed < $minsize->value) {
             $relief['minsize'] = max(1, $confirmed);
             $reasons['minsize'] = new refusal('refusalbelowminsize', (object) [

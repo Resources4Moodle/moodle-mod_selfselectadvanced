@@ -103,8 +103,12 @@ class search_groups extends external_api {
         // in the activity: the pick-a-team page has listed them to
         // students since 1.11. What this returns is exactly that, and
         // it is capped and searched rather than listed.
+        // :creategroup is deliberately absent after the 1.20.26 split:
+        // creating a new group is not a reason to browse existing groups.
+        // Existing leader actions do not use this picker either; the student
+        // audience here is the :respond holder choosing a group to join.
         $allowed = false;
-        foreach (['manage', 'coordinate', 'respond', 'creategroup'] as $capability) {
+        foreach (['manage', 'coordinate', 'respond'] as $capability) {
             if (has_capability('mod/selfselectadvanced:' . $capability, $context)) {
                 $allowed = true;
                 break;

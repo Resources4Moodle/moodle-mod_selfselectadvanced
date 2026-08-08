@@ -65,14 +65,14 @@ class invitations {
      * @return stdClass the member row
      * @throws \moodle_exception when the gatekeeper refuses
      * @throws \required_capability_exception when the leader does not
-     *         hold :creategroup
+     *         hold :lead
      */
     public function send(stdClass $group, int $inviteeid, int $actorid): stdClass {
         global $DB;
 
         // Authority before ownership: inviting is a leader action, and
-        // leading is what :creategroup grants ("Create groups and act
-        // as leader"). Being named on the row is not a grant.
+        // leading an existing group is what :lead grants. Being named on
+        // the row is not a grant.
         authority::require_lead($this->activity, $actorid);
         if ((int) $group->leaderid !== $actorid) {
             throw new workflow_refusal('refusalnotleader', 'mod_selfselectadvanced');
@@ -357,7 +357,7 @@ class invitations {
      * @return stdClass the member row
      * @throws \moodle_exception when the gatekeeper refuses
      * @throws \required_capability_exception when the leader does not
-     *         hold :creategroup
+     *         hold :lead
      */
     public function withdraw(stdClass $group, int $memberid, int $actorid): stdClass {
         global $DB;
@@ -653,7 +653,7 @@ class invitations {
      * @return stdClass the removed member row
      * @throws \moodle_exception when the gatekeeper refuses
      * @throws \required_capability_exception when the leader does not
-     *         hold :creategroup
+     *         hold :lead
      */
     public function confirm_leave(stdClass $group, int $memberid, int $actorid): stdClass {
         global $DB;

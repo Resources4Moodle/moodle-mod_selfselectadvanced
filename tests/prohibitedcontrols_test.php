@@ -23,8 +23,9 @@ use mod_selfselectadvanced\local\state;
 /**
  * A control an administrator has PROHIBITED is not drawn.
  *
- * The 1.20.1 authorisation wave put :creategroup and :respond at the
- * service seam, which is where authority belongs - but it left the
+ * The 1.20.1 authorisation wave put the old combined
+ * :creategroup leader authority and :respond at the service seam,
+ * which is where authority belongs - but it left the
  * screens exactly as they were. A student whose capability had been
  * prohibited was still shown Invite, Delete team, Confirm leave, Accept
  * and Decline, and every one of them now ends at a Moodle
@@ -157,7 +158,7 @@ final class prohibitedcontrols_test extends \advanced_testcase {
     }
 
     /**
-     * With :creategroup prohibited the leader's own controls go, and
+     * With :lead prohibited the leader's own controls go, and
      * the ownership and lifecycle facts they used to be drawn from are
      * asserted to be UNCHANGED - so the only thing that moved is the
      * administrator's decision.
@@ -187,7 +188,7 @@ final class prohibitedcontrols_test extends \advanced_testcase {
         $this->assertTrue($before->hasleaverequests, 'fixture: a leave request must be waiting');
         $this->assertTrue($before->haspendinginvites, 'fixture: an invitation must be pending');
 
-        $this->prohibit('mod/selfselectadvanced:creategroup', $activity->context(), 'student');
+        $this->prohibit('mod/selfselectadvanced:lead', $activity->context(), 'student');
 
         $this->assertSame(
             (int) $leader->id,
@@ -286,7 +287,7 @@ final class prohibitedcontrols_test extends \advanced_testcase {
     }
 
     /**
-     * F-1: the leader's Cancel nomination goes with :creategroup.
+     * F-1: the leader's Cancel nomination goes with :lead.
      */
     public function test_a_prohibited_leader_is_offered_no_cancel_nomination(): void {
         $this->resetAfterTest();
@@ -297,7 +298,7 @@ final class prohibitedcontrols_test extends \advanced_testcase {
         $this->assertTrue($before->hasnomination, 'fixture: a nomination must be active');
         $this->assertTrue($before->isleader, 'fixture: the leader must be offered Cancel to start with');
 
-        $this->prohibit('mod/selfselectadvanced:creategroup', $activity->context(), 'student');
+        $this->prohibit('mod/selfselectadvanced:lead', $activity->context(), 'student');
 
         $after = $this->grouppage($activity, $api, $group, (int) $leader->id);
         $this->assertFalse($after->isleader, 'the team page still offered Cancel nomination after a PROHIBIT');
@@ -401,7 +402,7 @@ final class prohibitedcontrols_test extends \advanced_testcase {
         );
         $this->assertStringNotContainsString('value="declinenomination"', $nomineehtml);
 
-        $this->prohibit('mod/selfselectadvanced:creategroup', $activity->context(), 'student');
+        $this->prohibit('mod/selfselectadvanced:lead', $activity->context(), 'student');
         $this->assertStringNotContainsString(
             'value="cancelnomination"',
             $render((int) $leader->id),

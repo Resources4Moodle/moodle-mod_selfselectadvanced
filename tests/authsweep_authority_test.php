@@ -133,17 +133,17 @@ final class authsweep_authority_test extends \advanced_testcase {
     }
 
     /**
-     * AUTH-001 negative: the leader of record whose :creategroup was
+     * AUTH-001 negative: the leader of record whose :lead was
      * prohibited can no longer approach a guide by calling the service
      * directly - ownership of the row is not authority (decision 38).
      */
-    public function test_contacts_send_refused_for_leader_without_creategroup(): void {
+    public function test_contacts_send_refused_for_leader_without_lead(): void {
         global $DB;
         $this->resetAfterTest();
         $this->redirectMessages();
         [$activity, $group, $leader, $guide] = $this->world();
 
-        $this->prohibit('mod/selfselectadvanced:creategroup', $activity->context(), 'student');
+        $this->prohibit('mod/selfselectadvanced:lead', $activity->context(), 'student');
 
         $sink = $this->redirectEvents();
         $this->assert_capability_refused(fn() => contacts::send(

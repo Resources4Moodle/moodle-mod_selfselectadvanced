@@ -1,5 +1,73 @@
 # Changelog
 
+## 1.20.26 — creating a group and leading one are separate permissions (2026-08-08)
+
+> Serial `2026080805` / `1.20.26`. Capability and authority split; no schema
+> change.
+
+- **`:creategroup` now means only "Create a new group".** The old capability
+  had also been the authority for every action an existing leader performs, so
+  prohibiting new group creation stranded leaders who already had groups. The
+  existing capability name is retained so installed role customisations keep
+  their identity.
+- **New `mod/selfselectadvanced:lead` owns existing-group leadership.** Fresh
+  installs grant it to the student archetype; upgrades clone every role's
+  recorded `:creategroup` ALLOW, PREVENT or PROHIBIT so the split changes no
+  site's policy by itself. An administrator can then prohibit `:creategroup`
+  alone to pause new groups without taking existing leaders' controls away.
+- **Leadership appointments refuse an inert nominee.** Nomination preflight,
+  succession confirmation, staff-created groups, staged leadership moves and
+  auto-grouping all require the person being installed to hold `:lead`. The
+  nominee picker consumes the same decision, so it shows the refusal before a
+  live nomination can be submitted; staged moves re-check at commit, and
+  auto-grouping leaves a planned group unplaced when none of its members may
+  lead.
+- **Creation remains creation.** Student self-creation still checks
+  `:creategroup` in both the page and service; the candidate picker and guide
+  contact/search paths that serve an existing leader now use `:lead`. No new
+  pause setting was added: the capability split and the existing formation
+  window already express the two different controls.
+
+### Also in this release — five maintainer rulings
+
+- **A capability revoked mid-session reads as a notice** (decision 72). All 27
+  of the group page's service-calling arms now answer core's permission
+  exception the same way they answer a workflow refusal, routed through one
+  helper so no arm can print core's "Sorry, but you do not currently have
+  permissions…" into a group page as though something had broken. The
+  services still throw it, so web services, cron and CLI stay loud, where a
+  missing capability really is a fault rather than a race. The
+  `workflow_refusal` docblock, which had claimed the opposite since 1.20.21,
+  now says what the code does.
+- **"Manager assigns the guide" means it** (decision 75). That setting and
+  expressions of interest could both be on, and the leader quietly won: a
+  guide offered, the leader accepted, and the group went straight to that
+  guide instead of the manager's queue. The pair is refused at the settings
+  form, greyed out in the form, and refused server-side for activities
+  already carrying both.
+- **A machine may not rewrite a group's rules on a verdict it cannot prove**
+  (decision 79). The seat solver falls back to a heuristic past its size
+  envelope, and that heuristic can only under-report. The auto-approval sweep
+  used to answer such a shortfall by writing a permanent quota exemption —
+  authored by cron, possibly excusing something never true, and afterwards
+  indistinguishable from an exception a human granted. It now refuses that
+  group and leaves it for a person, which is recoverable.
+- **Over-maximum is refused before the effort is spent** (decision 80). A
+  group formed at five under an old limit could be submitted, occupy a
+  guide's review, be approved, and meet its first objection only at Freeze.
+  Submit, Approve and the sweep now all refuse it with the same sentence and
+  figures Freeze has always used. Approve and the sweep share one body, so
+  they cannot drift.
+- **Both join routes give one composition answer** (decision 82). Invitation
+  acceptance computed the shared verdict and honoured only its maximum, then
+  re-asked a weaker question over a basis that counted *other people's*
+  unanswered invitations. It now consumes the same engine tier join
+  acceptance always has. Getting there exposed why the drift existed: the
+  verdict carried `hardmaxa` beside `hardmaxkey` but nothing beside
+  `enginekey`, so a caller could read that tier's sentence and not rebuild
+  its refusal. The object is symmetric now.
+
+
 ## 1.20.25 — statuses that say what they mean, and two refusals that stop crashing (2026-08-08)
 
 > Serial `2026080804` / `1.20.25`. Behavioural and presentational; no schema

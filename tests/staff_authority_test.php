@@ -106,7 +106,7 @@ final class staff_authority_test extends \advanced_testcase {
         ));
         // Deliberately NOT granted: freeze is a guide verb (spec D4),
         // and the rest are student or coordinator capabilities.
-        foreach (['freeze', 'creategroup', 'respond', 'guide', 'coordinate'] as $cap) {
+        foreach (['freeze', 'creategroup', 'lead', 'respond', 'guide', 'coordinate'] as $cap) {
             $this->assertFalse(
                 has_capability('mod/selfselectadvanced:' . $cap, $context, (int) $manager->id),
                 'Manager should NOT hold ' . $cap
@@ -624,22 +624,23 @@ final class staff_authority_test extends \advanced_testcase {
 
     /**
      * The groupedit.php ordering bug (D6-4), from its root: an editing
-     * teacher does NOT hold :creategroup - it is a STUDENT capability -
-     * yet the page demanded it of everybody BEFORE the edit branch
+     * teacher does not hold the student :creategroup capability, yet
+     * the page demanded it of everybody BEFORE the edit branch
      * whose own code admits a manager. So the manager path was
      * unreachable for exactly the people it was written for.
      *
-     * Pinned here as two facts about real code: staff hold :manage and
-     * not :creategroup, and the staff creation service works for such
-     * an actor regardless. The page's click path is Behat's.
+     * Pinned here as facts about real code: staff hold :manage and
+     * neither student capability, :creategroup nor :lead. Staff repair
+     * paths use :manage instead. The page's click path is Behat's.
      */
-    public function test_staff_hold_manage_but_not_creategroup(): void {
+    public function test_staff_hold_manage_but_not_student_leader_capabilities(): void {
         $this->resetAfterTest();
         [$activity, $api, , $students, $staff] = $this->setup_team();
 
         $context = $activity->context();
         $this->assertTrue(has_capability('mod/selfselectadvanced:manage', $context, (int) $staff->id));
         $this->assertFalse(has_capability('mod/selfselectadvanced:creategroup', $context, (int) $staff->id));
+        $this->assertFalse(has_capability('mod/selfselectadvanced:lead', $context, (int) $staff->id));
 
         $group = $api->create_group(
             (int) $staff->id,

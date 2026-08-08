@@ -523,6 +523,35 @@ function selfselectadvanced_candidate_name(context_module $context, int $userid)
 }
 
 /**
+ * The sentence a refused human action should show.
+ *
+ * A page arm can be refused two ways that mean the same thing to the
+ * person: the workflow decided no, or the authority it needed was taken
+ * away between the page rendering and the click. The plugin has always
+ * answered the first as a notice. The second escaped to Moodle's
+ * permission screen, because it arrives as core's own exception rather
+ * than as one of ours - so an administrator adjusting a role mid-session
+ * turned an ordinary group action into what reads like a fault, for
+ * somebody who had done nothing but press a button that was on the page
+ * a moment earlier.
+ *
+ * Only the PAGE arms use this. The services keep throwing core's
+ * exception, so web services, scheduled tasks and CLI still fail loudly
+ * where a missing capability is a genuine programming or configuration
+ * fault rather than a race (decision 72).
+ *
+ * @param \Throwable $e the refusal a page arm caught
+ * @return string the notice to show
+ */
+function selfselectadvanced_refusal_notice(\Throwable $e): string {
+    if ($e instanceof \required_capability_exception) {
+        return get_string('refusalauthoritygone', 'mod_selfselectadvanced');
+    }
+
+    return $e->getMessage();
+}
+
+/**
  * Serve files from the proposal filearea (itemid = plugin group id).
  *
  * WHO may read it is not decided here. It is

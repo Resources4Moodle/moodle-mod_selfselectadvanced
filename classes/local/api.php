@@ -155,17 +155,19 @@ class api {
             if (!is_enrolled($this->activity->context(), $leaderid, 'mod/selfselectadvanced:respond', true)) {
                 throw new \moodle_exception('errmovenotparticipant', 'mod_selfselectadvanced');
             }
+            if (!authority::may_lead($this->activity, $leaderid)) {
+                throw new workflow_refusal('refusalnomineecannotlead', 'mod_selfselectadvanced');
+            }
             if ($refusal = $this->leader_capacity_refusal($leaderid)) {
                 throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
             }
         } else {
-            // AUTHORITY first, eligibility second. can_create_group()
-            // answers the window, L3 and L4 - it has never asked
-            // whether the actor is ALLOWED to create a team at all, so
-            // an activity-level Prohibit on :creategroup stopped
-            // groupedit.php and left this service wide open to a direct
-            // POST (A-02). The gate below is kept exactly as it was.
-            authority::require_lead($this->activity, $userid);
+            // AUTHORITY first, eligibility second. Creating a new group
+            // remains :creategroup after the capability split; :lead is
+            // for operating a group that already exists. can_create_group()
+            // answers only the window, L3 and L4, so the service keeps
+            // its own creation-capability check against a direct POST.
+            require_capability(authority::CREATEGROUP, $this->activity->context(), $userid);
             $leaderid = $userid;
             if ($refusal = $this->gatekeeper->can_create_group($userid)) {
                 throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
@@ -204,6 +206,9 @@ class api {
 
             // Re-check under the lock: a parallel creation may have consumed the slot.
             if ($staff) {
+                if (!authority::may_lead($this->activity, $leaderid)) {
+                    throw new workflow_refusal('refusalnomineecannotlead', 'mod_selfselectadvanced');
+                }
                 if ($refusal = $this->leader_capacity_refusal($leaderid)) {
                     throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
                 }
@@ -332,14 +337,14 @@ class api {
      * AUTHORITY, ASKED WHERE THE WRITE IS (AUTH-003). groupedit.php's
      * edit branch used to be the whole gate, and the gate it applied
      * was the raw leaderid: under decision 38 a leader whose
-     * :creategroup has been prohibited is STILL the leader of record,
+     * :lead has been prohibited is STILL the leader of record,
      * so an administrator's Prohibit stopped them creating a team and
      * left them free to keep rewriting the title and brief of the one
      * they already had - the two texts every guide browsing listed
      * teams reads before deciding.
      *
      * The page-level capability check was moved BELOW the branch in
-     * D6-4 for a real reason: :creategroup is a STUDENT capability that
+     * D6-4 for a real reason: the leader authority is a STUDENT capability that
      * an editing teacher does not hold, so demanding it above the
      * branch made the staff repair path unreachable. That reason is
      * respected here - the capability is asked of the LEADER path only,
@@ -354,7 +359,7 @@ class api {
      * @throws \moodle_exception when the actor does not own the row, or
      *         the team has moved on from forming
      * @throws \required_capability_exception when a leader does not hold
-     *         :creategroup
+     *         :lead
      */
     public function update_group_details(
         stdClass $group,
@@ -435,13 +440,13 @@ class api {
      * @param int $userid the acting user (must be the leader)
      * @throws \moodle_exception when the gatekeeper refuses
      * @throws \required_capability_exception when the actor does not
-     *         hold :creategroup
+     *         hold :lead
      */
     public function delete_group(stdClass $group, int $userid): void {
         global $DB;
 
         // Deleting a forming team is a LEADER action, and leading is
-        // the second half of what :creategroup grants. can_delete_group()
+        // governed by :lead after the capability split. can_delete_group()
         // asks only "forming?" and "is this the leader?" - ownership and
         // state, never authority - so a leader whose capability had been
         // prohibited could still destroy the team (A-02). The ownership
