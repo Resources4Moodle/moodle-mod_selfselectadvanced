@@ -1317,6 +1317,7 @@ $string['refusalnoseatsconfirmed'] = 'No free seats: every seat is filled by a c
 $string['refusalnoseatsheld'] = 'No free seats: confirmed members and pending invitations hold every seat.';
 $string['refusalnotaguide'] = 'This user is not a guide in this activity.';
 $string['refusalnotassignedguide'] = 'Only the assigned guide can do this.';
+$string['refusalnotcandidate'] = 'This person is not taking part in this activity, so they cannot be invited.';
 $string['refusalnotinvited'] = 'There is no pending invitation to act on.';
 $string['refusalnotleader'] = 'Only the group leader can do this.';
 $string['refusalnotnominee'] = 'There is no nomination awaiting your response.';

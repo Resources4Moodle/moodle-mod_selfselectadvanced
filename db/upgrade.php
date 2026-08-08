@@ -2029,5 +2029,28 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080801, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080802) {
+        // Slice 0 of the reconciled audit response
+        // (audit_state/RECONCILED-PLAN-20260808.md): the safety findings
+        // from the two 1.20.22 audits. The invite door now asks whether
+        // the invitee is a participant at all, the refusal notice stops
+        // naming arbitrary site users, the Invite section stops
+        // vanishing when its door refuses, a name reaching the
+        // core-group report is escaped at source, and the join-accept
+        // consent dialog survives translation.
+        // Behavioural changes only; no schema change.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.23 (2026080802). Audit slice 0: candidate-pool arm on the '
+                . 'invite door, no userid-to-name oracle in the refusal notice, invite '
+                . 'section always carries its door reason, report name escaped at source, '
+                . 'consent dialog translation-proof.',
+            'Behavioural changes only; no schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080802, 'selfselectadvanced');
+    }
+
     return true;
 }

@@ -212,7 +212,16 @@ class coresync_report_table extends \table_sql {
      * @return string
      */
     public function col_guide($row): string {
-        return empty($row->guideuserid) ? get_string('none') : fullname($row);
+        // ESCAPED AT SOURCE, like every other name-bearing cell in this
+        // plugin's tables (the 2026-08-04 rule recorded on
+        // flagged_missingattrs_table): fullname() returns names
+        // unescaped, a name can carry markup through CSV upload, LDAP
+        // sync or the user web service - only the profile form strips
+        // tags - and flexible_table emits cell bodies verbatim into the
+        // {{{tablehtml}}} this report renders. The sibling tables were
+        // fixed then; this column arrived later with the 1.20.7 report
+        // and was missed (audit F06).
+        return empty($row->guideuserid) ? get_string('none') : s(fullname($row));
     }
 
     /**

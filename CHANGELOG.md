@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.20.23 — audit slice 0: the safety findings (2026-08-08)
+
+> Serial `2026080802` / `1.20.23`. Behavioural changes only; no schema change.
+> Source: two independent adversarial audits of 1.20.22, filed under
+> `audit_state/external-audits/20260808-1.20.22-adversarial-formation/` and
+> `audit_state/FABLE-ADVERSARIAL-AUDIT-20260808.md`. Slice 0 of the reconciled
+> plan takes the findings with a live-exposure clock out of the release queue
+> first; it needs no product ruling.
+
+- **The invite door asks whether the invitee is a participant at all.** The
+  enrolment and `:respond` restriction lived only in the query feeding the
+  autocomplete, and core's ajax autocomplete accepts submitted values verbatim
+  — it says so itself. So a crafted or merely stale positive id reached the
+  service, which put a non-participant on the roster, sent them a real Moodle
+  message and showed their name to the course. `can_invite()` now refuses
+  anyone outside the pool the search uses, using the same predicate the
+  staff-create path already applies to a nominated leader.
+- **The refusal notice no longer names arbitrary people.** The invite arm
+  resolved any submitted id straight to a full name, so posting `-1`, `-2`,
+  `-3` read back the names of people in other courses, suspended accounts and
+  staff, one per submit. Names are blessed among *participants*; a name is now
+  printed only for somebody this activity's candidate pool contains.
+- **The Invite section stops vanishing when its own door refuses.** The tab
+  transcribed one arm of the door — "or the seats are full" — so a passed
+  cutoff, a not-yet-open window or a winding-up team with seats free hid the
+  whole cluster *and* the disabled reason the exporter had just built. That is
+  the drift MKT-03 fixed on this very control in 1.20.21, reintroduced for
+  three of the door's four arms. A leader of a forming team now always sees
+  the section: enabled, or disabled with the door's own sentence.
+- **A name reaching the core-group report is escaped at source**, the rule
+  this codebase set for its other tables on 2026-08-04; this column arrived
+  later and was missed. `fullname()` returns names unescaped and the report
+  prints its table as raw HTML.
+- **The join-accept consent dialog survives translation.** The message was
+  interpolated into a JavaScript string literal, where HTML escaping cannot
+  protect it: the parser decodes the entity before the handler compiles, so a
+  single apostrophe — near-certain in French — made the dialog a no-op. Since
+  the form pre-sets the consent flag, the click then submitted *with consent
+  asserted and no dialog shown*, defeating the guard decision 64 added it for.
+
 ## 1.20.22 — external-audit wave 1.5: the typed-refusal contract is finished (2026-08-08)
 
 > Serial `2026080801` / `1.20.22`. Behavioural changes only; no schema change.

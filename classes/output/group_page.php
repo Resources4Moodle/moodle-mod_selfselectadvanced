@@ -823,8 +823,18 @@ class group_page implements renderable, templatable {
         // With JavaScript off the panes all render stacked (noscript
         // rule in the template), which is also why the non-JS Behat
         // drivers see every form exactly as before.
-        $tabinvite = $caninvite
-            || ($isleader && $isforming && $maylead && $seats->free < 1);
+        // The TAB is a question about phase and authority; the CONTROL
+        // inside it is the door's question (audit F07, 1.20.23). This
+        // used to transcribe ONE arm of the door - "or the seats are
+        // full" - so for every other refusal the door gives (cutoff
+        // passed, not open yet, winding up with seats free) the whole
+        // cluster vanished and took with it the disabled reason this
+        // exporter had already built below. That is exactly the drift
+        // MKT-03 fixed on this very control in 1.20.21, reintroduced
+        // for three of the door's four arms. A leader who may lead a
+        // FORMING team always sees the cluster: enabled when the door
+        // allows, disabled with the door's own sentence when it does not.
+        $tabinvite = $isleader && $isforming && $maylead;
         $tabsuccession = !empty($this->group->successorid) || $this->nominateform !== null;
         $tabsubmit = $this->submitform !== null && $maylead;
         $activetab = $tabinvite ? 'invite' : ($tabsuccession ? 'succession' : 'submit');

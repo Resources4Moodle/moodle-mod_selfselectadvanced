@@ -339,7 +339,8 @@
                                         placeholder="{{#str}} joinnotehint, mod_selfselectadvanced {{/str}}">
                                     <button type="submit" name="decision" value="accept" class="btn btn-primary btn-sm"
                                         {{#cannotaccept}}disabled title="{{hardreason}}"{{/cannotaccept}}
-                                        {{#confirmacceptrequired}}onclick="return confirm('{{confirmacceptmessage}}');"{{/confirmacceptrequired}}>
+                                        {{#confirmacceptrequired}}data-ssaconfirm="{{confirmacceptmessage}}"
+                                        onclick="return confirm(this.dataset.ssaconfirm);"{{/confirmacceptrequired}}>
                                         {{#str}} joinaccept, mod_selfselectadvanced {{/str}}
                                     </button>
                                     <button type="submit" name="decision" value="decline" class="btn btn-outline-warning btn-sm">

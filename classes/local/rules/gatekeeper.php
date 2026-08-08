@@ -275,6 +275,28 @@ class gatekeeper {
             return $refusals;
         }
 
+        // IS THIS PERSON A CANDIDATE HERE AT ALL (audit F09, 1.20.23).
+        // The enrolment and :respond restriction used to live ONLY in
+        // the search that feeds the autocomplete (candidates::search's
+        // get_enrolled_sql), and core's ajax autocomplete accepts
+        // submitted values verbatim - it says so itself: "we do not
+        // know the allowed list of values". The invitee id is
+        // PARAM_INT, so any integer rode through to send(), which asks
+        // only this predicate: an unenrolled, suspended or wholly
+        // unrelated site user could be given a member row, a real
+        // Moodle message and a place on the roster. A pool the door
+        // does not enforce is not a pool, it is a suggestion.
+        //
+        // Same predicate the staff-create path already applies to a
+        // nominated leader (api::create_group), so the two doors admit
+        // one population.
+        if (!is_enrolled($this->activity->context(), $inviteeid, 'mod/selfselectadvanced:respond', true)) {
+            $add(new refusal('refusalnotcandidate'));
+            if ($stopatfirst) {
+                return $refusals;
+            }
+        }
+
         $existing = $DB->get_record('selfselectadvanced_member', [
             'groupid' => $group->id,
             'userid' => $inviteeid,

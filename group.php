@@ -312,10 +312,26 @@ if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
         // Re-asked NOW rather than replayed from the list: the roster
         // may have moved since the search rendered, and the sentence
         // the leader reads must be the one the gate would use.
-        $ineligible = \core_user::get_user(-$flaggedid);
-        $refusal = $ineligible ? $api->gatekeeper()->can_invite($group, -$flaggedid) : null;
+        // THE ID IS NOT TRUSTED TO NAME ANYBODY (audit F10, 1.20.23).
+        // This branch used to hand any submitted negative id straight
+        // to core_user::get_user() and print the full name it returned,
+        // which made the notice a site-wide userid-to-name oracle: a
+        // student could post -1, -2, -3 and read back the names of
+        // people in other courses, suspended accounts and staff, one
+        // per submit. Names are blessed among PARTICIPANTS; this
+        // resolved them for the whole site. A name is printed only for
+        // somebody this activity's own candidate pool contains, and
+        // anybody else is refused without being identified.
+        $ineligible = is_enrolled($context, -$flaggedid, 'mod/selfselectadvanced:respond', true)
+            ? \core_user::get_user(-$flaggedid)
+            : null;
+        if (!$ineligible) {
+            $problems[] = get_string('refusalnotcandidate', 'mod_selfselectadvanced');
+            continue;
+        }
+        $refusal = $api->gatekeeper()->can_invite($group, -$flaggedid);
         $problems[] = get_string('errineligiblepick', 'mod_selfselectadvanced', (object) [
-            'name' => $ineligible ? fullname($ineligible) : -$flaggedid,
+            'name' => fullname($ineligible),
             'reason' => $refusal?->get_message()
                 ?? get_string('refusalgone', 'mod_selfselectadvanced'),
         ]);
@@ -330,11 +346,17 @@ if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
             // same batch consumed the seats or the rule capacity their
             // eligibility depended on. The sentence alone did not say
             // WHO it was about, so it is prefixed with the name.
-            $refused = \core_user::get_user($inviteeid);
-            $problems[] = get_string('errineligiblepick', 'mod_selfselectadvanced', (object) [
-                'name' => $refused ? fullname($refused) : $inviteeid,
-                'reason' => $e->getMessage(),
-            ]);
+            // Named only when the pool contains them - same oracle rule
+            // as the flagged branch above.
+            $refused = is_enrolled($context, $inviteeid, 'mod/selfselectadvanced:respond', true)
+                ? \core_user::get_user($inviteeid)
+                : null;
+            $problems[] = $refused
+                ? get_string('errineligiblepick', 'mod_selfselectadvanced', (object) [
+                    'name' => fullname($refused),
+                    'reason' => $e->getMessage(),
+                ])
+                : $e->getMessage();
         }
     }
     $notice = get_string('invitationssent', 'mod_selfselectadvanced', $sent);
