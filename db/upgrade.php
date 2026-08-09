@@ -2171,5 +2171,30 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080901, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080902) {
+        // 1.20.29: maintainer decision 83 - one presentation policy for every
+        // action in the plugin. No schema change and no data step.
+        //
+        // Capability answers "is this function for this person at all?" and a
+        // no HIDES the control. State, rule or timing answers "why can't I do
+        // something that normally belongs to me?" and a no shows the control
+        // DISABLED WITH THE REASON the gatekeeper already wrote. Nine surfaces
+        // decided that for themselves before this, which is how the plugin came
+        // to show one guide a disabled Release with "Frozen by staff - ask
+        // through the request queue" on the dashboard and nothing whatsoever on
+        // the team's own page. A conflict-of-interest refusal is disabled with a
+        // GENERIC sentence, because naming the involvement discloses it.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.29 (2026080902). Decision 83: one control-presentation policy '
+                . 'across nine surfaces, with two new build checks holding the line. Also removed two '
+                . 'patch artefacts (.orig) that had been installed with the plugin since 1.20.26.',
+            'No schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080902, 'selfselectadvanced');
+    }
+
     return true;
 }

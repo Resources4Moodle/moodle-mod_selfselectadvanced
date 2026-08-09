@@ -1,2 +1,10 @@
 node_modules/
 .phpunit.result.cache
+
+# Patch and editor artefacts. Two .orig files from a `patch --forward` run
+# were committed in 1.20.26 and shipped in every ZIP and to every site until
+# 1.20.29 - nothing scanned them because no check looks at non-.php files.
+*.orig
+*.rej
+*.bak
+*.swp

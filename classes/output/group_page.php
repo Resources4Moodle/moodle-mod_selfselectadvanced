@@ -26,6 +26,7 @@ use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\joinrequests;
 use mod_selfselectadvanced\local\state;
 use mod_selfselectadvanced\local\teamaccess;
+use mod_selfselectadvanced\local\ui\control;
 use renderable;
 use renderer_base;
 use templatable;
@@ -422,14 +423,36 @@ class group_page implements renderable, templatable {
         // had already asked simply lost the button with nothing said, while the
         // leader got a whole panel about the same request. The pending state is
         // now a stated fact rather than an absent control.
+        // Decision 83, applied here in 1.20.29. 1.20.28 asked the gate the right
+        // question and then used only whether it said no - the sentence it wrote
+        // (wrong state, you are the leader, you are not a member) went nowhere,
+        // which /srv/ci/ops/control-state.sh now fails the build for.
+        //
+        // The split follows the ruling. Somebody who is not a confirmed member
+        // has no leave to ask for: that is not-applicable, so nothing is drawn.
+        // A confirmed member who is refused - the group has moved past forming,
+        // or they are the leader and must hand over instead - is eligible in
+        // principle and is told which. A request already sent is the same shape
+        // of fact, so it arrives the same way rather than as a separate notice.
         $leaverefusal = $ownrow
             ? $this->api->gatekeeper()->can_request_leave($this->group, $ownrow, $this->userid)
             : null;
         $hasleavepending = $ownrow && !empty($ownrow->leaverequested);
-        $canrequestleave = $ownrow && $leaverefusal === null && !$hasleavepending;
-        $leavependingnotice = $hasleavepending
-            ? get_string('leavependingown', 'mod_selfselectadvanced')
-            : '';
+        // The LEADER is excluded deliberately, and not by decision 83: leaving
+        // is not a thing a leader is refused, it is a thing they do by handing
+        // over first, and tests/behat/leave.feature has pinned "a leader is
+        // never offered a leave control" since long before this ruling. Showing
+        // them a disabled button would overturn a decision nobody made.
+        $isconfirmedhere = $ownrow
+            && $ownrow->status === groups::STATUS_CONFIRMED
+            && !$isleader;
+        if ($hasleavepending) {
+            $leavereason = get_string('leavependingown', 'mod_selfselectadvanced');
+        } else {
+            $leavereason = $leaverefusal !== null ? control::reason_for($leaverefusal) : '';
+        }
+        $leavecontrol = control::decide_with_reason($isconfirmedhere, $leavereason);
+        $canrequestleave = $leavecontrol->show && $leavecontrol->enabled;
         $leaverequests = [];
         if ($isleader && $isforming && $maylead) {
             $namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
@@ -483,8 +506,13 @@ class group_page implements renderable, templatable {
         // freeze::may_unfreeze_team() IS unfreeze()'s door run without
         // an exception, so the button and the POST admit one set of
         // people. State stays here beside it, as above.
-        $canunfreeze = $this->group->state === state::FROZEN
-            && freeze::may_unfreeze_team($activity, $this->group, $this->userid);
+        // Decision 83: ask for the PRESENTATION, not the boolean. This used to
+        // call may_unfreeze_team(), which is release_refusal() with its sentence
+        // thrown away - so a guide refused because staff enforced the freeze saw
+        // an empty space here and the very same refusal, spelled out, on their
+        // own dashboard.
+        $unfreezecontrol = freeze::release_control($activity, $this->group, $this->userid);
+        $canunfreeze = $unfreezecontrol->show && $unfreezecontrol->enabled;
         // Mirror maintenance (T-16). Resync is offered whenever there is
         // something to converge - including a frozen team whose course
         // group has gone, which is what the resync mints. Discard is the
@@ -543,17 +571,27 @@ class group_page implements renderable, templatable {
         // NOT involved with this team - the same standing conflict rule
         // the service re-asks. A control the service would refuse is
         // worse than no control.
-        $canreturnforming = false;
+        // Decision 83. Being a queue worker is the CAPABILITY question, so a
+        // person without it never sees the control. Being involved with this
+        // very team is a RULE, so a worker who is involved sees the control
+        // disabled - and reads the GENERIC sentence, because involvement()
+        // returns "the assigned guide" or "a confirmed member" and naming which
+        // would disclose a relationship the reader may not be entitled to.
+        $returncontrol = control::decide_with_reason(false, '');
         if ($this->group->state === state::FIRM) {
             $isworker = has_capability('mod/selfselectadvanced:manage', $context, $this->userid)
                 || has_capability('mod/selfselectadvanced:coordinate', $context, $this->userid);
-            $canreturnforming = $isworker
-                && \mod_selfselectadvanced\local\tickets::involvement(
-                    $activity,
-                    $this->group,
-                    $this->userid
-                ) === null;
+            $involvement = \mod_selfselectadvanced\local\tickets::involvement(
+                $activity,
+                $this->group,
+                $this->userid
+            );
+            $returncontrol = control::decide_with_reason(
+                $isworker,
+                $involvement === null ? '' : get_string('refusalcoishielded', 'mod_selfselectadvanced')
+            );
         }
+        $canreturnforming = $returncontrol->show && $returncontrol->enabled;
 
         // Expressions of interest (spec: EOI). The leader (and staff)
         // see the full panel; other members see only the count line.
@@ -597,7 +635,22 @@ class group_page implements renderable, templatable {
         // door both consume it, so no button is drawn that can only
         // error. The leader/:manage arms and AUTH-004's $maylead all
         // live inside decide_refusal().
-        $caneoirespond = eoi::decide_refusal($activity, $this->group, $this->userid) === null;
+        // Decision 83: the refusal ladder already wrote the sentence; using
+        // only its existence left a leader with interests waiting and no way
+        // to answer them and nothing said about why.
+        // eoi::decide_refusal() answers with a plain object carrying stringkey
+        // and $a rather than a refusal, so the sentence is resolved here and the
+        // decision still goes through the one policy.
+        $eoirefusal = eoi::decide_refusal($activity, $this->group, $this->userid);
+        $eoicontrol = control::decide_with_reason(
+            $isleader || $canviewall,
+            $eoirefusal === null
+                ? ''
+                : (control::is_shielded($eoirefusal->stringkey)
+                    ? get_string('refusalcoishielded', 'mod_selfselectadvanced')
+                    : get_string($eoirefusal->stringkey, 'mod_selfselectadvanced', $eoirefusal->a))
+        );
+        $caneoirespond = $eoicontrol->show && $eoicontrol->enabled;
         $eoiassigned = $isforming && !empty($this->group->guideid);
         $eoiinterestline = '';
         $eoirows = [];
@@ -717,8 +770,24 @@ class group_page implements renderable, templatable {
         // The authority question is asked FIRST because it is answered
         // from the capability cache, so an ordinary member's page load
         // does not pay for the query that follows.
-        $canjoindecide = $this->may_decide_joins($activity, $this->userid);
+        // Decision 83: ASK for the sentence, do not reduce it to a bit. This
+        // called may_decide_joins(), which was decide_refusal() === '' - so a
+        // leader refused for a conflict of interest saw a page with no queue
+        // on it at all, while the standalone queue page printed that very
+        // refusal (decision 65). Same actor, same requests, two answers.
+        //
+        // The refused panel is shown to the LEADER only. A refusal reaches
+        // people who are not the decider too, and telling an ordinary member
+        // that requests are waiting would disclose the queue to somebody with
+        // no standing to see it. The rows stay hidden either way: a refused
+        // decider may not read other students' reasons while they cannot act.
+        $joinrefusal = joinrequests::decide_refusal($activity, $this->group, $this->userid);
+        $canjoindecide = $joinrefusal === '';
+        $joinwaiting = 0;
         $joinrows = [];
+        if (!$canjoindecide && $isleader) {
+            $joinwaiting = count(joinrequests::waiting_for_group($activity, (int) $this->group->id));
+        }
         if ($canjoindecide) {
             $waiting = joinrequests::waiting_for_group($activity, (int) $this->group->id);
             if ($waiting) {
@@ -852,7 +921,20 @@ class group_page implements renderable, templatable {
         // FORMING team always sees the cluster: enabled when the door
         // allows, disabled with the door's own sentence when it does not.
         $tabinvite = $isleader && $isforming && $maylead;
-        $tabsuccession = !empty($this->group->successorid) || $this->nominateform !== null;
+        // Decision 83: the whole Leadership succession tab used to vanish for a
+        // leader whose team has no other confirmed member - indistinguishable
+        // from the feature not existing. A solo leader is eligible in principle
+        // and simply has nobody to nominate yet, which is a sentence, not an
+        // absence. The tab stays for any leader who may lead; its pane explains
+        // itself when the form could not be built.
+        $tabsuccession = !empty($this->group->successorid)
+            || $this->nominateform !== null
+            || ($isleader && $isforming && $maylead);
+        $successionempty = $tabsuccession
+            && empty($this->group->successorid)
+            && $this->nominateform === null
+            ? get_string('successionnobody', 'mod_selfselectadvanced')
+            : '';
         $tabsubmit = $this->submitform !== null && $maylead;
         $activetab = $tabinvite ? 'invite' : ($tabsuccession ? 'succession' : 'submit');
 
@@ -860,6 +942,7 @@ class group_page implements renderable, templatable {
             'showleadertabs' => $tabinvite || $tabsuccession || $tabsubmit,
             'tabinvite' => $tabinvite,
             'tabsuccession' => $tabsuccession,
+            'successionempty' => $successionempty,
             'tabsubmit' => $tabsubmit,
             'invitetabactive' => $tabinvite && $activetab === 'invite',
             'successiontabactive' => $tabsuccession && $activetab === 'succession',
@@ -868,6 +951,12 @@ class group_page implements renderable, templatable {
             // actually asked, and at no other time. A leader with an
             // empty queue gets the page they had before this wave.
             'showjoinpanel' => !empty($joinrows),
+            'joinblockedreason' => $joinwaiting > 0
+                ? get_string('joinpanelblocked', 'mod_selfselectadvanced', (object) [
+                    'count' => $joinwaiting,
+                    'reason' => $joinrefusal,
+                ])
+                : '',
             'joinrows' => $joinrows,
             'joinallurl' => (new \moodle_url('/mod/selfselectadvanced/joinrequest.php', [
                 'id' => $cmid,
@@ -879,6 +968,9 @@ class group_page implements renderable, templatable {
             'showeoiunlist' => $showeoiunlist,
             'showeoipanel' => $showeoipanel,
             'caneoirespond' => $caneoirespond,
+            'eoiblockedreason' => $eoicontrol->show && !$eoicontrol->enabled
+                ? $eoicontrol->reason
+                : '',
             'eoiassigned' => $eoiassigned,
             'eoiinterestline' => $eoiinterestline,
             'eoirows' => $eoirows,
@@ -886,7 +978,7 @@ class group_page implements renderable, templatable {
             'showeoiempty' => $showeoiempty,
             'showeoisequentialnote' => $showeoisequentialnote,
             'canrequestleave' => $canrequestleave,
-            'leavependingnotice' => $leavependingnotice,
+            'leavereason' => $leavecontrol->show && !$leavecontrol->enabled ? $leavecontrol->reason : '',
             'leaverequests' => $leaverequests,
             'hasleaverequests' => !empty($leaverequests),
             'canfreeze' => $canfreeze,
@@ -896,6 +988,9 @@ class group_page implements renderable, templatable {
                 'action' => 'freeze',
             ]))->out(false),
             'canunfreeze' => $canunfreeze,
+            'unfreezereason' => $unfreezecontrol->show && !$unfreezecontrol->enabled
+                ? $unfreezecontrol->reason
+                : '',
             'unfreezeurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
                 'id' => $cmid,
                 'g' => $this->group->id,
@@ -914,6 +1009,9 @@ class group_page implements renderable, templatable {
             ]))->out(false),
             'candissolve' => $candissolve,
             'canreturnforming' => $canreturnforming,
+            'returnformingreason' => $returncontrol->show && !$returncontrol->enabled
+                ? $returncontrol->reason
+                : '',
             'returnformingurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
                 'id' => $cmid,
                 'g' => $this->group->id,
@@ -1022,7 +1120,17 @@ class group_page implements renderable, templatable {
                 : '',
             'pendinginvites' => $pendinginvites,
             'haspendinginvites' => !empty($pendinginvites),
+            // Decision 83, and the audit's point about this page departing from
+            // its own pattern. Having an invitation waiting is a FACT and is
+            // shown to the invitee whatever their capability; Accept/Decline
+            // are CONTROLS and hide when :respond is prohibited. Before this the
+            // two were ANDed into one flag, so a prohibited invitee lost the
+            // prompt as well as the buttons and the group page said nothing at
+            // all - while the sibling nomination question is exported ungated on
+            // purpose, for exactly this reason.
+            'hasinvitationhere' => (bool) ($ownrow && $ownrow->status === groups::STATUS_INVITED),
             'showrespond' => $ownrow && $ownrow->status === groups::STATUS_INVITED && $mayrespond,
+            'respondblocked' => $ownrow && $ownrow->status === groups::STATUS_INVITED && !$mayrespond,
             'sesskey' => sesskey(),
             'actionurl' => (new \moodle_url('/mod/selfselectadvanced/group.php'))->out(false),
             'cmid' => $cmid,
@@ -1036,26 +1144,6 @@ class group_page implements renderable, templatable {
         ];
     }
 
-    /**
-     * Whether this viewer may answer a request to join this team.
-     *
-     * The SERVICE'S OWN DOOR, asked without an exception.
-     * joinrequests::require_decider() is the gate
-     * joinrequests::respond() applies under its lock, and it admits two
-     * arms: the target team's leader, and a coordinator or manager
-     * acting for an absent one. Transcribing either arm here would
-     * produce the defect wave 1 caught - a panel keyed on one arm while
-     * the POST behind it admits both - so the predicate is called and
-     * its refusal is turned into a boolean.
-     *
-     * @param activity $activity the activity
-     * @param int $userid the viewer
-     * @return bool
-     */
-    private function may_decide_joins(activity $activity, int $userid): bool {
-        // Delegated to the producer (seam audit B1): one door, no copy.
-        return joinrequests::decide_refusal($activity, $this->group, $userid) === '';
-    }
 
     /**
      * The reason the submit button is disabled, or '' when it is live.

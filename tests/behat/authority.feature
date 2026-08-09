@@ -138,7 +138,15 @@ Feature: A prohibited capability is honoured by the pages, not only by the servi
     # And the same pair on the team page itself, which draws its own.
     When I am on the "Lab groups > Team Elm" "mod_selfselectadvanced > group" page logged in as student2
     Then I should see "Team Elm"
-    And I should not see "You are invited to join this group."
+    # Decision 83: the PROMPT is a fact about this person's own membership and
+    # survives a prohibited :respond; only the two buttons are a control. Before
+    # 1.20.29 both were gated by one flag, so the page said nothing at all.
+    And I should see "You are invited to join this group."
+    # Scoped to the respond block on purpose: "Accept" also labels the
+    # guide-interest control elsewhere on this page, so a bare negative
+    # assertion here fails for a reason that has nothing to do with :respond.
+    And I should not see "Accept" in the ".selfselectadvanced-respond" "css_element"
+    And I should not see "Decline" in the ".selfselectadvanced-respond" "css_element"
 
   # F-1: leadership can be ACQUIRED as well as created, and this is the
   # control that acquires it. The banner stays for the same reason the

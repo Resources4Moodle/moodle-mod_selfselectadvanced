@@ -951,7 +951,11 @@ final class narrowcaps_test extends \advanced_testcase {
         $CFG->upgraderunning = 0;
         accesslib_clear_all_caches_for_unit_testing();
 
-        $this->assertSame('2026080901', get_config('mod_selfselectadvanced', 'version'));
+        $this->assertSame(
+            self::code_version(),
+            get_config('mod_selfselectadvanced', 'version'),
+            'the upgrade ladder tip must reach the serial in version.php'
+        );
         foreach ($newcaps as $capability) {
             $this->assertTrue(
                 $DB->record_exists('capabilities', ['name' => $capability]),
@@ -1106,5 +1110,25 @@ final class narrowcaps_test extends \advanced_testcase {
         }
 
         return $code;
+    }
+
+    /**
+     * The serial in version.php, read rather than restated.
+     *
+     * This assertion used to carry the serial as a literal, and its own comment
+     * listed seven releases it had been dragged through by hand. It was missed
+     * twice on 2026-08-09 alone - once for 1.20.28 and again for 1.20.29 - so
+     * the chore is the defect, not the memory. versionbump_test still pins
+     * version.php itself against CURRENT/PREVIOUS/RELEASE, which is what stops
+     * this deriving a wrong answer from a wrong file.
+     *
+     * @return string the plugin's declared version serial
+     */
+    private static function code_version(): string {
+        global $CFG;
+        $plugin = new \stdClass();
+        require($CFG->dirroot . '/mod/selfselectadvanced/version.php');
+
+        return (string) $plugin->version;
     }
 }

@@ -355,7 +355,7 @@ final class claim_honesty_test extends \advanced_testcase {
             'the page must ASK gatekeeper::can_request_leave() rather than transcribe its conditions'
         );
         $this->assertStringContainsString(
-            "'leavependingnotice' =>",
+            "'leavereason' =>",
             $exporter,
             'a member who has already asked to leave must be told so, not merely lose the button'
         );

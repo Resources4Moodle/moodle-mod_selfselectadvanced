@@ -235,6 +235,9 @@
                                                 </a>
                                             </div>
                                         {{/caneoirespond}}
+                                        {{#eoiblockedreason}}
+                                            <div class="mt-1 text-muted small">{{eoiblockedreason}}</div>
+                                        {{/eoiblockedreason}}
                                     {{/ispending}}
                                 </div>
                             </li>
@@ -259,11 +262,15 @@
             </button>
         </form>
     {{/canrequestleave}}
-    {{! The requester's own copy of the fact. Without it the button simply }}
-    {{! vanished and only the leader was told anything.                    }}
-    {{#leavependingnotice}}
-        <div class="alert alert-info" role="status">{{leavependingnotice}}</div>
-    {{/leavependingnotice}}
+    {{! Decision 83: a confirmed member who cannot ask to leave right now sees }}
+    {{! the control with the reason, never a blank space. Somebody who is not a }}
+    {{! member of this group sees nothing, because there is nothing to explain. }}
+    {{#leavereason}}
+        <button type="button" class="btn btn-outline-secondary btn-sm mb-2" disabled>
+            {{#str}} requestleave, mod_selfselectadvanced {{/str}}
+        </button>
+        <span class="ms-1 text-muted small">{{leavereason}}</span>
+    {{/leavereason}}
     {{#hasleaverequests}}
         <div class="alert alert-warning selfselectadvanced-leaverequests">
             {{#leaverequests}}
@@ -362,7 +369,19 @@
             </div>
         </div>
     {{/showjoinpanel}}
+    {{! Decision 83: a leader who cannot answer the queue is told it exists }}
+    {{! and why they cannot, instead of being shown a page with no queue.   }}
+    {{#joinblockedreason}}
+        <div class="alert alert-warning selfselectadvanced-joinblocked" role="status">{{joinblockedreason}}</div>
+    {{/joinblockedreason}}
 
+    {{! Decision 83: the PROMPT is a fact and belongs to the invitee whatever }}
+    {{! their capability; only the buttons are gated.                         }}
+    {{#respondblocked}}
+        <div class="selfselectadvanced-respond alert alert-info">
+            <span>{{#str}} respondprompt, mod_selfselectadvanced {{/str}}</span>
+        </div>
+    {{/respondblocked}}
     {{#showrespond}}
         <div class="selfselectadvanced-respond alert alert-info d-flex align-items-center flex-wrap gap-2">
             <span class="me-2">{{#str}} respondprompt, mod_selfselectadvanced {{/str}}</span>
@@ -547,6 +566,10 @@
         {{#tabsuccession}}
         <div class="tab-pane fade {{#successiontabactive}}show active{{/successiontabactive}}" id="ssa-leaderpane-succession"
             role="tabpanel" aria-labelledby="ssa-leadertab-succession">
+    {{! Decision 83: a solo leader keeps the tab and is told why it is empty. }}
+    {{#successionempty}}
+        <div class="alert alert-info" role="status">{{successionempty}}</div>
+    {{/successionempty}}
     {{#hasnomination}}
         <div class="selfselectadvanced-nomination alert alert-warning">
             {{#nominationisstepout}}
@@ -660,6 +683,11 @@
         {{#canunfreeze}}
             <a href="{{unfreezeurl}}" class="btn btn-warning ms-2">{{#str}} unfreeze, mod_selfselectadvanced {{/str}}</a>
         {{/canunfreeze}}
+        {{! Decision 83: refused-but-eligible shows the control with its reason. }}
+        {{#unfreezereason}}
+            <button type="button" class="btn btn-warning ms-2" disabled>{{#str}} unfreeze, mod_selfselectadvanced {{/str}}</button>
+            <span class="ms-1 text-muted small">{{unfreezereason}}</span>
+        {{/unfreezereason}}
         {{#canresynccore}}
             <form method="post" action="{{resynccoreurl}}" class="d-inline-block ms-2">
                 <input type="hidden" name="sesskey" value="{{sesskey}}">
@@ -679,6 +707,15 @@
                 {{#str}} returnforming, mod_selfselectadvanced {{/str}}
             </a>
         {{/canreturnforming}}
+        {{! Decision 83: a queue worker involved with this very team sees the }}
+        {{! control disabled with a generic reason - naming the involvement   }}
+        {{! would disclose the relationship that caused it.                   }}
+        {{#returnformingreason}}
+            <button type="button" class="btn btn-outline-warning ms-2" disabled>
+                {{#str}} returnforming, mod_selfselectadvanced {{/str}}
+            </button>
+            <span class="ms-1 text-muted small">{{returnformingreason}}</span>
+        {{/returnformingreason}}
         {{#candissolve}}
             <a href="{{dissolveurl}}" class="btn btn-outline-danger ms-2">
                 {{#str}} dissolvegroup, mod_selfselectadvanced {{/str}}

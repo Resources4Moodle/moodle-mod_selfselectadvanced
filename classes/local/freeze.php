@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\local;
 
 use mod_selfselectadvanced\activity;
+use mod_selfselectadvanced\local\ui\control;
 use stdClass;
 
 /**
@@ -1180,6 +1181,47 @@ class freeze {
      */
     public static function may_unfreeze_team(activity $activity, stdClass $group, int $actorid): bool {
         return self::release_refusal($activity, $group, $actorid) === null;
+    }
+
+    /**
+     * How the Release control is PRESENTED to this actor (decision 83).
+     *
+     * may_unfreeze_team() above answers a yes/no question and is right for a
+     * caller that only needs a link drawn or not - a report column, say. It is
+     * wrong for a page that owes the person an explanation, and using it there
+     * is what produced the plugin contradicting itself: the guide dashboard
+     * showed a disabled Release with "Frozen by staff - ask through the request
+     * queue" while the team's own page showed the same guide nothing at all.
+     *
+     * The three refusal codes fall out onto decision 83's policy exactly:
+     * - RELEASE_CAPABILITY is the capability answer, so the control is HIDDEN;
+     * - RELEASE_STAFFFROZE is a state answer, so it is DISABLED and says so;
+     * - RELEASE_CONFLICT is a conflict of interest, so it is DISABLED and says
+     *   the generic sentence - naming the relationship would disclose it.
+     * A team that is not frozen has no release to offer, which is not-applicable
+     * rather than refused, so nothing is drawn.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the group row
+     * @param int $actorid the person who would release it
+     * @return object show (bool), enabled (bool), reason (string)
+     */
+    public static function release_control(activity $activity, stdClass $group, int $actorid): object {
+        if ($group->state !== state::FROZEN) {
+            return control::decide_with_reason(false, '');
+        }
+        $code = self::release_refusal($activity, $group, $actorid);
+        if ($code === self::RELEASE_CAPABILITY) {
+            return control::decide_with_reason(false, '');
+        }
+        $reason = match ($code) {
+            null => '',
+            self::RELEASE_STAFFFROZE => get_string('releasestafffroze', 'mod_selfselectadvanced'),
+            self::RELEASE_CONFLICT => get_string('refusalcoishielded', 'mod_selfselectadvanced'),
+            default => get_string('refusalwrongstate', 'mod_selfselectadvanced'),
+        };
+
+        return control::decide_with_reason(true, $reason);
     }
 
     /**

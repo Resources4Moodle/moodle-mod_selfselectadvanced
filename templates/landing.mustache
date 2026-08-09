@@ -174,6 +174,15 @@
                             </button>
                         </form>
                         {{/mayrespond}}
+                        {{! Decision 83: :respond prohibited hides the buttons, but the }}
+                        {{! row must not then read as though the rule above were the    }}
+                        {{! only obstacle - the invitation is still listed and this      }}
+                        {{! says who to ask.                                            }}
+                        {{^mayrespond}}
+                            <span class="d-block small text-muted">
+                                {{#str}} respondnotpermitted, mod_selfselectadvanced {{/str}}
+                            </span>
+                        {{/mayrespond}}
                     </span>
                 </li>
             {{/myinvitations}}

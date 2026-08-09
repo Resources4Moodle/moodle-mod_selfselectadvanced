@@ -1,5 +1,60 @@
 # Changelog
 
+## 1.20.29 — one answer to "why is this button not here?" (2026-08-09)
+
+> Serial `2026080902` / `1.20.29`. No schema change. Maintainer decision 83,
+> built as a convention rather than nine fixes.
+
+Two different questions were being answered with the same blank space. *Is this
+function for this person at all?* is a **capability** question, and a no means
+the control is not drawn — explaining it would describe the permission model to
+somebody outside it. *Why can't I do something that normally belongs to me?* is
+a **state, rule or timing** question, and a no now means the control is drawn,
+disabled, carrying the sentence the gatekeeper already wrote.
+
+Nine surfaces used to decide that for themselves. That is how the plugin came to
+contradict itself: a guide refused because staff had enforced a freeze saw a
+disabled Release plus *"Frozen by staff — ask through the request queue"* on
+their dashboard, and **nothing at all** on the team's own page. Same guide, same
+team, two answers. The nine are the unfreeze/release control, the leave request,
+the incoming join queue, return-to-forming, the guide-interest response, the
+invitation response on both the group page and the landing page, and the
+leadership succession tab.
+
+- **Conflict-of-interest refusals are disabled but do not name the
+  relationship.** `refusalcoiinvolved` reads *"you cannot act because you are the
+  assigned guide of it"*, which discloses something the reader may not be
+  entitled to know. Those refusals now show a generic sentence naming who *can*
+  act, so recoverability survives without the disclosure. `refusalcoiself` is
+  deliberately not shielded: it tells the actor only what they already know
+  about themselves.
+- **A pending invitation is a fact, not a control.** The prompt now reaches an
+  invitee whose `:respond` is prohibited; only the buttons go. Previously both
+  were ANDed into one flag, so the page said nothing at all.
+- **A solo leader keeps the Leadership succession tab** and is told there is
+  nobody to nominate yet, rather than watching the whole tab disappear.
+- **A leader who cannot answer the join queue is told it exists** and why they
+  cannot, instead of seeing a page with no queue on it. The requests themselves
+  stay hidden — a refused decider may not read other students' reasons.
+
+**Two new build checks hold the line.** `control-state.sh` fails on a refusal
+collapsed to a boolean at a render site, with an allowlist that requires a
+written reason per entry and fails if an entry goes stale. It found two defects
+the audit had missed, including one introduced the previous day. It also states
+plainly what it cannot see: six of the nine never asked for a refusal at all,
+and no static rule distinguishes that from a legitimately simple condition —
+those are held by `control_state_test.php`.
+
+**And one thing that had been shipping since 1.20.26.** Two `patch --forward`
+artefacts — `classes/local/rules/gatekeeper.php.orig` (51 KB, carrying
+pre-capability-split logic) and `lang/en/selfselectadvanced.php.orig` — were
+committed by an over-broad `git add -A` and installed on every site. They never
+executed, because Moodle's classloader only maps `*.php`, and that is exactly
+why nothing caught them: every check in the build filters by extension, so the
+one thing none of them could see was a file with the wrong extension.
+`no-stray-artefacts.sh` now reads git's index — what actually becomes a release
+— rather than the working tree.
+
 ## 1.20.28 — the plugin stops telling people things that are not so (2026-08-09)
 
 > Serial `2026080901` / `1.20.28`. No schema change. Thirteen corrections from
