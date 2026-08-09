@@ -259,6 +259,11 @@
             </button>
         </form>
     {{/canrequestleave}}
+    {{! The requester's own copy of the fact. Without it the button simply }}
+    {{! vanished and only the leader was told anything.                    }}
+    {{#leavependingnotice}}
+        <div class="alert alert-info" role="status">{{leavependingnotice}}</div>
+    {{/leavependingnotice}}
     {{#hasleaverequests}}
         <div class="alert alert-warning selfselectadvanced-leaverequests">
             {{#leaverequests}}
@@ -379,7 +384,9 @@
     {{/showrespond}}
 
     <h4>{{#str}} roster, mod_selfselectadvanced {{/str}}</h4>
-    {{#hasroster}}
+    {{! The filter form is gated on hasanyroster, NOT hasroster: a filter that }}
+    {{! matches nobody must not take away the box that has to be cleared.      }}
+    {{#hasanyroster}}
         <form method="get" action="{{rosterfilteraction}}" class="d-flex flex-wrap gap-2 mb-2">
             <input type="hidden" name="id" value="{{cmid}}">
             <input type="hidden" name="g" value="{{groupid}}">
@@ -387,6 +394,11 @@
                 placeholder="{{#str}} flaggedfilter, mod_selfselectadvanced {{/str}}">
             <button type="submit" class="btn btn-secondary btn-sm">{{#str}} filter, core {{/str}}</button>
         </form>
+    {{/hasanyroster}}
+    {{#rosternomatch}}
+        <div class="alert alert-info" role="status">{{rosternomatch}}</div>
+    {{/rosternomatch}}
+    {{#hasroster}}
         <div class="table-responsive">
             <table class="generaltable selfselectadvanced-roster">
                 <thead>

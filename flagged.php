@@ -302,21 +302,10 @@ if ($tab === 'defaulters' && $action === 'nudgedefaulters') {
         // shared $a for every recipient in its bucket. This moves the
         // send out of the request entirely (SCALE); nothing is sent
         // synchronously here any more.
-        $buckets = [];
-        foreach ($recipients as $userid) {
-            $due = (int) $resolver->effective_dates($userid)->timedue;
-            // 0 is the plugin's "no deadline" sentinel. msgreminderbody
-            // reads "The penalty-free deadline is {$a->due}", so a
-            // recipient with no deadline was being told their deadline
-            // was 1 January 1970. You cannot remind somebody of a date
-            // that does not exist: they stay on the report - it is a
-            // worklist, not a penalty ledger - but they are not nudged.
-            if ($due <= 0) {
-                continue;
-            }
-            $buckets[$due][] = $userid;
-        }
-        foreach ($buckets as $due => $bucketids) {
+        // The bucketing itself lives in nudgeplan so a test can reach it; see
+        // that class for why the no-deadline sentinel is dropped.
+        $plan = \mod_selfselectadvanced\local\nudgeplan::bucket($recipients, $resolver);
+        foreach ($plan->buckets as $due => $bucketids) {
             $task = new \mod_selfselectadvanced\task\send_nudges();
             $task->set_custom_data([
                 'activityid' => $activity->id(),
@@ -328,11 +317,24 @@ if ($tab === 'defaulters' && $action === 'nudgedefaulters') {
             ]);
             \core\task\manager::queue_adhoc_task($task);
         }
+        // Report what was QUEUED, not what was listed. This notice used to
+        // print count($recipients) regardless of the drop above - so on an
+        // activity with no deadline the manager was told "N reminder(s)
+        // queued" when nothing had been queued at all. The skipped count is
+        // stated rather than merely subtracted, because a smaller number with
+        // no explanation is the same defect one step quieter.
+        $queued = $plan->queued;
+        $message = get_string('nudgedefaultersqueued', 'mod_selfselectadvanced', $queued);
+        if ($plan->skipped > 0) {
+            $message .= ' ' . get_string('nudgedefaultersnodeadline', 'mod_selfselectadvanced', $plan->skipped);
+        }
         redirect(
             $backurl,
-            get_string('nudgedefaultersqueued', 'mod_selfselectadvanced', count($recipients)),
+            $message,
             null,
-            \core\output\notification::NOTIFY_SUCCESS
+            $queued > 0
+                ? \core\output\notification::NOTIFY_SUCCESS
+                : \core\output\notification::NOTIFY_WARNING
         );
     }
     echo $OUTPUT->header();

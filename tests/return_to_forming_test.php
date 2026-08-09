@@ -130,6 +130,61 @@ final class return_to_forming_test extends \advanced_testcase {
     }
 
     /**
+     * Decision 89: a return reaches every confirmed member, not the leader alone.
+     *
+     * A return changes what the WHOLE group has to do next. Telling only the
+     * leader left the rest of the group working on something that had already
+     * been sent back, while the notification-templates page labelled the message
+     * "(to the members)" - so the label and the behaviour disagreed in the
+     * direction that costs people work.
+     *
+     * The guide's comment stays with the leader. Members get a neutral,
+     * group-focused body naming the return and the coordination, never the
+     * criticism, so the fan-out does not turn the notification into a vehicle
+     * for feedback that existing permissions place elsewhere.
+     *
+     * MUTATION CAUGHT (run 2026-08-09): restoring the single leader-only
+     * notifier::send() in state::return_group() fails this test on the member
+     * assertion; leaving the fan-out but giving members msgreturnedbody fails
+     * it on the comment-leak assertion.
+     */
+    public function test_a_return_tells_every_confirmed_member(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $api, $group, $guide, $coordinator, $leader, $bystander] = $this->world();
+
+        // A second confirmed member, so "the leader" and "the members" differ.
+        self::getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_member([
+            'groupid' => (int) $group->id,
+            'userid' => (int) $bystander->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+
+        $api->lifecycle()->return_group($group, 'Needs a clearer scope.', (int) $coordinator->id);
+
+        $messages = $sink->get_messages();
+        $tolds = array_map(static fn($m) => (int) $m->useridto, $messages);
+        $this->assertContains((int) $leader->id, $tolds, 'the leader is still told');
+        $this->assertContains(
+            (int) $bystander->id,
+            $tolds,
+            'every confirmed member must hear that the group came back (decision 89)'
+        );
+
+        // The guide's words reach the leader and nobody else.
+        foreach ($messages as $message) {
+            if ((int) $message->useridto === (int) $bystander->id) {
+                $this->assertStringNotContainsString(
+                    'Needs a clearer scope.',
+                    (string) $message->fullmessage,
+                    'the guide comment is the leader\'s to relay; a member\'s copy must stay neutral'
+                );
+            }
+        }
+        $sink->close();
+    }
+
+    /**
      * Ruling 51-A2 itself stays intact: the team's own guide cannot
      * un-approve through the new arm - a guide is not a queue worker.
      */

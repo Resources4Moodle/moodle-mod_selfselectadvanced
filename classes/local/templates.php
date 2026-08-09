@@ -54,6 +54,7 @@ class templates {
         'msgsubmittedbody' => 'msgsubmittedsubject',
         'msgqueuedbody' => 'msgqueuedsubject',
         'msgreturnedbody' => 'msgreturnedsubject',
+        'msgreturnedbodymember' => 'msgreturnedsubject',
         'msgapprovedbody' => 'msgapprovedsubject',
         'msgfrozenbody' => 'msgfrozensubject',
         'msgunfrozenbody' => 'msgunfrozensubject',

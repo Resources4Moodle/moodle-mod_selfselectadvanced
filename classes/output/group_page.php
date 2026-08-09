@@ -201,6 +201,13 @@ class group_page implements renderable, templatable {
             }
             $roster[] = $row;
         }
+        // Counted BEFORE the filter runs. hasroster is computed from the
+        // filtered array, so it cannot answer "does this group have members?"
+        // - and the template used it to gate the filter form as well as the
+        // table. A filter matching nobody therefore removed the box that had
+        // just been typed into, leaving a heading over empty space with no way
+        // to clear the term in place.
+        $rostertotal = count($roster);
         if ($rq !== '') {
             $needle = \core_text::strtolower($rq);
             $roster = array_values(array_filter($roster, static function ($row) use ($needle, $rostersortable) {
@@ -408,11 +415,21 @@ class group_page implements renderable, templatable {
 
         $quota = \mod_selfselectadvanced\local\quota\evaluator::evaluate($activity, (int) $this->group->id);
 
-        $canrequestleave = $isforming
-            && !$isleader
-            && $ownrow
-            && $ownrow->status === groups::STATUS_CONFIRMED
-            && empty($ownrow->leaverequested);
+        // Ask the gate rather than restating it. This used to transcribe
+        // can_request_leave()'s three conditions and add a fourth the service
+        // does not model - a leave already requested - which cost twice over:
+        // the page could drift from the rule it had copied, and the member who
+        // had already asked simply lost the button with nothing said, while the
+        // leader got a whole panel about the same request. The pending state is
+        // now a stated fact rather than an absent control.
+        $leaverefusal = $ownrow
+            ? $this->api->gatekeeper()->can_request_leave($this->group, $ownrow, $this->userid)
+            : null;
+        $hasleavepending = $ownrow && !empty($ownrow->leaverequested);
+        $canrequestleave = $ownrow && $leaverefusal === null && !$hasleavepending;
+        $leavependingnotice = $hasleavepending
+            ? get_string('leavependingown', 'mod_selfselectadvanced')
+            : '';
         $leaverequests = [];
         if ($isleader && $isforming && $maylead) {
             $namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
@@ -869,6 +886,7 @@ class group_page implements renderable, templatable {
             'showeoiempty' => $showeoiempty,
             'showeoisequentialnote' => $showeoisequentialnote,
             'canrequestleave' => $canrequestleave,
+            'leavependingnotice' => $leavependingnotice,
             'leaverequests' => $leaverequests,
             'hasleaverequests' => !empty($leaverequests),
             'canfreeze' => $canfreeze,
@@ -956,6 +974,16 @@ class group_page implements renderable, templatable {
             'minsizenote' => get_string('minsizenote', 'mod_selfselectadvanced', $seats),
             'roster' => $roster,
             'hasroster' => !empty($roster),
+            // The hasanyroster flag gates the filter FORM, hasroster the TABLE.
+            // They differ only while a filter is excluding everybody, which is
+            // exactly the case the page used to render as blank space.
+            'hasanyroster' => $rostertotal > 0,
+            'rosternomatch' => $rostertotal > 0 && empty($roster)
+                ? get_string('rosternomatch', 'mod_selfselectadvanced', (object) [
+                    'needle' => s($rq),
+                    'total' => $rostertotal,
+                ])
+                : '',
             'showmobilecaution' => $anymobileshown,
             'rosterhead' => $rosterhead,
             'rosterfilter' => $rq,

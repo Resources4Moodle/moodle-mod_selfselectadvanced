@@ -100,11 +100,21 @@ if ($action === 'edit') {
     }
     if ($data = $form->get_data()) {
         $target = $userid ?: (int) ($data->targetuser ?? 0);
+        // Every field the form collects must be passed. manager::set() writes a
+        // field only when the key is present (see its array_key_exists loop), so
+        // an omission here is silent: the control is filled in, "Participant
+        // attributes saved." is shown, and the value is discarded. That is what
+        // happened to seatlocation and program between slice 5 and 1.20.28 - the
+        // form gained the two controls and this call was never widened, leaving
+        // the CSV importer as their only writer and the program quota dimension
+        // with no route to data on a site that does not import.
         \mod_selfselectadvanced\local\attributes\manager::set($target, [
             'gender' => $data->gender,
             'department' => $data->department,
             'subdepartment' => $data->subdepartment,
             'mobile' => $data->mobile,
+            'seatlocation' => $data->seatlocation,
+            'program' => $data->program,
         ], (int) $USER->id);
         redirect(
             $baseurl,

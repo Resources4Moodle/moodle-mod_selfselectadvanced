@@ -90,8 +90,15 @@ echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('contactheading', 'mod_selfselectadvanced', format_string($group->name)));
 
 $remaining = contacts::remaining($activity, $groupid);
+// The contactchoose string states the capacity rule the list silently applies.
+// It had lost its only echo in 7d35a40, which left the filter's own comment
+// asserting "the rule is stated in the intro" when no rendered string said
+// it - so a leader looking for a specific guide found them missing with no
+// explanation anywhere on the page. Rendered with the intro, not instead of
+// it: the intro is about approaches remaining, this is about who is listed.
 echo html_writer::div(
-    get_string('contactintro', 'mod_selfselectadvanced', $remaining),
+    get_string('contactintro', 'mod_selfselectadvanced', $remaining)
+        . ' ' . get_string('contactchoose', 'mod_selfselectadvanced'),
     'alert alert-info'
 );
 
@@ -179,9 +186,11 @@ $alreadysent = array_map(static fn($c) => (int) $c->guideid, $sent);
 // Only guides who can actually take the team on (maintainer's rule,
 // 1.19.1). Approaching somebody who is full spends one of the team's
 // limited approaches on a refusal, and wastes the guide's time reading
-// it. The rule is stated in the intro rather than left to be inferred
-// from an absence - this page shows each guide's load anyway, so
-// nothing is being concealed by leaving the full ones out.
+// it. The rule is stated to the reader by contactchoose, echoed with the
+// intro above - this comment used to assert that and the echo did not
+// exist, which is the kind of claim that stops the next reader checking.
+// This page shows each guide's load anyway, so nothing is concealed by
+// leaving the full ones out.
 $guides = array_filter(
     \mod_selfselectadvanced\local\guides::with_load(
         $activity,

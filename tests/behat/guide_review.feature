@@ -76,7 +76,7 @@ Feature: Guide review of submitted groups
     And I follow "Guide dashboard"
     And I click on "Review" "link" in the "Team Firm" "table_row"
     And I follow "Approve"
-    Then I should see "Approval is irreversible"
+    Then I should see "You cannot undo this yourself"
     When I press "Approve"
     Then I should see "approved"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1

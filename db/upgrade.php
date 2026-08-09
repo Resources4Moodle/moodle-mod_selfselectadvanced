@@ -2140,5 +2140,36 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080806, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080901) {
+        // 1.20.28: thirteen corrections from the 2026-08-09 silent-state
+        // audit. No schema change and no data step.
+        //
+        // Two were code discarding what a screen had collected or counted:
+        // the participant attribute editor dropped seat location and
+        // programme on every save while reporting success, and the
+        // defaulter nudge reported the number LISTED as the number queued
+        // even when a missing deadline meant nothing had been sent. The
+        // rest were sentences the code contradicted - approval called
+        // irreversible after decision 62 made it reversible, a freeze
+        // notice naming the wrong releaser, auto-approval described as
+        // unconditional when three gates refuse it, a capability
+        // description promising an unfreeze it does not carry, and a CSV
+        // format help that hid the column which overwrites a student's own
+        // consent. Three states that used to render as blank space now
+        // say what is true: a roster filter matching nobody, a leave
+        // request the requester had already made, and the guide-capacity
+        // rule the contact list silently applies.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.28 (2026080901). Thirteen honesty corrections: two dropped-input '
+                . 'defects, eight false claims and three unexplained blanks. No behaviour or schema change '
+                . 'beyond what the screens already promised.',
+            'No schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080901, 'selfselectadvanced');
+    }
+
     return true;
 }

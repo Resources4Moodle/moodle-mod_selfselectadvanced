@@ -78,7 +78,7 @@ Feature: Composition quotas with a live deficiency panel
     And I follow "Team Blue"
     Then I should see "Composition requirements"
     And I should see "Needs 1 more from Gender Female"
-    And I should see "The group does not yet satisfy the composition quota rules."
+    And I should see "invitation(s) are still waiting for an answer"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
     And I press "Accept"
     Then I should see "You have joined the group \"Team Blue\"."

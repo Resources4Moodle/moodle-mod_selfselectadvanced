@@ -545,16 +545,32 @@ final class state {
             $lock->release();
         }
 
-        notifier::send(
-            $this->activity,
-            'groupreturned',
-            (int) $fresh->leaderid,
-            'msgreturnedsubject',
-            'msgreturnedbody',
-            (object) ['group' => format_string($fresh->name), 'comment' => trim($comment)],
-            $this->group_url((int) $fresh->id),
-            format_string($fresh->name)
-        );
+        // Decision 89: a return is a lifecycle event of the WHOLE GROUP, so
+        // every confirmed member hears it - not the leader alone. Approval
+        // (above) and freeze already fan out; a return is the one that changes
+        // what everybody has to do next, and telling only the leader left the
+        // rest of the group working on something that had been sent back.
+        // The template label said "(to the members)" throughout, so this makes
+        // the shipped label true rather than changing what it promises.
+        //
+        // Deliberately neutral and group-focused: the guide's comment is the
+        // leader's to relay, so the body names the return and the coordination,
+        // never the criticism. Detailed feedback stays where existing
+        // permissions already show it.
+        foreach (groups::get_roster((int) $fresh->id) as $member) {
+            notifier::send(
+                $this->activity,
+                'groupreturned',
+                (int) $member->userid,
+                'msgreturnedsubject',
+                (int) $member->userid === (int) $fresh->leaderid
+                    ? 'msgreturnedbody'
+                    : 'msgreturnedbodymember',
+                (object) ['group' => format_string($fresh->name), 'comment' => trim($comment)],
+                $this->group_url((int) $fresh->id),
+                format_string($fresh->name)
+            );
+        }
         if ($oldguideid && $oldguideid !== $actorid) {
             // The relieved guide learns their relief was granted - the
             // whole point of the flow that reaches this arm.

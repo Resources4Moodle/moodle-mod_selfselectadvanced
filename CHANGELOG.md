@@ -1,5 +1,69 @@
 # Changelog
 
+## 1.20.28 — the plugin stops telling people things that are not so (2026-08-09)
+
+> Serial `2026080901` / `1.20.28`. No schema change. Thirteen corrections from
+> a silent-state audit that verified 25 defects and refuted 6.
+
+The audit asked one question of every screen: *does this page state, promise or
+collect anything the code does not honour?* Thirteen answers carried no design
+content and are fixed here. The remaining twelve are design forks and are
+waiting on a maintainer ruling, not on work.
+
+- **Two screens discarded what they collected or miscounted what they did.**
+  The participant attribute editor has offered Seat location and Type of
+  programme since 1.3.0 and passed neither to the writer, so both were typed
+  in, dropped, and "Participant attributes saved." was shown anyway — which is
+  why a site that never imports a CSV has no data for the programme quota
+  dimension. And "Message all defaulters" reported the number *listed* as the
+  number queued, so on an activity with no penalty-free deadline the manager
+  was told reminders had been sent when nothing had been queued at all; the
+  page now reports what was queued and says how many were left out and why.
+- **Eight sentences said something the code contradicts.** Approval was called
+  "irreversible" after decision 62 gave coordinators a return-to-forming that
+  clears the approval date. The freeze notice said only a manager can unfreeze,
+  when the guide who froze the group can release it themselves. Auto-approval
+  was described as ignoring drift "literally and unconditionally" while three
+  gates hard-refuse it. The `:coordinate` capability description promised an
+  unfreeze that capability does not carry on its own. The CSV format help
+  presented a closed column list that omitted `shareconsent` — the column that
+  overwrites a participant's own sharing choice — along with `seatlocation` and
+  `program`. The defaulter penalty was promised per missing membership without
+  saying it cannot reach a student who joined nothing at all. The returned-group
+  notification was labelled "(to the members)" and goes only to the leader. And
+  `contactprivacy_help` told teachers they see contact details for every
+  participant when, with the setting on, no email address reaches anybody.
+- **Three states rendered as blank space and now speak.** A roster filter
+  matching nobody used to remove the filter box along with the table, leaving a
+  heading over nothing and no way to clear the term; a member who had asked to
+  leave lost the button and was told nothing while the leader got a whole
+  panel; and the guide contact list silently omits guides who are full, on a
+  rule whose explaining string had lost its only echo in `7d35a40` while a code
+  comment still asserted "the rule is stated in the intro".
+
+**Two maintainer rulings landed with this release.** *Decision 89:* a return is a
+lifecycle event of the whole group, so every confirmed member is now notified, not
+the leader alone — members left working on something that had already been sent
+back was the cost of the old behaviour. The guide's comment stays with the leader;
+members get a neutral, group-focused message naming the return and the
+coordination, so the fan-out does not turn a notification into a vehicle for
+feedback that belongs elsewhere. *Decision 94:* when Submit is blocked by both a
+composition shortfall and unanswered invitations, the invitations message wins —
+"wait for a reply" is the instruction a leader can act on, and an outstanding
+invitation may itself fill the quota gap, so quota-first would send them recruiting
+somebody they do not need. No code changed for that one; the behaviour was already
+correct and the Behat expectation was not.
+
+**Guarding the class, not just the instances.** `tests/claim_honesty_test.php`
+pins every correction, and two of its checks are structural rather than
+specific: one derives the canonical attribute list from `manager::set()`'s own
+write loop and fails if *any* field the form collects never reaches the writer,
+so the next field added cannot be dropped the same way; the other requires the
+roster filter form to sit outside the post-filter gate. All seven mutations in
+the sweep were caught, including one that initially was not — the first version
+of the CSV assertion searched the whole help string, which a neighbouring
+sentence could satisfy, and was tightened to the column list itself.
+
 ## 1.20.27 — two checks the plugin did not have (2026-08-08)
 
 > Serial `2026080806` / `1.20.27`. Tests only; no behaviour, language or

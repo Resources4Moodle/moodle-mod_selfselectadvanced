@@ -106,49 +106,64 @@ final class defaulterworklist_test extends \advanced_testcase {
     }
 
     /**
-     * Nobody is told their deadline is 1 January 1970.
+     * Nobody is told their deadline is 1 January 1970 - and they stay on the worklist.
      *
-     * flagged.php buckets nudge recipients by effective timedue and
-     * msgreminderbody reads "The penalty-free deadline is {$a->due}".
-     * A recipient with no deadline was bucketed under 0 and rendered
-     * userdate(0). They stay on the worklist; they are not nudged.
+     * msgreminderbody reads "The penalty-free deadline is {$a->due}", so a
+     * recipient bucketed under the 0 sentinel would be sent userdate(0).
+     * They remain listed - the report is a worklist, not a penalty ledger -
+     * but they are not nudged.
+     *
+     * Until 1.20.28 this could only be asserted by SEARCHING THE SOURCE of
+     * flagged.php for 'if ($due <= 0)', because the bucketing lived inline in a
+     * root controller script that PHPUnit cannot call. The logic now lives in
+     * nudgeplan, so the rule is EXECUTED here instead of grepped: a renamed
+     * variable or an inverted comparison fails this test and would have passed
+     * the substring search.
+     *
+     * The worklist half of the claim is what distinguishes this from the
+     * nudgeplan tests in claim_honesty_test, which cover the arithmetic alone.
+     *
+     * MUTATION CAUGHT (run 2026-08-09): removing the $due <= 0 guard from
+     * nudgeplan::bucket() fails this test on the bucket-membership assertion.
      *
      * @return void
      */
     public function test_a_student_with_no_deadline_is_not_nudged(): void {
         $this->resetAfterTest();
-        $src = file_get_contents(__DIR__ . '/../flagged.php');
-        $this->assertNotFalse($src, 'flagged.php must be readable');
-        $stripped = self::code_without_comments($src);
-        $this->assertStringContainsString(
-            'if ($due <= 0)',
-            $stripped,
-            'the nudge bucketing must skip recipients with no deadline; without it '
-                . 'msgreminderbody renders userdate(0) and tells a student their deadline was 1970'
-        );
-    }
 
-    /**
-     * Strip comments before searching source. A bare substring search is
-     * satisfied by a comment - that has hidden a defect in this codebase
-     * three times, so every source assertion here tokenises first.
-     *
-     * @param string $src php source
-     * @return string the source with comments removed
-     */
-    private static function code_without_comments(string $src): string {
-        $out = '';
-        foreach (token_get_all($src) as $token) {
-            if (is_array($token)) {
-                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
-                    continue;
-                }
-                $out .= $token[1];
-            } else {
-                $out .= $token;
+        // Two students share a real deadline; the third has the 0 sentinel.
+        $resolver = new class {
+            /**
+             * Effective dates for one user.
+             *
+             * @param int $userid user id
+             * @return object carrying a timedue property
+             */
+            public function effective_dates(int $userid): object {
+                $due = [101 => 1800000000, 102 => 1800000000, 103 => 0];
+
+                return (object) ['timedue' => $due[$userid] ?? 0];
             }
-        }
-        return $out;
+        };
+
+        $plan = \mod_selfselectadvanced\local\nudgeplan::bucket([101, 102, 103], $resolver);
+
+        $queuedids = array_merge(...array_values($plan->buckets));
+        $this->assertNotContains(
+            103,
+            $queuedids,
+            'a recipient with no deadline must not be queued; msgreminderbody would '
+                . 'render userdate(0) and tell them their deadline was 1 January 1970'
+        );
+        $this->assertContains(101, $queuedids, 'recipients WITH a deadline must still be nudged');
+        $this->assertContains(102, $queuedids, 'recipients WITH a deadline must still be nudged');
+
+        // Left out, not silently absorbed: the page reports this number.
+        $this->assertSame(1, $plan->skipped);
+        $this->assertSame(2, $plan->queued);
+
+        // The 0 sentinel must never become a bucket of its own.
+        $this->assertArrayNotHasKey(0, $plan->buckets);
     }
 
     /**

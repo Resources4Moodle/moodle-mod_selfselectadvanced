@@ -93,7 +93,7 @@ Feature: The activity protects participant contact details
   # about their own data.
   Scenario: The consent line tells the owner what actually happens to their number
     Given I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
-    Then I should see "Your mobile number is hidden. Only a site administrator, or staff the site has deliberately allowed to see participant identity fields, can still read it."
+    Then I should see "Your mobile number is hidden. While this activity is protecting contact details, only an editing teacher, a manager or a site administrator can still read it"
     And I should not see "Staff with full view can still see it"
     When I press "Share my number"
     Then I should see "Your mobile number is shared with your confirmed group members, the guide assigned to your group, a staff member handling a request you raised, and the teachers who manage this activity."
