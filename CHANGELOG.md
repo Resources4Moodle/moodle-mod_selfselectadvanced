@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.20.31 — a type name can no longer veto a feature (2026-08-09)
+
+> Serial `2026080904` / `1.20.31`. One column precision change; no data change.
+
+The ticket `type` column was `char(12)`. Every shipped type fits only because the
+longest of them happen to be short, and the review of decision 71 found that its
+proposed type — `leaderchange` — is **exactly twelve characters**. It would have
+fitted with no headroom whatsoever, so the type after it, or any rename, would
+have hit a schema change discovered mid-feature on a live table.
+
+Widened to `char(128)` at the maintainer's instruction, which also leaves room
+for non-ASCII should a fork want it. The upgrade step changes the precision of
+the existing column, so a site that upgrades gets the same width as a fresh
+install — a distinction that matters, because `db/install.xml` alone would have
+fixed only new sites.
+
+`tests/ticket_type_width_test.php` proves the width where it actually matters:
+a real INSERT of a 120-character type into the running table, read back and
+compared. Reading the XML would only have restated the intention.
+
 ## 1.20.30 — the privacy contracts (2026-08-09)
 
 > Serial `2026080903` / `1.20.30`. No schema change. Maintainer decisions 84,

@@ -2226,5 +2226,36 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080903, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080904) {
+        // 1.20.31: the ticket type column stops constraining the taxonomy.
+        //
+        // It was char(12), and every shipped type fits only because the longest
+        // - "compchange", "guidereduce" - happen to be short. The 2026-08-09
+        // review of decision 71 found that "leaderchange" is exactly 12
+        // characters: it would have fitted with ZERO headroom, so the next type
+        // after it, or any rename, would have forced a schema change discovered
+        // at the worst moment. A type slug is an internal identifier and there
+        // is no reason for its column to be the thing that vetoes a feature.
+        //
+        // 128 at the maintainer's instruction, which also leaves room for
+        // non-ASCII should a fork ever want it. Widening a char column is safe
+        // on both engines and preserves every existing value.
+        $table = new xmldb_table('selfselectadvanced_ticket');
+        $field = new xmldb_field('type', XMLDB_TYPE_CHAR, '128', null, XMLDB_NOTNULL, null, null, 'groupid');
+        if ($dbman->field_exists($table, $field)) {
+            $dbman->change_field_precision($table, $field);
+        }
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.31 (2026080904). Ticket type widened from char(12) to char(128) so '
+                . 'the taxonomy is never limited by the length of a type name.',
+            'One column precision change; no data change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080904, 'selfselectadvanced');
+    }
+
     return true;
 }
