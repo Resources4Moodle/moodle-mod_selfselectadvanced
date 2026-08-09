@@ -62,6 +62,32 @@ class quota_form extends \moodleform {
                 $groups[get_string('attr' . $dimension, 'mod_selfselectadvanced')] = $options;
             }
         }
+        // Decision 86: an empty picker used to fail the save with a bare
+        // "Required", which tells a teacher nothing about WHY. The vocabulary
+        // is institutional and stays under ingest control - the ruling was
+        // explicit that free text here would let one teacher invent values
+        // competing with centrally imported data - so the fix is to name the
+        // dependency instead of removing it. The empty case is stated with the
+        // dimensions that are missing, and the route to fix it is shown only
+        // to somebody who can actually take it.
+        if (!$groups) {
+            $missing = array_map(
+                static fn(string $d): string => get_string('attr' . $d, 'mod_selfselectadvanced'),
+                manager::DIMENSIONS
+            );
+            $mform->addElement(
+                'static',
+                'dimensionvalueempty',
+                get_string('quotavalue', 'mod_selfselectadvanced'),
+                get_string('quotanovalues', 'mod_selfselectadvanced', implode(', ', $missing))
+                    . (has_capability('mod/selfselectadvanced:ingestattributes', \context_system::instance())
+                        ? ' ' . \html_writer::link(
+                            new \moodle_url('/mod/selfselectadvanced/attributes.php'),
+                            get_string('quotanovalueslink', 'mod_selfselectadvanced')
+                        )
+                        : '')
+            );
+        }
         $mform->addElement(
             'selectgroups',
             'dimensionvalue',

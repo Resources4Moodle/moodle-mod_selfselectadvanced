@@ -753,7 +753,7 @@ class provider implements
             }
             $rows = $DB->get_records_sql(
                 "SELECT m.id, g.name, g.pluginuid, g.title, g.brief, g.briefformat, g.state,
-                        g.returncomment, g.guidenotes, g.disbandreason, m.status, m.isleader, m.invitedby,
+                        g.returncomment, g.disbandreason, m.status, m.isleader, m.invitedby,
                         m.timeinvited, m.timeresponded, m.leaverequested, p.penaltyvalue,
                         p.dayslate, p.award, p.waived, p.waivereason
                    FROM {selfselectadvanced_member} m
@@ -779,13 +779,28 @@ class provider implements
                     // The brief was SELECTed and then dropped on the
                     // floor, so a declared field was never exported.
                     'brief' => $row->brief,
-                    // Prose a guide wrote about this team. The notes are
-                    // described in the interface as private to staff,
-                    // which is a reason to handle them carefully - not a
-                    // reason to withhold them from the person they are
-                    // about, who is entitled to see what is held on them.
                     'returncomment' => $row->returncomment,
-                    'guidenotes' => $row->guidenotes,
+                    // GUIDE NOTES ARE NOT EXPORTED (maintainer decision 84,
+                    // 2026-08-09). They used to be, on the argument that a data
+                    // subject is entitled to see what is held on them - which is
+                    // a real principle, and the wrong one here.
+                    //
+                    // The field hangs off the GROUP, not off a person. The
+                    // software cannot tell which sentence is about the requester
+                    // and which is about a teammate, so exporting the whole field
+                    // hands one student the guide's evaluative prose about
+                    // everybody else, plus staff deliberation, in one block. No
+                    // filter on membership fixes that; the ruling considered and
+                    // rejected filtering to confirmed members for exactly this
+                    // reason. The interface's promise to the guide - "students
+                    // never see them" - therefore becomes true again.
+                    //
+                    // The field stays DECLARED in this provider's metadata,
+                    // because the plugin does store it and saying so is the
+                    // point of metadata. Where an institution must disclose
+                    // something from these notes under a subject-access request,
+                    // that is a human deciding what pertains to the requester and
+                    // redacting the rest, not an automatic dump.
                     'disbandreason' => $row->disbandreason,
                     // Who invited this person is part of this person's
                     // own membership history, and it was declared in the

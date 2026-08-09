@@ -25,12 +25,13 @@ use stdClass;
  * Input columns: username, firstname, lastname, gender, department,
  * subdepartment, mobile (header matching is case- and
  * space-insensitive; an optional email column acts as the fallback
- * match key when a row's username is blank). An optional "Share
- * consent" column (1/0/yes/no, case-insensitive) sets the student's
- * mobile-sharing consent through the ordinary attribute write; a
- * column absent from the file, a blank/unrecognised cell, or
- * fillmissing mode (consent has no missing state) leaves existing
- * consent untouched.
+ * match key when a row's username is blank).
+ *
+ * A "Share consent" column is ACCEPTED AND IGNORED (decision 85). The
+ * header map is built from whatever columns the file carries, so an
+ * unused column costs nothing and fails nothing - but no CSV can set a
+ * student's mobile-sharing consent, because that flag has one owner and
+ * it is the student. Before 1.20.30 an upload could revoke it silently.
  *
  * Rules: rows are matched to EXISTING users by username (fallback
  * email). Unknown users are rejected and reported - creating accounts
@@ -267,20 +268,24 @@ class csv_importer {
                 $mobile = '';
             }
 
-            // Optional "Share consent" column (1/0/yes/no, case
-            // insensitive): a column absent from the file, or a blank
-            // or unrecognised cell, leaves the user's existing consent
-            // untouched, and fillmissing mode ignores the column entirely
-            // (consent has no missing state; the toggle is self-service).
-            $consentvalue = null;
-            if (isset($map['shareconsent'])) {
-                $rawconsent = \core_text::strtolower($get('shareconsent'));
-                if (in_array($rawconsent, ['1', 'yes'], true)) {
-                    $consentvalue = true;
-                } else if (in_array($rawconsent, ['0', 'no'], true)) {
-                    $consentvalue = false;
-                }
-            }
+            // A "Share consent" column is READ AND IGNORED (maintainer
+            // decision 85, 2026-08-09). The importer used to write it, which
+            // meant a spreadsheet could revoke a consent the student had been
+            // told was their own - silently, with nothing recording who did it
+            // or on what basis.
+            //
+            // Grant-only was considered and rejected. It makes the destructive
+            // direction impossible but still leaves two actors controlling one
+            // flag that the interface describes as the student's choice, and a
+            // single boolean cannot then answer who granted it, when, on what
+            // basis, whether it was later withdrawn, or whether a re-import
+            // should re-grant it. Consent has ONE owner.
+            //
+            // If offline consent must be ingested one day it needs its own
+            // model carrying provenance, not this column. A shareconsent
+            // column in the file is simply never looked up - the header map is
+            // built from whatever columns exist - so an old file still imports
+            // cleanly, and csvformathelp says the column has no effect.
 
             $exists = $DB->record_exists('selfselectadvanced_userattr', ['userid' => $user->id]);
             if ($commit) {
@@ -310,14 +315,6 @@ class csv_importer {
                         }
                     }
                     $set[$field] = $value;
-                }
-                if ($consentvalue !== null && $mode !== 'fillmissing') {
-                    // Routed through set() so a consent-only row still
-                    // creates the attribute record instead of crashing
-                    // on a missing one. Fillmissing mode never touches
-                    // the flag: consent is binary with a meaningful
-                    // default, so there is no "missing" state to fill.
-                    $set['shareconsent'] = $consentvalue ? 1 : 0;
                 }
                 if ($set) {
                     manager::set((int) $user->id, $set, $actorid);

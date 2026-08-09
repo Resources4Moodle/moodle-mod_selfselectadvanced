@@ -257,10 +257,18 @@ final class claim_honesty_test extends \advanced_testcase {
                 'the csvformathelp column list still omits ' . $column . ', which csv_importer reads'
             );
         }
+        // Decision 85 changed what the truth IS here: the importer no longer
+        // writes consent at all, so the help must say the column is ignored.
+        // The assertion moves with the behaviour rather than being deleted.
         $this->assertMatchesRegularExpression(
-            '/overwrite/i',
+            '/ignored/i',
             $csv,
-            'csvformathelp must say that a shareconsent cell overwrites the participant\'s own choice'
+            'csvformathelp must say a shareconsent column has no effect (decision 85)'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/shareconsent cell OVERWRITES/i',
+            $csv,
+            'the pre-decision-85 wording promised a write that no longer happens'
         );
 
         // The defaulter strings promised a per-missing-membership charge that

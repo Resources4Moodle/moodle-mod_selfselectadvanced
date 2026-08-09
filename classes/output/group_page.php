@@ -43,6 +43,9 @@ class group_page implements renderable, templatable {
     /** @var int Cap on responded (non-pending) EOI rows shown in the panel; older rows are left out entirely. */
     private const EOI_HISTORY_LIMIT = 20;
 
+    /** @var int Cap on declined invitations shown; older ones are left out entirely. */
+    private const DECLINED_LIMIT = 10;
+
     /**
      * Constructor.
      *
@@ -266,6 +269,8 @@ class group_page implements renderable, templatable {
         // join-request panel. $isguide is assignment-shaped since
         // 1.20.1, so this admits the team's own guide and nobody else's.
         $pendinginvites = [];
+        $declinedtotal = 0;
+        $declinedshown = 0;
         if (
             $isleader
             || $isguide
@@ -299,11 +304,19 @@ class group_page implements renderable, templatable {
                               JOIN {user} u ON u.id = m.userid
                              WHERE m.groupid = :groupid AND m.status = :status
                           ORDER BY m.timemodified DESC";
+            // Decision 90: a cap that nobody is told about reads as the complete
+            // record, so a missing decline reads as an invitation never made.
+            // The landing page already discloses its own cap; this brings the
+            // group page into line rather than inventing a house style.
+            $declinedtotal = $DB->count_records('selfselectadvanced_member', [
+                'groupid' => (int) $this->group->id,
+                'status' => groups::STATUS_DECLINED,
+            ]);
             foreach (
                 $DB->get_records_sql($declinedsql, [
                     'groupid' => $this->group->id,
                     'status' => groups::STATUS_DECLINED,
-                ], 0, 10) as $invite
+                ], 0, self::DECLINED_LIMIT) as $invite
             ) {
                 $pendinginvites[] = (object) [
                     'memberid' => (int) $invite->memberid,
@@ -312,6 +325,7 @@ class group_page implements renderable, templatable {
                     'invitedon' => $invite->timeresponded ? userdate($invite->timeresponded) : '',
                     'declined' => true,
                 ];
+                $declinedshown++;
             }
             $inviteattrs = $pendinginvites
                 ? \mod_selfselectadvanced\local\attributes\manager::get_for_users(
@@ -410,8 +424,24 @@ class group_page implements renderable, templatable {
             $submitrefusal = $this->api->gatekeeper()->can_submit($this->group, $this->userid);
         }
         $guidename = '';
+        $guideseat = '';
         if (!empty($this->group->guideid)) {
             $guidename = fullname(\core_user::get_user((int) $this->group->guideid));
+            // Decision 88: seat location renders beside the ASSIGNED GUIDE, on
+            // the page of the group they guide, and nowhere else. lang:74 and
+            // the privacy metadata have both told guides for releases that this
+            // is "shown to students so they can find you", and git shows the
+            // group-page half was never built - so the statement was owed, not
+            // the other way round. Scoped deliberately: it does not become
+            // searchable and is not added to any student-facing directory.
+            $guideattr = \mod_selfselectadvanced\local\attributes\manager::get((int) $this->group->guideid);
+            if ($guideattr !== null && !empty($guideattr->seatlocation)) {
+                $guideseat = get_string(
+                    'guideseatlabel',
+                    'mod_selfselectadvanced',
+                    s($guideattr->seatlocation)
+                );
+            }
         }
 
         $quota = \mod_selfselectadvanced\local\quota\evaluator::evaluate($activity, (int) $this->group->id);
@@ -651,6 +681,7 @@ class group_page implements renderable, templatable {
                     : get_string($eoirefusal->stringkey, 'mod_selfselectadvanced', $eoirefusal->a))
         );
         $caneoirespond = $eoicontrol->show && $eoicontrol->enabled;
+        $eoidropped = 0;
         $eoiassigned = $isforming && !empty($this->group->guideid);
         $eoiinterestline = '';
         $eoirows = [];
@@ -686,6 +717,9 @@ class group_page implements renderable, templatable {
                         count($respondedindexes) - self::EOI_HISTORY_LIMIT
                     ))
                     : [];
+                // Decision 90: the count is already known here, so there is no
+                // reason for the reader not to know it too.
+                $eoidropped = count($excludedresponded);
 
                 $seenpending = false;
                 $pendingshown = 0;
@@ -968,6 +1002,9 @@ class group_page implements renderable, templatable {
             'showeoiunlist' => $showeoiunlist,
             'showeoipanel' => $showeoipanel,
             'caneoirespond' => $caneoirespond,
+            'eoitruncated' => $eoidropped > 0
+                ? get_string('eoitruncated', 'mod_selfselectadvanced', $eoidropped)
+                : '',
             'eoiblockedreason' => $eoicontrol->show && !$eoicontrol->enabled
                 ? $eoicontrol->reason
                 : '',
@@ -1049,6 +1086,7 @@ class group_page implements renderable, templatable {
             'submitblockedreason' => $this->submit_blocked_reason($isleader, $isforming, $submitrefusal),
             'guidename' => $guidename,
             'hasguide' => $guidename !== '',
+            'guideseat' => $guideseat,
             'returncomment' => $isforming && !empty($this->group->returncomment)
                 ? format_text($this->group->returncomment, (int) $this->group->returncommentformat, ['context' => $context])
                 : '',
@@ -1120,6 +1158,12 @@ class group_page implements renderable, templatable {
                 : '',
             'pendinginvites' => $pendinginvites,
             'haspendinginvites' => !empty($pendinginvites),
+            'declinedtruncated' => $declinedtotal > $declinedshown
+                ? get_string('declinedtruncated', 'mod_selfselectadvanced', (object) [
+                    'shown' => $declinedshown,
+                    'total' => $declinedtotal,
+                ])
+                : '',
             // Decision 83, and the audit's point about this page departing from
             // its own pattern. Having an invitation waiting is a FACT and is
             // shown to the invitee whatever their capability; Accept/Decline

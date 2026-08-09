@@ -483,11 +483,20 @@ final class service_seam_authority_test extends \externallib_advanced_testcase {
     }
 
     /**
-     * A-4, the staff path that does exist: the CSV import's Share
-     * Consent column writes the same flag through manager::set(), under
-     * :ingestattributes. Closing set_consent() to staff strands nothing.
+     * A-4 completed by decision 85: there is NO staff path to this flag.
+     *
+     * This test used to assert the opposite - that closing set_consent() to
+     * staff stranded nothing, because the CSV import's Share Consent column
+     * wrote the same flag under :ingestattributes. That WAS true, and it was
+     * the hole: one flag described to the student as their own choice, with a
+     * second owner holding a spreadsheet. Decision 85 closed it, so the
+     * assertion inverts rather than disappears - what mattered then was that
+     * the two paths agreed, and what matters now is that only one exists.
+     *
+     * The row's OTHER columns must still import, or the ruling would have cost
+     * the site its attribute ingest.
      */
-    public function test_the_import_remains_the_staff_consent_path(): void {
+    public function test_no_staff_path_writes_a_participant_s_consent(): void {
         global $DB;
         $this->resetAfterTest();
         $user = $this->getDataGenerator()->create_user(['username' => 'consenta']);
@@ -498,10 +507,16 @@ final class service_seam_authority_test extends \externallib_advanced_testcase {
             (int) get_admin()->id,
             true
         );
-        $this->assertTrue($report->ok);
+        $this->assertTrue($report->ok, 'a file carrying the retired column must still import');
         $this->assertSame(
-            1,
-            (int) $DB->get_field('selfselectadvanced_userattr', 'shareconsent', ['userid' => $user->id])
+            0,
+            (int) $DB->get_field('selfselectadvanced_userattr', 'shareconsent', ['userid' => $user->id]),
+            'an import may not grant consent on a participant\'s behalf (decision 85)'
+        );
+        $this->assertSame(
+            '919800000009',
+            $DB->get_field('selfselectadvanced_userattr', 'mobile', ['userid' => $user->id]),
+            'the rest of the row must still land - the column is ignored, not the file'
         );
     }
 

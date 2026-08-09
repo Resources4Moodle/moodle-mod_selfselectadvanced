@@ -111,9 +111,34 @@ class landing implements renderable, templatable {
             ? get_string('studentapproachnotice', 'mod_selfselectadvanced')
             : '';
 
-        // Mobile-sharing consent widget: shown to any viewer who holds a
-        // userattr record with a non-empty mobile, regardless of role.
-        // No record, or a record with no mobile, renders nothing.
+        // THE PRIVACY STATEMENT (maintainer decisions 91, 92 and 93,
+        // 2026-08-09). Unconditional, and worded from the CURRENT setting.
+        //
+        // Until 1.20.30 the only thing here was the mobile-sharing widget, and
+        // it rendered solely for a viewer who happened to have a number on
+        // record. So a student with no number saw no privacy statement at all -
+        // the BETTER-protected person was told LESS than the exposed one, and
+        // the absence was indistinguishable from a broken feature. That is the
+        // reading the maintainer arrived at from two screenshots, and it was
+        // the right reading.
+        //
+        // The wording follows the switch rather than promising anything
+        // permanent: an editing teacher may turn contact privacy off, so this
+        // is a notice about how the activity is configured right now, which is
+        // also what the cardinal rule requires - the student is INFORMED, not
+        // promised. Decision 93 puts the email guarantee here, because the
+        // strongest protection in the feature had no presence on any screen.
+        $protects = \mod_selfselectadvanced\local\contactprivacy::enabled($activity);
+        $data->privacystatement = get_string(
+            $protects ? 'privacypanelon' : 'privacypaneloff',
+            'mod_selfselectadvanced'
+        );
+        // Decision 92: the institution owns the value, the student owns the
+        // disclosure. Saying where to correct the number is the whole of P2.
+        $data->privacynumbernote = get_string('privacypanelnumber', 'mod_selfselectadvanced');
+
+        // The share/revoke control nests INSIDE the statement, and still
+        // appears only when there is a number to share.
         $data->showconsent = false;
         $attr = \mod_selfselectadvanced\local\attributes\manager::get($this->userid);
         if ($attr !== null && !empty($attr->mobile)) {
@@ -129,7 +154,6 @@ class landing implements renderable, templatable {
             // the granted line follows the switch; the withheld line
             // does not, because a withheld number reaches only a
             // holder of :viewparticipantidentity in either mode.
-            $protects = \mod_selfselectadvanced\local\contactprivacy::enabled($activity);
             $data->consentstatus = $data->consentgranted
                 ? get_string(
                     $protects ? 'shareconsentgranted' : 'shareconsentgrantedopen',

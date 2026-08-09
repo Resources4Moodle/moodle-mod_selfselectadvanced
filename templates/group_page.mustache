@@ -127,6 +127,8 @@
         <span class="d-block text-muted small">{{minsizenote}}</span>
         {{#hasguide}}
             <span class="d-block small">{{#str}} guidelabel, mod_selfselectadvanced, {{guidename}} {{/str}}</span>
+            {{! Decision 88: where to find them, beside who they are. }}
+            {{#guideseat}}<span class="d-block small text-muted">{{guideseat}}</span>{{/guideseat}}
         {{/hasguide}}
     </p>
 
@@ -371,6 +373,9 @@
     {{/showjoinpanel}}
     {{! Decision 83: a leader who cannot answer the queue is told it exists }}
     {{! and why they cannot, instead of being shown a page with no queue.   }}
+    {{#eoitruncated}}
+        <p class="small text-muted mb-2">{{eoitruncated}}</p>
+    {{/eoitruncated}}
     {{#joinblockedreason}}
         <div class="alert alert-warning selfselectadvanced-joinblocked" role="status">{{joinblockedreason}}</div>
     {{/joinblockedreason}}
@@ -501,6 +506,10 @@
             {{/pendinginvites}}
         </ul>
     {{/haspendinginvites}}
+    {{! Decision 90: a cap nobody is told about reads as the whole record. }}
+    {{#declinedtruncated}}
+        <p class="small text-muted mb-2">{{declinedtruncated}}</p>
+    {{/declinedtruncated}}
 
     {{#showleadertabs}}
     <ul class="nav nav-tabs mt-4 selfselectadvanced-leadertabs" role="tablist">

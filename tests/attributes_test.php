@@ -234,58 +234,59 @@ final class attributes_test extends \advanced_testcase {
     }
 
     /**
-     * Mobile-consent surfaces: the CSV importer's optional "Share
-     * consent" column (1/0/yes/no, case-insensitive) sets consent
-     * through the ordinary attribute write; a column absent,
-     * or a blank/unrecognised cell, leaves existing consent untouched.
+     * A CSV cannot set a student's mobile-sharing consent (maintainer decision 85).
+     *
+     * The importer used to write this column. That gave one flag two owners:
+     * the student, whose interface calls it their own choice, and whoever
+     * uploads a spreadsheet - who could revoke it silently, with nothing
+     * recording who did it, when, or on what basis. Grant-only was considered
+     * and rejected for the same reason: a single boolean cannot answer those
+     * questions, so consent has ONE owner.
+     *
+     * The column is still ACCEPTED, so files written for older releases import
+     * cleanly; it simply has no effect.
+     *
+     * MUTATION CAUGHT (run 2026-08-09): restoring the $set['shareconsent']
+     * write in csv_importer fails the grant, the revoke and the survives-import
+     * assertions below.
      */
-    public function test_importer_optional_shareconsent_column(): void {
+    public function test_a_csv_cannot_set_mobile_sharing_consent(): void {
         $this->resetAfterTest();
 
         $gen = $this->getDataGenerator();
         $u1 = $gen->create_user(['username' => 'consenta']);
         $u2 = $gen->create_user(['username' => 'consentb']);
-        $u3 = $gen->create_user(['username' => 'consentc']);
         $header = "Username,First name,Last Name,Gender,Department,Sub-Department,Mobile Number,Share Consent\n";
 
-        // Mixed 1/0/yes/no values, case-insensitive.
-        $csv = $header
-            . "consenta,,,,,,,1\n"
-            . "consentb,,,,,,,No\n"
-            . "consentc,,,,,,,YES\n";
+        // A file that tries to GRANT changes nothing.
+        $csv = $header . "consenta,,,,,,,1\nconsentb,,,,,,,YES\n";
+        $report = csv_importer::run($this->reader($csv), (int) get_admin()->id, true);
+        $this->assertTrue($report->ok, 'an old file carrying the column must still import cleanly');
+        $this->assertFalse((bool) manager::get((int) $u1->id)->shareconsent, 'an upload may not grant consent');
+        $this->assertFalse((bool) manager::get((int) $u2->id)->shareconsent, 'an upload may not grant consent');
+
+        // The student grants it themselves - the only route there is.
+        manager::set_consent((int) $u1->id, true, (int) $u1->id);
+        $this->assertTrue((bool) manager::get((int) $u1->id)->shareconsent);
+
+        // A file that tries to REVOKE it changes nothing either. This is the
+        // destructive direction and the reason the ruling went further than
+        // grant-only: getting it wrong here is silent and unrecoverable.
+        $csv = $header . "consenta,,,,,,,0\n";
         $report = csv_importer::run($this->reader($csv), (int) get_admin()->id, true);
         $this->assertTrue($report->ok);
-        $this->assertTrue((bool) manager::get((int) $u1->id)->shareconsent);
-        $this->assertFalse((bool) manager::get((int) $u2->id)->shareconsent);
-        $this->assertTrue((bool) manager::get((int) $u3->id)->shareconsent);
+        $this->assertTrue(
+            (bool) manager::get((int) $u1->id)->shareconsent,
+            'a spreadsheet must not revoke a consent the student gave themselves'
+        );
 
-        // Revoke, then a blank cell in a present column leaves it untouched.
-        $csv = $header . "consenta,,,,,,,0\n";
+        // And the rest of the row still imports, so the column is ignored
+        // rather than the whole file being refused.
+        $csv = $header . "consenta,Ann,Ford,,Engineering,Mechanical,55501,0\n";
         csv_importer::run($this->reader($csv), (int) get_admin()->id, true);
-        $this->assertFalse((bool) manager::get((int) $u1->id)->shareconsent);
-
-        $csv = $header . "consenta,,,,,,,\n";
-        csv_importer::run($this->reader($csv), (int) get_admin()->id, true);
-        $this->assertFalse((bool) manager::get((int) $u1->id)->shareconsent);
-
-        // Fillmissing mode ignores the column entirely: consent is
-        // binary with a meaningful default, so there is nothing
-        // "missing" for the mode to fill, and existing choices stand.
-        $csv = $header . "consenta,,,,,,,1\n";
-        csv_importer::run($this->reader($csv), (int) get_admin()->id, true, (object) ['mode' => 'fillmissing']);
-        $this->assertFalse((bool) manager::get((int) $u1->id)->shareconsent);
-
-        // Column absent from the file entirely: also untouched.
-        //
-        // The student grants their OWN consent here. set_consent() is
-        // self-service and refuses any other actor (audit A-4), so the
-        // administrator this fixture used to pass would now be turned
-        // away - correctly: the staff route to this flag is the Share
-        // Consent column of the very import under test, which writes it
-        // through manager::set() under :ingestattributes.
-        manager::set_consent((int) $u1->id, true, (int) $u1->id);
-        $noconsentheader = "Username,First name,Last Name,Gender,Department,Sub-Department,Mobile Number\n";
-        csv_importer::run($this->reader($noconsentheader . "consenta,,,,,,\n"), (int) get_admin()->id, true);
-        $this->assertTrue((bool) manager::get((int) $u1->id)->shareconsent);
+        $record = manager::get((int) $u1->id);
+        $this->assertSame('Engineering', $record->department, 'the other columns must still land');
+        $this->assertSame('55501', $record->mobile);
+        $this->assertTrue((bool) $record->shareconsent, 'consent survives an import that carried a 0');
     }
 }

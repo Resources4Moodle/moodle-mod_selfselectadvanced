@@ -581,7 +581,16 @@ class joinrequests {
             return null;
         }
 
-        return $target ? 'refusaljointargetunreleased' : 'refusaljoinsourceunreleased';
+        // Decision 87: say what is true, and stop instructing people to file a
+        // request that does not exist. There was one message for two very
+        // different states, and it told the student to have their leader "ask
+        // for a guide release" - a ticket type the taxonomy has never had, and
+        // which for an AWAITING-GUIDE team would make no sense even if it did.
+        if ($group->state === state::PENDING_GUIDE) {
+            return $target ? 'refusaljointargetpending' : 'refusaljoinsourcepending';
+        }
+
+        return $target ? 'refusaljointargetapproved' : 'refusaljoinsourceapproved';
     }
 
     /**

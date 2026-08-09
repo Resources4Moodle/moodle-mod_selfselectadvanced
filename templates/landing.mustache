@@ -22,8 +22,11 @@
     Context variables required for this template:
     * isstudent - whether to show the student area
     * isstaff - whether to show the all-groups area
-    * showconsent - whether to show the mobile-sharing consent widget
-      (a userattr record with a non-empty mobile exists for the viewer)
+    * privacystatement - the per-activity privacy notice, worded from the
+      CURRENT contact-privacy setting; always present (decisions 91/93)
+    * privacynumbernote - where to correct the number itself (decision 92)
+    * showconsent - whether the share/revoke control appears INSIDE the
+      privacy panel (a userattr record with a non-empty mobile exists)
     * showguidepanel - whether the viewer holds :guide, and so is shown
       their own decision window before anything else on the page
     * guidepanel - the guide_panel context (null when not a guide)
@@ -39,7 +42,9 @@
         "ticketsurl": "https://example.com/mod/selfselectadvanced/coordinator.php?id=1",
         "showconsent": true,
         "consentgranted": false,
-        "consentstatus": "Your mobile number is hidden. Only a site administrator, or staff the site has deliberately allowed to see participant identity fields, can still read it.",
+        "privacystatement": "Contact privacy is ON for this activity. Your email address is not shown to other participants anywhere in this activity.",
+        "privacynumbernote": "This activity does not hold your contact details of its own - they come from your institutional record.",
+        "consentstatus": "Your mobile number is hidden. While this activity is protecting contact details, only an editing teacher, a manager or a site administrator can still read it.",
         "consentbuttonlabel": "Share my number",
         "consentaction": "grant",
         "consentactionurl": "https://example.com/mod/selfselectadvanced/view.php?id=1",
@@ -83,17 +88,26 @@
 {{#studentapproachnotice}}
     <div class="selfselectadvanced-approach alert alert-info mb-3">{{studentapproachnotice}}</div>
 {{/studentapproachnotice}}
-{{#showconsent}}
-    <div class="selfselectadvanced-consent alert alert-light border mb-3 d-flex justify-content-between align-items-center flex-wrap">
-        <span>{{consentstatus}}</span>
-        <form method="post" action="{{consentactionurl}}" class="d-inline ms-2">
-            <input type="hidden" name="id" value="{{cmid}}">
-            <input type="hidden" name="consentaction" value="{{consentaction}}">
-            <input type="hidden" name="sesskey" value="{{sesskey}}">
-            <button type="submit" class="btn btn-outline-secondary btn-sm">{{consentbuttonlabel}}</button>
-        </form>
-    </div>
-{{/showconsent}}
+{{! Decisions 91/92/93: this panel is UNCONDITIONAL. Before 1.20.30 only the }}
+{{! consent row existed and it rendered solely for people who happened to    }}
+{{! have a number on record, so the better-protected student was told less   }}
+{{! than the exposed one and the silence looked like a bug.                  }}
+<div class="selfselectadvanced-privacy alert alert-light border mb-3">
+    <h5 class="h6 mb-1">{{#str}} privacypanelheading, mod_selfselectadvanced {{/str}}</h5>
+    <p class="mb-1 small">{{privacystatement}}</p>
+    <p class="mb-0 small text-muted">{{privacynumbernote}}</p>
+    {{#showconsent}}
+        <div class="selfselectadvanced-consent d-flex justify-content-between align-items-center flex-wrap mt-2 pt-2 border-top">
+            <span class="small">{{consentstatus}}</span>
+            <form method="post" action="{{consentactionurl}}" class="d-inline ms-2">
+                <input type="hidden" name="id" value="{{cmid}}">
+                <input type="hidden" name="consentaction" value="{{consentaction}}">
+                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <button type="submit" class="btn btn-outline-secondary btn-sm">{{consentbuttonlabel}}</button>
+            </form>
+        </div>
+    {{/showconsent}}
+</div>
 {{#isstudent}}
     <div class="selfselectadvanced-counters mb-3">
         <span class="badge bg-light text-body border me-2">{{leadcounter}}</span>

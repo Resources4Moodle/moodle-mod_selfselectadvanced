@@ -1,5 +1,53 @@
 # Changelog
 
+## 1.20.30 — the privacy contracts (2026-08-09)
+
+> Serial `2026080903` / `1.20.30`. No schema change. Maintainer decisions 84,
+> 85, 86, 87, 88, 90, 91, 92 and 93.
+
+**Guide notes leave the automatic student export (decision 84).** They were
+included on the argument that a data subject is entitled to see what is held on
+them — a real principle, and the wrong one here. The field hangs off the
+**group**, not off a person, so the software cannot tell which sentence is about
+the requester and which is about a teammate; exporting it handed one student the
+guide's evaluative prose about everybody else, plus staff deliberation, in a
+single block. Filtering to confirmed members was considered and rejected for
+exactly that reason. The interface's promise to the guide — *"students never see
+them"* — is true again. The metadata declaration **stays**, because the plugin
+does store the notes and saying so is what metadata is for; deleting it to match
+the export would be the same dishonesty pointing the other way.
+
+**A CSV can no longer set mobile-sharing consent (decision 85).** An upload
+could revoke a consent the student had been told was their own, silently, with
+nothing recording who did it or on what basis. Grant-only was considered and
+rejected: it removes the destructive direction but still leaves one flag with
+two owners, and a single boolean cannot then answer who granted it, when, on
+what basis, or whether a later student choice overrides an import. The column is
+still *accepted*, so older files import cleanly — it simply has no effect, and
+`csvformathelp` says so.
+
+**Every student now sees a privacy statement (decisions 91, 92, 93).** The panel
+used to render only for someone who happened to have a number on record, so the
+better-protected student was told *less* than the exposed one and the silence
+was indistinguishable from a broken feature. It is now unconditional and worded
+from the **current** setting rather than promising anything permanent — an
+editing teacher can switch contact privacy off, and the cardinal rule requires
+the student to be informed, not promised. It carries the email guarantee, which
+was the strongest protection in the feature and had no presence on any screen,
+and it says where the number itself is corrected: the institution owns the
+value, the student owns the disclosure.
+
+**Four local corrections.** The quota value picker now names the dependency
+instead of failing with a bare "Required", and shows the route to fix it only to
+someone who can take it. One join refusal became two, because *awaiting guide*
+and *approved* are different situations and the single message told students to
+ask their leader for a release no leader can request. A guide's seat location
+renders beside them on the page of the group they guide — narrowly, not
+searchably — which `lang:74` and the privacy metadata have promised for
+releases while git shows the group-page half was never built. And two silent
+list caps, ten declined invitations and twenty answered interests, now disclose
+what they dropped, matching the landing page's existing practice.
+
 ## 1.20.29 — one answer to "why is this button not here?" (2026-08-09)
 
 > Serial `2026080902` / `1.20.29`. No schema change. Maintainer decision 83,

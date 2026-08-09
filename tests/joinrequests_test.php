@@ -346,7 +346,7 @@ final class joinrequests_test extends \advanced_testcase {
      *
      * MUTATION CAUGHT (run): join_change_refusal() allowed every FIRM
      * team; the request was created instead of refusing with
-     * refusaljointargetunreleased.
+     * refusaljointargetapproved.
      */
     public function test_an_unreleased_firm_target_refuses_join_requests(): void {
         global $DB;
@@ -361,7 +361,7 @@ final class joinrequests_test extends \advanced_testcase {
             'releasedbyguide' => 0,
         ]);
 
-        $this->assert_refused('refusaljointargetunreleased', fn() => joinrequests::request(
+        $this->assert_refused('refusaljointargetapproved', fn() => joinrequests::request(
             $activity,
             (int) $beta->id,
             'Please',
@@ -375,7 +375,7 @@ final class joinrequests_test extends \advanced_testcase {
      *
      * MUTATION CAUGHT (run): join_change_refusal() allowed
      * PENDING_GUIDE teams; the request was created instead of refusing
-     * with refusaljointargetunreleased.
+     * with refusaljointargetpending.
      */
     public function test_a_pending_guide_target_refuses_join_requests(): void {
         global $DB;
@@ -390,7 +390,7 @@ final class joinrequests_test extends \advanced_testcase {
             'releasedbyguide' => 0,
         ]);
 
-        $this->assert_refused('refusaljointargetunreleased', fn() => joinrequests::request(
+        $this->assert_refused('refusaljointargetpending', fn() => joinrequests::request(
             $activity,
             (int) $beta->id,
             'Please',
@@ -404,7 +404,7 @@ final class joinrequests_test extends \advanced_testcase {
      *
      * MUTATION CAUGHT (run): resolve_source() skipped the source
      * release check; the request was created instead of refusing with
-     * refusaljoinsourceunreleased.
+     * refusaljoinsourceapproved.
      */
     public function test_an_unreleased_firm_source_refuses_join_requests(): void {
         global $DB;
@@ -419,7 +419,7 @@ final class joinrequests_test extends \advanced_testcase {
             'releasedbyguide' => 0,
         ]);
 
-        $this->assert_refused('refusaljoinsourceunreleased', fn() => joinrequests::request(
+        $this->assert_refused('refusaljoinsourceapproved', fn() => joinrequests::request(
             $activity,
             (int) $beta->id,
             'Please',

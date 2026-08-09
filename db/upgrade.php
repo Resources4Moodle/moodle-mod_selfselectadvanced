@@ -2196,5 +2196,35 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080902, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026080903) {
+        // 1.20.30: the privacy contracts, and four local corrections.
+        // No schema change and no data step.
+        //
+        // Decision 84 takes guide notes out of the automatic student export:
+        // the field hangs off the GROUP, so no membership filter can tell which
+        // sentence is about the requester and which is about a teammate. The
+        // interface's promise that students never see them becomes true again;
+        // the metadata declaration stays, because the plugin does store them.
+        // Decision 85 makes shareconsent unwritable by CSV - one flag, one
+        // owner, and that owner is the student. Decisions 91/92/93 replace the
+        // consent widget with an unconditional privacy statement worded from
+        // the CURRENT setting, carrying the email guarantee that had no
+        // presence on any screen, and saying where the number itself is
+        // corrected. Decisions 86, 87, 88 and 90 signpost the empty quota
+        // picker, split one join refusal into the two states it was conflating,
+        // render a guide's seat location beside them, and disclose two list
+        // caps that had been silent.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.30 (2026080903). Privacy contracts (decisions 84, 85, 91, 92, 93) '
+                . 'and four local corrections (86, 87, 88, 90). No behaviour change beyond what the '
+                . 'screens now state.',
+            'No schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026080903, 'selfselectadvanced');
+    }
+
     return true;
 }
