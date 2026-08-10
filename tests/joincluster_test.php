@@ -136,7 +136,12 @@ final class joincluster_test extends \advanced_testcase {
             'minsize' => 1,
             'maxsize' => 4,
             'maxlead' => 1,
-            'maxmembership' => 1,
+            // Two, because this world's wanderer already belongs to Alpha and
+            // every test here is about whether they FIT Beta. Decision 77
+            // abolished the self-swap, so at a cap of one the headroom rule
+            // refuses first and no test below ever reaches the fit engine it
+            // was written to examine.
+            'maxmembership' => 2,
         ], $settings));
         $activity = activity::from_instance((int) $instance->id);
 
@@ -275,7 +280,7 @@ final class joincluster_test extends \advanced_testcase {
     public function test_fit_says_yes_and_the_acceptance_succeeds(): void {
         $this->resetAfterTest();
         $sink = $this->redirectMessages();
-        [$activity, , $beta, $wanderer] = $this->setup_plain_world();
+        [$activity, $alpha, $beta, $wanderer] = $this->setup_plain_world();
 
         $request = joinrequests::request($activity, (int) $beta->id, 'Nearer my lab', (int) $wanderer->id);
         $verdict = fit::for_person($activity, $beta, (int) $wanderer->id, $request);
@@ -285,10 +290,12 @@ final class joincluster_test extends \advanced_testcase {
         $decided = joinrequests::respond($activity, (int) $request->id, true, 'Welcome', (int) $beta->leaderid);
 
         $this->assertSame('committed', $decided->status);
-        $this->assertSame(
-            [(int) $beta->id],
-            array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $wanderer->id)))
-        );
+        // Both: decision 77 made acceptance additive, so Alpha keeps them.
+        $after = array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $wanderer->id)));
+        sort($after);
+        $expected = [(int) $alpha->id, (int) $beta->id];
+        sort($expected);
+        $this->assertSame($expected, $after);
         $sink->close();
     }
 
@@ -402,8 +409,7 @@ final class joincluster_test extends \advanced_testcase {
             $activity,
             (int) $beta->id,
             'Both, please',
-            (int) $wanderer->id,
-            joinrequests::SOURCE_ADDITIONAL
+            (int) $wanderer->id
         );
         $this->assertNull($request->sourcegroupid, 'fixture: the request must have no source group');
 

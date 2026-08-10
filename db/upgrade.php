@@ -2309,5 +2309,31 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081002, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081003) {
+        // 1.20.34: decision 77. A student can no longer choose a team to leave
+        // in order to join another - a join is additive or it is refused. No
+        // schema change, and deliberately no data step either.
+        //
+        // THE IN-FLIGHT ROWS are handled where they are read, not here. A
+        // request filed before this upgrade may still carry the source its
+        // author picked, and honouring it would perform exactly the swap the
+        // ruling forbids: the source team's leader never agreed to lose them.
+        // The accept path therefore ignores a join request's source outright,
+        // so such a request completes as the ordinary additive ask it would be
+        // if filed today - or is refused readably if the student has no room.
+        // Nothing is rewritten: the row keeps saying what the student asked
+        // for, which is the truth about what happened.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.34 (2026081003). Decision 77: a student may no longer nominate a team '
+                . 'to leave when asking to join another. Requests already waiting for an answer '
+                . 'complete as additive joins; no team is left without its leader agreeing.',
+            'No schema change and no data change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081003, 'selfselectadvanced');
+    }
+
     return true;
 }

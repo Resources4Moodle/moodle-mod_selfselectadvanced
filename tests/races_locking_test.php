@@ -268,11 +268,13 @@ final class races_locking_test extends \advanced_testcase {
             $subjects
         );
 
-        // And the student really did move.
-        $this->assertSame(
-            [(int) $b->id],
-            array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $students[1]->id)))
-        );
+        // And the student really did join - additively, since decision 77, so
+        // A keeps them and B gains them.
+        $joined = array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $students[1]->id)));
+        sort($joined);
+        $expected = [(int) $a->id, (int) $b->id];
+        sort($expected);
+        $this->assertSame($expected, $joined);
     }
 
     /**
@@ -296,13 +298,15 @@ final class races_locking_test extends \advanced_testcase {
             $log = locks::stop_recording();
         }
 
+        // ONE GROUP LOCK, NOT TWO, since decision 77. Acceptance used to change
+        // two rosters and so locked both; a join changes only the team being
+        // joined. Team A is deliberately absent from this list - if it comes
+        // back, something is writing to a team the request no longer touches.
         $this->assertSame([
             'acquire joinrequest:' . (int) $request->id,
             'acquire activity:' . $activity->id(),
-            'acquire group:' . (int) $a->id,
             'acquire group:' . (int) $b->id,
             'release group:' . (int) $b->id,
-            'release group:' . (int) $a->id,
             'release activity:' . $activity->id(),
             'release joinrequest:' . (int) $request->id,
         ], $log);

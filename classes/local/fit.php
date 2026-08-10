@@ -178,7 +178,6 @@ class fit {
                 IGNORE_MULTIPLE
             ) ?: null;
         }
-        $sourcegroupid = $request !== null && $request->sourcegroupid ? (int) $request->sourcegroupid : null;
 
         // The same gate an invitation goes through, so the caution a
         // student reads is the refusal they would actually meet.
@@ -207,59 +206,13 @@ class fit {
             }
         }
 
-        if (!$fits && $refusal !== null && $refusal->stringkey === 'refusalinviteecap' && $sourcegroupid !== null) {
-            // A request that LEAVES a team costs the student no net
-            // membership, and the move engine judges it on exactly that
-            // net (moves::validate_set, verdict L4). The invitation
-            // gate has no source to net against and so refuses a
-            // student at their cap; carrying that refusal into a
-            // request whose whole point is the swap made the Fit column
-            // disagree with the Accept button in the other direction.
-            //
-            // BUT THE CAP IS NOT THE ONLY QUESTION. can_invite() returns
-            // at its FIRST refusal, so a cap refusal means the seat and
-            // composition questions were never asked at all. Declaring
-            // fits=true here would answer them by assumption - the
-            // vacuity defect this project refuses. So the cap refusal is
-            // only SET ASIDE, and the questions it pre-empted are asked
-            // now, through the same shared verdict everything else uses.
-            //
-            // THIS BLOCK ONCE ASSERTED THAT AND DID NOT DO IT. Until
-            // 2026-08-05 it re-asked only the composition question while
-            // this comment claimed the seat question too, so a student at
-            // their cap requesting a FULL team was shown a green "fits"
-            // and an Accept that could only throw. can_invite_all() now
-            // returns every refusal, so the set-aside is a filter over
-            // answers that were actually computed rather than a promise
-            // that they were.
-            // Re-evaluated here rather than at the top of the method:
-            // this branch needs a cap refusal AND a source team, which is
-            // rare, while for_person() itself runs once per row of the
-            // join inbox. Asking every question for every row would pay a
-            // seat scan and a composition solve the common path does not
-            // need.
-            $others = array_values(array_filter(
-                (new api($activity))->gatekeeper()->can_invite_all($group, $userid),
-                static fn(rules\refusal $r): bool => $r->stringkey !== 'refusalinviteecap'
-            ));
-            if ($others !== []) {
-                $fits = false;
-                $caution = $others[0]->get_message();
-                $compositional = in_array(
-                    $others[0]->stringkey,
-                    ['refusalcompositionmax', 'refusalcompositionunreachable'],
-                    true
-                );
-            } else {
-                $verdict = self::composition_verdict_for_group($activity, $group, $userid);
-                $fits = $verdict->fits;
-                $caution = $verdict->caution;
-                $compositional = true;
-                if ($verdict->warning !== '') {
-                    $answer->warnings[] = $verdict->warning;
-                }
-            }
-        }
+        // THE CAP SET-ASIDE WAS HERE, and decision 77 took its reason away.
+        // A join request that named a team to leave cost the student no NET
+        // membership, so the invitation gate's cap refusal - which has no
+        // source to net against - had to be set aside and the questions it
+        // pre-empted re-asked. A join adds a membership now, full stop: the cap
+        // refusal is simply true, and setting it aside would show a green
+        // "fits" beside an Accept button that can only refuse.
 
         if ($request !== null) {
             // What ACCEPTING would do, asked here so the column and the
@@ -268,7 +221,11 @@ class fit {
             // voice, in its exact sentence. A refusal that is not about
             // composition (a full team, an exhausted cap) stands
             // untouched: the door has no opinion on it.
-            $door = self::door_verdict($activity, $group, $userid, $sourcegroupid);
+            // DECISION 77: null, always. A join request has no source team,
+            // and an old row that still carries one is ignored by the accept
+            // path too - this method exists to answer the same question the
+            // Accept button will, so it must read the request the same way.
+            $door = self::door_verdict($activity, $group, $userid, null);
             if ($door->hardmax !== null) {
                 $fits = false;
                 $caution = $door->hardmax;

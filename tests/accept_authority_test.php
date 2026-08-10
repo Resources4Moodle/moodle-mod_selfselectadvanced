@@ -433,55 +433,35 @@ final class accept_authority_test extends \advanced_testcase {
     }
 
     /**
-     * L1 is the SOURCE team's minimum, and decision 64 takes it from
-     * the target leader too: draining a team below its minimum is a
-     * hard stop for the leader and an explicit override for staff.
+     * RETIRED 2026-08-10: test_source_minimum_is_not_the_target_leaders_to_waive.
+     *
+     * It asserted that a target leader could not accept a join request that
+     * would drain the requester's OTHER team below its minimum - the L1 rule,
+     * a hard stop for the leader and an explicit override for staff.
+     *
+     * Decision 77 removed the premise. A join request no longer takes anybody
+     * out of anywhere, so accepting one cannot drain a second team, and there
+     * is no L1 verdict for the target leader to waive or be refused by.
+     *
+     * L1 ITSELF IS NOT GONE, and this is the part worth checking before
+     * concluding a rule was dropped: a STAFF move still moves a person between
+     * teams, still evaluates L1 against the team being emptied, and still
+     * requires an explicit override to proceed. That is covered in
+     * moves_test.php and moves_override_test.php, which is where the rule now
+     * exclusively lives.
+     *
+     * @return void
      */
-    public function test_source_minimum_is_not_the_target_leaders_to_waive(): void {
-        $this->resetAfterTest();
-        $sink = $this->redirectMessages();
-        $generator = $this->getDataGenerator();
-        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
-        [$activity, $team, , $leaderid, $staff] = $this->world([], [], 'SCE', 'SCE', 5, [
-            'minsize' => 2, 'maxmembership' => 1,
-        ]);
-        // A second team at exactly its minimum; one member asks to move.
-        $student = function (string $dept) use ($generator, $activity): \stdClass {
-            $user = $generator->create_user();
-            $generator->enrol_user($user->id, (int) $activity->cm()->course, 'student');
-            manager::set((int) $user->id, ['department' => $dept, 'subdepartment' => 'BCL'], 2);
-
-            return $user;
-        };
-        $srcleader = $student('SCE');
-        $mover = $student('SCE');
-        $source = $plugingen->create_group([
-            'activityid' => $activity->id(),
-            'leaderid' => (int) $srcleader->id,
-            'name' => 'Donor',
-        ]);
-        $plugingen->create_member([
-            'groupid' => $source->id,
-            'userid' => (int) $mover->id,
-            'status' => groups::STATUS_CONFIRMED,
-        ]);
-
-        $request = joinrequests::request(
-            $activity,
-            (int) $team->id,
-            'Moving over',
-            (int) $mover->id,
-            (int) $source->id
+    public function test_the_retired_source_minimum_test_is_accounted_for(): void {
+        // Kept as a test rather than a comment so the accounting cannot rot:
+        // if the join path grows a source concept again, this goes red.
+        $service = file_get_contents(__DIR__ . '/../classes/local/joinrequests.php');
+        $this->assertNotFalse($service);
+        $this->assertStringNotContainsString(
+            'moveruleL1',
+            $service,
+            'the join service is judging a source team\'s minimum again; decision 77 removed the '
+                . 'source, and this test was retired on that basis'
         );
-
-        $leader = joinrequests::accept_decision($activity, $request, $leaderid, $team);
-        $this->assertFalse($leader->canaccept, 'the donor team\'s minimum is not the target leader\'s to waive');
-        $this->assertSame('moveruleL1', $leader->hardkey);
-        $this->assertSame([], $leader->bypassrules);
-
-        $staffdecision = joinrequests::accept_decision($activity, $request, (int) $staff->id, $team);
-        $this->assertTrue($staffdecision->canaccept);
-        $this->assertContains('L1', $staffdecision->bypassrules, 'staff bypass the named rule deliberately');
-        $sink->close();
     }
 }

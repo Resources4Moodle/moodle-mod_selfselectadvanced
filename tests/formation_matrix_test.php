@@ -344,54 +344,32 @@ final class formation_matrix_test extends \advanced_testcase {
     }
 
     /**
-     * T39 — the source membership vanished between asking and being
-     * answered. The refusal names the group in the workflow's own
-     * words, and the request stays open so the leader can decline it
-     * with a note rather than meeting an engine error.
+     * T39 - RETIRED 2026-08-10, and the matrix row goes with it.
+     *
+     * The row read: "the requester left the source team by another route while
+     * their request waited; accepting must refuse readably rather than let the
+     * move engine raise errmovenotmember." It was a real defect and the fix was
+     * `refusaljoinsourcegone`.
+     *
+     * Decision 77 removed the source from a join request altogether: acceptance
+     * does not read the requester's other memberships, so there is no stale
+     * source to go stale. The sibling staleness - the requester reaching the
+     * TARGET by another route - is unaffected and is still covered by T40 below,
+     * which is the row a reader looking for this one probably wants.
+     *
+     * @return void
      */
-    public function test_t39_join_accept_when_the_source_membership_is_gone(): void {
-        global $DB;
-        $this->resetAfterTest();
-        $this->redirectMessages();
-        $w = $this->world(['maxmembership' => 1]);
-        $mover = $w->students[0];
-
-        $source = $w->plugingen->create_group([
-            'activityid' => $w->activity->id(),
-            'leaderid' => (int) $w->students[1]->id,
-            'name' => 'Source',
-        ]);
-        $w->plugingen->create_member([
-            'groupid' => (int) $source->id,
-            'userid' => (int) $mover->id,
-            'status' => groups::STATUS_CONFIRMED,
-        ]);
-        $request = joinrequests::request(
-            $w->activity,
-            (int) $w->group->id,
-            'moving across',
-            (int) $mover->id,
-            (int) $source->id
-        );
-
-        // They leave the source by another route before the answer.
-        $DB->set_field(
-            'selfselectadvanced_member',
-            'status',
-            groups::STATUS_REMOVED,
-            ['groupid' => (int) $source->id, 'userid' => (int) $mover->id]
-        );
-
-        try {
-            joinrequests::respond($w->activity, (int) $request->id, true, '', (int) $w->leader->id, [], false);
-            $this->fail('the stale source must be refused');
-        } catch (workflow_refusal $e) {
-            $this->assertSame('refusaljoinsourcegone', $e->errorcode);
-        }
-        $this->assertSame(
-            joinrequests::STATUS_REQUESTED,
-            $DB->get_field('selfselectadvanced_move', 'status', ['id' => (int) $request->id]),
-            'and the request stays resolvable'
+    public function test_t39_is_retired_because_a_join_has_no_source(): void {
+        // A test rather than a comment, so a matrix row cannot come back
+        // silently: if the accept path starts reading a source again, the
+        // refusal it needs would have to come back too, and this goes red.
+        $service = file_get_contents(__DIR__ . '/../classes/local/joinrequests.php');
+        $this->assertNotFalse($service);
+        $this->assertStringNotContainsString(
+            'refusaljoinsourcegone',
+            $service,
+            'the join service is judging a source membership again; T39 was retired on the basis '
+                . 'that it cannot'
         );
     }
 

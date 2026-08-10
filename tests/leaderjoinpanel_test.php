@@ -66,7 +66,11 @@ final class leaderjoinpanel_test extends \advanced_testcase {
             'minsize' => 1,
             'maxsize' => 4,
             'maxlead' => 1,
-            'maxmembership' => 1,
+            // Two since decision 77: the panel's subject is what a leader
+            // sees and can act on, and its wanderer already has a team. At a
+            // cap of one the request is refused at the door and the panel is
+            // empty for a reason that has nothing to do with the panel.
+            'maxmembership' => 2,
         ]);
         $activity = activity::from_instance((int) $instance->id);
 
@@ -289,7 +293,7 @@ final class leaderjoinpanel_test extends \advanced_testcase {
      * because group.php routes the panel's POST to the same service
      * call - and once the queue is empty the panel goes with it.
      */
-    public function test_accepting_from_the_panel_moves_the_student_and_empties_the_panel(): void {
+    public function test_accepting_from_the_panel_admits_the_student_and_empties_the_panel(): void {
         $this->resetAfterTest();
         $sink = $this->redirectMessages();
         [$activity, $apifacade, $alpha, $beta, $wanderer] = $this->fixture();
@@ -307,17 +311,24 @@ final class leaderjoinpanel_test extends \advanced_testcase {
             groups::get_roster((int) $beta->id)
         );
         $this->assertContains((int) $wanderer->id, $roster, 'the accepted student is not on the roster');
-        $this->assertSame(
-            [(int) $beta->id],
-            array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $wanderer->id))),
-            'the student was not moved out of Alpha'
+        // Alpha keeps them. Until decision 77 this asserted the opposite, and
+        // the assertion message read "the student was not moved out of Alpha" -
+        // a move Alpha's leader never agreed to and could not see coming.
+        $memberships = array_map(
+            'intval',
+            array_keys(joinrequests::current_groups($activity, (int) $wanderer->id))
         );
-        $this->assertNotContains(
+        sort($memberships);
+        $expected = [(int) $alpha->id, (int) $beta->id];
+        sort($expected);
+        $this->assertSame($expected, $memberships, 'accepting into Beta emptied the student out of Alpha');
+        $this->assertContains(
             (int) $wanderer->id,
             array_map(
                 static fn(\stdClass $member): int => (int) $member->userid,
                 groups::get_roster((int) $alpha->id)
-            )
+            ),
+            'Alpha\'s roster lost a member to a decision taken on Beta\'s page'
         );
 
         $after = $this->grouppage($activity, $apifacade, $beta, (int) $beta->leaderid);
@@ -435,16 +446,32 @@ final class leaderjoinpanel_test extends \advanced_testcase {
     }
 
     /**
-     * Decision 55, source-leader side. The workflow cannot name a
-     * successor for the source team, so this is a hard stop and not a
-     * composition confirmation.
+     * A leader asking to join elsewhere keeps the team they lead.
      *
-     * MUTATION CAUGHT (run): removing the source-leader branch in
-     * accept_decision() made this test fail because the row exported a
-     * live accept control.
+     * DECISION 55 PUT A HARD STOP HERE, and decision 77 removed the thing it
+     * was stopping. When a join was a swap, a source team's LEADER asking to
+     * join another team was asking to vacate a leadership the workflow cannot
+     * fill on its own - so the accept control was disabled with
+     * `errmovesuccessorrequired`, a refusal the target leader could not resolve.
+     *
+     * A join adds a membership now. Alpha's leader stays Alpha's leader, so
+     * there is no succession to arrange and nothing for Beta's leader to be
+     * refused by. What must NOT happen is the old outcome arriving by accident:
+     * a leadership quietly emptied by somebody else's Accept click.
+     *
+     * MUTATION CAUGHT (run 2026-08-10): restoring the whole swap - request()
+     * storing the student's other team as the source, do_accept() handing it to
+     * the engine - makes respond() throw errmovesuccessorrequired from
+     * moves.php:256, because the engine will not move a leader out without a
+     * successor. The test goes red at the respond() call rather than at the two
+     * assertions below it, which is worth saying precisely: what it detects is
+     * the swap coming back, and the engine's own guard is what it runs into
+     * first. The assertions still stand as the statement of the property, for a
+     * restoration that got past that guard.
      */
-    public function test_a_source_leader_request_disables_accept_with_the_successor_reason(): void {
+    public function test_a_leader_may_join_elsewhere_and_keeps_their_own_team(): void {
         $this->resetAfterTest();
+        $sink = $this->redirectMessages();
         [$activity, $apifacade, $alpha, $beta] = $this->fixture();
 
         $request = joinrequests::request(
@@ -461,10 +488,23 @@ final class leaderjoinpanel_test extends \advanced_testcase {
         $this->assertCount(1, $rows);
         $row = reset($rows);
 
-        $this->assertFalse($row->canaccept, 'a source leader still had a live accept control');
-        $this->assertTrue($row->cannotaccept);
-        $this->assertFalse($row->confirmationrequired);
-        $this->assertSame(get_string('errmovesuccessorrequired', 'mod_selfselectadvanced'), $row->hardreason);
+        $this->assertTrue($row->canaccept, 'the accept control is refused for a reason that no longer exists');
+        $this->assertSame('', $row->hardreason);
+
+        joinrequests::respond($activity, (int) $request->id, true, 'Welcome', (int) $beta->leaderid);
+
+        $freshalpha = groups::get($activity, (int) $alpha->id);
+        $this->assertSame(
+            (int) $alpha->leaderid,
+            (int) $freshalpha->leaderid,
+            'Beta\'s leader clicked Accept and Alpha lost its leader'
+        );
+        $this->assertContains(
+            (int) $alpha->leaderid,
+            array_map(static fn(\stdClass $m): int => (int) $m->userid, groups::get_roster((int) $alpha->id)),
+            'Alpha\'s leader is no longer on Alpha\'s roster'
+        );
+        $sink->close();
     }
 
     /**

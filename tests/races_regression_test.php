@@ -80,7 +80,11 @@ final class races_regression_test extends \advanced_testcase {
             'minsize' => 1,
             'maxsize' => 4,
             'maxlead' => 1,
-            'maxmembership' => 1,
+            // Two since decision 77: these tests race two writers against ONE
+            // join request, and the requester already belongs to a team. At a
+            // cap of one the request is refused before any lock is taken and
+            // the race under test never happens.
+            'maxmembership' => 2,
         ]);
         $activity = activity::from_instance((int) $instance->id);
 

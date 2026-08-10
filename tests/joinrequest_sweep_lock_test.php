@@ -62,7 +62,11 @@ final class joinrequest_sweep_lock_test extends \advanced_testcase {
             'minsize' => 1,
             'maxsize' => 4,
             'maxlead' => 1,
-            'maxmembership' => 1,
+            // Two since decision 77: this file is about the SWEEP that runs
+            // after an acceptance, and the wanderer already belongs to Alpha.
+            // At a cap of one the join is refused before any sweep happens and
+            // every test here would measure nothing.
+            'maxmembership' => 2,
             // A window that OPENS after the override below is due, so
             // the override parks the moment it is written.
             'timeopen' => 1000,
@@ -155,10 +159,11 @@ final class joinrequest_sweep_lock_test extends \advanced_testcase {
 
         // The move really happened, so the sweep really ran on the
         // accept path and not on some earlier write.
-        $this->assertSame(
-            [(int) $beta->id],
-            array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $wanderer->id)))
-        );
+        $joined = array_map('intval', array_keys(joinrequests::current_groups($activity, (int) $wanderer->id)));
+        sort($joined);
+        $expected = [(int) $alpha->id, (int) $beta->id];
+        sort($expected);
+        $this->assertSame($expected, $joined);
         $this->assertSame(
             'active',
             $DB->get_field('selfselectadvanced_override', 'status', ['id' => $row->id]),
@@ -166,7 +171,9 @@ final class joinrequest_sweep_lock_test extends \advanced_testcase {
         );
         $this->assertSame([['locks' => 0, 'to' => 'active']], $seen);
         $this->assertSame(0, locks::held_count(), 'respond() left a lock behind');
-        $this->assertSame((int) $alpha->id, (int) $request->sourcegroupid);
+        // The request names no team to leave (decision 77), and the fixture
+        // keeps $alpha only so the membership assertions above can name it.
+        $this->assertNull($request->sourcegroupid);
     }
 
     /**
@@ -205,7 +212,9 @@ final class joinrequest_sweep_lock_test extends \advanced_testcase {
             'active',
             $DB->get_field('selfselectadvanced_override', 'status', ['id' => $row->id])
         );
-        $this->assertSame((int) $alpha->id, (int) $request->sourcegroupid);
+        // The request names no team to leave (decision 77), and the fixture
+        // keeps $alpha only so the membership assertions above can name it.
+        $this->assertNull($request->sourcegroupid);
     }
 
     /**
@@ -251,6 +260,8 @@ final class joinrequest_sweep_lock_test extends \advanced_testcase {
             $DB->get_field('selfselectadvanced_override', 'status', ['id' => $theirs->id]),
             'the accept swept a row its move set never touched'
         );
-        $this->assertSame((int) $alpha->id, (int) $request->sourcegroupid);
+        // The request names no team to leave (decision 77), and the fixture
+        // keeps $alpha only so the membership assertions above can name it.
+        $this->assertNull($request->sourcegroupid);
     }
 }

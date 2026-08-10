@@ -46,17 +46,6 @@ class joinrequests {
     /** @var string Turned down, with the reason. */
     public const STATUS_DECLINED = 'declined';
 
-    /**
-     * Sentinel source: the student deliberately keeps every team they
-     * are in and asks for the target as an ADDITIONAL membership.
-     *
-     * Not a group id and never stored: it resolves to a NULL
-     * sourcegroupid, which on a 'requested' row means exactly "add a
-     * membership, leave nothing". Zero is not used, because an unset
-     * or placeholder select posts zero through PARAM_INT and that must
-     * stay distinguishable from a deliberate choice.
-     */
-    public const SOURCE_ADDITIONAL = -1;
 
     /** @var array<string,string> Invitation refusals a staff move override can repair. */
     private const OVERRIDEABLE_HARD_RULES = [
@@ -163,48 +152,20 @@ class joinrequests {
             }
         };
 
-        $source = null;
-        if ($request->sourcegroupid) {
-            $source = groups::get($activity, (int) $request->sourcegroupid);
-            $stillthere = $DB->record_exists('selfselectadvanced_member', [
-                'groupid' => (int) $source->id,
-                'userid' => (int) $request->userid,
-                'status' => groups::STATUS_CONFIRMED,
-            ]);
-            if (!$stillthere) {
-                $hard(
-                    get_string('refusaljoinsourcegone', 'mod_selfselectadvanced', format_string($source->name)),
-                    'refusaljoinsourcegone'
-                );
-            } else if ((int) $source->leaderid === (int) $request->userid) {
-                $others = $DB->record_exists_select(
-                    'selfselectadvanced_member',
-                    'groupid = ? AND userid <> ? AND status = ?',
-                    [(int) $source->id, (int) $request->userid, groups::STATUS_CONFIRMED]
-                );
-                $key = $others ? 'errmovesuccessorrequired' : 'errmovesololeader';
-                $hard(get_string($key, 'mod_selfselectadvanced'), $key);
-            } else {
-                $min = (new resolver($activity))->effective_minsize((int) $source->id)->value;
-                $after = groups::count_confirmed((int) $source->id) - 1;
-                if ($after < $min) {
-                    // The SOURCE team's minimum is not the target
-                    // leader's to waive (decision 64): until 1.20.17
-                    // this was a confirmable warning, and the accepting
-                    // leader's confirm click authored a move-scope L1
-                    // override they had no authority to write.
-                    $overrideablehard(get_string('moveruleL1', 'mod_selfselectadvanced', (object) [
-                        'after' => $after,
-                        'min' => $min,
-                    ]), 'moveruleL1', 'L1');
-                }
-            }
-        }
+        // DECISION 77. There was a forty-line arm here that judged the team
+        // the student had chosen to LEAVE: was the student still in it, were
+        // they its leader, would leaving take it under its minimum. None of it
+        // applies any more, because a join no longer takes anybody out of
+        // anywhere - it adds a membership or it is refused.
+        //
+        // A request filed before the ruling may still carry a source in the
+        // database. It is ignored rather than honoured: the source team's
+        // leader never agreed to lose them, and completing that swap now is the
+        // exact act the ruling forbids. The row is left alone - it is a true
+        // record of what was asked - and the accept path simply does not read
+        // it.
 
-        if ($key = self::join_change_refusal($target, true)) {
-            $hard(get_string($key, 'mod_selfselectadvanced'), $key);
-        }
-        if ($source !== null && ($key = self::join_change_refusal($source, false))) {
+        if ($key = self::join_change_refusal($target)) {
             $hard(get_string($key, 'mod_selfselectadvanced'), $key);
         }
         $alreadyconfirmed = $DB->record_exists('selfselectadvanced_member', [
@@ -223,9 +184,10 @@ class joinrequests {
             if ($refusal->stringkey === 'refusalwrongstate') {
                 continue;
             }
-            if ($refusal->stringkey === 'refusalinviteecap' && $source !== null) {
-                continue;
-            }
+            // The membership cap is NOT waived any more. It used to be
+            // skipped whenever a source was named, on the reasoning that the
+            // student was about to vacate a seat; decision 77 removed the
+            // vacating, so the cap is simply the cap.
             if (in_array($refusal->stringkey, self::COMPOSITION_KEYS, true)) {
                 // Composition is judged by fit::door_verdict() below -
                 // one evaluator for every door (decision 60). The
@@ -263,7 +225,7 @@ class joinrequests {
             $activity,
             $target,
             (int) $request->userid,
-            $source !== null ? (int) $source->id : null
+            null
         );
         if ($door->hardmax !== null) {
             $overrideablehard($door->hardmax, (string) $door->hardmaxkey, 'QUOTA');
@@ -305,8 +267,6 @@ class joinrequests {
      * @param int $targetgroupid the team the student wants to join
      * @param string $reason why, from the student
      * @param int $userid the student asking
-     * @param int|null $sourcegroupid the team to leave; null to infer when unambiguous,
-     *        self::SOURCE_ADDITIONAL to keep every current team
      * @return stdClass the request row
      * @throws \moodle_exception when a gate refuses, when the student is in more than one
      *         team and named none, when the named team is not theirs or is frozen, or when
@@ -316,8 +276,7 @@ class joinrequests {
         activity $activity,
         int $targetgroupid,
         string $reason,
-        int $userid,
-        ?int $sourcegroupid = null
+        int $userid
     ): stdClass {
         global $DB;
 
@@ -357,7 +316,7 @@ class joinrequests {
         if ((int) $target->leaderid === $userid) {
             throw new workflow_refusal('refusaljoinownteam', 'mod_selfselectadvanced');
         }
-        self::require_join_changeable($target, true);
+        self::require_join_changeable($target);
 
         // A REQUEST TO A TEAM THAT ALREADY INVITED YOU IS AN ACCEPTANCE.
         // Maintainer ruling, 2026-08-05. An invitation and a request are the
@@ -405,12 +364,11 @@ class joinrequests {
         // answered without opening a transaction, and once more INSIDE
         // it below - the authoritative read (house rule A7). Both reads
         // are one indexed query bounded by the membership cap.
-        $source = self::resolve_source(
+        self::require_room_to_ask(
             $activity,
             groups::get_groups_of_user($activity, $userid),
             $targetgroupid,
-            $userid,
-            $sourcegroupid
+            $userid
         );
 
         // Serialised on the asker, so two clicks - or two tabs - cannot
@@ -439,19 +397,18 @@ class joinrequests {
             // form was rendered minutes ago and the student may have
             // left, or joined, a team since. This read is the one that
             // decides what gets stored.
-            $source = self::resolve_source(
+            self::require_room_to_ask(
                 $activity,
                 groups::get_groups_of_user($activity, $userid),
                 $targetgroupid,
-                $userid,
-                $sourcegroupid
+                $userid
             );
 
             $now = time();
             $request = (object) [
                 'activityid' => $activity->id(),
                 'userid' => $userid,
-                'sourcegroupid' => $source !== null ? (int) $source->id : null,
+                'sourcegroupid' => null,
                 'targetgroupid' => $targetgroupid,
                 'makeleader' => 0,
                 'replaceleader' => 0,
@@ -494,102 +451,79 @@ class joinrequests {
     }
 
     /**
-     * Which team the student leaves, decided rather than guessed.
+     * A join is ALWAYS additive. Nobody leaves a team to enter another.
      *
-     * Multi-membership is a supported configuration (L4,
-     * mod_form.php maxmembership), so "the team a student is in" is a
-     * SET. This turns the student's stated intent into exactly one of:
-     * a group row they are confirmed in, or null for a deliberate
-     * additional membership. It never picks for them.
+     * DECISION 77. This method used to ask "which of your teams will you
+     * leave", pin the answer in a hidden field when there was only one, and
+     * refuse to proceed without it - then move the student out of A and into B
+     * in a single transaction. On a default activity (maxmembership 1) EVERY
+     * ask-to-join was that swap, so this was the everyday path, not an edge
+     * case: A's leader learned their member had gone by looking at the roster.
+     *
+     * A commitment to a group is not the member's alone to break. The plugin
+     * therefore has no business offering the choice at all. A student at their
+     * membership limit is told, plainly, to ask their current leader to release
+     * them - and once released, the join succeeds on its own.
+     *
+     * The `sourcegroupid` COLUMN stays, because staff moves still legitimately
+     * move a person from one team to another and share this table. What is gone
+     * is a STUDENT ever setting it, and the accept path ever reading it.
+     *
+     * Named for what it does now, not for what it replaced: it decides whether
+     * the student may ask at all. A join request that gets past it carries no
+     * source, so there is nothing left to resolve.
      *
      * @param activity $activity the activity
-     * @param stdClass[] $currents confirmed group rows, keyed by group id (timecreated ASC)
-     * @param int $targetgroupid the team being asked for
-     * @param int $userid the asker
-     * @param int|null $sourcegroupid the stated choice: a group id, self::SOURCE_ADDITIONAL, or null
-     * @return stdClass|null the group row to leave, or null for an additional membership
-     * @throws \moodle_exception when the choice is missing, not theirs, frozen or over cap
+     * @param array $currents every team this student is confirmed in, keyed by id
+     * @param int $targetgroupid the team being asked
+     * @param int $userid the student
+     * @throws \moodle_exception when they are already in it, or have no room for another
      */
-    private static function resolve_source(
+    private static function require_room_to_ask(
         activity $activity,
         array $currents,
         int $targetgroupid,
-        int $userid,
-        ?int $sourcegroupid
-    ): ?stdClass {
-        // Judged across EVERY confirmed membership, not one arbitrary
-        // row: a student confirmed in the target has nothing to ask
-        // for, whichever of their teams the database happens to list
-        // first.
+        int $userid
+    ): void {
+        // Judged across EVERY confirmed membership, not one arbitrary row: a
+        // student confirmed in the target has nothing to ask for, whichever of
+        // their teams the database happens to list first.
         if (isset($currents[$targetgroupid])) {
             throw new workflow_refusal('refusaljoinalready', 'mod_selfselectadvanced');
         }
 
-        if ($sourcegroupid === self::SOURCE_ADDITIONAL) {
-            self::require_headroom($activity, $currents, $userid);
-
-            return null;
-        }
-
-        if ($sourcegroupid === null) {
-            if (count($currents) > 1) {
-                // The same rigour the manager flow already gets from
-                // moves::stage() (refusalmovesourcerequired): name the
-                // teams and refuse to choose for them.
-                throw new workflow_refusal(
-                    'refusaljoinsourcerequired',
-                    'mod_selfselectadvanced',
-                    '',
-                    implode(', ', array_map(
-                        static fn(stdClass $group): string => format_string($group->name),
-                        $currents
-                    ))
-                );
-            }
-            if (!$currents) {
-                self::require_headroom($activity, $currents, $userid);
-
-                return null;
-            }
-            $source = reset($currents);
-        } else {
-            // Server-side ownership of the posted id (IDOR): a source
-            // is only ever a team this student is confirmed in.
-            if (!isset($currents[$sourcegroupid])) {
-                throw new workflow_refusal('refusaljoinsourcenotyours', 'mod_selfselectadvanced');
-            }
-            $source = $currents[$sourcegroupid];
-        }
-
-        self::require_join_changeable($source, false);
-
-        return $source;
+        self::require_headroom($activity, $currents, $userid);
     }
 
     /**
-     * Why this team cannot change through a join request, or null when it can.
+     * Why the team being joined cannot take anybody, or null when it can.
      *
-     * Forming teams are still open. Approved teams are open only after
-     * their assigned guide has released them; pending-review and
-     * unreleased approved teams are settled enough that the leader must
-     * ask for a release first. Frozen keeps its older, more specific
-     * refusal because it names the guide action that opens it.
+     * Forming teams are still open. Approved teams are open only after their
+     * assigned guide has released them; pending-review and unreleased approved
+     * teams are settled enough that the leader must ask for a release first.
+     * Frozen keeps its older, more specific refusal because it names the guide
+     * action that opens it.
      *
-     * @param stdClass $group the team row
-     * @param bool $target true when the student is joining this team, false when leaving it
+     * IT USED TO ANSWER FOR TWO TEAMS. A `$target` flag chose between the
+     * joining sentence and the leaving one - `refusaljoinsourcefrozen`,
+     * `...sourcepending`, `...sourceapproved` - because accepting a request
+     * changed two rosters. Decision 77 left it one, so the flag and its three
+     * sentences are gone rather than kept as an argument nobody ever passes
+     * false to.
+     *
+     * @param stdClass $group the team being joined
      * @return string|null language string key, or null when the team may change
      */
-    private static function join_change_refusal(stdClass $group, bool $target): ?string {
+    private static function join_change_refusal(stdClass $group): ?string {
         if ($group->state === state::FROZEN) {
-            return $target ? 'refusaljointargetfrozen' : 'refusaljoinsourcefrozen';
+            return 'refusaljointargetfrozen';
         }
         // Decision 63: a team its leader has asked to wind up recruits
         // nobody. A state-shaped early refusal at this ONE seam - ask
         // and accept both pass through it - and deliberately NOT inside
         // the composition machinery, so no bypass list, tier or key
-        // built before it is touched. LEAVING the team stays open: the
-        // wind-up is precisely people leaving.
-        if ($target && !empty($group->timedisbandrequested)) {
+        // built before it is touched.
+        if (!empty($group->timedisbandrequested)) {
             return 'refusaldisbanding';
         }
         if ($group->state === state::FORMING) {
@@ -610,21 +544,20 @@ class joinrequests {
         // for a guide release" - a ticket type the taxonomy has never had, and
         // which for an AWAITING-GUIDE team would make no sense even if it did.
         if ($group->state === state::PENDING_GUIDE) {
-            return $target ? 'refusaljointargetpending' : 'refusaljoinsourcepending';
+            return 'refusaljointargetpending';
         }
 
-        return $target ? 'refusaljointargetapproved' : 'refusaljoinsourceapproved';
+        return 'refusaljointargetapproved';
     }
 
     /**
-     * Assert that a team may change through a join request.
+     * Assert that the team being joined may take somebody.
      *
-     * @param stdClass $group the team row
-     * @param bool $target true when the student is joining this team, false when leaving it
+     * @param stdClass $group the team being joined
      * @throws \moodle_exception when the team may not change
      */
-    private static function require_join_changeable(stdClass $group, bool $target): void {
-        if ($key = self::join_change_refusal($group, $target)) {
+    private static function require_join_changeable(stdClass $group): void {
+        if ($key = self::join_change_refusal($group)) {
             throw new workflow_refusal($key, 'mod_selfselectadvanced');
         }
     }
@@ -640,9 +573,16 @@ class joinrequests {
     private static function require_headroom(activity $activity, array $currents, int $userid): void {
         $cap = (new resolver($activity))->effective_maxmembership($userid)->value;
         if (count($currents) >= $cap) {
+            // Decision 77: this is the sentence a student at their limit reads,
+            // and it now names the ONE thing that unblocks them. It used to be
+            // a dead end beside a form offering to do the forbidden thing.
             throw new workflow_refusal('refusaljoinnoheadroom', 'mod_selfselectadvanced', '', (object) [
                 'current' => count($currents),
                 'max' => $cap,
+                'teams' => implode(', ', array_map(
+                    static fn(stdClass $group): string => format_string($group->name),
+                    $currents
+                )),
             ]);
         }
     }
@@ -873,11 +813,10 @@ class joinrequests {
         // which on this path is still inside our transaction, and a
         // writer slipping into that window sees uncommitted state
         // (T-02 R1c/R6).
-        $sourceid = $request->sourcegroupid ? (int) $request->sourcegroupid : null;
-        $resources = ['activity:' . $activity->id()];
-        foreach (array_unique(array_filter([$sourceid, (int) $target->id])) as $gid) {
-            $resources[] = 'group:' . $gid;
-        }
+        // One team is locked, not two. Until decision 77 the team being LEFT
+        // was locked as well, because acceptance changed its roster; a join
+        // changes only the team being joined.
+        $resources = ['activity:' . $activity->id(), 'group:' . (int) $target->id];
         $locks = locks::acquire_all($resources);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -887,11 +826,7 @@ class joinrequests {
             // locks, or a submission, approval, freeze or release
             // landing between the page load and here is invisible.
             $target = groups::get($activity, (int) $target->id);
-            self::require_join_changeable($target, true);
-            $source = $sourceid ? groups::get($activity, $sourceid) : null;
-            if ($source !== null) {
-                self::require_join_changeable($source, false);
-            }
+            self::require_join_changeable($target);
             // THE STUDENT MAY HAVE LEFT THE COURSE ENTIRELY. The waiting
             // list is built from open requests belonging to this group
             // and never asks whether the requester is still a
@@ -907,29 +842,8 @@ class joinrequests {
             if (!is_enrolled($activity->context(), (int) $request->userid, 'mod/selfselectadvanced:respond', true)) {
                 throw new workflow_refusal('refusaljoinleft', 'mod_selfselectadvanced');
             }
-            // The student chose this team at ask time; the roster may have
-            // moved since. Removing somebody from a team they already left
-            // is not a move the engine can make - stage() would raise
-            // errmovenotmember, an engine error the leader cannot read or
-            // act on. Refuse in the workflow's own vocabulary instead, and
-            // leave the request OPEN so the leader can decline it with a
-            // note and the student can withdraw and re-file (the same
-            // contract refusaljoinrules already has).
-            $stillthere = $source === null || $DB->record_exists('selfselectadvanced_member', [
-                'groupid' => (int) $source->id,
-                'userid' => (int) $request->userid,
-                'status' => groups::STATUS_CONFIRMED,
-            ]);
-            if (!$stillthere) {
-                throw new workflow_refusal(
-                    'refusaljoinsourcegone',
-                    'mod_selfselectadvanced',
-                    '',
-                    format_string($source->name)
-                );
-            }
-            // The mirror image of the same staleness, and the one that
-            // used to destroy a membership in silence. resolve_source()
+            // A STALENESS THAT STILL BITES, and the one that used to destroy a
+            // membership in silence. require_room_to_ask()
             // refuses at ASK time when the student is already confirmed
             // in the target (refusaljoinalready); between asking and
             // answering they can be admitted to it by another route
@@ -1013,15 +927,19 @@ class joinrequests {
                 );
             }
 
+            // No source, always additive: the two arguments that used to carry
+            // the swap. The engine can still move a person between teams - that
+            // is a STAFF action, staged from the workbench - but a student's
+            // join request never asks it to.
             $staged = $moves->stage(
                 (int) $request->userid,
-                $source !== null ? (int) $source->id : null,
+                null,
                 (int) $target->id,
                 false,
                 null,
                 $actorid,
                 false,
-                $source === null
+                true
             );
             // Decision 64: NOTHING is merged into the bypass set here
             // any more. $bypass is exactly what the actor posted, the
@@ -1062,7 +980,6 @@ class joinrequests {
                         (int) $staged->id,
                         $activity,
                         $target,
-                        $source,
                         (int) $request->userid,
                         // Rule codes are staff vocabulary (seam audit
                         // B8): they name the override checkboxes, so
@@ -1364,7 +1281,6 @@ class joinrequests {
      * @param int $moveid the staged move
      * @param activity $activity the activity
      * @param stdClass $target the team being joined
-     * @param stdClass|null $source the team being left, or null for an extra membership
      * @param int $userid the student the request is about
      * @param bool $includecodes prefix rule codes - staff vocabulary that names their bypass form
      * @return string a localised reason, or a general one
@@ -1374,7 +1290,6 @@ class joinrequests {
         int $moveid,
         activity $activity,
         stdClass $target,
-        ?stdClass $source,
         int $userid,
         bool $includecodes = false
     ): string {
@@ -1382,22 +1297,20 @@ class joinrequests {
         foreach ($verdicts->permove[$moveid] ?? [] as $rule => $verdict) {
             if (empty($verdict['ok']) && empty($verdict['bypassed']) && !empty($verdict['reason'])) {
                 if ($rule === 'QUOTA') {
-                    $named = fit::accept_composition_refusal(
-                        $activity,
-                        $target,
-                        $userid,
-                        $source !== null ? (int) $source->id : null
-                    );
+                    $named = fit::accept_composition_refusal($activity, $target, $userid, null);
                     if ($named !== null) {
                         return $prefix($rule) . $named;
                     }
-                    if ($source === null) {
-                        return $prefix($rule) . get_string(
-                            'refusaljoinquotatarget',
-                            'mod_selfselectadvanced',
-                            format_string($target->name)
-                        );
-                    }
+
+                    // Naming the team is the whole point (1.20.9): "the group
+                    // does not satisfy the rules" left the leader guessing
+                    // WHICH group, back when a join touched two of them. It
+                    // touches one now, and the sentence says which.
+                    return $prefix($rule) . get_string(
+                        'refusaljoinquotatarget',
+                        'mod_selfselectadvanced',
+                        format_string($target->name)
+                    );
                 }
 
                 return $prefix($rule) . $verdict['reason'];
@@ -1473,11 +1386,12 @@ class joinrequests {
         }
 
         $student = \core_user::get_user((int) $request->userid);
+        // Always "they did not leave another group", because since decision 77
+        // they never do. Telling the guide of a released team that a student
+        // left somewhere else would be describing a change to a team that has
+        // not changed - and on an upgraded site the source recorded against an
+        // old request is a choice the accept path deliberately ignored.
         $sourcechange = get_string('msgjoinguidechangednosource', 'mod_selfselectadvanced');
-        if (!empty($request->sourcegroupid)) {
-            $source = groups::get($activity, (int) $request->sourcegroupid);
-            $sourcechange = get_string('msgjoinguidechangedsource', 'mod_selfselectadvanced', format_string($source->name));
-        }
 
         notifier::send(
             $activity,

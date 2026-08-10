@@ -509,11 +509,15 @@ final class narrowcaps_test extends \advanced_testcase {
             ]),
             'the leader could not admit a student to their own team'
         );
-        $this->assertFalse($DB->record_exists('selfselectadvanced_member', [
+        // And team B keeps them: decision 77 made a join additive, so admitting
+        // a student to A is not a decision about B's roster at all. Before the
+        // ruling this asserted the opposite, which is what "the leader could
+        // admit" used to cost the other team.
+        $this->assertTrue($DB->record_exists('selfselectadvanced_member', [
             'groupid' => $b->id,
             'userid' => $mover,
             'status' => groups::STATUS_CONFIRMED,
-        ]));
+        ]), 'accepting into A quietly removed the student from B');
     }
 
     /**

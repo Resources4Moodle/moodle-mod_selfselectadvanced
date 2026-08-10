@@ -348,20 +348,15 @@ final class acceptance_reachability_test extends \advanced_testcase {
             $target
         ));
 
-        $request = joinrequests::request(
-            $world['activity'],
-            (int) $target->id,
-            'Would break source approval',
-            (int) $mover->id,
-            (int) $source->id
-        );
-        $this->assert_refused('refusaljoinrules', fn() => joinrequests::respond(
-            $world['activity'],
-            (int) $request->id,
-            true,
-            '',
-            (int) $target->leaderid
-        ));
+        // THE JOIN-REQUEST HALF OF THIS TEST WENT ON 2026-08-10. It filed a
+        // request naming Source as the team to leave and asserted the target
+        // leader was refused - but decision 77 abolished that request shape, so
+        // accepting a join can no longer drain Source at all. The rule under
+        // test is unchanged and is what the three assertions above measure
+        // directly: a guide-released FIRM team must remain FULLY COMPLIANT, not
+        // merely reachable, after somebody is taken out of it. The path that
+        // can still take somebody out of it is a STAFF move, and engine_quota_ok
+        // above is the engine's own verdict on exactly that move.
         $sink->close();
     }
 

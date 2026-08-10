@@ -110,26 +110,25 @@ $mycurrent = groups::get_groups_of_user($activity, (int) $USER->id);
 // every staff viewer.
 $askform = null;
 if ($canask) {
-    $mycap = (new \mod_selfselectadvanced\local\override\resolver($activity))
-        ->effective_maxmembership((int) $USER->id)->value;
+    // Decision 77: the form no longer needs the student's other teams or their
+    // headroom, because it no longer offers to trade one for another. The cap
+    // is still enforced - by the SERVICE, which refuses with the instruction
+    // that unblocks them - so a student at their limit gets a straight answer
+    // rather than a picker that quietly does something they did not intend.
     $askform = new \mod_selfselectadvanced\form\joinrequest_form($baseurl->out(false), [
         'cmid' => $cm->id,
-        'sources' => $mycurrent,
-        'headroom' => count($mycurrent) < $mycap,
     ]);
 }
 
 if ($action === 'ask' && $askform !== null && ($data = $askform->get_data())) {
-    // Zero is the placeholder and "no element rendered"; both mean the
-    // student stated nothing, which the service resolves or refuses.
-    $chosen = (int) ($data->source ?? 0);
+    // Decision 77: the page no longer asks which team the student will leave,
+    // and no longer passes one. A join is additive or it is refused.
     try {
         $outcome = joinrequests::request(
             $activity,
             (int) $data->target,
             (string) $data->reason,
-            (int) $USER->id,
-            $chosen === 0 ? null : $chosen
+            (int) $USER->id
         );
         // A request to a team that had already invited this student IS an
         // acceptance (maintainer ruling, 2026-08-05), and they are a member
@@ -245,6 +244,64 @@ if ($tab === 'ask') {
         )));
     }
     echo html_writer::div($bannertext, 'alert alert-info');
+
+    // DECISION 77, the other half of it. Refusing the swap is only fair if the
+    // student can SEE the way out, and until now the refusal was a sentence
+    // with nowhere to go: "ask your leader to release you" with no indication
+    // of where that is done. A student at their cap now gets the route.
+    //
+    // Each group is offered on its own terms. A member is sent to the group
+    // page where "Ask to leave this group" lives; a LEADER is told plainly
+    // that leaving is not open to them and that succession is the route,
+    // because leave.feature has pinned "a leader is never offered a leave
+    // control" since long before this ruling and decision 77 does not overturn
+    // it. Links rather than a POST from here: the control and its rules live on
+    // the group page, and a second copy of them is a second answer.
+    $atcap = $mycurrent && count($mycurrent) >= (new \mod_selfselectadvanced\local\override\resolver($activity))
+        ->effective_maxmembership((int) $USER->id)->value;
+    if ($atcap) {
+        $rows = '';
+        foreach ($mycurrent as $current) {
+            $groupurl = new moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $cm->id,
+                'g' => (int) $current->id,
+            ]);
+            // Three different answers, because there are three different
+            // situations and only one of them is "go and click leave".
+            //
+            // A SETTLED group is the one this ruling exposed. can_request_leave
+            // refuses anything past FORMING, so a student whose only group is
+            // approved or frozen is now at their cap, cannot ask to join, AND
+            // cannot ask to leave. That was equally true before decision 77 -
+            // the swap simply hid it - and sending them to a disabled control
+            // would be the dead end this panel exists to remove.
+            $name = format_string($current->name);
+            if ((int) $current->leaderid === (int) $USER->id) {
+                $rows .= html_writer::tag('li', get_string(
+                    'joinatcaplead',
+                    'mod_selfselectadvanced',
+                    html_writer::link($groupurl, $name)
+                ));
+            } else if ($current->state !== \mod_selfselectadvanced\local\state::FORMING) {
+                $rows .= html_writer::tag('li', get_string(
+                    'joinatcapsettled',
+                    'mod_selfselectadvanced',
+                    html_writer::link($groupurl, $name)
+                ));
+            } else {
+                $rows .= html_writer::tag('li', html_writer::link(
+                    $groupurl,
+                    get_string('joinatcapask', 'mod_selfselectadvanced', $name)
+                ));
+            }
+        }
+        echo html_writer::div(
+            html_writer::tag('strong', get_string('joinatcapheading', 'mod_selfselectadvanced'))
+                . html_writer::tag('p', get_string('joinatcapexplain', 'mod_selfselectadvanced'), ['class' => 'mb-1'])
+                . html_writer::tag('ul', $rows, ['class' => 'mb-0']),
+            'alert alert-warning selfselectadvanced-joinatcap'
+        );
+    }
 
     // WHAT THE LEADER WILL SEE OF YOU (maintainer decision 53: "Will
     // adding the student's department and sub-department be a major

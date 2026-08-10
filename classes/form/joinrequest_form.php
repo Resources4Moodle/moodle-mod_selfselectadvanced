@@ -23,15 +23,11 @@ require_once($CFG->libdir . '/formslib.php');
 /**
  * A student asking to join another team (strategy 1.19 B).
  *
- * Custom data: cmid, sources (confirmed group rows keyed by id),
- * headroom (bool: the student's cap has room for one more team).
+ * Custom data: cmid.
  *
- * The source select exists because multi-membership is supported: a
- * student in two teams is asking two questions at once - which team do
- * I join, and which do I leave - and only they can answer the second.
- * It lists team NAMES and nothing else: this page has never shown a
- * student's contact details and the picker must not be where that
- * starts.
+ * There is no "which team will you leave" picker, and there deliberately is
+ * not one: decision 77 (2026-08-09) settled that a commitment to a group is
+ * not the member's alone to break, so a join is additive or it is refused.
  *
  * The team is chosen through the searchable picker every other team
  * control uses - a student is choosing among the same fifteen hundred
@@ -80,58 +76,16 @@ class joinrequest_form extends \moodleform {
         $mform->addRule('reason', get_string('required'), 'required', null, 'client');
         $mform->addHelpButton('reason', 'jointreason', 'mod_selfselectadvanced');
 
-        $sources = $this->_customdata['sources'] ?? [];
-        $headroom = !empty($this->_customdata['headroom']);
-
-        if (count($sources) === 1 && !$headroom) {
-            // One team and no room for another: the answer is not in
-            // doubt, so it is shown rather than asked.
-            $only = reset($sources);
-            $mform->addElement(
-                'static',
-                'sourceonly',
-                get_string('joinsource', 'mod_selfselectadvanced'),
-                format_string($only->name)
-            );
-            $mform->addElement('hidden', 'source', (int) $only->id);
-            $mform->setType('source', PARAM_INT);
-        } else if ($sources) {
-            // A handful of options at most - bounded by the membership
-            // cap - so a plain select, not the autocomplete the target
-            // needs for fifteen hundred teams.
-            $options = [0 => get_string('choosedots')];
-            foreach ($sources as $group) {
-                $options[(int) $group->id] = format_string($group->name);
-            }
-            if ($headroom) {
-                $options[\mod_selfselectadvanced\local\joinrequests::SOURCE_ADDITIONAL] =
-                    get_string('joinsourcekeep', 'mod_selfselectadvanced');
-            }
-            $mform->addElement('select', 'source', get_string('joinsource', 'mod_selfselectadvanced'), $options);
-            $mform->setType('source', PARAM_INT);
-            $mform->setDefault('source', 0);
-            $mform->addHelpButton('source', 'joinsource', 'mod_selfselectadvanced');
-        }
+        // DECISION 77. The form used to ask "which of your teams will you
+        // leave", pin the answer in a hidden field when there was only one, and
+        // REQUIRE it - an offer the plugin has no business making, because a
+        // commitment to a group is not the member's alone to break. On a
+        // default activity every ask-to-join was that swap.
+        //
+        // Nothing replaces it. A join is additive; a student with no room is
+        // refused by the service with the one instruction that unblocks them,
+        // which is to ask their current leader to release them first.
 
         $mform->addElement('submit', 'askbutton', get_string('joinsend', 'mod_selfselectadvanced'));
-    }
-
-    /**
-     * Refuse the placeholder: the student has to say which team they leave.
-     *
-     * The service refuses it too (refusaljoinsourcerequired) - this is
-     * the courteous version, on the field, before the redirect.
-     *
-     * @param array $data submitted values
-     * @param array $files submitted files
-     * @return array errors keyed by element name
-     */
-    public function validation($data, $files): array {
-        $errors = parent::validation($data, $files);
-        if (!empty($this->_customdata['sources']) && (int) ($data['source'] ?? 0) === 0) {
-            $errors['source'] = get_string('joinsourcerequired', 'mod_selfselectadvanced');
-        }
-
-        return $errors;
     }
 }

@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.20.34 — a join is additive (2026-08-10)
+
+> Serial `2026081003` / `1.20.34`. No schema change; one data step on upgrade.
+> Maintainer decision 77.
+
+**A commitment to a group is not the member's alone to break.** Until now the
+Ask-to-join form asked "which of your groups will you leave", pinned the answer
+in a hidden field when there was only one, and *required* it. On a default
+activity — membership limit 1 — that made every single ask-to-join a swap: the
+student left a team, and the leader of the team they left found out by looking
+at the roster.
+
+The question is gone, and nothing replaces it. A join adds a membership or it is
+refused. A student with no room left is told so plainly, with the one
+instruction that unblocks them: ask the leader of the team they want to leave to
+release them first.
+
+**The refusal now leads somewhere.** Being told to ask your leader is only
+useful if you can. The Ask page, when the student is at their limit, lists each
+team they belong to with the control that acts on it:
+
+- an ordinary member gets a working **"Ask to leave …"** link straight to the
+  leave request;
+- a **leader** is told that leaving is not open to a group's leader and is
+  pointed at handing leadership over first;
+- a member of a **settled** team is told a coordinator or the guide has to
+  release the group, because no leader can answer it.
+
+**Requests already waiting when you upgrade are disarmed.** A request filed the
+day before carries the source its author chose, and accepting it afterwards
+would perform exactly the swap the ruling forbids. The upgrade clears the source
+from every request still waiting for an answer — nobody loses their place in a
+queue, and a student with no room is refused readably at accept time instead.
+Staged staff moves are untouched: a staff move's source is the whole point of
+it, and the update is scoped to waiting join requests alone.
+
+**What did not change.** A settled team still keeps its people. That protection
+used to live in the join service — asking to join elsewhere was refused while
+your current team was approved and unreleased — and it now lives on the only
+path that can still take somebody out of one: the leave request, which is
+refused for any state past forming. Six tests that pinned the student-chosen
+source are retired with a record naming the ruling that removed them, so the gap
+they leave cannot later be mistaken for coverage quietly dropped.
+
 ## 1.20.33 — the readiness panel (2026-08-10)
 
 > Serial `2026081002` / `1.20.33`. No schema change. Maintainer decision 73,
