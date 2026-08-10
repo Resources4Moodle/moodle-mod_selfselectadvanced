@@ -524,9 +524,20 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
     /**
      * Create a student's request to join a team (strategy 1.19 B).
      *
-     * Required: activityid, userid, targetgroupid. Optional:
-     * sourcegroupid (the team the student offered to leave), additional
-     * (truthy for a deliberate extra membership).
+     * Required: activityid, userid, targetgroupid.
+     *
+     * DECISION 77: a join request carries NO source team, and this factory
+     * writes none. It used to infer one - if the student held exactly one group
+     * in the activity, that group's id went into sourcegroupid - on the reasoning
+     * that it followed the service. The service stopped doing it, this did not,
+     * and the result was a factory that manufactured PRE-UPGRADE rows by default:
+     * every fixture whose student already had a group got a shape the product can
+     * no longer produce, invisibly, because the accept path and the Fit column
+     * both ignore the source.
+     *
+     * A legacy row is still constructible, deliberately, by passing sourcegroupid
+     * explicitly - which is what a test about upgraded sites should have to say
+     * out loud.
      *
      * @param array|stdClass $record request fields
      * @return stdClass the move row in 'requested' status
@@ -541,22 +552,10 @@ class mod_selfselectadvanced_generator extends testing_module_generator {
             }
         }
 
-        // A source may be given explicitly (switchid 'sourcegroup');
-        // otherwise it is inferred only when it is unambiguous, the
-        // same rule the service follows - never guessed from an
-        // unordered single-row fetch.
+        // Null unless the caller explicitly asks for the legacy shape. Nothing
+        // is inferred: a factory that guesses a source reinstates the swap the
+        // ruling abolished, in fixtures, where it is hardest to see.
         $source = isset($record->sourcegroupid) ? (int) $record->sourcegroupid : null;
-        if ($source === null && !isset($record->additional)) {
-            $held = $DB->get_records_sql(
-                "SELECT g.id
-                   FROM {selfselectadvanced_group} g
-                   JOIN {selfselectadvanced_member} m ON m.groupid = g.id
-                  WHERE g.activityid = ? AND m.userid = ? AND m.status = ?
-               ORDER BY g.timecreated ASC",
-                [$record->activityid, $record->userid, \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED]
-            );
-            $source = count($held) === 1 ? (int) reset($held)->id : null;
-        }
 
         $now = time();
         $request = (object) [

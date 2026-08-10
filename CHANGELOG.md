@@ -2,7 +2,7 @@
 
 ## 1.20.34 — a join is additive (2026-08-10)
 
-> Serial `2026081003` / `1.20.34`. No schema change; one data step on upgrade.
+> Serial `2026081003` / `1.20.34`. No schema change and no data change.
 > Maintainer decision 77.
 
 **A commitment to a group is not the member's alone to break.** Until now the
@@ -28,13 +28,18 @@ team they belong to with the control that acts on it:
 - a member of a **settled** team is told a coordinator or the guide has to
   release the group, because no leader can answer it.
 
-**Requests already waiting when you upgrade are disarmed.** A request filed the
-day before carries the source its author chose, and accepting it afterwards
-would perform exactly the swap the ruling forbids. The upgrade clears the source
-from every request still waiting for an answer — nobody loses their place in a
-queue, and a student with no room is refused readably at accept time instead.
-Staged staff moves are untouched: a staff move's source is the whole point of
-it, and the update is scoped to waiting join requests alone.
+**Requests already waiting when you upgrade are not honoured as swaps.** A
+request filed the day before carries the source its author chose, and performing
+that swap now would be the exact act the ruling forbids — the other group's
+leader never agreed to lose them. Nothing rewrites the row: it is a true record
+of what was asked. The accept path and the Fit column both **ignore** a join
+request's source, so such a request completes as the ordinary additive ask it
+would be if filed today, or is refused readably if the student has no room left.
+
+An upgrade step that cleared the column was written and then deliberately
+removed: `db/upgrade.php` may not run DML against plugin tables — during an
+upgrade the PHP is the new code while the schema is still whatever the site is
+upgrading from — and the plugin's own `upgrade-safety` check enforces it.
 
 **Two surfaces stopped saying a thing that is no longer true.** The acceptance
 message read *"the student has been moved and the group re-composed"*; nobody is
@@ -47,11 +52,16 @@ what was asked.
 
 **What did not change.** A settled team still keeps its people. That protection
 used to live in the join service — asking to join elsewhere was refused while
-your current team was approved and unreleased — and it now lives on the only
-path that can still take somebody out of one: the leave request, which is
-refused for any state past forming. Six tests that pinned the student-chosen
-source are retired with a record naming the ruling that removed them, so the gap
-they leave cannot later be mistaken for coverage quietly dropped.
+your current team was approved and unreleased — and it now lives on the path a
+*member* can drive: the leave request, which is refused for any state past
+forming. Staff authority is unchanged — a coordinator or manager can still move,
+park or dissolve, which is what staff authority is for.
+
+Eight tests that pinned the student-chosen source are retired — six in the join service's own suite, the T39
+formation-matrix row, and the L1 source-minimum authority test — each with a
+written record naming the ruling that removed it and a guard assertion that goes
+red if the source concept returns, so the gap they leave cannot later be mistaken
+for coverage quietly dropped.
 
 ## 1.20.33 — the readiness panel (2026-08-10)
 

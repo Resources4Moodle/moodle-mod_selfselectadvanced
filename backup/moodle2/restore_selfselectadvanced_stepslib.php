@@ -364,9 +364,15 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
      *
      * The asker and the target team must both survive the restore: a
      * request pointing at a team that is not here cannot be answered,
-     * and one from a user who is not here has nobody to answer for. The
-     * SOURCE team may legitimately be absent - the student may have had
-     * no team - so it maps to null rather than refusing.
+     * and one from a user who is not here has nobody to answer for.
+     *
+     * THE SOURCE IS MAPPED, NOT REQUIRED, and since decision 77 a request
+     * created on this site never has one at all - a join adds a membership
+     * rather than trading one. A backup taken from a site running an older
+     * release can still carry a waiting request that names a team the student
+     * offered to leave, so the mapping stays: the row is restored faithfully,
+     * as the record of what was asked, and the accept path ignores the source
+     * exactly as it does for a row that was already here.
      *
      * @param array $data the row
      */

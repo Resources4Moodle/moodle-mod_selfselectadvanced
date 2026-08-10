@@ -210,7 +210,6 @@ final class nestedfaults_test extends \advanced_testcase {
             'activityid' => $activity->id(),
             'userid' => (int) $outsider->id,
             'targetgroupid' => (int) $group->id,
-            'additional' => 1,
         ]);
         $this->make_that_event_fatal('\mod_selfselectadvanced\event\join_decided');
 

@@ -69,9 +69,7 @@ class joinrequests {
      * state cannot drift from the service path. Hard stops are the
      * cases acceptance cannot safely repair: no target seat, duplicate
      * target membership/invitation, an additional membership over the
-     * student's cap, stale source membership, a source leader who
-     * would need a successor the join-request workflow cannot name -
-     * and, since decision 60, a composition maximum that CONFIRMED
+     * student's cap - and, since decision 60, a composition maximum that CONFIRMED
      * members plus this student would violate, which only the staff
      * override may pass. An engine-refused reachability mismatch stays
      * a confirmable warning routed through the move engine's
@@ -221,12 +219,7 @@ class joinrequests {
         // maximum that PENDING INVITATIONS alone push over blocks
         // nothing and bypasses nothing - the decider proceeds informed
         // that those invitations can no longer be accepted.
-        $door = fit::door_verdict(
-            $activity,
-            $target,
-            (int) $request->userid,
-            null
-        );
+        $door = fit::door_verdict($activity, $target, (int) $request->userid);
         if ($door->hardmax !== null) {
             $overrideablehard($door->hardmax, (string) $door->hardmaxkey, 'QUOTA');
         } else if ($door->engine !== null) {
@@ -669,8 +662,8 @@ class joinrequests {
         // own, which is a second lock nested under ours for no reason
         // now that it can simply run out here.
         //
-        // RESTRICTED to what this acceptance moved - the requester and
-        // the two teams involved - because an unrestricted sweep would
+        // RESTRICTED to what this acceptance changed - the requester and the
+        // ONE team they joined - because an unrestricted sweep would
         // examine every pending row of the activity on every join
         // accept (T-08). Only on the accept path: a decline moves
         // nobody, so nothing it did can have cleared a blocker.
@@ -679,7 +672,10 @@ class joinrequests {
         if ($accept) {
             \mod_selfselectadvanced\local\override\store::recheck_pending($activity, $actorid, [
                 'user' => [(int) $request->userid],
-                'group' => [(int) $target->id, (int) $request->sourcegroupid],
+                // Decision 77: one team. This used to pass the source too, and
+                // after the ruling that was `(int) null` - a restriction on
+                // group 0, a row that cannot exist.
+                'group' => [(int) $target->id],
             ]);
         }
 
@@ -902,8 +898,13 @@ class joinrequests {
                 'refusalnoseatsconfirmed',
                 'refusalnoseatsheld',
                 'refusalinviteecap',
-                'errmovesuccessorrequired',
-                'errmovesololeader',
+                // Two more keys were listed here until decision 77:
+                // errmovesuccessorrequired and errmovesololeader. Both arise
+                // only when the engine is
+                // asked to move somebody OUT of a team they lead, which a join
+                // request no longer asks of it, so accept_decision() cannot
+                // return either and naming them promised a hand-off that could
+                // never happen.
             ], true);
             if (!$decision->canaccept && !$staffbypass && !$enginewillname) {
                 throw new workflow_refusal(
@@ -1271,11 +1272,11 @@ class joinrequests {
      * which rules on which roster had refused them. The teams involved
      * are known here, and fit::accept_composition_refusal() - the same
      * projection fit::for_person() put in front of the leader beside
-     * this very request - says which side is at fault, in the sentence
-     * they already read. The ENGINE still decides; this only decides
-     * the words. Where the projection and the engine disagree the
-     * engine's own sentence stands, and then only where it is true:
-     * with a source group there really are two rosters.
+     * this very request - says so in the sentence they already read. The
+     * ENGINE still decides; this only decides the words, and where the
+     * projection and the engine disagree the engine's own sentence stands.
+     * Since decision 77 there is only ever ONE roster to name, which is why
+     * the source parameter is gone rather than passed as null.
      *
      * @param stdClass $verdicts what validate_set() returned
      * @param int $moveid the staged move
@@ -1297,7 +1298,7 @@ class joinrequests {
         foreach ($verdicts->permove[$moveid] ?? [] as $rule => $verdict) {
             if (empty($verdict['ok']) && empty($verdict['bypassed']) && !empty($verdict['reason'])) {
                 if ($rule === 'QUOTA') {
-                    $named = fit::accept_composition_refusal($activity, $target, $userid, null);
+                    $named = fit::accept_composition_refusal($activity, $target, $userid);
                     if ($named !== null) {
                         return $prefix($rule) . $named;
                     }

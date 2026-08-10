@@ -173,13 +173,15 @@ class gatekeeper {
      * Discarding the first answer does not reveal the second; it hides
      * the fact that the second was never asked.
      *
-     * fit::for_person() does exactly that set-aside for a request that
-     * LEAVES a team (the membership cap is netted by the move engine, so
-     * carrying it would make the Fit column disagree with the Accept
-     * button). Before this method existed that branch re-asked only the
-     * COMPOSITION question, while its own comment claimed it re-asked
-     * the seat question too - so a student at their cap requesting a
-     * FULL team was shown a green "fits", and Accept then threw. Same
+     * fit::for_person() USED TO do exactly that set-aside, for a request
+     * that LEAVES a team: the membership cap was netted by the move engine,
+     * so carrying it would have made the Fit column disagree with the Accept
+     * button. Decision 77 removed the swap and the set-aside with it - a join
+     * costs a membership, so the cap is simply the cap. The lesson the method
+     * was built for outlives the branch: that set-aside re-asked only the
+     * COMPOSITION question while its own comment claimed it re-asked the seat
+     * question too, so a student at their cap requesting a FULL team was shown
+     * a green "fits", and Accept then threw. Same
      * team, same student, opposite verdict depending only on which
      * refusal happened to be first. Found by the 1.20.5 review sweep,
      * 2026-08-05; the comment asserted a completeness the code did not
@@ -502,7 +504,6 @@ class gatekeeper {
             $this->activity,
             $group,
             (int) $member->userid,
-            null,
             $this->resolver
         );
         if ($door->hardmax !== null) {

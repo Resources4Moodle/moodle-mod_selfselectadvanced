@@ -253,8 +253,7 @@ final class acceptance_reachability_test extends \advanced_testcase {
         $this->assertNotNull(fit::accept_composition_refusal(
             $world['activity'],
             $target,
-            (int) $third->id,
-            null
+            (int) $third->id
         ));
         $this->assertFalse($this->engine_quota_ok(
             $world['activity'],
@@ -291,8 +290,7 @@ final class acceptance_reachability_test extends \advanced_testcase {
         $this->assertNotNull(fit::accept_composition_refusal(
             $world['activity'],
             $target,
-            (int) $joiner->id,
-            null
+            (int) $joiner->id
         ));
         $this->assertFalse($this->engine_quota_ok(
             $world['activity'],
@@ -334,12 +332,14 @@ final class acceptance_reachability_test extends \advanced_testcase {
             $this->confirm($source, $member);
         }
 
-        $this->assertNotNull(fit::accept_composition_refusal(
-            $world['activity'],
-            $target,
-            (int) $mover->id,
-            (int) $source->id
-        ));
+        // THE ENGINE IS THE ONLY WITNESS LEFT, and it is the right one. This
+        // used to open with fit::accept_composition_refusal(..., $source) and
+        // assert it was non-null - but that answer came entirely from the
+        // source arm decision 77 deleted, and with the argument gone the call
+        // judges the TARGET, which is a forming team with a free seat and
+        // nothing wrong with it. Keeping it would have asserted a refusal that
+        // cannot happen; the honest measurement of "a firm source must stay
+        // fully compliant" is the engine's own verdict on the staff move.
         $this->assertFalse($this->engine_quota_ok(
             $world['activity'],
             $world['api'],
@@ -347,6 +347,41 @@ final class acceptance_reachability_test extends \advanced_testcase {
             $source,
             $target
         ));
+
+        // THE CONTRAST THAT MAKES IT MEAN SOMETHING, and the one the test's
+        // name promises: identical shape, FORMING source. A forming team only
+        // has to remain REACHABLE when it loses a member, so the very same move
+        // is allowed. Without this an engine_quota_ok() that had become "no to
+        // everything" would satisfy the assertion above perfectly.
+        $loose = $this->activity_with_scope_rules(6);
+        $looseleader = $this->student($loose['course'], 'SCOPE');
+        $loosemover = $this->student($loose['course'], 'THREE');
+        $loosesource = $this->team($loose['activity'], $looseleader, 'Forming source');
+        $loosetarget = $this->team(
+            $loose['activity'],
+            $this->student($loose['course'], 'SCOPE'),
+            'Loose target'
+        );
+        $loosemembers = [
+            $this->student($loose['course'], 'SCOPE'),
+            $this->student($loose['course'], 'ONE'),
+            $this->student($loose['course'], 'TWO'),
+            $loosemover,
+        ];
+        foreach ($loosemembers as $member) {
+            $this->confirm($loosesource, $member);
+        }
+        $this->assertTrue(
+            $this->engine_quota_ok(
+                $loose['activity'],
+                $loose['api'],
+                (int) $loosemover->id,
+                $loosesource,
+                $loosetarget
+            ),
+            'a FORMING source refused a departure it only has to stay reachable after - the '
+                . 'firm/forming distinction this test exists for has collapsed'
+        );
 
         // THE JOIN-REQUEST HALF OF THIS TEST WENT ON 2026-08-10. It filed a
         // request naming Source as the team to leave and asserted the target
@@ -372,14 +407,17 @@ final class acceptance_reachability_test extends \advanced_testcase {
             $fitok = fit::accept_composition_refusal(
                 $case['activity'],
                 $case['target'],
-                (int) $case['user']->id,
-                $case['source'] !== null ? (int) $case['source']->id : null
+                (int) $case['user']->id
             ) === null;
+            // Null source on both sides: every remaining case is a JOIN, and a
+            // join empties nothing. engine_quota_ok keeps its source parameter
+            // because the staff move path still uses it - the three tests above
+            // pass a real team to it.
             $engineok = $this->engine_quota_ok(
                 $case['activity'],
                 $case['api'],
                 (int) $case['user']->id,
-                $case['source'],
+                null,
                 $case['target']
             );
 
@@ -392,7 +430,7 @@ final class acceptance_reachability_test extends \advanced_testcase {
      * Cases for the projection/engine agreement test.
      *
      * @return array<string, array{activity: activity, api: api, target: \stdClass,
-     *                             source: ?\stdClass, user: \stdClass, expected: bool}>
+     *                             user: \stdClass, expected: bool}>
      */
     private function agreement_cases(): array {
         $cases = [];
@@ -402,7 +440,6 @@ final class acceptance_reachability_test extends \advanced_testcase {
             'activity' => $live['activity'],
             'api' => $live['api'],
             'target' => $live['target'],
-            'source' => null,
             'user' => $live['joiner'],
             'expected' => true,
         ];
@@ -417,7 +454,6 @@ final class acceptance_reachability_test extends \advanced_testcase {
             'activity' => $world['activity'],
             'api' => $world['api'],
             'target' => $target,
-            'source' => null,
             'user' => $third,
             'expected' => false,
         ];
@@ -430,47 +466,26 @@ final class acceptance_reachability_test extends \advanced_testcase {
             'activity' => $world['activity'],
             'api' => $world['api'],
             'target' => $target,
-            'source' => null,
             'user' => $joiner,
             'expected' => false,
         ];
 
-        $world = $this->activity_with_scope_rules(6);
-        $sourceleader = $this->student($world['course'], 'SCOPE');
-        $secondscope = $this->student($world['course'], 'SCOPE');
-        $one = $this->student($world['course'], 'ONE');
-        $two = $this->student($world['course'], 'TWO');
-        $mover = $this->student($world['course'], 'THREE');
-        $targetleader = $this->student($world['course'], 'SCOPE');
-        $source = $this->team($world['activity'], $sourceleader, 'Firm source', state::FIRM, true);
-        $target = $this->team($world['activity'], $targetleader, 'Forming target');
-        foreach ([$secondscope, $one, $two, $mover] as $member) {
-            $this->confirm($source, $member);
-        }
-        $cases['firm source requires compliance'] = [
-            'activity' => $world['activity'],
-            'api' => $world['api'],
-            'target' => $target,
-            'source' => $source,
-            'user' => $mover,
-            'expected' => false,
-        ];
-
-        $world = $this->activity_with_scope_rules(5);
-        $sourceleader = $this->student($world['course'], 'SCOPE');
-        $mover = $this->student($world['course'], 'ONE');
-        $targetleader = $this->student($world['course'], 'SCOPE');
-        $source = $this->team($world['activity'], $sourceleader, 'Source');
-        $target = $this->team($world['activity'], $targetleader, 'Target');
-        $this->confirm($source, $mover);
-        $cases['forming source still reachable after departure'] = [
-            'activity' => $world['activity'],
-            'api' => $world['api'],
-            'target' => $target,
-            'source' => $source,
-            'user' => $mover,
-            'expected' => true,
-        ];
+        // TWO CASES WERE RETIRED FROM THIS SET ON 2026-08-10, and this is the
+        // record. 'firm source requires compliance' and 'forming source still
+        // reachable after departure' each named a SOURCE team and asked whether
+        // the fit projection agreed with the engine about the roster that
+        // acceptance would empty.
+        //
+        // Decision 77 removed the question. accept_composition_refusal() no
+        // longer takes a source, because no door passes one: a join adds a
+        // membership and empties nothing. A parity case for a shape the product
+        // cannot produce measures agreement about nothing.
+        //
+        // THE ENGINE SIDE OF BOTH IS STILL MEASURED. A staff move does still
+        // empty a roster, and moves.php judges it through fit::quota_ok_after()
+        // - a lower-level helper the ruling did not touch. The firm-source rule
+        // in particular is asserted directly, with no join request involved, in
+        // test_firm_team_still_requires_full_compliance_after_acceptance above.
 
         return $cases;
     }

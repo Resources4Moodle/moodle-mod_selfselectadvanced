@@ -130,8 +130,8 @@ class fit {
      *
      * When a live join request from this person to this team exists it
      * is the SUBJECT of the verdict, and the answer is what accepting
-     * that request would do - including the team the request would take
-     * them out of. The row is looked up when the caller does not hand
+     * that request would do - which since decision 77 is one thing only:
+     * add them to this team. The row is looked up when the caller does not hand
      * it over, so the leader panel on group.php and the "Asked of my
      * team" tab reach the identical verdict without either of them
      * having to know that the other exists.
@@ -221,11 +221,11 @@ class fit {
             // voice, in its exact sentence. A refusal that is not about
             // composition (a full team, an exhausted cap) stands
             // untouched: the door has no opinion on it.
-            // DECISION 77: null, always. A join request has no source team,
-            // and an old row that still carries one is ignored by the accept
-            // path too - this method exists to answer the same question the
-            // Accept button will, so it must read the request the same way.
-            $door = self::door_verdict($activity, $group, $userid, null);
+            // Decision 77: there is no source to net against. A join request
+            // has none, and an old row that still carries one is ignored by the
+            // accept path too - this method exists to answer the same question
+            // the Accept button will, so it must read the request the same way.
+            $door = self::door_verdict($activity, $group, $userid);
             if ($door->hardmax !== null) {
                 $fits = false;
                 $caution = $door->hardmax;
@@ -282,21 +282,19 @@ class fit {
      * @param activity $activity the activity
      * @param stdClass $target the team being joined
      * @param int $userid the student
-     * @param int|null $sourcegroupid the team the request would take them out of, or null
-     * @return string|null null when both rosters would comply, else the reason
+     * @return string|null null when the roster would comply, else the reason
      */
     public static function accept_composition_refusal(
         activity $activity,
         stdClass $target,
-        int $userid,
-        ?int $sourcegroupid
+        int $userid
     ): ?string {
         // A thin reading of door_verdict(), kept so the callers that
         // only need "would the engine refuse, and in what words" do not
         // each re-derive the answer - that is how the three copies of
         // 2026-08-06 happened. Consent notes are deliberately absent:
         // this contract is null-means-the-engine-commits.
-        $door = self::door_verdict($activity, $target, $userid, $sourcegroupid);
+        $door = self::door_verdict($activity, $target, $userid);
 
         return $door->hardmax ?? $door->engine;
     }
@@ -637,7 +635,6 @@ class fit {
      * @param activity $activity the activity
      * @param stdClass $target the team being entered
      * @param int $userid the person entering
-     * @param int|null $sourcegroupid the team a move would take them out of, or null
      * @param resolver|null $resolver override resolver already in use, when available
      * @return stdClass {hardmax: ?string, hardmaxkey: ?string, hardmaxa: mixed,
      *                   engine: ?string, consent: string[], blockedinvitees: int[]}
@@ -646,7 +643,6 @@ class fit {
         activity $activity,
         stdClass $target,
         int $userid,
-        ?int $sourcegroupid = null,
         ?resolver $resolver = null
     ): stdClass {
         global $DB;
@@ -778,22 +774,23 @@ class fit {
             }
         }
 
-        if (
-            $verdict->engine === null
-            && $sourcegroupid !== null
-            && !$resolver->is_quota_exempt($sourcegroupid)->enabled
-        ) {
-            $source = groups::get($activity, $sourcegroupid);
-            if (!self::quota_ok_after($activity, $source, [], [$userid], $resolver)) {
-                $verdict->enginekey = 'refusaljoinquotasource';
-                $verdict->enginea = format_string($source->name);
-                $verdict->engine = get_string(
-                    'refusaljoinquotasource',
-                    'mod_selfselectadvanced',
-                    $verdict->enginea
-                );
-            }
-        }
+        // THE SOURCE ROSTER'S OWN VERDICT WAS ASKED HERE, and decision 77 took
+        // the question away. While a join was a swap, accepting one emptied a
+        // seat in the team being left, so this asked whether THAT team would
+        // still satisfy its composition rules afterwards and refused with
+        // `refusaljoinquotasource` if not.
+        //
+        // Every caller now passes null: joinrequests.php:224 (the accept door),
+        // gatekeeper.php:501 (the invitation door), fit.php:228 (the Fit
+        // column) and accept_composition_refusal(). Nothing reaches it, so it
+        // is removed rather than left as an arm that looks live - and the
+        // string it produced is deleted with it, because an unreachable
+        // sentence is one nobody can ever be shown or ever fix.
+        //
+        // The rule itself is not lost. A STAFF move still empties a seat in the
+        // team somebody is moved out of, and the engine judges that roster in
+        // moves::validate_set - which is where the guarantee lives, and where
+        // acceptance_reachability_test measures it.
 
         return $verdict;
     }
