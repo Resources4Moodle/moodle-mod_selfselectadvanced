@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081001;
+    private const CURRENT = 2026081002;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026080904;
+    private const PREVIOUS = 2026081001;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.32';
+    private const RELEASE = '1.20.33';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.

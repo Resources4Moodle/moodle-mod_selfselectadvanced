@@ -2288,5 +2288,26 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081001, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081002) {
+        // 1.20.33: decision 73's readiness panel. No schema change.
+        //
+        // The four sidecar arms have BLOCKED Submit since 1.20.28, but
+        // can_submit() is a chain of early returns, so a leader with two live
+        // sidecars - an unanswered invitation and a member's leave request, an
+        // ordinary end-of-formation state - read one sentence, dealt with it,
+        // pressed Submit and was handed another. The panel lists them all at
+        // once, each with the click that clears it.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.33 (2026081002). Decision 73: the readiness panel now shows every '
+                . 'formation sidecar blocking Submit at once, with a one-click remedy for three of the '
+                . 'four. No behaviour change to what Submit permits.',
+            'No schema change.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081002, 'selfselectadvanced');
+    }
+
     return true;
 }

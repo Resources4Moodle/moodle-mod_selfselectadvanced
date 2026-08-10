@@ -349,6 +349,45 @@ class invitations {
     }
 
     /**
+     * Withdraw every pending invitation this team is holding.
+     *
+     * Decision 73's one-click remedy for the invitations sidecar. It lives HERE
+     * rather than in group.php for two reasons, and the second is the one that
+     * caught me: the page must not carry a membership predicate of its own
+     * (viewassignedteams_test guards that - a copy of a predicate is a second
+     * answer to it), and the loop belongs beside the single withdraw it
+     * repeats.
+     *
+     * Every withdrawal still goes through withdraw() one at a time, so each
+     * keeps its own lock, its own race handling and its own notice to the
+     * invitee. The only thing "all" changes is how many clicks the leader
+     * spends. A refusal on any one of them propagates rather than being
+     * swallowed so the rest can continue: a partial result the leader cannot
+     * see is worse than a refusal they can.
+     *
+     * @param stdClass $group the team
+     * @param int $actorid the leader or staff member withdrawing
+     * @return int how many were withdrawn before it finished
+     * @throws \moodle_exception the first refusal, with however many had already gone
+     */
+    public function withdraw_all(stdClass $group, int $actorid): int {
+        global $DB;
+
+        $pending = $DB->get_records('selfselectadvanced_member', [
+            'groupid' => (int) $group->id,
+            'status' => groups::STATUS_INVITED,
+        ], 'id');
+
+        $withdrawn = 0;
+        foreach ($pending as $invite) {
+            $this->withdraw($group, (int) $invite->id, $actorid);
+            $withdrawn++;
+        }
+
+        return $withdrawn;
+    }
+
+    /**
      * Withdraw a pending invitation (leader action), freeing its seat.
      *
      * @param stdClass $group group row

@@ -642,6 +642,31 @@
         {{#submitblockedreason}}
             <p class="text-muted selfselectadvanced-submitblocked">{{submitblockedreason}}</p>
         {{/submitblockedreason}}
+        {{! Decision 73: every live sidecar at once, each with the click that }}
+        {{! clears it - not one sentence per page load.                       }}
+        {{#hasreadiness}}
+            <div class="selfselectadvanced-readiness alert alert-warning">
+                <strong>{{#str}} readinessheading, mod_selfselectadvanced {{/str}}</strong>
+                <ul class="mb-0 mt-1">
+                    {{#readiness}}
+                        <li>
+                            {{text}}
+                            {{#hasremedy}}
+                                <form method="post" action="{{remedyurl}}" class="d-inline ms-1">
+                                    <input type="hidden" name="id" value="{{cmid}}">
+                                    <input type="hidden" name="g" value="{{groupid}}">
+                                    <input type="hidden" name="action" value="{{remedyaction}}">
+                                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                    <button type="submit" class="btn btn-link btn-sm p-0 align-baseline">
+                                        {{remedylabel}}
+                                    </button>
+                                </form>
+                            {{/hasremedy}}
+                        </li>
+                    {{/readiness}}
+                </ul>
+            </div>
+        {{/hasreadiness}}
         {{{submitformhtml}}}
     {{/showsubmit}}
 

@@ -366,6 +366,32 @@ if ($action === 'invite' && $inviteform && ($data = $inviteform->get_data())) {
     );
 }
 
+// Decision 73's one-click remedy for the invitations sidecar. Every withdrawal
+// still goes through invitations::withdraw() one at a time, so each keeps its
+// own lock, its own race handling and its own notification to the invitee - the
+// The loop itself lives in the SERVICE (invitations::withdraw_all), not here:
+// this page must not carry a membership predicate of its own, which
+// viewassignedteams_test guards - and the first version of this arm queried
+// STATUS_INVITED directly and was caught by it.
+if ($action === 'withdrawall' && data_submitted() && confirm_sesskey()) {
+    $withdrawn = 0;
+    try {
+        $withdrawn = $api->invitations()->withdraw_all($group, (int) $USER->id);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect(
+            $baseurl,
+            selfselectadvanced_refusal_notice($e),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+    redirect(
+        $baseurl,
+        get_string('invitationswithdrawn', 'mod_selfselectadvanced', $withdrawn),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
+}
 if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
     $memberid = required_param('m', PARAM_INT);
     try {

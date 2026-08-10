@@ -199,4 +199,84 @@ final class control_state_test extends \advanced_testcase {
             'a prohibited invitee must be told why the buttons are absent, not left with a bare row'
         );
     }
+    /**
+     * Decision 73: the readiness panel lists EVERY live sidecar, not the first.
+     *
+     * can_submit() is a chain of early returns, so a leader with two live
+     * sidecars - two pending invitations and a member's leave request, an
+     * ordinary end-of-formation state - read one sentence, dealt with it,
+     * pressed Submit and was handed a second. The service half has enforced
+     * these four since 1.20.28; what was missing was anywhere to see them
+     * together, which made a working rule feel arbitrary.
+     *
+     * MUTATION CAUGHT (run 2026-08-10): making submit_sidecars() return after
+     * its first hit fails the count assertion.
+     */
+    public function test_the_readiness_panel_lists_every_live_sidecar(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 6,
+        ]);
+        $activity = \mod_selfselectadvanced\activity::from_instance((int) $instance->id);
+
+        $leader = $generator->create_user();
+        $generator->enrol_user($leader->id, $course->id, 'student');
+        $invitee = $generator->create_user();
+        $generator->enrol_user($invitee->id, $course->id, 'student');
+        $member = $generator->create_user();
+        $generator->enrol_user($member->id, $course->id, 'student');
+
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $leader->id,
+            'name' => 'Sidecars',
+        ]);
+        // Two live sidecars at once: an unanswered invitation AND a member who
+        // has asked to leave. This is an ordinary end-of-formation state.
+        $plugingen->create_member([
+            'groupid' => $group->id,
+            'userid' => (int) $invitee->id,
+            'status' => \mod_selfselectadvanced\local\groups::STATUS_INVITED,
+        ]);
+        $leaver = $plugingen->create_member([
+            'groupid' => $group->id,
+            'userid' => (int) $member->id,
+            'status' => \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED,
+        ]);
+        $DB->set_field('selfselectadvanced_member', 'leaverequested', time(), ['id' => $leaver->id]);
+
+        $fresh = \mod_selfselectadvanced\local\groups::get($activity, (int) $group->id);
+        $sidecars = (new \mod_selfselectadvanced\local\api($activity))->gatekeeper()->submit_sidecars($fresh);
+
+        $keys = array_map(static fn($r) => $r->stringkey, $sidecars);
+        $this->assertCount(
+            2,
+            $sidecars,
+            'the panel must show BOTH live sidecars; can_submit() shows only the first, which is the defect'
+        );
+        $this->assertContains('refusalsubmitleavepending', $keys);
+        $this->assertContains('refusalsubmitinvitespending', $keys);
+
+        // A team with nothing outstanding shows no panel - the control,
+        // without which the assertion above would pass against a method that
+        // always returns two rows.
+        $clean = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $leader->id,
+            'name' => 'Ready',
+        ]);
+        $this->assertSame(
+            [],
+            (new \mod_selfselectadvanced\local\api($activity))->gatekeeper()->submit_sidecars(
+                \mod_selfselectadvanced\local\groups::get($activity, (int) $clean->id)
+            )
+        );
+    }
 }

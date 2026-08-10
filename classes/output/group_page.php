@@ -1084,6 +1084,20 @@ class group_page implements renderable, templatable {
             'showsubmit' => $this->submitform !== null && $maylead,
             'submitformhtml' => $this->submitform?->render() ?? '',
             'submitblockedreason' => $this->submit_blocked_reason($isleader, $isforming, $submitrefusal),
+            // Decision 73, the readiness half. can_submit() returns the FIRST
+            // refusal, so a leader with two live sidecars learns them one page
+            // load at a time and cannot see how far from ready they are. The
+            // panel lists them all at once, each with the action that clears
+            // it - the remedies already exist as page actions; what was missing
+            // was anywhere to offer them from.
+            'hasreadiness' => $isleader && $isforming && $maylead
+                && $this->api->gatekeeper()->submit_sidecars($this->group) !== [],
+            'readiness' => $isleader && $isforming && $maylead
+                ? array_map(
+                    fn($refusal) => $this->readiness_item($refusal, $cmid),
+                    $this->api->gatekeeper()->submit_sidecars($this->group)
+                )
+                : [],
             'guidename' => $guidename,
             'hasguide' => $guidename !== '',
             'guideseat' => $guideseat,
@@ -1222,5 +1236,40 @@ class group_page implements renderable, templatable {
         }
 
         return '';
+    }
+    /**
+     * One readiness row: what is blocking Submit, and the click that clears it.
+     *
+     * The remedy is chosen from the refusal's own key rather than recomputed
+     * from group state, so a row can never offer a remedy for a condition that
+     * is not actually present - which is how the pre-1.20.20 renderer came to
+     * hard-code "withdraw an invitation" for teams with nothing to withdraw.
+     *
+     * @param \mod_selfselectadvanced\local\rules\refusal $refusal one live sidecar
+     * @param int $cmid course module id
+     * @return array text, and the remedy label and url when one exists
+     */
+    private function readiness_item(\mod_selfselectadvanced\local\rules\refusal $refusal, int $cmid): array {
+        $remedies = [
+            'refusalsubmitdisbanding' => ['canceldisband', 'remedycanceldisband'],
+            'refusalsubmitnomination' => ['cancelnomination', 'remedycancelnomination'],
+            'refusalsubmitinvitespending' => ['withdrawall', 'remedywithdrawall'],
+            // A pending leave is answered per member in the panel above, so
+            // this row explains and points rather than acting: a single click
+            // cannot decide FOR the leader which way to answer.
+            'refusalsubmitleavepending' => [null, null],
+        ];
+        [$action, $labelkey] = $remedies[$refusal->stringkey] ?? [null, null];
+
+        return [
+            'text' => $refusal->get_message(),
+            'hasremedy' => $action !== null,
+            'remedylabel' => $labelkey ? get_string($labelkey, 'mod_selfselectadvanced') : '',
+            'remedyaction' => $action ?? '',
+            'remedyurl' => (new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $cmid,
+                'g' => (int) $this->group->id,
+            ]))->out(false),
+        ];
     }
 }

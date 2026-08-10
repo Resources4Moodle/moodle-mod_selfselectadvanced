@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.20.33 — the readiness panel (2026-08-10)
+
+> Serial `2026081002` / `1.20.33`. No schema change. Maintainer decision 73,
+> completing the half whose service side shipped in 1.20.28.
+
+Four formation sidecars block Submit: an active wind-up, a member's pending
+leave request, a live leadership nomination, and unanswered invitations. They
+have been enforced since 1.20.28 — but `can_submit()` returns the **first**
+refusal, so a leader with two of them read one sentence, dealt with it, pressed
+Submit, and was handed a second. Nothing was lost; it simply took three page
+loads to learn what one panel can say at once, and the leader could not see how
+far from ready they were.
+
+The panel lists every live sidecar together, each with the action that clears
+it. Three carry a one-click remedy — cancel the wind-up, cancel the nomination,
+withdraw all pending invitations. **The leave row deliberately does not:** a
+single click cannot decide *for* the leader whether to let somebody go, so that
+row explains and points at the existing per-member panel.
+
+"Withdraw them all" still withdraws one at a time through the same service call,
+so each keeps its own lock, its own race handling and its own notice to the
+invitee — only the click count changes. If any one is refused the sweep stops
+and says so, because a partial result the leader cannot see is worse than a
+refusal they can.
+
+`submit_sidecars()` is deliberately narrow: the four sidecars only, not state,
+authority, size or quota. It never widens the door — `can_submit()` remains the
+sole authority on whether Submit may proceed. This only explains it.
+
 ## 1.20.32 — three ruled decisions built (2026-08-10)
 
 > Serial `2026081001` / `1.20.32`. One new column, `joinexpiry`, defaulting to

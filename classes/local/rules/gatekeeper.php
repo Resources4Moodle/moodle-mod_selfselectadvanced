@@ -199,6 +199,55 @@ class gatekeeper {
     }
 
     /**
+     * EVERY live formation sidecar blocking Submit, not just the first.
+     *
+     * Decision 73's readiness half. can_submit() is a chain of early returns,
+     * so a leader with two live sidecars - two pending invitations AND a
+     * member's leave request, an ordinary end-of-formation state - reads one
+     * sentence, deals with it, presses Submit, and is handed a second. Nothing
+     * is lost; it simply takes three page loads to learn what one panel can say
+     * at once, and the leader cannot see how far from ready they are.
+     *
+     * Deliberately NARROW. This lists only the four SIDECARS - an active
+     * disband, a pending leave, a live nomination, unanswered invitations -
+     * because those are the four the ruling gives a one-click remedy. State,
+     * authority, size and quota are not listed here: they are not sidecars, and
+     * can_submit() remains the single authority on whether Submit may proceed.
+     * This never widens the door; it only explains it.
+     *
+     * @param stdClass $group group row
+     * @return refusal[] every live sidecar, in the order can_submit() checks them
+     */
+    public function submit_sidecars(stdClass $group): array {
+        global $DB;
+
+        $sidecars = [];
+        if (!empty($group->timedisbandrequested)) {
+            $sidecars[] = new refusal('refusalsubmitdisbanding');
+        }
+        $leaving = $DB->count_records_select(
+            'selfselectadvanced_member',
+            'groupid = ? AND status = ? AND leaverequested IS NOT NULL',
+            [(int) $group->id, groups::STATUS_CONFIRMED]
+        );
+        if ($leaving > 0) {
+            $sidecars[] = new refusal('refusalsubmitleavepending', $leaving);
+        }
+        if (!empty($group->successorid)) {
+            $sidecars[] = new refusal('refusalsubmitnomination');
+        }
+        $invited = $DB->count_records('selfselectadvanced_member', [
+            'groupid' => (int) $group->id,
+            'status' => groups::STATUS_INVITED,
+        ]);
+        if ($invited > 0) {
+            $sidecars[] = new refusal('refusalsubmitinvitespending', $invited);
+        }
+
+        return $sidecars;
+    }
+
+    /**
      * The candidate-independent half of the invite door, for the
      * CONTROL (external audit MKT-03, 1.20.21): may this team invite
      * ANYBODY right now? State, wind-up, window and seats - the arms
