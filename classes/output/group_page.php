@@ -844,23 +844,9 @@ class group_page implements renderable, templatable {
                 // address is read here, for any viewer, in either state
                 // of the contact-privacy switch.
                 $requesterattrs = \mod_selfselectadvanced\local\attributes\manager::get_for_users($requesterids);
-                // What the acceptance costs elsewhere, batched before
-                // the loop for the same reason the tab batches it.
-                $sourceids = [];
-                foreach ($waiting as $request) {
-                    if ($request->sourcegroupid) {
-                        $sourceids[(int) $request->sourcegroupid] = true;
-                    }
-                }
-                $sourcenames = $sourceids
-                    ? $DB->get_records_list(
-                        'selfselectadvanced_group',
-                        'id',
-                        array_keys($sourceids),
-                        '',
-                        'id, name'
-                    )
-                    : [];
+                // THE "WOULD LEAVE" LOOKUP WENT WITH DECISION 77, here and on
+                // the Asked-of-my-group tab. Acceptance changes one roster now,
+                // and it is the one the leader is looking at.
 
                 foreach ($waiting as $request) {
                     $userid = (int) $request->userid;
@@ -921,13 +907,6 @@ class group_page implements renderable, templatable {
                         'seatline' => $verdict->seat !== null
                             ? get_string('joinfitseat', 'mod_selfselectadvanced', $verdict->seat)
                             : '',
-                        'leavesline' => isset($sourcenames[(int) $request->sourcegroupid])
-                            ? get_string(
-                                'joinleaves',
-                                'mod_selfselectadvanced',
-                                format_string($sourcenames[(int) $request->sourcegroupid]->name)
-                            )
-                            : get_string('joinleavesnone', 'mod_selfselectadvanced'),
                         'asked' => userdate((int) $request->timecreated),
                     ];
                 }

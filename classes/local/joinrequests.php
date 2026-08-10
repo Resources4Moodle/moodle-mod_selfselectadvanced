@@ -579,7 +579,7 @@ class joinrequests {
             throw new workflow_refusal('refusaljoinnoheadroom', 'mod_selfselectadvanced', '', (object) [
                 'current' => count($currents),
                 'max' => $cap,
-                'teams' => implode(', ', array_map(
+                'groups' => implode(', ', array_map(
                     static fn(stdClass $group): string => format_string($group->name),
                     $currents
                 )),

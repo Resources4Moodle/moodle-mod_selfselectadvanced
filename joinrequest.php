@@ -447,17 +447,6 @@ if ($tab === 'ask') {
         }
     }
 
-    // One batched lookup over the rows already loaded, before the loop.
-    $sourceids = [];
-    foreach ($rows as [, $request]) {
-        if ($request->sourcegroupid) {
-            $sourceids[(int) $request->sourcegroupid] = true;
-        }
-    }
-    $sourcenames = $sourceids
-        ? $DB->get_records_list('selfselectadvanced_group', 'id', array_keys($sourceids), '', 'id, name')
-        : [];
-
     // The requesters' COMPOSITION attributes, one bulk read before the
     // loop and never a get_for_users() inside it - the same accessor,
     // and the same two dimensions, the leader panel on group.php
@@ -651,18 +640,12 @@ if ($tab === 'ask') {
                     'small'
                 );
             }
-            // The decider is entitled to know what the acceptance costs
-            // elsewhere: which team, if any, the student would leave.
-            $fitcell[] = html_writer::div(
-                isset($sourcenames[(int) $request->sourcegroupid])
-                    ? get_string(
-                        'joinleaves',
-                        'mod_selfselectadvanced',
-                        format_string($sourcenames[(int) $request->sourcegroupid]->name)
-                    )
-                    : get_string('joinleavesnone', 'mod_selfselectadvanced'),
-                'small text-muted'
-            );
+            // THE "WOULD LEAVE" LINE WENT WITH DECISION 77. It told the
+            // decider what the acceptance cost elsewhere, which was a real
+            // question while a join was a swap. A join takes nobody out of
+            // anywhere now, so the line could only ever say the same thing -
+            // and a line that always says the same thing tells a leader
+            // nothing while implying there was something to weigh.
 
             $attr = $requesterattrs[(int) $request->userid] ?? null;
             $department = trim((string) ($attr->department ?? ''));

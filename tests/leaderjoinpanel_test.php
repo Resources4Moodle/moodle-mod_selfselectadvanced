@@ -181,9 +181,13 @@ final class leaderjoinpanel_test extends \advanced_testcase {
         $this->assertTrue($row->hasdepartment);
         $this->assertTrue($row->hassubdepartment);
         $this->assertFalse($row->noattributes);
-        // What the acceptance costs elsewhere is on the row too: the
-        // wanderer is confirmed in Alpha and the cap is one.
-        $this->assertStringContainsString('Alpha', $row->leavesline);
+        // AND NOTHING ABOUT ANOTHER TEAM. The row used to carry a "would
+        // leave Alpha" line, because acceptance emptied a seat there. Decision
+        // 77 made a join additive: the only roster this decision changes is
+        // the one the leader is looking at, so naming Alpha here would be
+        // describing a change that does not happen.
+        $this->assertObjectNotHasProperty('leavesline', $row);
+        $this->assertStringNotContainsString('Alpha', json_encode($row));
 
         // THE CARDINAL RULE'S SIDE OF THE SAME PANEL. The fixture gives
         // the wanderer a consented mobile number, so a panel that

@@ -107,7 +107,7 @@ Feature: A composition maximum on confirmed members is a wall, a maximum on proj
     And I follow "Alpha"
     Then I should see "pending invitation(s) could then no longer be accepted"
     And I click on "Accept" "button" confirming the dialogue
-    And I should see "Accepted. The student has been moved and the group re-composed."
+    And I should see "Accepted. The student has joined the group."
 
   Scenario: The truth on the invitee's landing page - a blocked invitation says so before the click
     Given the following "mod_selfselectadvanced > members" exist:

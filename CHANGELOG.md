@@ -36,6 +36,15 @@ queue, and a student with no room is refused readably at accept time instead.
 Staged staff moves are untouched: a staff move's source is the whole point of
 it, and the update is scoped to waiting join requests alone.
 
+**Two surfaces stopped saying a thing that is no longer true.** The acceptance
+message read *"the student has been moved and the group re-composed"*; nobody is
+moved, so it now reads *"the student has joined the group."* And the decider's
+"would leave X" line is gone from both the leader panel and the Asked-of-my-group
+tab: with no swap it could only ever say the same thing, and a line that always
+says the same thing tells a leader nothing while implying there was something to
+weigh. The student's own history keeps its column, because that is a record of
+what was asked.
+
 **What did not change.** A settled team still keeps its people. That protection
 used to live in the join service — asking to join elsewhere was refused while
 your current team was approved and unreleased — and it now lives on the only
