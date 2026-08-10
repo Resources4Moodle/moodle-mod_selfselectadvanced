@@ -725,11 +725,29 @@ class gatekeeper {
             }
         }
 
-        if (
-            !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($this->activity, (int) $group->id)
-            && !$this->resolver->is_quota_exempt((int) $group->id)->enabled
-        ) {
-            return new refusal('refusalquota');
+        // DECISION 74, the honesty half. is_compliant() returns
+        // evaluate()->compliant and drops the `exact` flag on the floor, so
+        // both this gate and Freeze used to state "the group does not yet
+        // satisfy the composition quota rules" as a FACT about a verdict the
+        // allocator had already recorded it could not prove. That is the
+        // project's own no-lies rule broken in the product, said to students.
+        //
+        // The fallback fills a valid seating, so its count is a strict lower
+        // bound: the engine can only ever OVER-refuse. A correct team is made
+        // to wait, and it is told the truth about why while it waits. The
+        // auto-approval plan has answered this way since 1.20.26 (see the
+        // !$report->exact branch below); these two gates now agree with it.
+        if (!$this->resolver->is_quota_exempt((int) $group->id)->enabled) {
+            $quotareport = \mod_selfselectadvanced\local\quota\evaluator::evaluate(
+                $this->activity,
+                (int) $group->id
+            );
+            if (!$quotareport->exact) {
+                return new refusal('refusalquotainexact');
+            }
+            if (!$quotareport->compliant) {
+                return new refusal('refusalquota');
+            }
         }
 
         return null;
@@ -1087,11 +1105,29 @@ class gatekeeper {
                 'excess' => $confirmed - $maxsize->value,
             ]);
         }
-        if (
-            !\mod_selfselectadvanced\local\quota\evaluator::is_compliant($this->activity, (int) $group->id)
-            && !$this->resolver->is_quota_exempt((int) $group->id)->enabled
-        ) {
-            return new refusal('refusalquota');
+        // DECISION 74, the honesty half. is_compliant() returns
+        // evaluate()->compliant and drops the `exact` flag on the floor, so
+        // both this gate and Freeze used to state "the group does not yet
+        // satisfy the composition quota rules" as a FACT about a verdict the
+        // allocator had already recorded it could not prove. That is the
+        // project's own no-lies rule broken in the product, said to students.
+        //
+        // The fallback fills a valid seating, so its count is a strict lower
+        // bound: the engine can only ever OVER-refuse. A correct team is made
+        // to wait, and it is told the truth about why while it waits. The
+        // auto-approval plan has answered this way since 1.20.26 (see the
+        // !$report->exact branch below); these two gates now agree with it.
+        if (!$this->resolver->is_quota_exempt((int) $group->id)->enabled) {
+            $quotareport = \mod_selfselectadvanced\local\quota\evaluator::evaluate(
+                $this->activity,
+                (int) $group->id
+            );
+            if (!$quotareport->exact) {
+                return new refusal('refusalquotainexact');
+            }
+            if (!$quotareport->compliant) {
+                return new refusal('refusalquota');
+            }
         }
 
         return null;

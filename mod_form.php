@@ -213,6 +213,13 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setType('inviteexpiry', PARAM_INT);
         $mform->setDefault('inviteexpiry', 0);
         $mform->addHelpButton('inviteexpiry', 'inviteexpiry', 'mod_selfselectadvanced');
+        // Decision 78, half B. Separate from inviteexpiry on purpose: they are
+        // different clocks for different actors, and a site that turns on
+        // invitation expiry must not silently start expiring join requests.
+        $mform->addElement('text', 'joinexpiry', get_string('joinexpiry', 'mod_selfselectadvanced'), ['size' => 4]);
+        $mform->setType('joinexpiry', PARAM_INT);
+        $mform->setDefault('joinexpiry', 0);
+        $mform->addHelpButton('joinexpiry', 'joinexpiry', 'mod_selfselectadvanced');
 
         // Auto-grouping.
         $mform->addElement(

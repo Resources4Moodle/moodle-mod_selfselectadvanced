@@ -65,6 +65,17 @@ $tasks = [
         'dayofweek' => '*',
     ],
     [
+        // Decision 78, half B. Offset from expire_invitations so the two
+        // expiry sweeps do not contend for the same locks on a busy site.
+        'classname' => \mod_selfselectadvanced\task\expire_join_requests::class,
+        'blocking' => 0,
+        'minute' => '43',
+        'hour' => '*',
+        'day' => '*',
+        'month' => '*',
+        'dayofweek' => '*',
+    ],
+    [
         'classname' => \mod_selfselectadvanced\task\guide_autoapprove::class,
         'blocking' => 0,
         'minute' => '*/10',

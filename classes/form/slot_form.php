@@ -96,8 +96,16 @@ class slot_form extends \moodleform {
      */
     public function validation($data, $files): array {
         $errors = parent::validation($data, $files);
-        if ((int) ($data['mincount'] ?? 0) < 1 || (int) $data['mincount'] > 50) {
-            $errors['mincount'] = get_string('errslotcount', 'mod_selfselectadvanced');
+        // The SERVICE owns this rule (slots::envelope_refusal); the form asks
+        // it so the person sees the message before the POST rather than after.
+        $mincount = (int) ($data['mincount'] ?? 0);
+        $others = $this->_customdata['otherslots'] ?? [];
+        $otherseats = 0;
+        foreach ($others as $slot) {
+            $otherseats += (int) $slot->mincount;
+        }
+        if ($refusal = slots::envelope_refusal($mincount, $otherseats, count($others))) {
+            $errors['mincount'] = get_string($refusal->stringkey, 'mod_selfselectadvanced', $refusal->a);
         }
         if (($data['matchtype'] ?? '') === 'value' && ($data['valuepick'] ?? '') !== '') {
             [$dim] = explode('|', $data['valuepick'], 2);

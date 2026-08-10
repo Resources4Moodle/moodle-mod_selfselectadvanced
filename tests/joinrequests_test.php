@@ -169,6 +169,70 @@ final class joinrequests_test extends \advanced_testcase {
     }
 
     /**
+     * Decision 78A: a late request is refused AT THE DOOR, against the asker's own clock.
+     *
+     * Before 1.20.32 request() asked no date question. A student past the
+     * formation cut-off filed successfully and read "Your request has gone to
+     * the group leader." It could never be accepted - the leader's Answer tab
+     * refused it against the LEADER'S window - so nothing was wrongly admitted,
+     * but the student was told the opposite of the truth with no way to find
+     * out why.
+     *
+     * MUTATION CAUGHT (run 2026-08-10): removing the check_window() call from
+     * joinrequests::request() lets the filing succeed and fails this test.
+     */
+    public function test_a_request_past_the_cutoff_is_refused_at_filing(): void {
+        $this->resetAfterTest();
+        [$activity, $alpha, $beta, $wanderer] = $this->setup_world([
+            'timecutoff' => time() - DAYSECS,
+        ]);
+
+        $this->assert_refused('refusalcutoffpassed', fn() => joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'Closer to my programme',
+            (int) $wanderer->id
+        ));
+
+        // And nothing was written: a refused filing must leave no row behind.
+        $this->assertSame(
+            0,
+            count(joinrequests::waiting_for_group($activity, (int) $beta->id)),
+            'a refused request must not create a row the leader then has to decline'
+        );
+    }
+
+    /**
+     * The requester's OWN extension is what counts - the control for the test above.
+     *
+     * A per-user timecutoff override made this student's window later than the
+     * activity's. That extension works when they create a team and when they
+     * accept an invitation; decision 78A makes it work here too.
+     */
+    public function test_a_personal_extension_lets_the_request_through(): void {
+        $this->resetAfterTest();
+        [$activity, $alpha, $beta, $wanderer] = $this->setup_world([
+            'timecutoff' => time() - DAYSECS,
+        ]);
+
+        \mod_selfselectadvanced\local\override\store::save(
+            $activity,
+            'user',
+            (int) $wanderer->id,
+            ['timecutoff' => time() + DAYSECS],
+            (int) get_admin()->id
+        );
+
+        $request = joinrequests::request(
+            $activity,
+            (int) $beta->id,
+            'My deadline was extended',
+            (int) $wanderer->id
+        );
+        $this->assertSame(joinrequests::STATUS_REQUESTED, $request->status);
+    }
+
+    /**
      * The ordinary case: a student asks, the TARGET team's leader
      * accepts, and the move happens through the engine.
      */
@@ -1401,5 +1465,82 @@ final class joinrequests_test extends \advanced_testcase {
             (int) $manager->id,
             ['L2']
         ));
+    }
+    /**
+     * Decision 78B: an unanswered request expires, and the student is told.
+     *
+     * A request was never immortal - it auto-declines when the target team is
+     * deleted or disbanded, the student can withdraw, and the leader's Decline
+     * is never disabled even when Accept is. What was missing is a CLOCK: an
+     * unanswered request sat in the queue indefinitely while the student waited
+     * with no way to tell "nobody has looked yet" from "this will never happen".
+     *
+     * MUTATION CAUGHT (run 2026-08-10): making expire_due() return early
+     * regardless of joinexpiry fails the status assertion; dropping the
+     * notifier::send() call fails the recipient assertion.
+     */
+    public function test_an_unanswered_request_expires_and_the_student_is_told(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, $alpha, $beta, $wanderer] = $this->setup_world(['joinexpiry' => 3]);
+
+        $request = joinrequests::request($activity, (int) $beta->id, 'Please', (int) $wanderer->id);
+        // Age it past the window.
+        $DB->set_field('selfselectadvanced_move', 'timecreated', time() - (4 * DAYSECS), ['id' => $request->id]);
+
+        $this->assertSame(1, joinrequests::expire_due($activity));
+        $this->assertSame(
+            joinrequests::STATUS_DECLINED,
+            $DB->get_field('selfselectadvanced_move', 'status', ['id' => $request->id])
+        );
+
+        $tolds = array_map(static fn($m) => (int) $m->useridto, $sink->get_messages());
+        $this->assertContains(
+            (int) $wanderer->id,
+            $tolds,
+            'an expiry the student discovers by absence is the same silence this decision ends'
+        );
+        $sink->close();
+    }
+
+    /**
+     * Off by default, and a request inside the window is untouched.
+     *
+     * The control. Without it the test above would pass against an
+     * expire_due() that withdrew everything it saw.
+     */
+    public function test_expiry_is_off_by_default_and_spares_a_fresh_request(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+
+        // ONE world: setup_world() pins a course shortname, so calling it
+        // twice in a test collides. The activity's setting is moved instead,
+        // which is also the truer test - the same request, the same data, and
+        // only the switch changing.
+        [$activity, $alpha, $beta, $wanderer] = $this->setup_world();
+        $request = joinrequests::request($activity, (int) $beta->id, 'Please', (int) $wanderer->id);
+        $DB->set_field('selfselectadvanced_move', 'timecreated', time() - (400 * DAYSECS), ['id' => $request->id]);
+        $this->assertSame(0, joinrequests::expire_due($activity), 'expiry must be off unless the activity sets it');
+        $this->assertSame(
+            joinrequests::STATUS_REQUESTED,
+            $DB->get_field('selfselectadvanced_move', 'status', ['id' => $request->id]),
+            'a request older than any window must survive while the feature is off'
+        );
+
+        // Switched on, with a window the request is comfortably inside.
+        $DB->set_field('selfselectadvanced', 'joinexpiry', 3000, ['id' => $activity->id()]);
+        $reloaded = activity::from_instance($activity->id());
+        $this->assertSame(0, joinrequests::expire_due($reloaded), 'a request inside the window must survive');
+        $this->assertSame(
+            joinrequests::STATUS_REQUESTED,
+            $DB->get_field('selfselectadvanced_move', 'status', ['id' => $request->id])
+        );
+
+        // And the same request DOES expire once the window is short enough,
+        // which is what proves the two assertions above are discriminating.
+        $DB->set_field('selfselectadvanced', 'joinexpiry', 1, ['id' => $activity->id()]);
+        $this->assertSame(1, joinrequests::expire_due(activity::from_instance($activity->id())));
     }
 }

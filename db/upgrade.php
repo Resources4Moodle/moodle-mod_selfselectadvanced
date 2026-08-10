@@ -2257,5 +2257,36 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026080904, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081001) {
+        // 1.20.32: decisions 71, 74 and 78 built; joinexpiry added.
+        //
+        // A join request had no time-based expiry. It is not immortal - it
+        // auto-declines when the team is deleted or disbanded, the student can
+        // withdraw, and Decline is never disabled - but an unanswered one sits
+        // in a leader's queue indefinitely and the asking student is left
+        // hanging with no signal either way (decision 78, half B).
+        //
+        // A SEPARATE column, deliberately, rather than reusing inviteexpiry:
+        // they are different clocks for different actors, and a site that
+        // switches on invitation expiry must not silently start expiring join
+        // requests as a side effect.
+        $table = new xmldb_table('selfselectadvanced');
+        $field = new xmldb_field('joinexpiry', XMLDB_TYPE_INTEGER, '5', null, XMLDB_NOTNULL, null, '0', 'inviteexpiry');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.32 (2026081001). Decision 71 (Leadership help), decision 74 '
+                . '(seat-plan envelope and honest unproven verdicts), decision 78 (the requester\'s own '
+                . 'clock, and an expiry for unanswered join requests). One new column, defaulting to off.',
+            'Adds selfselectadvanced.joinexpiry, default 0 (never expires).'
+        );
+
+        upgrade_mod_savepoint(true, 2026081001, 'selfselectadvanced');
+    }
+
     return true;
 }

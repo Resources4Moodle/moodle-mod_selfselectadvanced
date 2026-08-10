@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.20.32 — three ruled decisions built (2026-08-10)
+
+> Serial `2026081001` / `1.20.32`. One new column, `joinexpiry`, defaulting to
+> 0 (never). Decisions 71, 74 and 78.
+
+**Decision 78, half A — a late join request is refused at the door.** A student
+past the formation cut-off could file one and was told *"Your request has gone
+to the group leader."* It could never be accepted: the leader's Answer tab then
+refused it against the **leader's** clock. Nothing was wrongly admitted, but the
+student was told the opposite of the truth with no way to learn why — and a
+per-user deadline extension was invisible here while working on the two sibling
+doors. The filing is now judged against the requester's own window.
+
+**Decision 78, half B — an unanswered request expires.** It was never immortal:
+it auto-declines when the team is deleted or disbanded, the student can
+withdraw, and the leader's Decline is never disabled. What was missing was a
+clock, so a student could not tell *"nobody has looked yet"* from *"this will
+never happen"*. `joinexpiry` is deliberately separate from `inviteexpiry` —
+different clocks for different actors, and switching one on must not silently
+switch on the other. The student is told when their request lapses.
+
+**Decision 74 — the plugin stops asserting a verdict it cannot prove.** When the
+seat allocator falls back it records `exact=false`. Submit and Freeze called
+`is_compliant()`, which drops that flag, and stated a composition shortfall as
+fact on the student-facing page. Both now answer `refusalquotainexact`, agreeing
+with what the auto-approval plan has said since 1.20.26. Separately the seat-plan
+envelope is now enforced by the **service** rather than the form: the form
+bounded one field of one slot at 1–50 against a solver limit of 40 and could not
+see the rest of the plan, and the service clamped only the low end, so a crafted
+POST walked past both. Both write paths are guarded — creating a small slot and
+editing it upward would otherwise have bypassed the rule.
+
+**Decision 71 — "Leadership help".** A confirmed member can ask the coordinator
+queue about a team's leadership. Every other leader-only action already had a
+staff route for an absent leader; this one did not. It inherits reason-required,
+one-live-per-team, the group lock and the conflict-of-interest rule from the
+generic ticket door, which is why the ruling could be small. The leader is
+always notified — a leadership ask decided behind their back would be the
+member-controlled transfer the ruling forbids — and the message carries the
+member's words but not their name, because the queue decides this, not the team.
+The leader cannot file it: they have succession, which is theirs to drive.
+
 ## 1.20.31 — a type name can no longer veto a feature (2026-08-09)
 
 > Serial `2026080904` / `1.20.31`. One column precision change; no data change.

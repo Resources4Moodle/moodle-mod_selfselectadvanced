@@ -1420,6 +1420,20 @@ if ($stateguided) {
     $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_DATES;
     $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_PENALTY;
 }
+// Decision 71, "Leadership help": the one type a MEMBER files. Offered to a
+// confirmed member who is NOT the leader - a leader who wants out drives
+// succession instead, which is theirs. The service re-asks both conditions
+// inside the lock; this only decides whether the form is drawn.
+if (
+    !$isgroupleader
+    && $DB->record_exists('selfselectadvanced_member', [
+        'groupid' => (int) $group->id,
+        'userid' => (int) $USER->id,
+        'status' => \mod_selfselectadvanced\local\groups::STATUS_CONFIRMED,
+    ])
+) {
+    $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_LEADERCHANGE;
+}
 foreach ($requestable as $tickettype) {
     $ticketforms .= html_writer::start_tag('form', ['method' => 'post', 'class' => 'mb-2',
         'action' => (new moodle_url($baseurl, ['action' => 'ticket']))->out(false)])

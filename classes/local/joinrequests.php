@@ -326,6 +326,29 @@ class joinrequests {
             throw new workflow_refusal('refusaljoinreason', 'mod_selfselectadvanced');
         }
 
+        // DECISION 78, HALF A. The REQUESTER'S own clock, asked here at the
+        // door rather than only at the leader's Answer tab.
+        //
+        // Before this, request() asked no date question at all: a student past
+        // the formation cut-off filed successfully and was told "Your request
+        // has gone to the group leader." It never could be accepted - the
+        // leader's tab then refused it against the LEADER'S window - so nothing
+        // was wrongly admitted, but the student was told the opposite of the
+        // truth and had no way to learn why. A per-user timecutoff extension
+        // was equally invisible: it works when creating a team
+        // (gatekeeper::can_create_group) and when accepting an invitation
+        // (can_accept), and did nothing here, which is harder to diagnose than
+        // failing everywhere.
+        //
+        // Scope, deliberately: this judges the FILING against the person doing
+        // the filing, exactly as the two sibling doors already do. It does NOT
+        // change whose clock governs at ACCEPT time - that is a two-party
+        // question the maintainer has not ruled (matrix rows T13-T17), and
+        // improvising it here would settle a ruling by accident.
+        if ($refusal = (new api($activity))->gatekeeper()->check_window($userid, null, time())) {
+            throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+        }
+
         $target = groups::get($activity, $targetgroupid);
 
         // Leadership first: a leader is also a confirmed member of their
@@ -1473,5 +1496,74 @@ class joinrequests {
             ]),
             format_string($target->name)
         );
+    }
+    /**
+     * Withdraw join requests nobody answered inside the activity's window.
+     *
+     * Decision 78, half B. A request was never immortal - it auto-declines when
+     * the target team is deleted or disbanded, the student can withdraw it, and
+     * the leader's Decline is never disabled even when Accept is - but an
+     * unanswered one sat in the queue indefinitely while the student waited
+     * with no signal either way. They could not tell "nobody has looked yet"
+     * from "this will never happen".
+     *
+     * Modelled on invitations::expire_due(): same shape, same off-by-default
+     * setting, same "0 means never". The clock is the request's own
+     * timecreated, which already exists - no new column was needed for the
+     * expiry itself, only for the duration.
+     *
+     * The student is TOLD. An expiry they discover by absence would be the same
+     * silence this decision exists to end.
+     *
+     * @param activity $activity the activity
+     * @param int|null $now clock override for tests
+     * @return int how many requests were withdrawn
+     */
+    public static function expire_due(activity $activity, ?int $now = null): int {
+        global $DB;
+
+        $now = $now ?? time();
+        $days = (int) $activity->settings()->joinexpiry;
+        if ($days < 1) {
+            return 0;
+        }
+        $deadline = $now - ($days * DAYSECS);
+
+        $due = $DB->get_records_sql(
+            "SELECT m.*, g.name AS groupname
+               FROM {selfselectadvanced_move} m
+               JOIN {selfselectadvanced_group} g ON g.id = m.targetgroupid
+              WHERE g.activityid = :activityid
+                AND m.status = :status
+                AND m.timecreated < :deadline",
+            [
+                'activityid' => $activity->id(),
+                'status' => self::STATUS_REQUESTED,
+                'deadline' => $deadline,
+            ]
+        );
+
+        $expired = 0;
+        foreach ($due as $request) {
+            $DB->update_record('selfselectadvanced_move', (object) [
+                'id' => $request->id,
+                'status' => self::STATUS_DECLINED,
+                'responsenote' => get_string('joinexpiredreason', 'mod_selfselectadvanced', $days),
+                'timemodified' => $now,
+            ]);
+            notifier::send(
+                $activity,
+                'joinrequests',
+                (int) $request->userid,
+                'msgjoinexpiredsubject',
+                'msgjoinexpiredbody',
+                (object) ['group' => format_string($request->groupname), 'days' => $days],
+                new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]),
+                format_string($request->groupname)
+            );
+            $expired++;
+        }
+
+        return $expired;
     }
 }

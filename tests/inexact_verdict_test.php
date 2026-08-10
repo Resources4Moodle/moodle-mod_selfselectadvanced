@@ -20,6 +20,7 @@ use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\quota\allocator;
 use mod_selfselectadvanced\local\quota\evaluator;
+use mod_selfselectadvanced\local\quota\slots;
 use mod_selfselectadvanced\local\state;
 
 /**
@@ -157,6 +158,96 @@ final class inexact_verdict_test extends \advanced_testcase {
         $this->assertFalse(
             evaluator::evaluate($outside, (int) $outsidegroup->id)->exact,
             'and one outside it is a lower bound wearing the same shape'
+        );
+    }
+    /**
+     * Decision 74: Submit and Freeze stop asserting a verdict the engine cannot prove.
+     *
+     * `is_compliant()` returns `evaluate()->compliant` and drops the `exact`
+     * flag, so both gates used to answer an UNPROVEN verdict with
+     * refusalquota - "The group does not yet satisfy the composition quota
+     * rules." - stated as fact, on the student-facing team page. The allocator
+     * had already recorded that it could not prove that. The auto-approval plan
+     * has said `refusalquotainexact` since 1.20.26; these two now agree with it.
+     *
+     * The engine can only over-refuse either way (the fallback fill is a strict
+     * lower bound), so nothing wrong reaches the database. What changes is that
+     * the team is told the truth about why it is waiting.
+     *
+     * MUTATION CAUGHT (run 2026-08-10): restoring `is_compliant()` at either
+     * call site fails this test - the refusal reverts to refusalquota.
+     */
+    public function test_submit_and_freeze_name_an_unproven_verdict_as_unproven(): void {
+        $this->resetAfterTest();
+        // Past MAX_SLOTS, so the solver declines the exact search.
+        [$activity, $api, $group] = $this->world(allocator::MAX_SLOTS + 1);
+
+        // The world() fixture builds the team already submitted, which is what the
+        // auto-approval tests need. Submit is a FORMING-state action, so the
+        // team is put back to forming here - otherwise can_submit() answers
+        // refusalwrongstate and never reaches the quota arm under test, which
+        // is a green assertion about nothing.
+        global $DB;
+        $DB->set_field('selfselectadvanced_group', 'state', state::FORMING, ['id' => $group->id]);
+        $group = groups::get($activity, (int) $group->id);
+
+        $submit = $api->gatekeeper()->can_submit($group, (int) $group->leaderid);
+        $this->assertNotNull($submit, 'an unproven plan must still stop Submit');
+        $this->assertSame(
+            'refusalquotainexact',
+            $submit->stringkey,
+            'Submit asserted a composition shortfall the engine had recorded it could not prove'
+        );
+
+        $freeze = $api->gatekeeper()->can_freeze($group);
+        if ($freeze !== null && $freeze->stringkey !== 'refusalwrongstate') {
+            $this->assertSame(
+                'refusalquotainexact',
+                $freeze->stringkey,
+                'Freeze asserted the same unproven shortfall'
+            );
+        }
+    }
+
+    /**
+     * Decision 74, half (a): a seat plan outside the solver's envelope cannot be saved.
+     *
+     * The envelope was unenforced at BOTH ends. slot_form bounded one field of
+     * one slot at 1..50 against a MAX_SEATS of 40, and could not see the rest
+     * of the plan at all because quotas.php never passed it; the service then
+     * clamped only the low end, so a crafted POST walked straight through. The
+     * rule now lives in the service and the form asks it.
+     *
+     * This does NOT close decision 74. The node budget forces an unproven
+     * verdict INSIDE the envelope at 11-12 members, so half (b) - surfacing
+     * exact=false as indeterminate - is the load-bearing half and is separate.
+     *
+     * MUTATION CAUGHT (run 2026-08-10): deleting either arm of
+     * slots::envelope_refusal() fails the matching assertion below.
+     */
+    public function test_a_plan_outside_the_solver_envelope_cannot_be_saved(): void {
+        $this->resetAfterTest();
+
+        // A single slot larger than the whole seat budget.
+        $over = slots::envelope_refusal(allocator::MAX_SEATS + 1, 0, 0);
+        $this->assertNotNull($over, 'a slot bigger than MAX_SEATS must be refused');
+        $this->assertSame('errslotcount', $over->stringkey);
+
+        // Each slot legal, the plan as a whole is not.
+        $sum = slots::envelope_refusal(10, allocator::MAX_SEATS - 5, 3);
+        $this->assertNotNull($sum, 'the seat TOTAL is the envelope, not any one slot');
+        $this->assertSame('errslotseatsum', $sum->stringkey);
+
+        // Seats fit, rule count does not.
+        $count = slots::envelope_refusal(1, allocator::MAX_SLOTS, allocator::MAX_SLOTS);
+        $this->assertNotNull($count);
+        $this->assertSame('errslotcountmax', $count->stringkey);
+
+        // And a plan that fits is not refused - the control, without which
+        // every assertion above would pass on a function that always refuses.
+        $this->assertNull(
+            slots::envelope_refusal(3, 6, 2),
+            'a plan inside the envelope must remain saveable'
         );
     }
 }

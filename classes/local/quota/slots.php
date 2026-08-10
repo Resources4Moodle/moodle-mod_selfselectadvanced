@@ -19,6 +19,7 @@ namespace mod_selfselectadvanced\local\quota;
 use mod_selfselectadvanced\activity;
 use mod_selfselectadvanced\local\attributes\manager;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\quota\allocator;
 use stdClass;
 
 /**
@@ -143,6 +144,21 @@ class slots {
         if (!in_array($data->matchtype, ['value', 'distinct'], true)) {
             throw new \coding_exception('Bad slot matchtype');
         }
+        // The envelope is enforced HERE, not only in the form: a crafted POST
+        // used to reach this line and be clamped only at the low end.
+        $existing = $DB->get_records('selfselectadvanced_qslot', ['activityid' => $activity->id()], '', 'id, mincount');
+        $otherseats = 0;
+        foreach ($existing as $slot) {
+            $otherseats += (int) $slot->mincount;
+        }
+        if ($refusal = self::envelope_refusal((int) $data->mincount, $otherseats, count($existing))) {
+            throw new \mod_selfselectadvanced\local\workflow_refusal(
+                $refusal->stringkey,
+                'mod_selfselectadvanced',
+                '',
+                $refusal->a
+            );
+        }
         $now = time();
         $record = (object) [
             'activityid' => $activity->id(),
@@ -189,6 +205,27 @@ class slots {
         }
         if (!in_array($data->matchtype, ['value', 'distinct'], true)) {
             throw new \coding_exception('Bad slot matchtype');
+        }
+        // Same envelope, the other write path. create() alone would have left
+        // the rule bypassable by saving a small slot and then editing it up.
+        $others = $DB->get_records_select(
+            'selfselectadvanced_qslot',
+            'activityid = :activityid AND id <> :slotid',
+            ['activityid' => $activity->id(), 'slotid' => $slotid],
+            '',
+            'id, mincount'
+        );
+        $otherseats = 0;
+        foreach ($others as $other) {
+            $otherseats += (int) $other->mincount;
+        }
+        if ($refusal = self::envelope_refusal((int) $data->mincount, $otherseats, count($others))) {
+            throw new \mod_selfselectadvanced\local\workflow_refusal(
+                $refusal->stringkey,
+                'mod_selfselectadvanced',
+                '',
+                $refusal->a
+            );
         }
         $slot->mincount = max(1, (int) $data->mincount);
         $slot->dimension = $data->dimension;
@@ -347,5 +384,44 @@ class slots {
         }
 
         return get_string($key, 'mod_selfselectadvanced', $a);
+    }
+
+    /**
+     * Would this slot minimum push the seat plan outside the solver's envelope?
+     *
+     * Decision 74, half (a). The allocator declines an exact search past
+     * MAX_SLOTS rules or MAX_SEATS total seats and falls back to a heuristic
+     * that can only UNDER-report the fill - so a plan outside the envelope
+     * produces verdicts the engine itself records as unproven. The fix is not
+     * to explain that afterwards; it is to stop such a plan being saveable.
+     *
+     * The rule lives HERE rather than in slot_form because the form was never
+     * the authority: slot_form only bounded one field of one slot, at 1..50
+     * against a MAX_SEATS of 40, and a crafted POST reached save() which
+     * clamped only the low end. The form now asks this; so does save().
+     *
+     * @param int $mincount the proposed slot minimum
+     * @param int $otherseats seats already demanded by the REST of the plan
+     * @param int $otherslots how many other rules the plan already has
+     * @return \stdClass|null stringkey and $a for the message, or null when the plan fits
+     */
+    public static function envelope_refusal(int $mincount, int $otherseats, int $otherslots): ?\stdClass {
+        if ($mincount < 1 || $mincount > allocator::MAX_SEATS) {
+            return (object) ['stringkey' => 'errslotcount', 'a' => allocator::MAX_SEATS];
+        }
+        if ($mincount + $otherseats > allocator::MAX_SEATS) {
+            return (object) [
+                'stringkey' => 'errslotseatsum',
+                'a' => (object) ['total' => $mincount + $otherseats, 'max' => allocator::MAX_SEATS],
+            ];
+        }
+        if ($otherslots + 1 > allocator::MAX_SLOTS) {
+            return (object) [
+                'stringkey' => 'errslotcountmax',
+                'a' => (object) ['count' => $otherslots + 1, 'max' => allocator::MAX_SLOTS],
+            ];
+        }
+
+        return null;
     }
 }

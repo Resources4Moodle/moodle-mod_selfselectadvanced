@@ -62,7 +62,24 @@ $editslot = $editslotid
     : null;
 $slotform = new \mod_selfselectadvanced\form\slot_form(
     $editslot ? new moodle_url($baseurl, ['editslot' => $editslotid]) : $baseurl,
-    ['cmid' => $cm->id, 'editing' => (bool) $editslot]
+    [
+        'cmid' => $cm->id,
+        'editing' => (bool) $editslot,
+        // DECISION 74, half (a). The form could not see the rest of the plan,
+        // so it could only bound one field of one slot - and it bounded it at
+        // 50 against an allocator that gives up past MAX_SEATS = 40. A saveable
+        // seat plan must stay inside the envelope the solver can actually
+        // answer, and that is a question about the WHOLE plan.
+        'otherslots' => array_values($DB->get_records_select(
+            'selfselectadvanced_qslot',
+            'activityid = :activityid' . ($editslotid ? ' AND id <> :editslot' : ''),
+            $editslotid
+                ? ['activityid' => $activity->id(), 'editslot' => $editslotid]
+                : ['activityid' => $activity->id()],
+            '',
+            'id, mincount'
+        )),
+    ]
 );
 if ($editslot) {
     $slotform->set_data([

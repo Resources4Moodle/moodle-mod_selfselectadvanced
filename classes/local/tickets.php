@@ -83,6 +83,23 @@ class tickets {
      */
     public const TYPE_PENALTY = 'penalty';
 
+    /**
+     * @var string A confirmed MEMBER asks the coordinator queue for a
+     *      leadership change - "Leadership help" (maintainer decision 71).
+     *
+     * This is the one ticket type filed by a member rather than a guide or a
+     * leader, and it exists because every other leader-only action already has
+     * a staff route for an absent or unresponsive leader while this one did
+     * not. It is deliberately NOT a member-controlled transfer: the ticket is
+     * an ASK, decided by a coordinator under the same conflict-of-interest rule
+     * as every other type, and any actual change goes through the existing
+     * succession and move machinery.
+     *
+     * Prerequisite, now met: decision 81 split :creategroup from :lead, so a
+     * successor cannot be installed without the authority to lead (1.20.26).
+     */
+    public const TYPE_LEADERCHANGE = 'leaderchange';
+
     /** @var string Waiting in the queue. */
     public const STATUS_OPEN = 'open';
 
@@ -126,7 +143,14 @@ class tickets {
     ): stdClass {
         global $DB;
 
-        if (!in_array($type, [self::TYPE_COMPCHANGE, self::TYPE_UNFREEZE, self::TYPE_DATES, self::TYPE_PENALTY], true)) {
+        $knowntypes = [
+            self::TYPE_COMPCHANGE,
+            self::TYPE_UNFREEZE,
+            self::TYPE_DATES,
+            self::TYPE_PENALTY,
+            self::TYPE_LEADERCHANGE,
+        ];
+        if (!in_array($type, $knowntypes, true)) {
             throw new \coding_exception('Unknown ticket type ' . $type);
         }
         if (trim(html_to_text($request)) === '') {
@@ -173,6 +197,28 @@ class tickets {
                     throw new workflow_refusal('refusalwrongstate', 'mod_selfselectadvanced');
                 }
             }
+            // DECISION 71. The only type a MEMBER files, so the authority test
+            // is membership rather than the guide or leader relationship - and
+            // it is re-read inside the lock like every other arm here, because
+            // somebody who left the team between page render and POST must not
+            // be able to ask for its leadership to change.
+            //
+            // The LEADER is excluded deliberately. A leader who wants out has
+            // succession, which is theirs to drive; this ticket exists for the
+            // other direction, when the leader is absent or is the problem.
+            if ($type === self::TYPE_LEADERCHANGE) {
+                if ($isleader) {
+                    throw new workflow_refusal('refusalleaderchangeisleader', 'mod_selfselectadvanced');
+                }
+                $confirmed = $DB->record_exists('selfselectadvanced_member', [
+                    'groupid' => (int) $group->id,
+                    'userid' => $userid,
+                    'status' => groups::STATUS_CONFIRMED,
+                ]);
+                if (!$confirmed) {
+                    throw new workflow_refusal('refusalticketnotparty', 'mod_selfselectadvanced');
+                }
+            }
 
             $live = $DB->get_record_select(
                 'selfselectadvanced_ticket',
@@ -216,6 +262,33 @@ class tickets {
         }
 
         self::notify_workers($activity, $ticket, $group);
+        // Decision 71: the current leader is told, always. The ruling is
+        // explicit about it, and the reason is not courtesy - a leadership ask
+        // decided behind the leader's back is exactly the "member-controlled
+        // transfer" the ruling forbids. The body carries the member's words so
+        // the leader can respond before a coordinator picks it up; it does NOT
+        // name who filed it, because the queue decides this, not the team.
+        //
+        // Sent after the lock is released, like notify_workers above: a message
+        // send inside a plugin lock is a reported defect in this codebase.
+        if ($type === self::TYPE_LEADERCHANGE && (int) $group->leaderid > 0) {
+            notifier::send(
+                $activity,
+                'tickets',
+                (int) $group->leaderid,
+                'msgleaderchangefiledsubject',
+                'msgleaderchangefiledbody',
+                (object) [
+                    'group' => format_string($group->name),
+                    'reason' => trim(html_to_text($request)),
+                ],
+                new \moodle_url('/mod/selfselectadvanced/group.php', [
+                    'id' => $activity->cm()->id,
+                    'g' => (int) $group->id,
+                ]),
+                format_string($group->name)
+            );
+        }
 
         return $ticket;
     }

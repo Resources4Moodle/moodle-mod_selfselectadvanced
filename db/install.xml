@@ -29,6 +29,7 @@
         <FIELD NAME="penaltyperday" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Penalty per day late between timedue and timecutoff"/>
         <FIELD NAME="guidemode" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Guide selection mode: 0 = leader selects, 1 = manager assigns"/>
         <FIELD NAME="inviteexpiry" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Invitation expiry in days, 0 = never"/>
+        <FIELD NAME="joinexpiry" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Unanswered join-request expiry in days, 0 = never; deliberately separate from inviteexpiry - different clock, different actor"/>
         <FIELD NAME="autogroup" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Auto-grouping of groupless students enabled"/>
         <FIELD NAME="proposalrequired" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 optional, 1 proposal upload mandatory before submission"/>
         <FIELD NAME="guidewindow" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Seconds a guide has to decide after submission; 0 = unlimited"/>
