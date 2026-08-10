@@ -204,10 +204,10 @@ final class leaderjoinpanel_test extends \advanced_testcase {
     }
 
     /**
-     * A plain confirmed member of the team is not a decider, and
-     * neither is the leader of the team the student would LEAVE.
+     * A plain confirmed member of the team is not a decider, and neither is
+     * the leader of another team the student happens to belong to.
      */
-    public function test_a_plain_member_and_the_source_leader_are_offered_nothing(): void {
+    public function test_a_plain_member_and_another_teams_leader_are_offered_nothing(): void {
         $this->resetAfterTest();
         [$activity, $apifacade, $alpha, $beta, , $betamember] = $this->fixture();
 
@@ -215,7 +215,7 @@ final class leaderjoinpanel_test extends \advanced_testcase {
         $this->assertFalse($member->showjoinpanel, 'a plain member was shown the leader panel');
         $this->assertSame([], $member->joinrows, 'a plain member was handed the request rows');
 
-        // The source team's leader answers nothing: the request was
+        // The other team's leader answers nothing: the request was
         // made OF Beta. Asked on Beta's page, which they can open as
         // nobody special, and on their own page, which carries no
         // request at all.

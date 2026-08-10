@@ -272,10 +272,14 @@ final class joincluster_test extends \advanced_testcase {
 
     /**
      * POSITIVE CONTROL, alone in its method. Fit says yes, so the
-     * acceptance must go through - including the shape that used to
-     * make the two disagree in the other direction: a student at their
-     * membership cap whose request LEAVES a team, which costs them no
-     * net membership and which the move engine has always allowed.
+     * acceptance must go through.
+     *
+     * It used to say more: the shape that made the two disagree in the other
+     * direction was a student AT their membership cap whose request left a
+     * team, costing them no net membership. Decision 77 abolished that shape
+     * and the cap set-aside that served it, so this world gives the wanderer
+     * room (maxmembership 2) and the property under test is the plain one -
+     * fit-says-yes implies accept-succeeds.
      */
     public function test_fit_says_yes_and_the_acceptance_succeeds(): void {
         $this->resetAfterTest();

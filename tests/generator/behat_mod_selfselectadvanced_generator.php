@@ -109,11 +109,15 @@ class behat_mod_selfselectadvanced_generator extends behat_generator_base {
                 'singular' => 'joinrequest',
                 'datagenerator' => 'joinrequest',
                 'required' => ['selfselectadvanced', 'user', 'ssagroup'],
+                // No 'sourcegroup' switch: decision 77 removed the team a
+                // student offers to leave, and an entity that still advertised
+                // the column would invite a future scenario to author the
+                // abolished shape. The 'moves' and 'pendingmoves' entities keep
+                // theirs - a STAFF move genuinely comes out of a group.
                 'switchids' => [
                     'selfselectadvanced' => 'activityid',
                     'user' => 'userid',
                     'ssagroup' => 'targetgroupid',
-                    'sourcegroup' => 'sourcegroupid',
                 ],
             ],
             'eois' => [

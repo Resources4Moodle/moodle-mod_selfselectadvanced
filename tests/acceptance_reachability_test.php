@@ -396,6 +396,42 @@ final class acceptance_reachability_test extends \advanced_testcase {
     }
 
     /**
+     * The retirement above is accounted for, not merely described.
+     *
+     * Every other decision-77 retirement in this suite carries a guard that
+     * goes red if the removed concept returns. This one did not, which made it
+     * the only record in the set resting on prose alone - and prose is what
+     * stops being true first.
+     *
+     * MUTATION CAUGHT (run 2026-08-10): re-introducing the deleted arm in
+     * fit.php - one live statement setting enginekey to refusaljoinquotasource
+     * - fails the first assertion. The comment stripper matters: this file
+     * still NAMES the string in the explanatory comment that replaced the
+     * branch, so a naive contains() check would have passed against the
+     * mutation and been worthless.
+     *
+     * @return void
+     */
+    public function test_the_retired_join_half_cannot_come_back_unnoticed(): void {
+        $fit = file_get_contents(__DIR__ . '/../classes/local/fit.php');
+        $this->assertNotFalse($fit);
+        $this->assertStringNotContainsString(
+            'refusaljoinquotasource',
+            preg_replace('~//[^\n]*~', '', $fit) ?? '',
+            'the join door is judging the roster a departure would empty again; the join half of '
+                . 'test_firm_team_still_requires_full_compliance_after_acceptance was retired on the '
+                . 'basis that it cannot'
+        );
+        $service = file_get_contents(__DIR__ . '/../classes/local/joinrequests.php');
+        $this->assertNotFalse($service);
+        $this->assertStringNotContainsString(
+            'fit::accept_composition_refusal($activity, $target, $userid, ',
+            $service,
+            'the accept path is passing a source to the composition door again'
+        );
+    }
+
+    /**
      * MUTATION CAUGHT (run): changing only fit::accept_composition_refusal()
      * or only moves::quota_after() made the fit projection and the engine's
      * QUOTA verdict disagree on at least one case below.

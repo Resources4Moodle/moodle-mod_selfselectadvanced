@@ -101,14 +101,16 @@ final class races_locking_test extends \advanced_testcase {
         }
         $activity = activity::from_instance((int) $instance->id);
 
-        // 1.20.6: team A is the SOURCE these tests move a student out of, and
-        // a firm team may only be left once its guide has released it. Without
-        // the flag every test in this file dies on
-        // 'refusaljoinsourceapproved' before reaching the lock and
-        // transaction behaviour it exists to measure. Setting it here keeps
-        // the fixture's meaning - "a settled team a student is legitimately
-        // moving out of" - which is exactly the state that used to be implied
-        // by FIRM alone.
+        // 1.20.6: team A is the OTHER team these tests' student belongs to. It
+        // was the SOURCE they were moved out of until decision 77, and a firm
+        // team may only be left once its guide has released it. Without the
+        // flag every test in this file used to die on the source-approved
+        // refusal - a key this release deleted - before reaching the lock and
+        // transaction behaviour it exists to measure. The flag is kept because
+        // the fixture's meaning is kept: a settled team the student legitimately
+        // belongs to, which is the state FIRM alone used to imply. Note the
+        // accept path no longer reads team A at all, so the flag is now
+        // fixture hygiene rather than a precondition.
         $a = $plugingen->create_group([
             'activityid' => $activity->id(),
             'leaderid' => (int) $students[0]->id,

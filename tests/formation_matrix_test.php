@@ -395,13 +395,18 @@ final class formation_matrix_test extends \advanced_testcase {
             'userid' => (int) $mover->id,
             'status' => groups::STATUS_CONFIRMED,
         ]);
+        // No fifth argument. It named $source until 2026-08-10 and PHP had been
+        // discarding it since request() lost the parameter under decision 77,
+        // so this row read as a swap and behaved as an addition. The other team
+        // stays in the fixture on purpose: the closing assertion is that
+        // refusing this request leaves it alone.
         $request = joinrequests::request(
             $w->activity,
             (int) $w->group->id,
             'moving across',
-            (int) $mover->id,
-            (int) $source->id
+            (int) $mover->id
         );
+        $this->assertNull($request->sourcegroupid, 'fixture: a join request names no team to leave');
 
         // Admitted to the target meanwhile, by an invitation or a move.
         $w->plugingen->create_member([
@@ -423,7 +428,7 @@ final class formation_matrix_test extends \advanced_testcase {
                 'status',
                 ['groupid' => (int) $source->id, 'userid' => (int) $mover->id]
             ),
-            'and the source membership was NOT removed for nothing'
+            'the refused request cost the student a membership in another team'
         );
     }
 }

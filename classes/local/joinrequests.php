@@ -1387,12 +1387,14 @@ class joinrequests {
         }
 
         $student = \core_user::get_user((int) $request->userid);
-        // Always "they did not leave another group", because since decision 77
-        // they never do. Telling the guide of a released team that a student
-        // left somewhere else would be describing a change to a team that has
-        // not changed - and on an upgraded site the source recorded against an
-        // old request is a choice the accept path deliberately ignored.
-        $sourcechange = get_string('msgjoinguidechangednosource', 'mod_selfselectadvanced');
+        // THE SECOND SENTENCE WENT ON 2026-08-10. This message ended with
+        // {$a->sourcechange}, which chose between "They left X." and "They did
+        // not leave another group." Decision 77 deleted the first arm, leaving
+        // a placeholder with one possible value - so every guide of every
+        // released group was told, on every accepted join, that the student had
+        // not left another group. A sentence that is always the same is not
+        // information; it is a sentence the reader learns to skip, next to one
+        // that matters.
 
         notifier::send(
             $activity,
@@ -1403,7 +1405,6 @@ class joinrequests {
             (object) [
                 'group' => format_string($target->name),
                 'student' => $student ? fullname($student) : '',
-                'sourcechange' => $sourcechange,
             ],
             new \moodle_url('/mod/selfselectadvanced/group.php', [
                 'id' => $activity->cm()->id,

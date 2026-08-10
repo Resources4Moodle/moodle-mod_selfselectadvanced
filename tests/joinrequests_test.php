@@ -352,10 +352,20 @@ final class joinrequests_test extends \advanced_testcase {
         );
         $form = file_get_contents(__DIR__ . '/../classes/form/joinrequest_form.php');
         $this->assertNotFalse($form);
+        // BOTH BRANCHES, because the form had two. The select was the
+        // multi-source case; the single-source case used a HIDDEN field that
+        // pinned the answer without asking - which is the shape the ruling was
+        // most pointed about, and the one a guard on 'select' alone would miss.
         $this->assertStringNotContainsString(
             "addElement('select', 'source'",
             $form,
             'the join form is asking which group to leave again (decision 77 forbids it)'
+        );
+        $this->assertStringNotContainsString(
+            "'source'",
+            $form,
+            'the join form carries a source field again - including the hidden pin, which asked '
+                . 'nothing and decided everything'
         );
     }
 
@@ -742,11 +752,11 @@ final class joinrequests_test extends \advanced_testcase {
         // here would tell the guide of Beta about a change to a team that has
         // not changed.
         $this->assertStringNotContainsString(format_string($alpha->name), $body);
-        $this->assertStringContainsString(
-            get_string('msgjoinguidechangednosource', 'mod_selfselectadvanced'),
-            $body,
-            'the guide must be told explicitly that no other group was left'
-        );
+        // And it does not append a sentence about the group NOT left either.
+        // That trailing clause could only ever say one thing after the ruling,
+        // so it was removed; asserting its absence keeps it from creeping back
+        // as boilerplate the guide learns to skip.
+        $this->assertStringNotContainsString('did not leave', $body);
         $this->assertStringNotContainsString((string) $wanderer->email, $body);
         $this->assertStringNotContainsString($phone, $body);
         $this->assertStringNotContainsString((string) $wanderer->email, (string) $guidechanges[0]->subject);
@@ -928,8 +938,8 @@ final class joinrequests_test extends \advanced_testcase {
      * Acceptance funnels through the move engine, so the move engine's
      * per-group quota exemption reaches it: a request into a team that
      * is EXEMPT from the composition rules is accepted even though the
-     * team does not satisfy them, as long as the team the student
-     * leaves still does.
+     * team does not satisfy them. There is no second condition: decision 77
+     * made the join additive, so no other team's composition is consulted.
      *
      * The set-level reading of exemption used to refuse this, and the
      * student saw only "refusaljoinrules" with no way to act on it.
@@ -986,20 +996,20 @@ final class joinrequests_test extends \advanced_testcase {
             'status' => groups::STATUS_CONFIRMED,
         ]);
 
-        // No source stated: already-in-target must beat source-required.
+        // Already-in-target is answered before anything else is asked.
+        //
+        // THERE WERE TWO CALLS HERE, the second passing $alpha as a fifth
+        // "source" argument to prove that stating a source did not change the
+        // answer. request() takes four parameters since decision 77, and PHP
+        // discards extra positional arguments to a userland function without a
+        // word - so the second call was byte-for-byte the first one, asserting
+        // the same thing twice while reading as though it covered a second
+        // case. One call, and the source concept is not mentioned.
         $this->assert_refused('refusaljoinalready', fn() => joinrequests::request(
             $activity,
             (int) $beta->id,
             'x',
             (int) $wanderer->id
-        ));
-        // And with a source stated, the same answer.
-        $this->assert_refused('refusaljoinalready', fn() => joinrequests::request(
-            $activity,
-            (int) $beta->id,
-            'x',
-            (int) $wanderer->id,
-            (int) $alpha->id
         ));
         $sink->close();
         $this->assertDebuggingNotCalled();
@@ -1007,10 +1017,14 @@ final class joinrequests_test extends \advanced_testcase {
 
 
     /**
-     * "Keep every team and add this one" is a choice the student can
-     * state, and it survives acceptance: nothing is removed.
+     * Acceptance adds a membership and removes none.
+     *
+     * This was "a choice the student can state" while the form offered
+     * keep-them-all as one option among several. Decision 77 made it the only
+     * outcome a join can have, so the property is now unconditional - which is
+     * a stronger thing to assert, not a weaker one.
      */
-    public function test_an_extra_membership_is_a_choice_the_student_can_make(): void {
+    public function test_an_extra_membership_is_the_only_thing_a_join_can_do(): void {
         global $DB;
         $this->resetAfterTest();
         $sink = $this->redirectMessages();
@@ -1162,14 +1176,17 @@ final class joinrequests_test extends \advanced_testcase {
         // what makes the loss silent rather than a cap refusal.
         [$activity, $alpha, $beta, $wanderer] = $this->setup_world(['maxmembership' => 2]);
 
-        // 1. ASK: join Beta, offering to leave Alpha.
+        // 1. ASK: join Beta. No team is offered up - decision 77 removed the
+        // offer, and the fifth argument that used to name Alpha here was
+        // silently discarded by PHP once request() lost the parameter, which
+        // made this read like a swap test while behaving like an additive one.
         $request = joinrequests::request(
             $activity,
             (int) $beta->id,
             'please',
-            (int) $wanderer->id,
-            (int) $alpha->id
+            (int) $wanderer->id
         );
+        $this->assertNull($request->sourcegroupid, 'fixture: the ask names no team to leave');
 
         // 2. MEANWHILE: they get into Beta by the other supported
         // route - Beta's leader invites them and they accept.
@@ -1200,8 +1217,8 @@ final class joinrequests_test extends \advanced_testcase {
         $this->assertTrue($confirmed((int) $alpha->id));
         $this->assertTrue($confirmed((int) $beta->id));
 
-        // Same contract as refusaljoinsourcegone: the request is still
-        // open, so the decider can decline it with a note.
+        // The request is still open, so the decider can decline it with a note
+        // - the contract every readable join refusal keeps.
         $this->assertSame(
             joinrequests::STATUS_REQUESTED,
             joinrequests::get($activity, (int) $request->id)->status
