@@ -780,9 +780,12 @@ class fit {
         // still satisfy its composition rules afterwards and refused with
         // `refusaljoinquotasource` if not.
         //
-        // Every caller now passes null: joinrequests.php:224 (the accept door),
-        // gatekeeper.php:501 (the invitation door), fit.php:228 (the Fit
-        // column) and accept_composition_refusal(). Nothing reaches it, so it
+        // Every caller now passes null - the accept door in
+        // joinrequests::accept_decision(), the invitation door in
+        // gatekeeper::can_invite_all(), the Fit column in self::for_person(),
+        // and self::accept_composition_refusal(). Named rather than numbered:
+        // the line references that used to sit here were stale within a day of
+        // being written. Nothing reaches it, so it
         // is removed rather than left as an arm that looks live - and the
         // string it produced is deleted with it, because an unreachable
         // sentence is one nobody can ever be shown or ever fix.

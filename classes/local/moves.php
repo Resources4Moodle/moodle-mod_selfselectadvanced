@@ -1474,10 +1474,10 @@ class moves {
      * quietly take authority away from somebody who already had it.
      *
      * That scoping is LOAD-BEARING, not caution. This engine's other
-     * caller is joinrequests::do_accept() (joinrequests.php:562 stages
-     * and :617 commits), whose actor is whoever
+     * caller is joinrequests::do_accept(), which stages through this
+     * engine and then commits the staged set, and whose actor is whoever
      * joinrequests::require_decider() admitted - and that returns FIRST
-     * for the TARGET TEAM'S OWN LEADER (joinrequests.php:772-775). A
+     * for the TARGET TEAM'S OWN LEADER, in its first arm. A
      * leader is by definition a confirmed member of the team they are
      * admitting somebody to, and require_uninvolved() exempts only
      * :manage holders. An unconditional probe here would therefore

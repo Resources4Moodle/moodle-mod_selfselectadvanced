@@ -1021,9 +1021,9 @@ final class transaction_unwind_test extends \advanced_testcase {
     /**
      * THE JOIN QUEUE, both arms.
      *
-     * do_accept() is the one that matters most in production: it opens
-     * at joinrequests.php:516 and reaches override\store::save()
-     * through save_for_new_move() with its own transaction still open,
+     * do_accept() is the one that matters most in production: it opens its
+     * own transaction and reaches override\store::save() through
+     * save_for_new_move() while that transaction is still open,
      * so BOTH ends of that call used to abandon their frames.
      *
      * NOT COVERED, and stated rather than counted: do_decline()'s
