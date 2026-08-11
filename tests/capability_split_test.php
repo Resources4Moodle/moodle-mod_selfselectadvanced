@@ -20,6 +20,7 @@ use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\autogroup\engine as autogroup_engine;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\locks;
 use mod_selfselectadvanced\local\state;
 use mod_selfselectadvanced\local\workflow_refusal;
 
@@ -162,33 +163,249 @@ final class capability_split_test extends \advanced_testcase {
     }
 
     /**
-     * :creategroup alone can create, but it confers no leader actions.
+     * :creategroup ALONE NO LONGER CREATES, because creating installs a leader.
+     *
+     * THIS TEST REPLACES ITS OWN OPPOSITE. Until 1.20.35 this file carried
+     * test_creategroup_without_lead_can_create_but_cannot_run_the_group(),
+     * which asserted that a student holding :creategroup but prohibited :lead
+     * COULD create a group - and then documented, as though it were correct,
+     * that every leader verb refused them afterwards. That is a group valid on
+     * paper and unusable on arrival: its creator cannot invite, revise or
+     * submit it, and cannot hand it on either.
+     *
+     * The old test was not wrong about the behaviour; it pinned it. Deleting it
+     * silently would have looked like lost coverage, so the replacement asserts
+     * the corrected rule at the same seam.
+     *
+     * MUTATION CAUGHT (run 2026-08-11): removing authority::require_lead() from
+     * the student branch of api::create_group() lets the create through and
+     * fails the no-rows assertions below.
      */
-    public function test_creategroup_without_lead_can_create_but_cannot_run_the_group(): void {
+    public function test_creategroup_without_lead_cannot_create_at_all(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        [$activity, $api, $students] = $this->fixture();
+        $creatorid = (int) $students[0]->id;
+
+        $this->prohibit_student(authority::LEAD, $activity->context());
+        $this->assertTrue(has_capability(authority::CREATEGROUP, $activity->context(), $creatorid));
+        $this->assertFalse(authority::may_lead($activity, $creatorid));
+
+        $groupsbefore = $DB->count_records('selfselectadvanced_group', ['activityid' => $activity->id()]);
+        $membersbefore = $DB->count_records('selfselectadvanced_member');
+
+        try {
+            $api->create_group($creatorid, 'Inert', 'Inert', '<p>Inert</p>', FORMAT_HTML);
+            $this->fail('A student prohibited from leading created a group they could not run');
+        } catch (\required_capability_exception $e) {
+            $this->assertSame(get_capability_string(authority::LEAD), $e->a);
+        }
+
+        // NOTHING WAS WRITTEN. The refusal is worth little if a half-made group
+        // survives it, so the row counts are the assertion, not the exception.
+        $this->assertSame(
+            $groupsbefore,
+            $DB->count_records('selfselectadvanced_group', ['activityid' => $activity->id()]),
+            'a refused creation still inserted a group row'
+        );
+        $this->assertSame(
+            $membersbefore,
+            $DB->count_records('selfselectadvanced_member'),
+            'a refused creation still inserted a member row'
+        );
+    }
+
+    /**
+     * Both powers present: the creator really is the leader of record.
+     *
+     * The positive control for the test above. Without it a create_group()
+     * that had become "refuse everybody" would satisfy the prohibition tests
+     * perfectly.
+     */
+    public function test_creategroup_with_lead_installs_the_creator_as_leader(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        [$activity, $api, $students] = $this->fixture();
+        $creatorid = (int) $students[0]->id;
+
+        $this->assertTrue(has_capability(authority::CREATEGROUP, $activity->context(), $creatorid));
+        $this->assertTrue(authority::may_lead($activity, $creatorid));
+
+        $group = $api->create_group($creatorid, 'Real', 'Real', '<p>Real</p>', FORMAT_HTML);
+
+        $this->assertSame($creatorid, (int) groups::get($activity, (int) $group->id)->leaderid);
+        $leaderrows = $DB->get_records('selfselectadvanced_member', [
+            'groupid' => (int) $group->id,
+            'isleader' => 1,
+        ]);
+        $this->assertCount(1, $leaderrows, 'a created group must have exactly one leader flag');
+        $leader = reset($leaderrows);
+        $this->assertSame($creatorid, (int) $leader->userid);
+        $this->assertSame(groups::STATUS_CONFIRMED, $leader->status);
+    }
+
+    /**
+     * The split still splits: :lead alone keeps an existing group running.
+     *
+     * This is the half of the old contract that was RIGHT and must survive the
+     * correction. A site closing creation after formation must not thereby
+     * strip the controls from leaders who already have groups.
+     */
+    public function test_lead_without_creategroup_still_runs_the_existing_group(): void {
         $this->resetAfterTest();
         [$activity, $api, $students, $guide] = $this->fixture();
         $leaderid = (int) $students[0]->id;
 
-        $this->prohibit_student(authority::LEAD, $activity->context());
-        $this->assertTrue(has_capability(authority::CREATEGROUP, $activity->context(), $leaderid));
-        $this->assertFalse(authority::may_lead($activity, $leaderid));
+        $group = $api->create_group($leaderid, 'Existing', 'Existing', '<p>Existing</p>', FORMAT_HTML);
 
-        $group = $api->create_group($leaderid, 'Creation only', 'Created', '<p>Created</p>', FORMAT_HTML);
-        $this->assertSame($leaderid, (int) groups::get($activity, (int) $group->id)->leaderid);
+        // Creation closes; leadership does not.
+        $this->prohibit_student(authority::CREATEGROUP, $activity->context());
+        $this->assertFalse(has_capability(authority::CREATEGROUP, $activity->context(), $leaderid));
+        $this->assertTrue(authority::may_lead($activity, $leaderid));
 
-        $attempts = [
-            fn() => $api->invitations()->send($group, (int) $students[1]->id, $leaderid),
-            fn() => $api->update_group_details($group, 'Blocked', '<p>Blocked</p>', FORMAT_HTML, $leaderid),
-            fn() => $api->lifecycle()->submit($group, (int) $guide->id, $leaderid),
-        ];
-        foreach ($attempts as $attempt) {
-            try {
-                $attempt();
-                $this->fail('An existing-group leader action accepted an actor without :lead');
-            } catch (\required_capability_exception $e) {
-                $this->assertSame(get_capability_string(authority::LEAD), $e->a);
-            }
+        $fresh = groups::get($activity, (int) $group->id);
+        $api->invitations()->send($fresh, (int) $students[1]->id, $leaderid);
+        $api->update_group_details($fresh, 'Still mine', '<p>Still mine</p>', FORMAT_HTML, $leaderid);
+        // Withdraw before submitting: decision 73 makes an unanswered
+        // invitation a formation sidecar that blocks Submit, and withdrawing
+        // is itself a leader verb, so the sequence exercises one more of them
+        // rather than working around the rule.
+        $api->invitations()->withdraw_all(groups::get($activity, (int) $group->id), $leaderid);
+        $submitted = $api->lifecycle()->submit(
+            groups::get($activity, (int) $group->id),
+            (int) $guide->id,
+            $leaderid
+        );
+        $this->assertSame(state::PENDING_GUIDE, $submitted->state);
+
+        try {
+            $api->create_group($leaderid, 'Second', 'Second', '<p>Second</p>', FORMAT_HTML);
+            $this->fail('A student with :creategroup prohibited created another group');
+        } catch (\required_capability_exception $e) {
+            $this->assertSame(get_capability_string(authority::CREATEGROUP), $e->a);
         }
+    }
+
+    /**
+     * Staff create on a student's behalf needs no STUDENT capability.
+     *
+     * The manager's authority is :manage. The nominated student is the one who
+     * must be able to lead, and the guide's ruling keeps that asymmetry: adding
+     * :lead to the staff branch would break repair on a site that prohibits
+     * student capabilities outright.
+     */
+    public function test_staff_create_needs_no_student_capability_but_nominee_needs_lead(): void {
+        $this->resetAfterTest();
+        [$activity, $api, $students] = $this->fixture();
+        $staff = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user(
+            $staff->id,
+            (int) $activity->cm()->course,
+            'editingteacher'
+        );
+        $nomineeid = (int) $students[1]->id;
+
+        // Both STUDENT capabilities are shut off site-wide for students; the
+        // manager still creates, because their authority is a different one.
+        $this->prohibit_student(authority::CREATEGROUP, $activity->context());
+        $this->assertFalse(has_capability(authority::CREATEGROUP, $activity->context(), (int) $staff->id));
+
+        $group = $api->create_group(
+            (int) $staff->id,
+            'Staff made',
+            'Staff made',
+            '<p>Staff made</p>',
+            FORMAT_HTML,
+            $nomineeid,
+            true
+        );
+        $this->assertSame($nomineeid, (int) groups::get($activity, (int) $group->id)->leaderid);
+
+        // But a nominee who may not lead is still refused.
+        $this->prohibit_lead_for_user($activity, (int) $students[2]->id);
+        try {
+            $api->create_group(
+                (int) $staff->id,
+                'Bad nominee',
+                'Bad nominee',
+                '<p>Bad nominee</p>',
+                FORMAT_HTML,
+                (int) $students[2]->id,
+                true
+            );
+            $this->fail('Staff installed a leader who may not lead');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalnomineecannotlead', $e->errorcode);
+        }
+    }
+
+    /**
+     * AUTHORITY REVOKED WHILE THE REQUEST WAITS ON THE LOCK writes nothing.
+     *
+     * The pre-lock capability check is a courtesy; the one inside the activity
+     * lock is the decision. A teacher can edit a role override in the window
+     * between them, and before 1.20.35 the locked recheck asked only
+     * can_create_group() - window, L3, L4 - so a student whose :lead had just
+     * been withdrawn still got a group with themselves installed as its leader.
+     *
+     * THIS IS A REAL HANDOFF, not two sequential calls called a race:
+     * locks::set_test_hook() fires in the exact window between the pre-lock
+     * reads and the acquire, which is where the revocation has to land for the
+     * test to mean anything.
+     *
+     * MUTATION CAUGHT (run 2026-08-11): deleting the may_lead() arm from the
+     * locked recheck in api::create_group() lets the insert proceed and fails
+     * the row-count assertions.
+     */
+    public function test_lead_revoked_while_waiting_for_the_lock_writes_nothing(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        [$activity, $api, $students] = $this->fixture();
+        $creatorid = (int) $students[0]->id;
+
+        // Fully authorised at the moment the request starts.
+        $this->assertTrue(has_capability(authority::CREATEGROUP, $activity->context(), $creatorid));
+        $this->assertTrue(authority::may_lead($activity, $creatorid));
+
+        $groupsbefore = $DB->count_records('selfselectadvanced_group', ['activityid' => $activity->id()]);
+        $membersbefore = $DB->count_records('selfselectadvanced_member');
+
+        $fired = false;
+        $context = $activity->context();
+        locks::set_test_hook(function (string $resource) use (&$fired, $context): void {
+            if ($fired || !str_starts_with($resource, 'activity:')) {
+                return;
+            }
+            $fired = true;
+            // The teacher edits the override in the gap.
+            $roleid = (int) $GLOBALS['DB']->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+            role_change_permission($roleid, $context, authority::LEAD, CAP_PROHIBIT);
+            accesslib_clear_all_caches_for_unit_testing();
+        });
+
+        try {
+            $api->create_group($creatorid, 'Raced', 'Raced', '<p>Raced</p>', FORMAT_HTML);
+            $this->fail('A create whose leadership authority vanished under the lock still succeeded');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('refusalcreatecannotlead', $e->errorcode);
+        } finally {
+            locks::set_test_hook(null);
+        }
+
+        $this->assertTrue($fired, 'the lock hook never fired, so no revocation was actually raced');
+        $this->assertSame(
+            $groupsbefore,
+            $DB->count_records('selfselectadvanced_group', ['activityid' => $activity->id()]),
+            'the transaction wrote a group row despite the stale authority'
+        );
+        $this->assertSame(
+            $membersbefore,
+            $DB->count_records('selfselectadvanced_member'),
+            'the transaction wrote a member row despite the stale authority'
+        );
     }
 
     /**

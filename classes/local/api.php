@@ -167,7 +167,18 @@ class api {
             // for operating a group that already exists. can_create_group()
             // answers only the window, L3 and L4, so the service keeps
             // its own creation-capability check against a direct POST.
+            //
+            // BOTH POWERS, because this path does two things in one act: it
+            // starts a group AND installs the actor as its leader. Requiring
+            // :creategroup alone produced a group that was valid on paper and
+            // unusable on arrival - every leader verb correctly refuses an
+            // actor without :lead, so the creator owned a team they could not
+            // invite to, submit, or hand on. The capability split is NOT
+            // undone: :creategroup still governs starting a group and :lead
+            // still governs operating one, so a site can close creation after
+            // formation without taking existing leaders' controls away.
             require_capability(authority::CREATEGROUP, $this->activity->context(), $userid);
+            authority::require_lead($this->activity, $userid);
             $leaderid = $userid;
             if ($refusal = $this->gatekeeper->can_create_group($userid)) {
                 throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
@@ -212,8 +223,24 @@ class api {
                 if ($refusal = $this->leader_capacity_refusal($leaderid)) {
                     throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
                 }
-            } else if ($refusal = $this->gatekeeper->can_create_group($userid)) {
-                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            } else {
+                // THE AUTHORITY IS RE-READ HERE, not just the eligibility. A
+                // request can wait on this lock while a teacher edits a role
+                // override, so the pre-lock check is a courtesy and this one
+                // is the decision. Presented as ordinary workflow refusals
+                // rather than required_capability_exception: by this point the
+                // student is inside a transaction on a page that already let
+                // them in, and the readable refusal is what the rest of this
+                // service gives them.
+                if (!has_capability(authority::CREATEGROUP, $this->activity->context(), $userid)) {
+                    throw new workflow_refusal('refusalcreatenotallowed', 'mod_selfselectadvanced');
+                }
+                if (!authority::may_lead($this->activity, $userid)) {
+                    throw new workflow_refusal('refusalcreatecannotlead', 'mod_selfselectadvanced');
+                }
+                if ($refusal = $this->gatekeeper->can_create_group($userid)) {
+                    throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+                }
             }
             // Renaming carries no uniqueness check either - see the note on
             // the creation path above. Same ruling, same reason.

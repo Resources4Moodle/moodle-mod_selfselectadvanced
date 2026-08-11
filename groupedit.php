@@ -49,7 +49,13 @@ $gid = optional_param('g', 0, PARAM_INT);
 // was unreachable (D6-4). Only the student CREATE path needs it now.
 $isstaff = has_capability('mod/selfselectadvanced:manage', $context);
 if (!$gid && !$isstaff) {
+    // BOTH POWERS on the student create door. Creating installs the actor as
+    // leader, so :creategroup alone let somebody through to make a group they
+    // could not then operate. Deliberately NOT added to the staff or edit
+    // branches: a manager repairing a group holds neither student capability
+    // and must not be asked for them.
     require_capability('mod/selfselectadvanced:creategroup', $context);
+    \mod_selfselectadvanced\local\authority::require_lead($activity, (int) $USER->id);
 }
 $editgroup = null;
 if ($gid) {

@@ -101,3 +101,26 @@ Feature: Students create groups under the lead cap
     Then I should see "Repair team"
     And I should see "Tara" in the ".selfselectadvanced-roster" "css_element"
     And I should see "Leader"
+
+  # 1.20.35: creating a group INSTALLS the creator as its leader, so the
+  # student create door now needs both powers. Before this, :creategroup
+  # alone let a student through and produced a group whose own creator
+  # could not invite to it, revise it or submit it - valid on paper,
+  # unusable on arrival.
+  Scenario: A student who may not lead is offered no Create control
+    Given the following "permission overrides" exist:
+      | capability                  | permission | role    | contextlevel    | reference |
+      | mod/selfselectadvanced:lead | Prohibit   | student | Activity module | ssa1      |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    Then I should see "No groups yet"
+    # Missing capability HIDES the control - it is not shown disabled with a
+    # reason, because this student is outside the function's permission model
+    # rather than merely blocked by the window or a limit.
+    And I should not see "Create group"
+
+  # The discriminating half: the same page, the same student, with the
+  # capability restored. Without this the scenario above would pass against
+  # a landing page that had stopped rendering Create for everybody.
+  Scenario: The same student is offered Create once leadership is allowed
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    Then I should see "Create group"

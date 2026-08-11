@@ -178,7 +178,16 @@ class landing implements renderable, templatable {
             $data->leadcounter = get_string('counterlead', 'mod_selfselectadvanced', $position->lead);
             $data->membercounter = get_string('countermember', 'mod_selfselectadvanced', $position->membership);
 
-            $cancreate = has_capability('mod/selfselectadvanced:creategroup', $context, $this->userid, false);
+            // The presentation rule: a MISSING CAPABILITY hides the control, a
+            // state/window/rule refusal shows it disabled with the reason. The
+            // capability door is now both powers, because creating installs
+            // the creator as leader - so a student who may start a group but
+            // may not lead one is outside this function's permission model and
+            // sees no control, while a fully capable student blocked only by
+            // the formation window or L3/L4 still sees Create disabled and is
+            // told why.
+            $cancreate = has_capability('mod/selfselectadvanced:creategroup', $context, $this->userid, false)
+                && authority::may_lead($activity, $this->userid);
             $refusal = $cancreate ? $gatekeeper->can_create_group($this->userid) : null;
             $data->showcreate = $cancreate;
             $data->cancreate = $cancreate && $refusal === null;
