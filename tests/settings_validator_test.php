@@ -65,11 +65,18 @@ final class settings_validator_test extends \basic_testcase {
      *
      * MUTATION CAUGHT (run): deleting the guidemode arm from
      * settings_validator::validate() fails the first assertion here.
+     *
+     * BOTH FIELDS CARRY THE REFUSAL (2026-08-11). The two controls live in
+     * different collapsed sections and Moodle expands only sections that hold
+     * an error, so a message on eoienabled alone kept its cause off screen -
+     * a maintainer hit exactly that. The exact-array assertion is what caught
+     * the change and is kept: it pins that BOTH keys are present and that no
+     * third appears.
      */
     public function test_manager_mode_and_expressions_of_interest_are_incompatible(): void {
         $both = $this->valid() + ['guidemode' => 1, 'eoienabled' => 1];
         $this->assertSame(
-            ['eoienabled' => 'errmanagermodeeoi'],
+            ['eoienabled' => 'errmanagermodeeoi', 'guidemode' => 'errmanagermodeeoiguide'],
             settings_validator::validate($both),
             'a teacher must not be able to save a setting that means the opposite of what it says'
         );
@@ -201,6 +208,13 @@ final class settings_validator_test extends \basic_testcase {
         $this->assertSame('errstudentapproacheoi', $errors['eoienabled'] ?? null);
         $this->assertSame('errstudentapproachvolunteer', $errors['guidevolunteer'] ?? null);
         $this->assertSame('errstudentapproachguidemode', $errors['guidemode'] ?? null);
+        // The switch itself is marked too, so its collapsed section opens and
+        // the cause of the eoienabled refusal is on screen. Only for the EOI
+        // clash: volunteer and guidemode already sit beside the switch.
+        // MUTATION CAUGHT (run 2026-08-11): removing the companion assignment
+        // from the validator fails this assertion.
+        $this->assertSame('errstudentapproacheoiswitch', $errors['studentapproach'] ?? null);
+        $this->assertCount(4, $errors, 'exactly the four expected refusals, nothing extra');
 
         $data['eoienabled'] = 0;
         $data['guidevolunteer'] = 0;

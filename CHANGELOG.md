@@ -70,6 +70,16 @@ message referencing them is queued, with the provider, the group and the time,
 but **not** its text — that text is somebody else's message and can name third
 parties.
 
+**A settings contradiction now marks both of its halves.** The refusals that
+stop expressions of interest being combined with students-approach mode or with
+manager-assigned guides used to appear only under the EOI switch, while the
+setting causing them sat in the collapsed Guides section — which Moodle never
+expands, because it holds no error. A maintainer hit exactly that: a scolding
+that named a mode whose switch was off screen. Both fields now carry a message,
+so the causing section opens itself, and the two cross-section messages say
+where the other switch lives. A new browser-driven test also executes the
+greying rules themselves, which until now had never been run, only read.
+
 **Pending digest items are deleted by the upgrade, not migrated.** The people a
 legacy row is about exist in it only as names, and mapping a name back to an
 account is exactly the guess this change exists to eliminate; a wrong guess

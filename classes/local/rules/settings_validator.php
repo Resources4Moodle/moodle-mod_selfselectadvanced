@@ -124,6 +124,17 @@ final class settings_validator {
         if (!empty($data['studentapproach'])) {
             if (!empty($data['eoienabled'])) {
                 $errors['eoienabled'] = 'errstudentapproacheoi';
+                // BOTH HALVES OF THE CONTRADICTION ARE MARKED (2026-08-11).
+                // These two controls live in different collapsed sections, and
+                // Moodle expands only the sections that carry an error - so a
+                // message on eoienabled alone left its cause both invisible
+                // and unnamed, and a maintainer hit exactly that: a refusal
+                // blaming a mode whose switch they could not see. Marking the
+                // switch as well makes its section open itself. Deliberately
+                // NOT done for guidevolunteer/guidemode below: those sit in
+                // the SAME section as the switch, so their cause is already
+                // on screen when the error is.
+                $errors['studentapproach'] = 'errstudentapproacheoiswitch';
             }
             if (!empty($data['guidevolunteer'])) {
                 $errors['guidevolunteer'] = 'errstudentapproachvolunteer';
@@ -156,6 +167,9 @@ final class settings_validator {
             && !empty($data['eoienabled'])
         ) {
             $errors['eoienabled'] = 'errmanagermodeeoi';
+            // Same cross-section blindness as above: guidemode is in the
+            // Guides section, the refusal shows under eoienabled elsewhere.
+            $errors['guidemode'] = 'errmanagermodeeoiguide';
         }
 
         // The project-id template must be able to mint a distinct id
