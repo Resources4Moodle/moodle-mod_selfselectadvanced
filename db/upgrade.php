@@ -2335,5 +2335,38 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081003, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081101) {
+        // 1.20.35: one canonical domain for the five sentinel settings.
+        //
+        // contactmax, joinexpiry, eoimax, eoigroupmax and minmembership each
+        // treat 0 as a documented sentinel, and each ALSO treated every
+        // negative number as a silent second spelling of it - contacts.php
+        // disables below 1, expire_due() and the expiry task want a positive
+        // interval, eoi::express() caps only above 0, and the gradebook
+        // penalises only a positive minimum. The form now refuses negatives;
+        // these five statements bring already-stored rows into the same
+        // domain.
+        //
+        // BEHAVIOUR-PRESERVING BY CONSTRUCTION. Every row this touches is one
+        // the runtime already treats exactly as it treats 0, so no site's
+        // effective configuration changes - only its readability. Written as
+        // five plain set_field_select() calls rather than GREATEST()/CASE so
+        // the same SQL runs on PostgreSQL and MariaDB alike.
+        foreach (['contactmax', 'joinexpiry', 'eoimax', 'eoigroupmax', 'minmembership'] as $ssafield) {
+            $DB->set_field_select('selfselectadvanced', $ssafield, 0, $ssafield . ' < 0');
+        }
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.35 (2026081101). Negative values stored in contactmax, joinexpiry, '
+                . 'eoimax, eoigroupmax and minmembership are normalised to 0, which is the sentinel '
+                . 'the runtime already applied to them.',
+            'No schema change; five settings columns normalised where negative.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081101, 'selfselectadvanced');
+    }
+
     return true;
 }

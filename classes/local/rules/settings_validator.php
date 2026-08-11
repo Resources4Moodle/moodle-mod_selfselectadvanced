@@ -70,6 +70,24 @@ final class settings_validator {
             $errors['inviteexpiry'] = 'errnonnegative';
         }
 
+        // ONE CANONICAL DOMAIN FOR THE FIVE SENTINEL FIELDS. Each of these
+        // already treats 0 as a documented sentinel at runtime - contacts.php
+        // disables approaches below 1, expire_due() and the expiry task want
+        // a positive interval, eoi::express() caps only when the value is
+        // above 0, and the gradebook penalises only a positive minimum. A
+        // NEGATIVE value therefore behaved as a second, undocumented spelling
+        // of the same sentinel: it saved cleanly, changed nothing, and made
+        // the stored configuration unreadable.
+        //
+        // Deliberately NOT folded into the positive loop above. Zero is valid
+        // for all five and means something specific in each; errpositiveint
+        // would reject it and change behaviour on existing sites.
+        foreach (['contactmax', 'joinexpiry', 'eoimax', 'eoigroupmax', 'minmembership'] as $field) {
+            if (isset($data[$field]) && (int) $data[$field] < 0) {
+                $errors[$field] = 'errnonnegative';
+            }
+        }
+
         $open = empty($data['timeopen']) ? 0 : (int) $data['timeopen'];
         $due = empty($data['timedue']) ? 0 : (int) $data['timedue'];
         $cutoff = empty($data['timecutoff']) ? 0 : (int) $data['timecutoff'];
@@ -83,7 +101,13 @@ final class settings_validator {
             $errors['timecutoff'] = 'errdatesorder';
         }
 
-        if ((int) ($data['minmembership'] ?? 0) > (int) ($data['maxmembership'] ?? PHP_INT_MAX)) {
+        // The relationship is judged only once the lower bound has passed, so
+        // a single field never collects two competing errors and the teacher
+        // is told the more basic thing first.
+        if (
+            !isset($errors['minmembership'])
+            && (int) ($data['minmembership'] ?? 0) > (int) ($data['maxmembership'] ?? PHP_INT_MAX)
+        ) {
             $errors['minmembership'] = 'errminmembership';
         }
         foreach (['defaulterpenalty', 'incompletepenalty'] as $pfield) {

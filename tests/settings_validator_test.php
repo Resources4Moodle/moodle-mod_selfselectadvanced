@@ -244,4 +244,132 @@ final class settings_validator_test extends \basic_testcase {
         $data['uidformat'] = '{prefix}-{faculty}-{number}';
         $this->assertSame('erruidformatunknown', settings_validator::validate($data)['uidformat'] ?? null);
     }
+
+    /**
+     * THE FIVE SENTINEL FIELDS SHARE ONE DOMAIN: no negatives, 0 meaningful.
+     *
+     * Each of these already treated every negative number as a silent second
+     * spelling of its 0 sentinel - it saved cleanly, changed nothing, and left
+     * a stored configuration nobody could read back. The boundary is asserted
+     * per field and at both ends, because a loop that had lost a field would
+     * otherwise still pass on the other four.
+     *
+     * MUTATION CAUGHT (run 2026-08-11): removing any one field from the
+     * non-negative loop in settings_validator::validate() fails its -1 case
+     * below; removing the whole loop fails all five.
+     *
+     * @dataProvider sentinel_field_provider
+     * @param string $field the setting under test
+     */
+    public function test_sentinel_fields_reject_negatives_and_accept_zero(string $field): void {
+        $minusone = $this->valid();
+        $minusone[$field] = -1;
+        $this->assertSame(
+            'errnonnegative',
+            settings_validator::validate($minusone)[$field] ?? null,
+            $field . ' accepted -1 as a second spelling of its zero sentinel'
+        );
+
+        // A far smaller negative is the same defect, not a different one.
+        $verynegative = $this->valid();
+        $verynegative[$field] = -2147483648;
+        $this->assertSame(
+            'errnonnegative',
+            settings_validator::validate($verynegative)[$field] ?? null,
+            $field . ' accepted a large negative'
+        );
+
+        // ZERO IS VALID AND MEANS SOMETHING. This is the half that stops the
+        // fix being "reject anything below 1", which would change behaviour
+        // on every site already relying on the sentinel.
+        $zero = $this->valid();
+        $zero[$field] = 0;
+        $this->assertArrayNotHasKey(
+            $field,
+            settings_validator::validate($zero),
+            $field . ' rejected 0, which is its documented sentinel'
+        );
+
+        // And an ordinary positive value still passes.
+        $one = $this->valid();
+        $one[$field] = 1;
+        $this->assertArrayNotHasKey($field, settings_validator::validate($one), $field . ' rejected 1');
+    }
+
+    /**
+     * The five fields that share the non-negative domain.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function sentinel_field_provider(): array {
+        return [
+            'contactmax' => ['contactmax'],
+            'joinexpiry' => ['joinexpiry'],
+            'eoimax' => ['eoimax'],
+            'eoigroupmax' => ['eoigroupmax'],
+            'minmembership' => ['minmembership'],
+        ];
+    }
+
+    /**
+     * minmembership gets ONE error at a time, and the basic one first.
+     *
+     * The lower bound is judged before the relationship to maxmembership, so
+     * a teacher who types -1 is told the number cannot be negative rather
+     * than being told, confusingly, that -1 exceeds their membership cap.
+     *
+     * MUTATION CAUGHT (run 2026-08-11): moving the non-negative loop below the
+     * relationship check makes the first assertion return errminmembership.
+     */
+    public function test_minmembership_reports_the_lower_bound_before_the_relationship(): void {
+        $negative = $this->valid();
+        $negative['minmembership'] = -1;
+        $negative['maxmembership'] = 2;
+        $errors = settings_validator::validate($negative);
+        $this->assertSame('errnonnegative', $errors['minmembership'] ?? null);
+
+        // The relationship rule itself is untouched.
+        $toobig = $this->valid();
+        $toobig['minmembership'] = 3;
+        $toobig['maxmembership'] = 2;
+        $this->assertSame('errminmembership', settings_validator::validate($toobig)['minmembership'] ?? null);
+
+        // Equal is allowed, and is the boundary the relationship turns on.
+        $equal = $this->valid();
+        $equal['minmembership'] = 2;
+        $equal['maxmembership'] = 2;
+        $this->assertArrayNotHasKey('minmembership', settings_validator::validate($equal));
+
+        // Below the cap is allowed.
+        $below = $this->valid();
+        $below['minmembership'] = 1;
+        $below['maxmembership'] = 2;
+        $this->assertArrayNotHasKey('minmembership', settings_validator::validate($below));
+    }
+
+    /**
+     * Zero is NOT quietly promoted into the positive-integer family.
+     *
+     * The five sentinel fields must never be folded into the loop that
+     * demands >= 1, because that loop's error would reject their documented
+     * zero. This pins the two families apart.
+     */
+    public function test_the_positive_family_and_the_sentinel_family_stay_separate(): void {
+        $zeroed = $this->valid();
+        foreach (['contactmax', 'joinexpiry', 'eoimax', 'eoigroupmax', 'minmembership'] as $field) {
+            $zeroed[$field] = 0;
+        }
+        $this->assertSame([], settings_validator::validate($zeroed), 'a zeroed sentinel set was refused');
+
+        // Meanwhile the genuinely positive fields still refuse 0.
+        foreach (['minsize', 'maxsize', 'maxlead', 'maxmembership', 'maxguided'] as $field) {
+            $data = $this->valid();
+            $data[$field] = 0;
+            $this->assertSame(
+                'errpositiveint',
+                settings_validator::validate($data)[$field] ?? null,
+                $field . ' stopped requiring a positive integer'
+            );
+        }
+    }
 }

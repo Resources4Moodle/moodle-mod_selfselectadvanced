@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.20.35 — remediation: creation authority, sentinel settings (2026-08-11)
+
+> Serial `2026081101` / `1.20.35`. No schema change. Five settings columns
+> normalised where they held a negative value. Maturity stays RC.
+
+Remediation of findings raised against 1.20.34 by an external audit package,
+implemented from `CLAUDE-FIX-GUIDE-selfselectadvanced-1.20.34-B01-B07-privacy.md`.
+
+**Creating a group now requires permission to lead one.** Creation installs the
+creator as leader, so asking only for the create capability produced groups that
+were valid on paper and unusable on arrival — the creator could not invite to,
+revise, submit or hand on the group they had just made, because every leader
+verb correctly refuses somebody who may not lead. Both powers are now required
+at the service, at the create page, and in the locked recheck that runs inside
+the activity lock; the control is hidden on the activity page rather than shown
+disabled, following the plugin's existing presentation rule.
+
+**The capability split is unchanged.** Closing group creation after formation
+still leaves existing leaders every control they had. That half now has a test
+of its own, because it was the half the old contract got right.
+
+**Five settings reject negative numbers.** `contactmax`, `joinexpiry`, `eoimax`,
+`eoigroupmax` and `minmembership` each treat `0` as a documented sentinel, and
+each also accepted every negative number as a silent second spelling of it: the
+value saved cleanly, changed nothing, and left a configuration nobody could read
+back. Negatives are now refused by the form, and rows already holding one are
+normalised to `0` at upgrade. **No site's effective behaviour changes** — every
+row this touches is one the runtime already treated exactly as it treats zero.
+
+Two help texts now state their zero where they did not: `eoimax` ("Zero means
+unlimited") and `minmembership` ("Zero means there is no minimum-membership
+requirement and no defaulter penalty for missing memberships"). The `eoimax`
+schema comment says the same for fresh installs.
+
 ## 1.20.34 — a join is additive (2026-08-10)
 
 > Serial `2026081003` / `1.20.34`. No schema change and no data change.

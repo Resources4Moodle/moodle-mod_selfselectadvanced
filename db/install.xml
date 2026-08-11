@@ -37,7 +37,7 @@
         <FIELD NAME="guidevolunteer" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: guides must volunteer a capacity to become available for new assignments"/>
         <FIELD NAME="eoienabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: leaders may list teams and guides may express interest"/>
         <FIELD NAME="eoiwindow" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Seconds a leader has to respond to an interest; 0 = never expires"/>
-        <FIELD NAME="eoimax" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="3" SEQUENCE="false" COMMENT="Maximum open interests one guide may hold in this activity"/>
+        <FIELD NAME="eoimax" TYPE="int" LENGTH="5" NOTNULL="true" DEFAULT="3" SEQUENCE="false" COMMENT="Maximum open interests one guide may hold in this activity; 0 = unlimited"/>
         <FIELD NAME="eoisequential" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: leader sees only the earliest pending interest until it is decided"/>
         <FIELD NAME="eoipeers" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1: guides can see which other guides are interested in a group"/>
         <FIELD NAME="eoigroupmax" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Maximum pending guide interests one group may hold; 0 = unlimited"/>

@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081003;
+    private const CURRENT = 2026081101;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026081002;
+    private const PREVIOUS = 2026081003;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.34';
+    private const RELEASE = '1.20.35';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -502,5 +502,80 @@ final class versionbump_test extends \advanced_testcase {
             'the site moved without core ever deciding it needed to'
         );
         $this->assertSame($before, $this->marker_rows(), 'the new step ran without core ever deciding it needed to');
+    }
+
+    /**
+     * LEGACY NEGATIVE SETTINGS BECOME ZERO, and nothing else moves.
+     *
+     * The five sentinel columns each treated a negative number as a silent
+     * second spelling of their 0 sentinel. The form refuses negatives now, but
+     * rows already holding one are only fixed by this upgrade step.
+     *
+     * BEHAVIOUR-PRESERVING BY CONSTRUCTION, which is why the assertions are
+     * about the stored value rather than about any changed outcome: every row
+     * this touches is one the runtime already treated exactly as it treats 0.
+     *
+     * SAFETY OF THE STEP ITSELF, stated because the suite's upgrade-safety
+     * guard cannot see it: that guard looks for 'selfselectadvanced_' with a
+     * trailing underscore, so it does not police writes to the main
+     * 'selfselectadvanced' table. This step is nevertheless safe on its own
+     * merits - all five columns were added by upgrade steps far older than
+     * 1.20.34, so every site running this step already has them.
+     *
+     * MUTATION CAUGHT (run 2026-08-11): removing any field from the loop in
+     * the 2026081101 step leaves that column negative and fails its assertion.
+     */
+    public function test_negative_sentinel_settings_are_normalised_by_the_upgrade(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $course = $this->getDataGenerator()->create_course();
+        $instance = $this->getDataGenerator()->create_module('selfselectadvanced', ['course' => $course->id]);
+
+        $fields = ['contactmax', 'joinexpiry', 'eoimax', 'eoigroupmax', 'minmembership'];
+
+        // A legacy row holding a negative in every one of them, plus a
+        // control row whose values are already lawful.
+        foreach ($fields as $i => $field) {
+            $DB->set_field('selfselectadvanced', $field, -($i + 1), ['id' => $instance->id]);
+        }
+        $control = $this->getDataGenerator()->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'contactmax' => 3,
+            'minmembership' => 0,
+        ]);
+
+        foreach ($fields as $field) {
+            $this->assertLessThan(
+                0,
+                (int) $DB->get_field('selfselectadvanced', $field, ['id' => $instance->id]),
+                'fixture: ' . $field . ' must start negative or this test proves nothing'
+            );
+        }
+
+        $this->pretend_the_site_installed(self::PREVIOUS);
+        unset_config('allversionshash');
+        $this->assertTrue($this->upgrade_the_way_a_site_does(), 'the upgrade did not run');
+
+        foreach ($fields as $field) {
+            $this->assertSame(
+                0,
+                (int) $DB->get_field('selfselectadvanced', $field, ['id' => $instance->id]),
+                $field . ' kept a negative value through the upgrade'
+            );
+        }
+
+        // THE CONTROL. A normalisation that set every row to 0 would satisfy
+        // the loop above perfectly, so a lawful positive must survive.
+        $this->assertSame(
+            3,
+            (int) $DB->get_field('selfselectadvanced', 'contactmax', ['id' => $control->id]),
+            'the upgrade flattened a lawful positive value'
+        );
+        $this->assertSame(
+            0,
+            (int) $DB->get_field('selfselectadvanced', 'minmembership', ['id' => $control->id]),
+            'the upgrade disturbed a lawful zero'
+        );
     }
 }
