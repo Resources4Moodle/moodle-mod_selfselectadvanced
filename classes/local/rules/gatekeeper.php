@@ -693,6 +693,15 @@ class gatekeeper {
             return $refusal;
         }
 
+        // A vacancy is refused here for the WORDING, not for the gate. Submit
+        // already requires the actor to be the leader, and with leaderid NULL
+        // nobody satisfies that - but "you are not this group's leader" is a
+        // baffling thing to tell the person who was its leader yesterday. This
+        // says what actually happened and who fixes it.
+        if ($group->leaderid === null) {
+            return new refusal('refusalleadervacant');
+        }
+
         $minsize = $this->resolver->effective_minsize((int) $group->id);
         $confirmed = groups::count_confirmed((int) $group->id);
         if ($confirmed < $minsize->value) {
@@ -986,6 +995,17 @@ class gatekeeper {
         if ($group->state !== state::PENDING_GUIDE) {
             return new autoapprove_plan(new refusal('refusalwrongstate'));
         }
+        // A LEADERSHIP VACANCY STOPS THE GROUP MOVING FORWARD. Deletion,
+        // last unenrolment or privacy erasure can leave leaderid NULL, and
+        // every transition below this line stamps approval, freeze state or
+        // grade attribution against a leader who does not exist. Refused
+        // before the guide/size/quota questions, because none of those is the
+        // reason and answering them first would tell staff to fix the wrong
+        // thing. Recovery actions are deliberately not gated: a vacant group
+        // must still be repairable.
+        if ($group->leaderid === null) {
+            return new autoapprove_plan(new refusal('refusalleadervacant'));
+        }
         if (empty($group->guideid)) {
             // Existing key, reused deliberately: on this path it is
             // only ever rendered into the cron log, and can_approve
@@ -1132,6 +1152,14 @@ class gatekeeper {
     public function can_freeze(stdClass $group): ?refusal {
         if ($group->state !== state::FIRM) {
             return new refusal('refusalwrongstate');
+        }
+
+        // A frozen group is a settled roster, and a roster with nobody leading
+        // it is not settled. Refused before size and quota, because neither is
+        // the reason and answering them first sends staff to fix the wrong
+        // thing.
+        if ($group->leaderid === null) {
+            return new refusal('refusalleadervacant');
         }
 
         $minsize = $this->resolver->effective_minsize((int) $group->id);

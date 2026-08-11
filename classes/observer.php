@@ -80,6 +80,9 @@ class observer {
                     $member->timemodified = $now;
                     $DB->update_record('selfselectadvanced_member', $member);
                     $group = $DB->get_record('selfselectadvanced_group', ['id' => (int) $row->groupid]);
+                    if ($group) {
+                        self::record_leadership_vacancy($group, $member, $actorid, $now);
+                    }
                     if ($group && $group->state === local\state::FROZEN) {
                         local\freeze::append_snapshot($group, $actorid);
                     }
@@ -379,6 +382,9 @@ class observer {
                     $member->timemodified = $now;
                     $DB->update_record('selfselectadvanced_member', $member);
                     $group = $DB->get_record('selfselectadvanced_group', ['id' => (int) $row->groupid]);
+                    if ($group) {
+                        self::record_leadership_vacancy($group, $member, $actorid, $now);
+                    }
                     if ($group && $group->state === local\state::FROZEN) {
                         local\freeze::append_snapshot($group, $actorid);
                     }
@@ -424,6 +430,53 @@ class observer {
             // the caller does not have to know.
             self::guide_gone($userid, $actorid, 'unenrolled', $courseid);
         }
+    }
+
+    /**
+     * The leader has just been removed, so the group records a VACANCY.
+     *
+     * Until 1.20.35 both removal paths marked the member row removed and
+     * deliberately left group.leaderid alone, with the comment "a removed
+     * leader is NOT auto-reassigned". Not reassigning was right; leaving the
+     * pointer was not. The group went on naming somebody who is no longer a
+     * confirmed member of it - a false statement the flagged report could only
+     * catch after the fact - and the privacy provider wrote the sentinel 0 for
+     * the same situation, which the schema says is a real user id.
+     *
+     * NULL is the honest answer, and nobody is promoted to fill it. Leadership
+     * carries authority, succession rights and grade attribution; a silent
+     * promotion would replace a visible lie with an invisible one. The pending
+     * nomination goes too: it was raised by a leader who no longer exists, and
+     * succession::confirm() does step-out arithmetic that assumes they do.
+     *
+     * @param \stdClass $group the group row, already read in this transaction
+     * @param \stdClass $member the member row just marked removed
+     * @param int $actorid whoever is credited with the change
+     * @param int $now the timestamp shared by this removal
+     */
+    private static function record_leadership_vacancy(
+        \stdClass $group,
+        \stdClass $member,
+        int $actorid,
+        int $now
+    ): void {
+        global $DB;
+
+        if ((int) $group->leaderid !== (int) $member->userid) {
+            return;
+        }
+
+        $DB->set_field('selfselectadvanced_member', 'isleader', 0, ['id' => (int) $member->id]);
+        $DB->update_record('selfselectadvanced_group', (object) [
+            'id' => (int) $group->id,
+            'leaderid' => null,
+            'successorid' => null,
+            'successortype' => null,
+            'timenominated' => null,
+            'usermodified' => $actorid,
+            'timemodified' => $now,
+        ]);
+        $group->leaderid = null;
     }
 
     /**

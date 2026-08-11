@@ -68,10 +68,10 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081101;
+    private const CURRENT = 2026081102;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026081003;
+    private const PREVIOUS = 2026081101;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
     private const RELEASE = '1.20.35';
@@ -341,12 +341,33 @@ final class versionbump_test extends \advanced_testcase {
     }
 
     /**
-     * The new step touches no plugin table, so it cannot depend on the schema
-     * of the version it is upgrading FROM.
+     * The new step touches no plugin table it did not already have.
      *
      * upgrade-safety.sh reads the CLASSES db/upgrade.php calls. Nothing reads
      * the step's own body, and the step's own body is where a raw
      * $DB->get_records('selfselectadvanced_...') would sit.
+     *
+     * THE RULE WAS ABSOLUTE UNTIL 1.20.35 and had to stop being, because a
+     * schema migration that normalises bad data cannot avoid writing rows.
+     * The 1.20.6 ticket.groupid migration already did exactly that
+     * (`UPDATE {selfselectadvanced_ticket} SET groupid = NULL`), and the
+     * leadership-vacancy migration must do the same for leaderid. Banning it
+     * outright would have meant either shipping the schema change without the
+     * data fix - leaving rows that violate the new contract on day one - or
+     * quietly deleting this test, which is worse.
+     *
+     * So the hazard is now stated precisely instead of approximately. The
+     * danger is DML against schema the FROM version may not have; DML confined
+     * to tables and columns that already existed is safe. An exempt step must
+     * name itself, name the tables it writes, and give a reason - and the
+     * exemption is checked, not trusted:
+     *
+     *  - it must be for the CURRENT serial, so an entry cannot outlive its
+     *    step and silently license the next one;
+     *  - every plugin table the step actually touches must be declared, so
+     *    widening the DML later fails here;
+     *  - the step must not CREATE those tables or their columns, which is what
+     *    proves they predate the upgrade.
      */
     public function test_the_new_step_queries_no_plugin_table(): void {
         $code = $this->code_without_comments(__DIR__ . '/../db/upgrade.php');
@@ -381,12 +402,54 @@ final class versionbump_test extends \advanced_testcase {
             $block
         );
 
-        foreach (['{selfselectadvanced_', '\'selfselectadvanced_'] as $tablereference) {
+        // The exemption register. Keyed by serial so it cannot be inherited.
+        $exempt = [
+            2026081102 => [
+                'tables' => ['selfselectadvanced_group', 'selfselectadvanced_member'],
+                'reason' => 'Leadership-vacancy migration: leaderid becomes nullable and the invalid '
+                    . 'values it already holds (0, and pointers to members no longer confirmed) are '
+                    . 'normalised to NULL, with the matching isleader flags cleared. Both tables and '
+                    . 'both columns predate this step; only leaderid\'s nullability changes.',
+            ],
+        ];
+        $allowed = array_key_exists(self::CURRENT, $exempt) ? $exempt[self::CURRENT]['tables'] : [];
+
+        // Stale-entry detection: an exemption for anything other than the
+        // current step is a leftover, and leftovers are how a one-off licence
+        // becomes a standing one.
+        foreach (array_keys($exempt) as $serial) {
+            $this->assertSame(
+                self::CURRENT,
+                $serial,
+                'the DML exemption for ' . $serial . ' outlived its step and must be removed'
+            );
+        }
+        if ($allowed !== []) {
+            $this->assertNotSame('', trim($exempt[self::CURRENT]['reason']), 'an exemption needs a reason');
+        }
+
+        // What does the step ACTUALLY touch? Read it out rather than trusting
+        // the declaration.
+        preg_match_all('/[{\'](selfselectadvanced_[a-z]+)/', $block, $found);
+        $touched = array_values(array_unique($found[1] ?? []));
+
+        foreach ($touched as $table) {
+            $this->assertContains(
+                $table,
+                $allowed,
+                'the ' . self::CURRENT . ' step queries ' . $table . '; during an upgrade the PHP is '
+                    . 'the new code while the schema is still whatever the site is upgrading FROM. '
+                    . 'If the write is a necessary part of a schema migration, declare it in this '
+                    . 'test\'s exemption register with a reason.'
+            );
+
+            // The property the exemption rests on: the step must not be
+            // creating what it writes to.
             $this->assertStringNotContainsString(
-                $tablereference,
+                'add_table',
                 $block,
-                'the ' . self::CURRENT . ' step queries a plugin table; during an upgrade the PHP is '
-                    . 'the new code while the schema is still whatever the site is upgrading FROM'
+                'the ' . self::CURRENT . ' step both creates a table and writes rows to a plugin '
+                    . 'table; an exemption cannot cover a table this step invents'
             );
         }
     }
@@ -553,7 +616,12 @@ final class versionbump_test extends \advanced_testcase {
             );
         }
 
-        $this->pretend_the_site_installed(self::PREVIOUS);
+        // Wound back to the release BEFORE the normalisation step, not to
+        // PREVIOUS. PREVIOUS tracks the last release and moves every time a
+        // serial is added; this test is about one specific step, so it names
+        // the serial that step upgrades from and keeps meaning the same thing
+        // after the next bump.
+        $this->pretend_the_site_installed(2026081003);
         unset_config('allversionshash');
         $this->assertTrue($this->upgrade_the_way_a_site_does(), 'the upgrade did not run');
 

@@ -51,9 +51,19 @@ class leadership_transferred extends \core\event\base {
     public function get_description(): string {
         $uid = $this->other['pluginuid'] ?? $this->objectid;
         $type = $this->other['type'] ?? 'transfer';
+        $from = (int) ($this->other['fromuserid'] ?? 0);
+
+        // A REPAIR HAS NO OUTGOING LEADER. When staff fill a leadership
+        // vacancy there is nobody to transfer FROM - the previous leader was
+        // deleted, unenrolled or erased - so the sentence says "assigned"
+        // rather than naming user id 0 as the person it came from.
+        if ($from === 0) {
+            return "Leadership of the group '$uid' was assigned to the user with id "
+                . "'$this->relateduserid' ($type); the group had no leader of record.";
+        }
 
         return "Leadership of the group '$uid' transferred from the user with id "
-            . "'{$this->other['fromuserid']}' to the user with id '$this->relateduserid' ($type).";
+            . "'$from' to the user with id '$this->relateduserid' ($type).";
     }
 
     /**

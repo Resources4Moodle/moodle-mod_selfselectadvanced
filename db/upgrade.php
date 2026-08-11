@@ -2368,5 +2368,82 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081101, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081102) {
+        // 1.20.35: a leadership VACANCY is told truthfully.
+        //
+        // The schema said leaderid was NOT NULL and a foreign key to a real
+        // user, while the privacy provider wrote the sentinel 0 and the
+        // deletion/unenrolment observers left the column pointing at a member
+        // row they had just marked removed. Both are false statements about
+        // who leads the group. NULL is the honest representation, and 0 is
+        // never valid.
+        //
+        // THE KEY IS DROPPED AND PUT BACK around the change because
+        // database_manager::check_field_dependencies() refuses to modify any
+        // column an index references - the same three-call shape the 1.19
+        // targetgroupid and 1.20.6 ticket.groupid migrations used.
+        $table = new xmldb_table('selfselectadvanced_group');
+        $key = new xmldb_key('fk_leaderid', XMLDB_KEY_FOREIGN, ['leaderid'], 'user', ['id']);
+        $field = new xmldb_field('leaderid', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'briefformat');
+        $dbman->drop_key($table, $key);
+        $dbman->change_field_notnull($table, $field);
+
+        // 1. The fake user. 0 means "nobody" and never named a real person.
+        $DB->execute(
+            'UPDATE {selfselectadvanced_group} SET leaderid = NULL WHERE leaderid = :zero',
+            ['zero' => 0]
+        );
+
+        // 2. The stale pointer, which is the half the old observers created:
+        // a leader whose own membership is no longer confirmed in that group.
+        // Selected first and updated by id, deliberately - an UPDATE carrying
+        // a correlated subquery against its own target table is exactly the
+        // shape MariaDB refuses, and this migration has to run on both
+        // engines. No replacement is chosen: leadership carries authority and
+        // grade attribution, so a silent promotion would be a worse lie than
+        // the one being fixed.
+        $stale = $DB->get_fieldset_sql(
+            "SELECT g.id
+               FROM {selfselectadvanced_group} g
+              WHERE g.leaderid IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1
+                      FROM {selfselectadvanced_member} m
+                     WHERE m.groupid = g.id
+                       AND m.userid = g.leaderid
+                       AND m.status = :confirmed
+                )",
+            ['confirmed' => 'confirmed']
+        );
+        foreach (array_chunk($stale, 200) as $chunk) {
+            [$insql, $inparams] = $DB->get_in_or_equal($chunk, SQL_PARAMS_NAMED, 'gid');
+            $DB->set_field_select('selfselectadvanced_group', 'leaderid', null, 'id ' . $insql, $inparams);
+            // The flag goes with the pointer: a group with no leader of record
+            // must not still carry a member row claiming to be its leader.
+            $DB->set_field_select('selfselectadvanced_member', 'isleader', 0, 'groupid ' . $insql, $inparams);
+        }
+
+        $dbman->add_key($table, $key);
+
+        // info is char(255) and upgrade_log() SWALLOWS a failed insert, so an
+        // over-long summary logs nothing at all and says nothing about it.
+        // The headline stays short; the explanation goes in details, which is
+        // a text column.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.35 (2026081102). Leadership vacancies are now recorded as NULL; '
+                . count($stale) . ' group(s) held a stale leader pointer and were normalised.',
+            'selfselectadvanced_group.leaderid changes from NOT NULL to nullable. A group whose '
+                . 'leader was deleted, unenrolled or erased records a leadership VACANCY (NULL) '
+                . 'instead of the invalid user id 0 or a pointer to a member no longer confirmed. '
+                . 'Matching isleader flags are cleared. No replacement leader is chosen '
+                . 'automatically: leadership carries authority and grade attribution, so staff '
+                . 'appoint one explicitly with Assign leader on the group page.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081102, 'selfselectadvanced');
+    }
+
     return true;
 }

@@ -63,7 +63,7 @@
         <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Title of work"/>
         <FIELD NAME="brief" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Brief of work (rich text)"/>
         <FIELD NAME="briefformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
-        <FIELD NAME="leaderid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Current leader (also has a confirmed member row with isleader = 1)"/>
+        <FIELD NAME="leaderid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Current leader (also has a confirmed member row with isleader = 1); NULL only when deletion, unenrolment or privacy erasure created a leadership vacancy awaiting staff repair"/>
         <FIELD NAME="guideid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Assigned guide; cleared when the guide returns the group"/>
         <FIELD NAME="state" TYPE="char" LENGTH="15" NOTNULL="true" DEFAULT="forming" SEQUENCE="false" COMMENT="forming, pending_guide, firm or frozen"/>
         <FIELD NAME="autoformed" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Created by the auto-grouping engine"/>

@@ -1201,7 +1201,16 @@ class provider implements
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_contact', ['activityid' => $cm->instance]);
-        $DB->set_field('selfselectadvanced_group', 'leaderid', 0, ['activityid' => $cm->instance]);
+        // NULL, not 0. The schema says leaderid names a real user, so writing
+        // 0 asserted that user zero leads every group in the activity. A
+        // purged group has a leadership VACANCY, which is a state the plugin
+        // now has words for.
+        $DB->set_field('selfselectadvanced_group', 'leaderid', null, ['activityid' => $cm->instance]);
+        $DB->execute(
+            'UPDATE {selfselectadvanced_member} SET isleader = 0
+              WHERE groupid IN (SELECT id FROM {selfselectadvanced_group} WHERE activityid = :activityid)',
+            ['activityid' => $cm->instance]
+        );
         $DB->set_field('selfselectadvanced_group', 'guideid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'successorid', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'guidesuccessorid', null, ['activityid' => $cm->instance]);
@@ -1402,13 +1411,31 @@ class provider implements
             ['activityid' => $activityid, 'triggeredby' => $userid]
         );
 
-        // M1: a blanked leader leaves the group leaderless -> flagged report.
-        $DB->set_field(
+        // An erased leader leaves a leadership VACANCY - NULL, never 0. The
+        // flagged report still surfaces it, and staff repair it explicitly;
+        // nobody is promoted in the erased person's place, because leadership
+        // carries authority and grade attribution.
+        $vacated = $DB->get_fieldset_select(
             'selfselectadvanced_group',
-            'leaderid',
-            0,
+            'id',
+            'activityid = :activityid AND leaderid = :leaderid',
             ['activityid' => $activityid, 'leaderid' => $userid]
         );
+        if ($vacated !== []) {
+            [$insql, $inparams] = $DB->get_in_or_equal($vacated, SQL_PARAMS_NAMED, 'vg');
+            $DB->set_field_select('selfselectadvanced_group', 'leaderid', null, 'id ' . $insql, $inparams);
+            $DB->set_field_select('selfselectadvanced_group', 'successorid', null, 'id ' . $insql, $inparams);
+            $DB->set_field_select('selfselectadvanced_group', 'successortype', null, 'id ' . $insql, $inparams);
+            $DB->set_field_select('selfselectadvanced_group', 'timenominated', null, 'id ' . $insql, $inparams);
+            $flagparams = $inparams + ['erased' => $userid];
+            $DB->set_field_select(
+                'selfselectadvanced_member',
+                'isleader',
+                0,
+                'groupid ' . $insql . ' AND userid = :erased',
+                $flagparams
+            );
+        }
         $DB->set_field(
             'selfselectadvanced_group',
             'guideid',

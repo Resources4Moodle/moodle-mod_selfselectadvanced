@@ -270,6 +270,132 @@ class succession {
     }
 
     /**
+     * STAFF FILL A LEADERSHIP VACANCY. This is a repair, not a transfer.
+     *
+     * Deletion, last unenrolment or privacy erasure can leave a group with
+     * leaderid NULL and nobody able to act for it. Before 1.20.35 the flagged
+     * report told staff to "designate one via a staged move", which does not
+     * work: moves::stage() refuses a target who is already a confirmed member,
+     * and the only lawful replacement IS a confirmed member. So the advice
+     * named an operation the plugin could not perform.
+     *
+     * Deliberately NOT a general "replace the leader" verb. It refuses unless
+     * the group is genuinely vacant, so it can never become a back door around
+     * succession, which is the consensual route a live leader uses.
+     *
+     * @param stdClass $group the vacant group
+     * @param int $newleaderid the confirmed member being appointed
+     * @param int $actorid the staff member performing the repair
+     * @throws \moodle_exception when the actor lacks authority or the candidate is ineligible
+     */
+    public function appoint_vacant_leader(stdClass $group, int $newleaderid, int $actorid): void {
+        global $DB;
+
+        // AUTHORITY. Full manage, or the narrow composition capability the
+        // installed Group Coordinator role carries.
+        $context = $this->activity->context();
+        $ismanager = has_capability('mod/selfselectadvanced:manage', $context, $actorid);
+        if (!$ismanager && !has_capability('mod/selfselectadvanced:managecomposition', $context, $actorid)) {
+            throw new workflow_refusal('refusalleadervacantnoauthority', 'mod_selfselectadvanced');
+        }
+        if (!$ismanager) {
+            // A narrow holder may not decide a group they are part of - the
+            // same conflict rule the staged-move engine applies, asked through
+            // the existing public policy rather than a second copy of it.
+            tickets::require_uninvolved($this->activity, $group, $actorid);
+        }
+
+        // ACTIVITY LOCK BEFORE GROUP LOCK. L3 counts leadership across the
+        // whole activity, so two repairs in different groups can race each
+        // other over the same candidate's last free slot.
+        $activitylock = locks::acquire('activity:' . $this->activity->id());
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = groups::get($this->activity, (int) $group->id);
+            if ($fresh->leaderid !== null) {
+                // The losing side of two competing repairs lands here, and is
+                // told the truth rather than silently overwriting the winner.
+                throw new workflow_refusal('refusalleadervacantfilled', 'mod_selfselectadvanced');
+            }
+
+            // THE CANDIDATE. Enrolled, confirmed in THIS group, allowed to
+            // lead, and with an L3 slot free - each asked separately so the
+            // refusal names the actual obstacle.
+            if (!is_enrolled($context, $newleaderid, 'mod/selfselectadvanced:respond', true)) {
+                throw new workflow_refusal('errmovenotparticipant', 'mod_selfselectadvanced');
+            }
+            $membership = $DB->get_record('selfselectadvanced_member', [
+                'groupid' => (int) $fresh->id,
+                'userid' => $newleaderid,
+                'status' => groups::STATUS_CONFIRMED,
+            ]);
+            if (!$membership) {
+                throw new workflow_refusal('refusalleadervacantnotmember', 'mod_selfselectadvanced');
+            }
+            if (!authority::may_lead($this->activity, $newleaderid)) {
+                throw new workflow_refusal('refusalnomineecannotlead', 'mod_selfselectadvanced');
+            }
+            $max = $this->gatekeeper->resolver()->effective_maxlead($newleaderid);
+            $leading = groups::count_leading($this->activity, $newleaderid);
+            if ($leading >= $max->value) {
+                throw new workflow_refusal('refusalleadervacantatcap', 'mod_selfselectadvanced', '', (object) [
+                    'current' => $leading,
+                    'max' => $max->value,
+                ]);
+            }
+
+            // ONE LEADER FLAG. Cleared across the whole group first, because a
+            // vacancy created by an older release can still carry a stale flag
+            // on a removed row.
+            $now = time();
+            $DB->set_field('selfselectadvanced_member', 'isleader', 0, ['groupid' => (int) $fresh->id]);
+            $DB->set_field('selfselectadvanced_member', 'isleader', 1, ['id' => (int) $membership->id]);
+            $DB->update_record('selfselectadvanced_group', (object) [
+                'id' => (int) $fresh->id,
+                'leaderid' => $newleaderid,
+                // A nomination raised before the vacancy belonged to a leader
+                // who no longer exists.
+                'successorid' => null,
+                'successortype' => null,
+                'timenominated' => null,
+                'usermodified' => $actorid,
+                'timemodified' => $now,
+            ]);
+
+            $event = \mod_selfselectadvanced\event\leadership_transferred::create([
+                'objectid' => (int) $fresh->id,
+                'context' => $context,
+                'relateduserid' => $newleaderid,
+                'other' => [
+                    // No outgoing leader: the event description says
+                    // "assigned" rather than naming user id 0.
+                    'fromuserid' => 0,
+                    'pluginuid' => $fresh->pluginuid,
+                    'type' => 'repair',
+                ],
+            ]);
+
+            freeze::request_sync($this->activity, $fresh);
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+            $activitylock->release();
+        }
+
+        // AFTER the commit and both locks, following this file's discipline:
+        // the payload was built inside the critical section, but nothing
+        // observable fires while a lock is held.
+        $event->trigger();
+    }
+
+    /**
      * Decline the active nomination (nominee action).
      *
      * @param stdClass $group group row
