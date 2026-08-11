@@ -397,6 +397,21 @@
         <INDEX NAME="userid_timecreated" UNIQUE="false" FIELDS="userid, timecreated"/>
       </INDEXES>
     </TABLE>
+    <TABLE NAME="selfselectadvanced_dqsubject" COMMENT="Users whose personal identity is represented in a queued digest payload; IDs only, never names or contact details">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="digestid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The queued digest row this identity appears in"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="A person the payload is about, including the recipient"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_digestid" TYPE="foreign" FIELDS="digestid" REFTABLE="selfselectadvanced_digestq" REFFIELDS="id"/>
+        <KEY NAME="fk_userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="digestid_userid" UNIQUE="true" FIELDS="digestid, userid" COMMENT="One row per person per queued message; fk_userid already indexes userid on its own"/>
+      </INDEXES>
+    </TABLE>
     <TABLE NAME="selfselectadvanced_eoi" COMMENT="Guide expressions of interest in listed teams: pending until the leader decides, with full history kept">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>

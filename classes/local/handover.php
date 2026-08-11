@@ -134,7 +134,11 @@ class handover {
                 'activity' => $this->activity->name(),
             ],
             $this->guide_url(),
-            format_string($group->name)
+            format_string($group->name),
+            // The from placeholder is the proposing guide's rendered name.
+            // If this is queued rather than sent, that name is all the
+            // payload would hold of them; the id makes them findable.
+            [$actorid]
         );
     }
 
@@ -229,7 +233,10 @@ class handover {
             'msghandoveracceptedbody',
             $a,
             $this->guide_url(),
-            format_string($group->name)
+            format_string($group->name),
+            // The to and newguide placeholders both render the accepting
+            // guide, who is not the recipient here: the outgoing guide is.
+            [$actorid]
         );
         notifier::send(
             $this->activity,
@@ -287,7 +294,10 @@ class handover {
                 'activity' => $this->activity->name(),
             ],
             $this->guide_url(),
-            format_string($group->name)
+            format_string($group->name),
+            // The to placeholder is the nominee who declined; the recipient
+            // is the guide who proposed.
+            [$actorid]
         );
     }
 

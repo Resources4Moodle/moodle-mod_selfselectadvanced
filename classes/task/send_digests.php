@@ -231,7 +231,7 @@ class send_digests extends \core\task\scheduled_task {
                     mtrace("mod_selfselectadvanced: messaging refused the digest for user $userid; "
                         . count($rows) . " row(s) left queued for the next run");
                 } else {
-                    $DB->delete_records_list('selfselectadvanced_digestq', 'id', array_keys($rows));
+                    \mod_selfselectadvanced\local\notifier::purge_digests(array_keys($rows));
                     if ($status === self::SUBMITTED) {
                         if ($skipped > 0) {
                             // Rows whose activity vanished inside an

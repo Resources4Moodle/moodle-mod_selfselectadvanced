@@ -413,7 +413,12 @@ final class state {
             $newguidebody . 'body',
             $a,
             $this->review_url((int) $fresh->id),
-            format_string($fresh->name)
+            format_string($fresh->name),
+            // The newguide placeholder renders this same person, who is also
+            // the recipient, so recipient indexing already covers them.
+            // Stated anyway: it documents which payload field is about whom,
+            // and it keeps the annotation correct if the recipient changes.
+            [$guideid]
         );
         if ($oldguide && $oldguide !== (int) $guideid) {
             $groupurl = new \moodle_url('/mod/selfselectadvanced/group.php', [

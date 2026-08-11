@@ -68,6 +68,7 @@ class notifier {
      * @param \stdClass|array|null $a string parameters
      * @param \moodle_url $contexturl deep link target
      * @param string $contextname link label
+     * @param int[] $subjectuserids people OTHER than the recipient whom the payload is about
      * @return \stdClass the intent, for send_all()
      */
     public static function intent(
@@ -77,7 +78,8 @@ class notifier {
         string $bodykey,
         $a,
         \moodle_url $contexturl,
-        string $contextname
+        string $contextname,
+        array $subjectuserids = []
     ): \stdClass {
         return (object) [
             'provider' => $provider,
@@ -87,7 +89,66 @@ class notifier {
             'a' => $a,
             'url' => $contexturl,
             'contextname' => $contextname,
+            'subjectuserids' => $subjectuserids,
         ];
+    }
+
+    /**
+     * The people a queued payload is about, as ids: the recipient plus
+     * whoever the caller named, deduplicated and with rubbish dropped.
+     *
+     * Separate and public so a test can assert the SET without queueing a
+     * message, and so the two rules that matter here - the recipient is
+     * always a subject, and 0/negative ids are never one - are stated in a
+     * single place rather than inline at the insert.
+     *
+     * @param int $touserid the recipient
+     * @param int[] $subjectuserids other people the payload is about
+     * @return int[] distinct positive user ids
+     */
+    public static function subject_ids(int $touserid, array $subjectuserids): array {
+        $ids = array_map('intval', array_merge([$touserid], array_values($subjectuserids)));
+
+        return array_values(array_unique(array_filter($ids, fn(int $id): bool => $id > 0)));
+    }
+
+    /**
+     * Delete queued digest rows AND their subject index, together.
+     *
+     * ONE IMPLEMENTATION ON PURPOSE. Five paths remove queued digests - the
+     * flush task, activity deletion, course reset, a context purge and a
+     * per-user erasure - and each of them deleting the queue row while
+     * leaving the relation behind would strand a row naming a person against
+     * a message that no longer exists. Whether the database enforces the
+     * foreign key with a cascade is a per-engine, per-installation question,
+     * so the order is written out here rather than assumed.
+     *
+     * @param int[] $digestids queue row ids; an empty list does nothing
+     */
+    public static function purge_digests(array $digestids): void {
+        global $DB;
+
+        foreach (array_chunk(array_values($digestids), 200) as $chunk) {
+            [$insql, $inparams] = $DB->get_in_or_equal($chunk, SQL_PARAMS_NAMED, 'dqid');
+            $DB->delete_records_select('selfselectadvanced_dqsubject', 'digestid ' . $insql, $inparams);
+            $DB->delete_records_select('selfselectadvanced_digestq', 'id ' . $insql, $inparams);
+        }
+    }
+
+    /**
+     * Delete every queued digest of one activity, index included.
+     *
+     * @param int $activityid the activity
+     */
+    public static function purge_activity_digests(int $activityid): void {
+        global $DB;
+
+        self::purge_digests($DB->get_fieldset_select(
+            'selfselectadvanced_digestq',
+            'id',
+            'activityid = ?',
+            [$activityid]
+        ));
     }
 
     /**
@@ -132,7 +193,8 @@ class notifier {
                 $intent->bodykey,
                 $intent->a,
                 $intent->url,
-                $intent->contextname
+                $intent->contextname,
+                $intent->subjectuserids ?? []
             );
         }
     }
@@ -155,6 +217,12 @@ class notifier {
      *        standard recipient placeholders are merged into the object)
      * @param \moodle_url $contexturl deep link target
      * @param string $contextname link label lang key rendered value
+     * @param int[] $subjectuserids people OTHER than the recipient whose identity the
+     *        RESOLVED payload represents - anybody a placeholder was rendered from.
+     *        Recorded as ids against the queued row so privacy can find them without
+     *        matching names. LAST on purpose: every existing call site stays valid
+     *        until it is deliberately annotated. Ignored for an immediate message,
+     *        which retains no payload to be a subject of.
      * @return bool whether the notification was SUBMITTED - handed to
      *         Moodle messaging (which promises no more than that), or
      *         queued for the recipient's digest. False means messaging
@@ -174,7 +242,8 @@ class notifier {
         string $bodykey,
         $a,
         \moodle_url $contexturl,
-        string $contextname
+        string $contextname,
+        array $subjectuserids = []
     ): bool {
         global $DB;
 
@@ -213,7 +282,12 @@ class notifier {
                 // Store the already-resolved $a so the digest renders
                 // identical text later, whatever templates change to
                 // in the meantime.
-                $DB->insert_record('selfselectadvanced_digestq', (object) [
+                // ONE ATOMIC UNIT. A queue row without its subject index is
+                // a payload about people the privacy provider cannot find,
+                // which is the defect this relation exists to close; it must
+                // not be reachable through a half-completed write.
+                $transaction = $DB->start_delegated_transaction();
+                $digestid = $DB->insert_record('selfselectadvanced_digestq', (object) [
                     'userid' => $touserid,
                     'activityid' => $activity->id(),
                     'groupid' => null,
@@ -224,6 +298,18 @@ class notifier {
                     'contexturl' => $contexturl->out(false),
                     'timecreated' => time(),
                 ]);
+                // THE RECIPIENT IS INCLUDED even though digestq.userid
+                // already holds them: that makes this relation a complete
+                // "people represented in this payload" index, so a privacy
+                // query is one join instead of a join plus a special case.
+                // The unique key absorbs a recipient who is also named.
+                foreach (self::subject_ids($touserid, $subjectuserids) as $subjectid) {
+                    $DB->insert_record('selfselectadvanced_dqsubject', (object) [
+                        'digestid' => $digestid,
+                        'userid' => $subjectid,
+                    ]);
+                }
+                $transaction->allow_commit();
 
                 // Queued counts as submitted: insert_record() reports
                 // failure by THROWING, so reaching here means the row
@@ -307,93 +393,6 @@ class notifier {
         }
 
         return true;
-    }
-
-    /**
-     * The needles that would find this name inside a stored digest
-     * payload, for a SQL pre-filter.
-     *
-     * The payload is json_encode() output, and json_encode() escapes
-     * every non-ASCII character to \uXXXX by default. A name whose
-     * letters carry accents is therefore stored with each of them as a
-     * six-character escape, and a LIKE for the name as a human types
-     * it matches nothing at all - the fault H-05 named, and the reason
-     * an ASCII-only test could not see it. Whoever encodes a
-     * format owns the questions asked of it, so the escaping lives
-     * here beside the encoder rather than being re-derived by the
-     * privacy provider.
-     *
-     * The result is a PRE-FILTER and nothing more: it may over-match
-     * (a name inside a longer name, a different person who shares it)
-     * and it never under-matches, which is the only property the
-     * caller may rely on. payload_names_user() decides.
-     *
-     * @param string $fullname the rendered full name to look for
-     * @return string[] distinct substrings, any one of which may match
-     */
-    public static function payload_needles(string $fullname): array {
-        $needles = [$fullname];
-        // A json_encode() of a bare string yields "..."; the quotes are
-        // the delimiters, not part of the needle.
-        $encoded = trim((string) json_encode($fullname), '"');
-        if ($encoded !== '' && $encoded !== $fullname) {
-            $needles[] = $encoded;
-        }
-
-        return array_values(array_unique(array_filter($needles, static fn($n) => $n !== '')));
-    }
-
-    /**
-     * Does a stored digest payload NAME this person?
-     *
-     * Decided on the DECODED payload, never on its text: the resolved
-     * placeholder object holds names as ordinary strings, and decoding
-     * undoes the \uXXXX escaping that made a substring test on the raw
-     * column silently wrong for every non-ASCII name. It also confines
-     * the question to string leaves, so a numeric placeholder that
-     * happens to look like part of a name - or like a userid - is not
-     * an answer.
-     *
-     * Substring rather than equality, deliberately: a payload renders
-     * a name inside a sentence ("Grace Guide accepted"), so the name
-     * is a fragment of the leaf and not the leaf. That is why two
-     * people with one name cannot be told apart here; the maintainer's
-     * decision on the erasure path is that over-deleting a pending
-     * notification is the cheap side of that trade.
-     *
-     * @param string|null $payload the stored payload column
-     * @param string $fullname the rendered full name to look for
-     * @return bool whether the payload names them
-     */
-    public static function payload_names_user(?string $payload, string $fullname): bool {
-        $payload = (string) $payload;
-        $fullname = trim($fullname);
-        if ($payload === '' || $fullname === '') {
-            return false;
-        }
-        $decoded = json_decode($payload, true);
-        if (!is_array($decoded)) {
-            // Not a payload this class wrote. Fall back to the raw
-            // text against every form the name could have been stored
-            // in, so an unreadable row is over-matched rather than
-            // silently exempted.
-            foreach (self::payload_needles($fullname) as $needle) {
-                if (str_contains($payload, $needle)) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        $found = false;
-        array_walk_recursive($decoded, static function ($value) use ($fullname, &$found): void {
-            if (!$found && is_string($value) && str_contains($value, $fullname)) {
-                $found = true;
-            }
-        });
-
-        return $found;
     }
 
     /**

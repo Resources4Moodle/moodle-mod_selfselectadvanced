@@ -617,11 +617,16 @@ final class privacygaps_test extends \advanced_testcase {
     }
 
     /**
-     * Gap G10, queue half: a digest queued for ANOTHER recipient whose
-     * resolved payload names the erased person is deleted by both
-     * paths; an unrelated queued row for the same recipient stays.
+     * Gap G10, queue half: a digest queued for ANOTHER recipient that is
+     * ABOUT the erased person is deleted by both paths; an unrelated queued
+     * row for the same recipient stays.
+     *
+     * Identity comes from the relation, not from the prose. Before 1.20.35
+     * this test proved a substring search over the payload; the names below
+     * are still deliberately unusual, but nothing reads them any more, and
+     * the same-name test beside this one shows why that matters.
      */
-    public function test_digest_rows_naming_the_erased_person_are_deleted_for_other_recipients(): void {
+    public function test_digest_rows_about_the_erased_person_are_deleted_for_other_recipients(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -634,11 +639,11 @@ final class privacygaps_test extends \advanced_testcase {
         $naming1 = $this->insert_digestq((int) $instance->id, (int) $recipient->id, [
             'from' => fullname($named1),
             'group' => 'Some Team',
-        ]);
+        ], [(int) $named1->id]);
         $naming2 = $this->insert_digestq((int) $instance->id, (int) $recipient->id, [
             'from' => fullname($named2),
             'group' => 'Some Team',
-        ]);
+        ], [(int) $named2->id]);
         $unrelated = $this->insert_digestq((int) $instance->id, (int) $recipient->id, [
             'group' => 'Some Team',
         ]);
@@ -663,6 +668,19 @@ final class privacygaps_test extends \advanced_testcase {
         $this->assertTrue(
             $DB->record_exists('selfselectadvanced_digestq', ['id' => $unrelated]),
             'An unrelated queued digest was deleted along with the naming ones'
+        );
+        // No index row may outlive the message it points at.
+        foreach ([$naming1, $naming2] as $gone) {
+            $this->assertSame(
+                0,
+                $DB->count_records('selfselectadvanced_dqsubject', ['digestid' => $gone]),
+                'a subject index row survived the digest row it belongs to'
+            );
+        }
+        $this->assertSame(
+            1,
+            $DB->count_records('selfselectadvanced_dqsubject', ['digestid' => $unrelated]),
+            "the surviving message lost its own recipient's index row"
         );
     }
 
@@ -844,17 +862,23 @@ final class privacygaps_test extends \advanced_testcase {
     }
 
     /**
-     * Insert a queued digest row with a resolved payload.
+     * Insert a queued digest row with a resolved payload AND its subject
+     * index, the way notifier::send() writes the pair.
+     *
+     * The subject ids are passed rather than inferred from the payload text:
+     * inferring them is precisely the practice 1.20.35 removed, and a fixture
+     * that inferred them would keep testing the old model.
      *
      * @param int $activityid the instance
      * @param int $userid the recipient
      * @param array $payload the resolved placeholder object
+     * @param int[] $subjectuserids people the payload is about, besides the recipient
      * @return int the new row id
      */
-    private function insert_digestq(int $activityid, int $userid, array $payload): int {
+    private function insert_digestq(int $activityid, int $userid, array $payload, array $subjectuserids = []): int {
         global $DB;
 
-        return (int) $DB->insert_record('selfselectadvanced_digestq', (object) [
+        $id = (int) $DB->insert_record('selfselectadvanced_digestq', (object) [
             'activityid' => $activityid,
             'userid' => $userid,
             'groupid' => null,
@@ -865,5 +889,13 @@ final class privacygaps_test extends \advanced_testcase {
             'contexturl' => 'https://example.invalid/mod/selfselectadvanced/guide.php?id=1',
             'timecreated' => time(),
         ]);
+        foreach (\mod_selfselectadvanced\local\notifier::subject_ids($userid, $subjectuserids) as $subjectid) {
+            $DB->insert_record('selfselectadvanced_dqsubject', (object) [
+                'digestid' => $id,
+                'userid' => $subjectid,
+            ]);
+        }
+
+        return $id;
     }
 }

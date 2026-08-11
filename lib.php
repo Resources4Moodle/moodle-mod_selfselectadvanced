@@ -202,7 +202,7 @@ function selfselectadvanced_delete_instance($id): bool {
     $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_contact', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $id]);
-    $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $id]);
+    \mod_selfselectadvanced\local\notifier::purge_activity_digests((int) $id);
     $DB->delete_records('selfselectadvanced_move', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_quota', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_qslot', ['activityid' => $id]);
@@ -369,7 +369,7 @@ function selfselectadvanced_reset_userdata($data): array {
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_contact', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $instance->id]);
-        $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $instance->id]);
+        \mod_selfselectadvanced\local\notifier::purge_activity_digests((int) $instance->id);
         // Proposal attachments are keyed by plugin group id in the
         // module's own context, and a reset does NOT remove that
         // context - so without this the files outlive every group that

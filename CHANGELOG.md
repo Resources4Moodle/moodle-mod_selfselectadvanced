@@ -1,9 +1,13 @@
 # Changelog
 
-## 1.20.35 — remediation: creation authority, sentinel settings (2026-08-11)
+## 1.20.35 — remediation: creation authority, sentinel settings, leadership vacancies, digest subjects (2026-08-11)
 
-> Serial `2026081101` / `1.20.35`. No schema change. Five settings columns
-> normalised where they held a negative value. Maturity stays RC.
+> Serials `2026081101`, `2026081102` and `2026081103` / `1.20.35`.
+> **Schema changes:** `selfselectadvanced_group.leaderid` becomes nullable, and
+> a new table `selfselectadvanced_dqsubject` records who a queued digest is
+> about. Five settings columns are normalised where they held a negative value,
+> stale and zero leader pointers become NULL, and **pending digest items are
+> deleted** — see below for why they cannot be migrated. Maturity stays RC.
 
 Remediation of findings raised against 1.20.34 by an external audit package,
 implemented from `CLAUDE-FIX-GUIDE-selfselectadvanced-1.20.34-B01-B07-privacy.md`.
@@ -33,6 +37,45 @@ Two help texts now state their zero where they did not: `eoimax` ("Zero means
 unlimited") and `minmembership` ("Zero means there is no minimum-membership
 requirement and no defaulter penalty for missing memberships"). The `eoimax`
 schema comment says the same for fresh installs.
+
+**A group whose leader has gone now says so.** Deleting an account, removing its
+last enrolment, or erasing it for privacy left `leaderid` either pointing at
+somebody who was no longer a confirmed member or set to `0`, which names user
+zero. The schema said the column was NOT NULL and named a real user; both paths
+made that false. A vacancy is now recorded truthfully as NULL with no member
+flagged as leader, it blocks the transitions that assume a leader exists
+(submission, auto-approval, freezing), and **no replacement is chosen
+automatically** — leadership carries authority and grade attribution, so a
+silent promotion would replace a visible lie with an invisible one.
+
+The group page tells every viewer about the vacancy, and course staff holding
+*Manage* or *Manage composition* get an **Assign leader** control offering the
+group's own confirmed members, with anybody who cannot be appointed listed
+alongside the reason. Members who cannot lead are named to staff only.
+
+**Queued digest notifications now record who they are about.** A queued row held
+its recipient's id and an already-resolved payload; everybody else the message
+named existed only as rendered text inside that JSON, so the privacy provider
+had to recover identity by searching for a full name. That cannot tell two
+people with the same name apart, breaks when somebody renames after queueing,
+never enumerates a subject who is not the recipient, and silently fails on
+accented names because the payload is JSON-escaped. `selfselectadvanced_dqsubject`
+records the **ids only** — no names, no contact details — of everybody a queued
+payload represents, its recipient included.
+
+Consequences for a data subject: their own request now finds the activity, an
+administrator's user-list can enumerate them, and erasing them removes the whole
+queued message rather than one matched on prose. Their export states that a
+message referencing them is queued, with the provider, the group and the time,
+but **not** its text — that text is somebody else's message and can name third
+parties.
+
+**Pending digest items are deleted by the upgrade, not migrated.** The people a
+legacy row is about exist in it only as names, and mapping a name back to an
+account is exactly the guess this change exists to eliminate; a wrong guess
+files one person's data under another person's account. Recipients lose a
+pending summary — the queue is transient and already excluded from backups —
+and nobody loses a record.
 
 ## 1.20.34 — a join is additive (2026-08-10)
 

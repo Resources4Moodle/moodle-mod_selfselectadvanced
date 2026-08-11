@@ -117,6 +117,13 @@ class provider implements
             'userid' => 'privacy:metadata:digestq:userid',
             'payload' => 'privacy:metadata:digestq:payload',
         ], 'privacy:metadata:digestq');
+        // A SEPARATE DECLARATION, not a reuse of digestq:userid. That key
+        // means "the recipient"; this one means "somebody the message is
+        // about", and telling a data subject the wrong one of those is
+        // exactly the confusion this table was created to end.
+        $collection->add_database_table('selfselectadvanced_dqsubject', [
+            'userid' => 'privacy:metadata:dqsubject:userid',
+        ], 'privacy:metadata:dqsubject');
         $collection->add_database_table('selfselectadvanced_eoi', [
             'guideid' => 'privacy:metadata:eoi:guideid',
             'remarks' => 'privacy:metadata:eoi:remarks',
@@ -198,6 +205,10 @@ class provider implements
                         SELECT 1 FROM {selfselectadvanced_digestq} dq
                          WHERE dq.activityid = a.id AND dq.userid = :userid9)
                     OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_dqsubject} dqs
+                          JOIN {selfselectadvanced_digestq} dqq ON dqq.id = dqs.digestid
+                         WHERE dqq.activityid = a.id AND dqs.userid = :userid23)
+                    OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_eoi} eo
                          WHERE eo.activityid = a.id AND eo.guideid = :userid10)
                     OR EXISTS (
@@ -235,15 +246,20 @@ class provider implements
         // administrator's userlist deletion, while the SAME person's own
         // request found no context at all.
         //
-        // The two OPAQUE stores - a userid buried in an agrun log body,
-        // a rendered name buried in a queued digest payload - are NOT
-        // in this statement, and the residue this comment used to
-        // record as unclosable is closed below instead (H-05). The
-        // earlier reasoning was that a digits-substring match "would
-        // list near-every context for near-every user", which is true
-        // of a substring match used as the ANSWER and false of one used
-        // as a pre-filter: the SQL narrows, and PHP decides on the
-        // decoded structure. See related_opaque_contexts().
+        // THE DIGEST SUBJECT CLAUSE IS RELATIONAL (1.20.35). It used to be
+        // a name search over the queued JSON, run in PHP below, because the
+        // queue recorded no identity but the recipient's. It now joins
+        // selfselectadvanced_dqsubject, which records every person a payload
+        // is about by id, so two people with one name are two rows and a
+        // rename changes nothing.
+        //
+        // ONE OPAQUE STORE REMAINS - a userid buried in an agrun log body -
+        // and it is not in this statement; it is closed below (H-05). The
+        // earlier reasoning was that a digits-substring match "would list
+        // near-every context for near-every user", which is true of a
+        // substring match used as the ANSWER and false of one used as a
+        // pre-filter: the SQL narrows, and PHP decides on the decoded
+        // structure. See related_opaque_contexts().
         $contextlist->add_from_sql($sql, [
             'modlevel' => CONTEXT_MODULE,
             'userid1' => $userid, 'userid2' => $userid, 'userid3' => $userid, 'userid4' => $userid,
@@ -252,13 +268,12 @@ class provider implements
             'userid12' => $userid, 'userid13' => $userid, 'userid14' => $userid,
             'userid15' => $userid, 'userid16' => $userid, 'userid17' => $userid,
             'userid18' => $userid, 'userid19' => $userid, 'userid20' => $userid,
-            'userid21' => $userid, 'userid22' => $userid,
+            'userid21' => $userid, 'userid22' => $userid, 'userid23' => $userid,
         ]);
 
         global $DB;
-        // The opaque stores (H-05): an auto-grouping log that names
-        // them as a participant, and a queued digest whose resolved
-        // payload renders their name for somebody else to read.
+        // The remaining opaque store (H-05): an auto-grouping log that names
+        // them as a participant.
         $opaque = self::related_opaque_contexts($userid);
         if ($opaque) {
             [$insql, $inparams] = $DB->get_in_or_equal($opaque, SQL_PARAMS_NAMED, 'opaquectx');
@@ -334,33 +349,34 @@ class provider implements
 
     /**
      * Module contexts holding this person inside an OPAQUE column: an
-     * auto-grouping log body, or a queued digest payload (H-05).
+     * auto-grouping log body (H-05).
      *
-     * Both stores keep participant identity inside TEXT that no
-     * foreign key describes - a userid as a JSON integer in the one, a
-     * rendered full name as a JSON string in the other - so neither
-     * appeared in any discovery SQL, and a person whose only trace was
-     * one of them had their own subject-access request come back empty
-     * while the row sat there. A context this method misses is a
-     * context their erasure never reaches either, which is the worse
-     * half.
+     * The store keeps participant identity inside TEXT that no foreign key
+     * describes - a userid as a JSON integer - so it appears in no discovery
+     * SQL, and a person whose only trace is one of them would have their own
+     * subject-access request come back empty while the row sat there. A
+     * context this method misses is a context their erasure never reaches
+     * either, which is the worse half.
      *
-     * TWO STAGES, and the split is the whole design. The SQL is a
-     * PRE-FILTER whose only guaranteed property is that it never
-     * misses: any log holding userid N as a JSON integer contains the
-     * decimal digits of N somewhere, and any payload naming a person
-     * contains one of notifier::payload_needles() somewhere. It is
-     * allowed to be generous - user 7 pre-matches a log that merely
-     * mentions rule 7 or team 17. PHP then DECIDES, on the decoded
-     * structure, where a userid is only a userid in an identity
-     * position and a name is only a name in a string leaf. So the
-     * cheap-and-wrong test never answers anything; it only limits what
-     * the exact test has to read.
+     * TWO STAGES, and the split is the whole design. The SQL is a PRE-FILTER
+     * whose only guaranteed property is that it never misses: any log holding
+     * userid N as a JSON integer contains the decimal digits of N somewhere.
+     * It is allowed to be generous - user 7 pre-matches a log that merely
+     * mentions rule 7 or team 17. PHP then DECIDES, on the decoded structure,
+     * where a userid is only a userid in an identity position. So the
+     * cheap-and-wrong test never answers anything; it only limits what the
+     * exact test has to read.
      *
-     * Both tables are small by construction - one row per grouping run
-     * and one per notification still waiting for its digest, which cron
-     * flushes daily or weekly - and this runs once per privacy request,
-     * off the web path.
+     * THE DIGEST HALF WAS REMOVED IN 1.20.35 and is not coming back. It
+     * searched queued payloads for a rendered full name, which cannot tell
+     * two people with the same name apart, breaks when somebody renames, and
+     * can never enumerate a subject by id. selfselectadvanced_dqsubject
+     * records those people relationally, so the digest case is now answered
+     * by ordinary SQL in get_contexts_for_userid() - a better matcher was
+     * never the fix.
+     *
+     * The table is small by construction - one row per grouping run - and
+     * this runs once per privacy request, off the web path.
      *
      * @param int $userid the person
      * @return int[] distinct module context ids
@@ -385,34 +401,6 @@ class provider implements
         foreach ($rows as $row) {
             if (in_array($userid, self::agrun_participants($row->opaque), true)) {
                 $contexts[(int) $row->contextid] = (int) $row->contextid;
-            }
-        }
-
-        // The digest half. A payload holds NAMES, never ids, so the
-        // needle is the rendered full name in both the plain and the
-        // JSON-escaped form the encoder may have written - the second
-        // is the one an ASCII-only test never needed and every accented
-        // name does. Core keeps the name fields on a deleted account,
-        // so this works after deletion too; an account with no name to
-        // render simply has no needle and is not searched for.
-        $erased = \core_user::get_user($userid);
-        $fullname = $erased ? trim(fullname($erased)) : '';
-        if ($fullname === '') {
-            return array_values($contexts);
-        }
-        foreach (\mod_selfselectadvanced\local\notifier::payload_needles($fullname) as $needle) {
-            $sql = "SELECT t.id, t.payload AS opaque, ctx.id AS contextid
-                      FROM {selfselectadvanced_digestq} t
-                      $joins
-                     WHERE " . $DB->sql_like('t.payload', ':needle', false);
-            $rows = $DB->get_records_sql($sql, [
-                'modlevel' => CONTEXT_MODULE,
-                'needle' => '%' . $DB->sql_like_escape($needle) . '%',
-            ]);
-            foreach ($rows as $row) {
-                if (\mod_selfselectadvanced\local\notifier::payload_names_user($row->opaque, $fullname)) {
-                    $contexts[(int) $row->contextid] = (int) $row->contextid;
-                }
             }
         }
 
@@ -477,6 +465,19 @@ class provider implements
             'userid',
             "SELECT dq.userid
                FROM {selfselectadvanced_digestq} dq
+               JOIN {course_modules} cm ON cm.instance = dq.activityid AND cm.id = :cmid",
+            $params
+        );
+        // Everybody a queued payload is ABOUT, not just its recipient
+        // (1.20.35). Until dqsubject existed this was the one class of data
+        // subject the plugin knew it could not enumerate: their identity was
+        // a rendered name inside somebody else's JSON, and a name is not an
+        // identity.
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT dqs.userid
+               FROM {selfselectadvanced_dqsubject} dqs
+               JOIN {selfselectadvanced_digestq} dq ON dq.id = dqs.digestid
                JOIN {course_modules} cm ON cm.instance = dq.activityid AND cm.id = :cmid",
             $params
         );
@@ -661,20 +662,13 @@ class provider implements
             $userlist->add_from_sql('id', "SELECT u.id FROM {user} u WHERE u.id $insql", $inparams);
         }
 
-        // NOT closed here, and stated rather than left to be
-        // discovered: a person whose only trace in this activity is
-        // their NAME inside another recipient's queued digest payload
-        // cannot be listed by this method. The payload holds names and
-        // no ids, and there is no reverse from a rendered name to an
-        // account that does not mean reading every user on the site.
-        // Their own request finds the context perfectly well
-        // (related_opaque_contexts()), the context-wide purge deletes
-        // every queued row outright, and scrub_user_in_activity()
-        // deletes the naming rows for anybody who reaches the userlist
-        // by any other route. What remains is the narrow case of an
-        // administrator erasing a subset of a context's users: a
-        // pending notification naming a person listed by no other
-        // column survives until cron flushes the queue.
+        // The gap this method used to declare - a person whose only trace was
+        // their NAME inside another recipient's queued payload, unlistable
+        // because a rendered name has no reverse to an account - is CLOSED as
+        // of 1.20.35 by the dqsubject clause above. The narrow case it left
+        // open (an administrator erasing a subset of a context's users misses
+        // a digest-only subject) is closed with it: that subject is now
+        // enumerated by id like anybody else.
     }
 
     /**
@@ -875,6 +869,23 @@ class provider implements
                 'activityid' => $cm->instance,
                 'userid' => $userid,
             ], 'timecreated ASC');
+            // QUEUED NOTIFICATIONS THAT REFERENCE THEM but are addressed to
+            // somebody else. Deliberately NOT the payload: that text is
+            // another recipient's message and can name third parties, so the
+            // subject is told a message about them is queued, when, by which
+            // provider and about which group - and no more. If per-placeholder
+            // detail is ever wanted, the relation grows a field saying which
+            // placeholder belongs to whom; it is not recovered by reading the
+            // prose.
+            $digestreferences = $DB->get_records_sql(
+                "SELECT dq.id, dq.provider, dq.timecreated, g.name, g.pluginuid
+                   FROM {selfselectadvanced_dqsubject} dqs
+                   JOIN {selfselectadvanced_digestq} dq ON dq.id = dqs.digestid
+              LEFT JOIN {selfselectadvanced_group} g ON g.id = dq.groupid
+                  WHERE dq.activityid = :activityid AND dqs.userid = :userid AND dq.userid <> :recipient
+               ORDER BY dq.timecreated ASC",
+                ['activityid' => $cm->instance, 'userid' => $userid, 'recipient' => $userid]
+            );
             $eois = $DB->get_records_sql(
                 "SELECT eo.id, g.name, g.pluginuid, eo.status, eo.remarks, eo.remarksformat,
                         eo.timecreated, eo.timeresponded
@@ -1056,6 +1067,13 @@ class provider implements
                         'payload' => $dq->payload,
                         'timecreated' => transform::datetime($dq->timecreated),
                     ], $digestqueue)),
+                    'digestreferences' => array_values(array_map(static fn($dr) => (object) [
+                        'provider' => $dr->provider,
+                        'group' => $dr->name !== null ? format_string($dr->name) : null,
+                        'pluginuid' => $dr->pluginuid,
+                        'timecreated' => transform::datetime($dr->timecreated),
+                        'youarearecordedsubject' => transform::yesno(true),
+                    ], $digestreferences)),
                     'tickets' => array_values(array_map(static fn($t) => (object) [
                         'group' => $t->name !== null ? format_string($t->name) : null,
                         'pluginuid' => $t->pluginuid,
@@ -1191,7 +1209,10 @@ class provider implements
             [$cm->instance]
         );
         $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $cm->instance]);
-        $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $cm->instance]);
+        // Relation first, then the queue rows - through the one helper every
+        // digest-removing path uses, so this method cannot be the one that
+        // forgets and leaves an orphan naming somebody.
+        \mod_selfselectadvanced\local\notifier::purge_activity_digests((int) $cm->instance);
         // Auto-grouping logs hold raw user ids in their JSON body and
         // the triggering manager's id beside it. This method is the one
         // deletion path that is meant to be unconditional, and it did
@@ -1475,35 +1496,29 @@ class provider implements
             ['activityid' => $activityid, 'userid' => $userid]
         );
         $DB->delete_records('selfselectadvanced_volunteer', ['activityid' => $activityid, 'userid' => $userid]);
-        $DB->delete_records('selfselectadvanced_digestq', ['activityid' => $activityid, 'userid' => $userid]);
-        // A digest queued for ANOTHER recipient can carry the erased
-        // person's name: the payload is the already-resolved
-        // placeholder object, with fullname() baked in at queue time.
-        // Such a row narrates the erased person's own action, so it is
-        // deleted whole rather than scrubbed - excising a name from a
-        // one-line notification leaves nonsense, and the queue is
-        // transient. The match is a plain substring on the rendered
-        // name; over-deleting a pending notification is the cheap side
-        // of that trade, a kept name the expensive one. Core keeps the
-        // name fields on a deleted account, so the lookup works on
-        // either path; a vanished record simply has no name to match.
-        $erased = \core_user::get_user($userid);
-        if ($erased && trim(fullname($erased)) !== '') {
-            $erasedname = fullname($erased);
-            foreach ($DB->get_records('selfselectadvanced_digestq', ['activityid' => $activityid]) as $qrow) {
-                // The SAME predicate discovery uses, not a plain
-                // strpos: the payload is JSON, so a name carrying a
-                // non-ASCII character is stored escaped (á) and a
-                // raw-name substring never matches it. Using the weaker
-                // test here made the two halves disagree - the person
-                // was DISCOVERED in the context and then NOT ERASED
-                // from it, which is the worst of both answers (blind
-                // audit, 1.20.5).
-                if (\mod_selfselectadvanced\local\notifier::payload_names_user((string) $qrow->payload, $erasedname)) {
-                    $DB->delete_records('selfselectadvanced_digestq', ['id' => $qrow->id]);
-                }
-            }
-        }
+        // EVERY QUEUED MESSAGE THIS PERSON IS PART OF, whether addressed to
+        // them or merely about them, found by id through the subject relation
+        // (1.20.35). The row is deleted WHOLE rather than scrubbed: the
+        // payload is one already-resolved sentence narrating what they did,
+        // excising a name from it leaves nonsense, and the queue is transient.
+        //
+        // This replaces a substring match on the rendered full name. That
+        // match could not tell two people with one name apart, missed anybody
+        // who had renamed since queueing, and had to reproduce the encoder's
+        // JSON escaping to find an accented name at all - so it could
+        // over-delete a namesake's message and under-delete the subject's own.
+        // Identity is an id; it was never the text.
+        $digestids = $DB->get_fieldset_sql(
+            "SELECT DISTINCT dq.id
+               FROM {selfselectadvanced_digestq} dq
+          LEFT JOIN {selfselectadvanced_dqsubject} dqs ON dqs.digestid = dq.id
+              WHERE dq.activityid = :activityid
+                AND (dq.userid = :recipient OR dqs.userid = :subject)",
+            ['activityid' => $activityid, 'recipient' => $userid, 'subject' => $userid]
+        );
+        // The WHOLE message goes, index included - not only this person's
+        // index row, which would be left pointing at a deleted message.
+        \mod_selfselectadvanced\local\notifier::purge_digests($digestids);
         // The interest history is the guide's own personal content
         // (remarks) and identity; deleted outright, exactly like a
         // member row, rather than de-linked (nothing else references

@@ -68,10 +68,10 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081102;
+    private const CURRENT = 2026081103;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026081101;
+    private const PREVIOUS = 2026081102;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
     private const RELEASE = '1.20.35';
@@ -381,6 +381,9 @@ final class versionbump_test extends \advanced_testcase {
         $this->assertLessThan($end, $start, 'the guard does not precede its savepoint');
 
         $block = substr($code, $start, $end - $start);
+        // Kept unblanked: the creation check below has to see which table
+        // each xmldb_table() declaration names.
+        $original = $block;
 
         // XMLDB SCHEMA DECLARATIONS ARE NOT QUERIES, and excluding them is
         // narrowing what this test IGNORES, never what it checks. A step that
@@ -403,16 +406,30 @@ final class versionbump_test extends \advanced_testcase {
         );
 
         // The exemption register. Keyed by serial so it cannot be inherited.
+        //
+        // 'tables' are PRE-EXISTING tables the step performs DML on; the
+        // hazard there is schema the FROM version may not have, and the
+        // exemption asserts these predate the step. 'creates' are tables the
+        // step itself creates before touching them - a different and weaker
+        // claim, because the step has just guaranteed their existence, but it
+        // has to be declared separately so nobody can quietly move a table
+        // between the two categories.
         $exempt = [
-            2026081102 => [
-                'tables' => ['selfselectadvanced_group', 'selfselectadvanced_member'],
-                'reason' => 'Leadership-vacancy migration: leaderid becomes nullable and the invalid '
-                    . 'values it already holds (0, and pointers to members no longer confirmed) are '
-                    . 'normalised to NULL, with the matching isleader flags cleared. Both tables and '
-                    . 'both columns predate this step; only leaderid\'s nullability changes.',
+            2026081103 => [
+                'tables' => ['selfselectadvanced_digestq'],
+                'creates' => ['selfselectadvanced_dqsubject'],
+                'reason' => 'Digest-subject migration: the pending digest queue is PURGED because '
+                    . 'its non-recipient subjects exist only as rendered names and cannot be mapped '
+                    . 'to ids without guessing. digestq predates this step and only its rows are '
+                    . 'touched, no column. dqsubject is created by this same step, immediately '
+                    . 'above, and is emptied only to cover a previous run that died after '
+                    . 'create_table().',
             ],
         ];
-        $allowed = array_key_exists(self::CURRENT, $exempt) ? $exempt[self::CURRENT]['tables'] : [];
+        $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
+        $allowed = array_key_exists(self::CURRENT, $exempt)
+            ? array_merge($exempt[self::CURRENT]['tables'], $created)
+            : [];
 
         // Stale-entry detection: an exemption for anything other than the
         // current step is a leftover, and leftovers are how a one-off licence
@@ -442,16 +459,35 @@ final class versionbump_test extends \advanced_testcase {
                     . 'If the write is a necessary part of a schema migration, declare it in this '
                     . 'test\'s exemption register with a reason.'
             );
+        }
 
-            // The property the exemption rests on: the step must not be
-            // creating what it writes to.
-            $this->assertStringNotContainsString(
-                'add_table',
-                $block,
-                'the ' . self::CURRENT . ' step both creates a table and writes rows to a plugin '
-                    . 'table; an exemption cannot cover a table this step invents'
+        // THE PROPERTY THE 'tables' EXEMPTION RESTS ON: those tables predate
+        // the step, so it must not be creating them. Read out of the step
+        // rather than asserted in the abstract - every table handed to
+        // create_table()/add_table() is collected from the ORIGINAL text (the
+        // xmldb constructors were blanked above) and must have been declared
+        // as a creation, never as a pre-existing table.
+        preg_match_all(
+            '/new\s+xmldb_table\s*\(\s*\'(selfselectadvanced_[a-z]+)\'/',
+            $original,
+            $declared
+        );
+        $makes = preg_match('/(?:create_table|add_table)\s*\(/', $original) === 1
+            ? array_values(array_unique($declared[1] ?? []))
+            : [];
+        foreach ($makes as $table) {
+            $this->assertNotContains(
+                $table,
+                $exempt[self::CURRENT]['tables'] ?? [],
+                'the ' . self::CURRENT . ' step CREATES ' . $table . ' and the register calls it '
+                    . 'pre-existing; an exemption cannot cover a table this step invents'
             );
         }
+        $this->assertSame(
+            $created,
+            array_values(array_intersect($makes, $created)),
+            'the register declares a created table the step does not create'
+        );
     }
 
     /**
@@ -502,6 +538,60 @@ final class versionbump_test extends \advanced_testcase {
             $before + 1,
             $this->marker_rows(),
             'the ' . self::CURRENT . ' step did not execute: core bumped the recorded version on its own'
+        );
+    }
+
+    /**
+     * THE DIGEST PURGE. A site upgrading with pending digest items loses them
+     * and gains no invented subject relation.
+     *
+     * The rows are dropped rather than migrated because their non-recipient
+     * subjects exist only as rendered names, and mapping a name back to an
+     * account is the ambiguity selfselectadvanced_dqsubject was created to
+     * end - a wrong guess files one person's data under another's. This test
+     * exists to stop a later "helpfully" reinstated migration: it fails both
+     * if a queue row survives AND if a relation row appears for a legacy row.
+     */
+    public function test_the_upgrade_purges_the_legacy_digest_queue_without_guessing_subjects(): void {
+        global $CFG, $DB;
+
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', ['course' => $course->id]);
+        $recipient = $generator->create_user();
+        $named = $generator->create_user(['firstname' => 'Legacy', 'lastname' => 'Subject']);
+        // A legacy row: the recipient's id, and the other person present only
+        // as text - exactly the shape the old model produced.
+        $legacy = $DB->insert_record('selfselectadvanced_digestq', (object) [
+            'activityid' => (int) $instance->id,
+            'userid' => (int) $recipient->id,
+            'groupid' => null,
+            'provider' => 'guidequeue',
+            'subjectkey' => 'msghandoverproposedsubject',
+            'bodykey' => 'msghandoverproposedbody',
+            'payload' => json_encode(['from' => fullname($named), 'group' => 'Team Alpha']),
+            'contexturl' => 'https://example.invalid/mod/selfselectadvanced/guide.php?id=1',
+            'timecreated' => time(),
+        ]);
+        $this->assertTrue($DB->record_exists('selfselectadvanced_digestq', ['id' => $legacy]));
+
+        $this->pretend_the_site_installed(self::PREVIOUS);
+        unset_config('allversionshash');
+        unset($CFG->allversionshash);
+        $this->assertTrue($this->upgrade_the_way_a_site_does(), 'the upgrade did not run');
+
+        $this->assertSame(
+            0,
+            $DB->count_records('selfselectadvanced_digestq'),
+            'a pending digest item survived an upgrade that cannot migrate its subjects'
+        );
+        $this->assertSame(
+            0,
+            $DB->count_records('selfselectadvanced_dqsubject'),
+            'the upgrade invented a subject relation for a legacy row, which it can only have '
+                . 'done by guessing identity from the payload text'
         );
     }
 

@@ -2445,5 +2445,64 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081102, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081103) {
+        // DIGEST SUBJECTS BECOME A RELATION (1.20.35). A queued digest row
+        // knew its RECIPIENT and nothing else: everybody else the payload was
+        // about existed only as rendered text inside the JSON. The privacy
+        // provider therefore had to recover identity by searching that JSON
+        // for a full name, which is ambiguous three ways - two people share a
+        // name, a person renames after queueing, and a subject who is not the
+        // recipient cannot be enumerated by id at all. The answer is not a
+        // better matcher; it is to record who the payload is about.
+        $table = new xmldb_table('selfselectadvanced_dqsubject');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('digestid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('fk_digestid', XMLDB_KEY_FOREIGN, ['digestid'], 'selfselectadvanced_digestq', ['id']);
+        $table->add_key('fk_userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+        // The unique pair, and ONLY that. A separate index on userid alone
+        // would collide with fk_userid: XMLDB builds an index for every
+        // foreign key, so declaring both is a coding_exception at install
+        // time, not a duplicate that is merely wasteful.
+        $table->add_index('digestid_userid', XMLDB_INDEX_UNIQUE, ['digestid', 'userid']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        // THE LEGACY QUEUE IS PURGED, NOT MIGRATED. Reverse-mapping historical
+        // names back to user ids would recreate the exact ambiguity this table
+        // exists to remove, and guessing wrong files one person's data under
+        // another person's account. The queue is transient operational data -
+        // it is already excluded from backups - so the cost is that digest
+        // items queued before the upgrade are not delivered. Recipients lose
+        // a summary; nobody loses a record.
+        $dropped = $DB->count_records('selfselectadvanced_digestq');
+        // Both tables, index first. The relation is empty on a normal run -
+        // it was created three lines ago - but a site whose previous upgrade
+        // attempt died after create_table() reaches here with rows in it, and
+        // leaving those behind would be the orphan case in its purest form.
+        $DB->delete_records('selfselectadvanced_dqsubject');
+        $DB->delete_records('selfselectadvanced_digestq');
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.35 (2026081103). Digest subjects are now a relation; '
+                . $dropped . ' pending digest item(s) were dropped, not migrated.',
+            'selfselectadvanced_dqsubject records, by user id, every person a queued digest '
+                . 'payload is about - the recipient and anybody named in it. Before this the only '
+                . 'identity on a queued row was the recipient, and the privacy provider had to '
+                . 'find other data subjects by matching rendered names inside the JSON payload, '
+                . 'which cannot distinguish two people with the same name, survives a rename, or '
+                . 'enumerate a subject by id. Pending pre-upgrade digest items were DELETED '
+                . 'rather than migrated: their non-recipient subjects could only have been '
+                . 'guessed from those same names, and a wrong guess attributes one person\'s '
+                . 'data to another. The queue is transient and excluded from backups.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081103, 'selfselectadvanced');
+    }
+
     return true;
 }
