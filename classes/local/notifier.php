@@ -123,6 +123,13 @@ class notifier {
      * foreign key with a cascade is a per-engine, per-installation question,
      * so the order is written out here rather than assumed.
      *
+     * AN ORPHAN IS NOT MERELY UNTIDY, and this is measured rather than
+     * argued. A test that deleted queue rows directly and left the index
+     * behind passed on PostgreSQL and FAILED on MariaDB 10.11 with a
+     * duplicate-key error on digestid_userid: MariaDB handed the next queue
+     * row an id the orphan still named. So a forgotten index row does not sit
+     * quietly - it can refuse a later notification outright.
+     *
      * @param int[] $digestids queue row ids; an empty list does nothing
      */
     public static function purge_digests(array $digestids): void {

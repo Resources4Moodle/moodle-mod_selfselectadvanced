@@ -96,7 +96,13 @@ final class digest_test extends \advanced_testcase {
         [$activity, $guide] = $this->setup_activity();
 
         foreach (['daily', 'weekly'] as $period) {
-            $DB->delete_records('selfselectadvanced_digestq');
+            // Through the helper, not a bare delete of the queue table. A
+            // direct delete leaves the subject index behind, and on MariaDB
+            // the next queue row can be handed the id the orphan still names
+            // - which is a unique-key violation, not a silent mess. That is
+            // the sharpest demonstration available that the two tables have
+            // to be removed together.
+            notifier::purge_digests($DB->get_fieldset_select('selfselectadvanced_digestq', 'id', '1=1', []));
             set_user_preference('mod_selfselectadvanced_digest', $period, $guide->id);
 
             $sink = $this->redirectMessages();
