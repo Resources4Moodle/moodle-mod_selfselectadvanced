@@ -124,3 +124,15 @@ Feature: Students create groups under the lead cap
   Scenario: The same student is offered Create once leadership is allowed
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     Then I should see "Create group"
+
+  # THE GROUPEDIT DOOR. The landing control being hidden is not the same as
+  # the page being shut: a student can hold the URL from before the override.
+  # The door is proved by EXECUTING the page, but the assertion is the
+  # project's own idiom - the absence of the form - rather than driving a
+  # capability exception, which Moodle Behat treats as a failed step no
+  # matter how deliberate it was. The refusal itself is asserted in PHPUnit,
+  # where the exception type can be named.
+  Scenario: The create page opens for a student who may lead
+    When I am on the "Lab groups" "mod_selfselectadvanced > new team" page logged in as student1
+    Then I should see "Group name"
+    And I should not see "you do not currently have permissions"
