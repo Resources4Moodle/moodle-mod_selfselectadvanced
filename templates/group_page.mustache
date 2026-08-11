@@ -104,6 +104,14 @@
         "actionurl": "https://example.com/mod/selfselectadvanced/group.php",
         "cmid": 1,
         "groupid": 1,
+        "leadervacant": true,
+        "leadervacantnotice": "This group currently has no leader. Course staff must assign one before leader-only work can continue.",
+        "appointleaderformhtml": "",
+        "appointexcluded": [
+            {"userid": 7, "name": "Tara Two", "reason": "They already lead as many groups as this activity allows."}
+        ],
+        "hasappointexcluded": true,
+        "appointleadernocandidates": false,
         "candelete": true,
         "deleteurl": "https://example.com/mod/selfselectadvanced/group.php?id=1&g=1&action=delete",
         "backurl": "https://example.com/mod/selfselectadvanced/view.php?id=1"
@@ -117,6 +125,25 @@
         </div>
         <span class="badge bg-info text-dark">{{statelabel}}</span>
     </div>
+
+    {{#leadervacant}}
+        <div class="alert alert-warning selfselectadvanced-leadervacant" role="status">
+            <p class="mb-0">{{leadervacantnotice}}</p>
+            {{#hasappointexcluded}}
+                <ul class="mb-0 mt-2 small">
+                    {{#appointexcluded}}
+                        <li>{{name}} &mdash; {{reason}}</li>
+                    {{/appointexcluded}}
+                </ul>
+            {{/hasappointexcluded}}
+            {{#appointleadernocandidates}}
+                <p class="mb-0 mt-2 small">
+                    {{#str}} appointleadernone, mod_selfselectadvanced {{/str}}
+                </p>
+            {{/appointleadernocandidates}}
+        </div>
+        {{{appointleaderformhtml}}}
+    {{/leadervacant}}
 
     <h4>{{title}}</h4>
     <div class="selfselectadvanced-brief mb-3">{{{brief}}}</div>

@@ -309,7 +309,7 @@ final class leadership_vacancy_test extends \advanced_testcase {
             role_change_permission($roleid, $activity->context(), authority::LEAD, CAP_PROHIBIT);
             accesslib_clear_all_caches_for_unit_testing();
         } else if ($flaw === 'atcap') {
-            // maxlead is 2 in this world; give the candidate two of their own.
+            // Maxlead is 2 in this world; give the candidate two of their own.
             $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
             for ($i = 0; $i < 2; $i++) {
                 $plugingen->create_group([
@@ -431,7 +431,12 @@ final class leadership_vacancy_test extends \advanced_testcase {
         $loser = (int) $members[1]->id;
         $fired = false;
         locks::set_test_hook(function (string $resource) use (
-            &$fired, $api, $activity, $group, $winner, $managera
+            &$fired,
+            $api,
+            $activity,
+            $group,
+            $winner,
+            $managera
         ): void {
             if ($fired || !str_starts_with($resource, 'activity:')) {
                 return;
@@ -505,5 +510,148 @@ final class leadership_vacancy_test extends \advanced_testcase {
             }
         }
         $this->assert_vacant($activity, (int) $group->id);
+    }
+
+    /**
+     * The picker offers exactly the members the appointment would accept.
+     *
+     * WHY THIS TEST EXISTS. The offer was first computed by a loop inside
+     * group.php, which no unit test can reach, and the Behat run that drove a
+     * real browser at a real vacancy found the control missing with no way to
+     * say why. The computation now lives in the service and is asked here
+     * directly, so a divergence between "who is offered" and "who is accepted"
+     * fails at this level instead of as a blank panel.
+     *
+     * MUTATION CAUGHT (run 2026-08-11): making the loop skip the gatekeeper
+     * (`if (false && ...)`) so every roster member is offered fails this file
+     * at the excluded-members assertion.
+     */
+    public function test_the_picker_offers_every_member_the_appointment_accepts(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $api, $course, $group, $leader, $members] = $this->world();
+        delete_user($DB->get_record('user', ['id' => (int) $leader->id]));
+        $vacant = groups::get($activity, (int) $group->id);
+
+        $offer = $api->succession()->appointable_members($vacant);
+
+        // Compared as a SET: get_roster orders by surname, and the generator's
+        // surnames are not ours to predict. Order is a roster concern, not an
+        // eligibility one, and asserting it made this test fail depending on
+        // which other tests had run first.
+        $expected = array_map(fn($m) => (int) $m->id, $members);
+        $offered = array_keys($offer['eligible']);
+        sort($expected);
+        sort($offered);
+        $this->assertSame($expected, $offered, 'both confirmed members should be offered');
+        $this->assertSame([], $offer['excluded'], 'nobody should be excluded here');
+
+        // The offer is not merely a list: every name on it is accepted.
+        $manager = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($manager->id, (int) $course->id, 'editingteacher');
+        $appointed = (int) array_key_first($offer['eligible']);
+        $api->succession()->appoint_vacant_leader($vacant, $appointed, (int) $manager->id);
+        $this->assertSame(
+            $appointed,
+            (int) groups::get($activity, (int) $group->id)->leaderid,
+            'the appointment refused a candidate its own picker had offered'
+        );
+    }
+
+    /**
+     * A member who cannot lead is excluded WITH THE REASON, not silently
+     * dropped, so staff can see why the obvious candidate is missing.
+     */
+    public function test_a_member_who_cannot_lead_is_excluded_with_the_reason(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $api, $course, $group, $leader, $members] = $this->world(['maxlead' => 1]);
+        delete_user($DB->get_record('user', ['id' => (int) $leader->id]));
+
+        // The first member already leads elsewhere and maxlead is 1.
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $members[0]->id,
+            'name' => 'Their other group',
+        ]);
+
+        $offer = $api->succession()->appointable_members(groups::get($activity, (int) $group->id));
+
+        $this->assertSame([(int) $members[1]->id], array_keys($offer['eligible']));
+        $this->assertSame([(int) $members[0]->id], array_keys($offer['excluded']));
+        $excluded = $offer['excluded'][(int) $members[0]->id];
+        $this->assertSame('refusalnomineeleadcap', $excluded['refusal']->stringkey);
+        $this->assertSame(
+            (int) $members[0]->id,
+            (int) $excluded['member']->userid,
+            'the excluded row must carry the member, so the page can name them'
+        );
+    }
+
+    /**
+     * PRIVACY. A peer is told the group has no leader; a peer is NOT told who
+     * among their teammates is barred from leading it, nor that nobody can.
+     * Those are staff judgements about other people.
+     *
+     * MUTATION CAUGHT (run 2026-08-11): dropping $canappoint from
+     * appointleadernocandidates - which is exactly how the export was written
+     * before this test - fails here with "the peer must not be told nobody can
+     * lead", and fails the peer step of the Behat feature as well.
+     */
+    public function test_a_peer_sees_the_vacancy_but_not_the_staff_repair_detail(): void {
+        global $DB, $PAGE;
+
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $api, $course, $group, $leader, $members] = $this->world();
+        delete_user($DB->get_record('user', ['id' => (int) $leader->id]));
+        $roleid = (int) $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+        role_change_permission($roleid, $activity->context(), authority::LEAD, CAP_PROHIBIT);
+        accesslib_clear_all_caches_for_unit_testing();
+        $vacant = groups::get($activity, (int) $group->id);
+        $excluded = [];
+        foreach ($api->succession()->appointable_members($vacant)['excluded'] as $userid => $row) {
+            $excluded[] = ['userid' => $userid, 'name' => fullname($row['member']), 'reason' => 'barred'];
+        }
+        $this->assertNotSame([], $excluded, 'the fixture must actually produce excluded members');
+
+        $PAGE->set_url('/mod/selfselectadvanced/group.php', ['id' => $activity->cm()->id, 'g' => $vacant->id]);
+        $renderer = $PAGE->get_renderer('core');
+
+        $peer = (new \mod_selfselectadvanced\output\group_page(
+            $api,
+            $vacant,
+            (int) $members[0]->id,
+            null,
+            null,
+            null,
+            null,
+            $excluded
+        ))->export_for_template($renderer);
+        $this->assertTrue($peer->leadervacant, 'the peer must be told the group has no leader');
+        $this->assertFalse($peer->hasappointexcluded, 'the peer must not receive the excluded list');
+        $this->assertSame([], $peer->appointexcluded);
+        $this->assertFalse($peer->appointleadernocandidates, 'the peer must not be told nobody can lead');
+
+        $manager = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($manager->id, (int) $course->id, 'editingteacher');
+        $staff = (new \mod_selfselectadvanced\output\group_page(
+            $api,
+            $vacant,
+            (int) $manager->id,
+            null,
+            null,
+            null,
+            null,
+            $excluded
+        ))->export_for_template($renderer);
+        $this->assertTrue($staff->hasappointexcluded, 'staff must see why each member is barred');
+        $this->assertCount(count($excluded), $staff->appointexcluded);
+        $this->assertTrue($staff->appointleadernocandidates, 'staff must get the honest empty state');
     }
 }

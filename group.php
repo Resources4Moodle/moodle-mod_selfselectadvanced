@@ -142,6 +142,41 @@ if ($isleaderforming && $maylead && empty($group->successorid)) {
     }
 }
 
+// STAFF REPAIR OF A LEADERSHIP VACANCY. Offered only when the group really
+// has none - the service refuses otherwise, and a control that is always
+// there would invite staff to think of it as a way to change a sitting
+// leader, which it deliberately is not.
+$appointleaderform = null;
+$canappointleader = $group->leaderid === null && (
+    has_capability('mod/selfselectadvanced:manage', $context)
+    || has_capability('mod/selfselectadvanced:managecomposition', $context)
+);
+$appointexcluded = [];
+if ($canappointleader) {
+    // The service answers who is appointable, using the same gatekeeper the
+    // appointment itself will use, so the picker cannot offer somebody the
+    // appointment would then refuse.
+    $appointable = $api->succession()->appointable_members($group);
+    $appointeligible = [];
+    foreach ($appointable['eligible'] as $userid => $member) {
+        $appointeligible[$userid] = fullname($member);
+    }
+    foreach ($appointable['excluded'] as $userid => $row) {
+        $appointexcluded[] = [
+            'userid' => $userid,
+            'name' => fullname($row['member']),
+            'reason' => $row['refusal']->get_message(),
+        ];
+    }
+    if ($appointeligible) {
+        $appointleaderform = new \mod_selfselectadvanced\form\appointleader_form($baseurl->out(false), [
+            'cmid' => $cm->id,
+            'groupid' => (int) $group->id,
+            'eligible' => $appointeligible,
+        ]);
+    }
+}
+
 $submitform = null;
 if ($isleaderforming && $maylead) {
     // AUTHORITY, added in 1.20.1 (audit D2): submitting to a guide is a
@@ -278,6 +313,30 @@ if ($action === 'cancelnomination' && data_submitted() && confirm_sesskey()) {
     redirect(
         $baseurl,
         get_string('nominationcancelled', 'mod_selfselectadvanced'),
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
+}
+
+if ($action === 'appointleader' && $appointleaderform && ($data = $appointleaderform->get_data())) {
+    try {
+        $api->succession()->appoint_vacant_leader($group, (int) $data->newleader, (int) $USER->id);
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        // Same contract as every other arm on this page: a refusal is an
+        // answer, delivered as a notice. It matters more here than most,
+        // because the commonest refusal is the one two staff hit when they
+        // repair the same group at once, and "somebody already assigned a
+        // leader" is information rather than an error.
+        redirect(
+            $baseurl,
+            selfselectadvanced_refusal_notice($e),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+    redirect(
+        $baseurl,
+        get_string('appointleaderdone', 'mod_selfselectadvanced'),
         null,
         \core\output\notification::NOTIFY_SUCCESS
     );
@@ -1319,7 +1378,9 @@ $page = new \mod_selfselectadvanced\output\group_page(
     (int) $USER->id,
     $inviteform,
     $nominateform,
-    $submitform
+    $submitform,
+    $appointleaderform,
+    $appointexcluded
 );
 
 echo $OUTPUT->header();

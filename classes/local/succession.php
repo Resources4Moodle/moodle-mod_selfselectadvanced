@@ -270,6 +270,39 @@ class succession {
     }
 
     /**
+     * WHO MAY BE APPOINTED to fill this group's leadership vacancy.
+     *
+     * Lives here, beside appoint_vacant_leader(), and asks it the same
+     * question through the same gatekeeper, so the picker cannot offer
+     * somebody the appointment would then refuse. It was written as a loop
+     * inside group.php first; a root page is not reachable from a unit test,
+     * which means the offer and the refusal could drift apart with nothing
+     * to notice.
+     *
+     * Answers for the GROUP, not for a viewer: it says who is appointable,
+     * never who may do the appointing. The caller enforces that separately -
+     * the excluded list carries member names and reasons, which are staff
+     * information.
+     *
+     * @param stdClass $group the vacant group
+     * @return array{eligible: stdClass[], excluded: array[]} both keyed by user id; excluded rows carry member and refusal
+     */
+    public function appointable_members(stdClass $group): array {
+        $eligible = [];
+        $excluded = [];
+        foreach (groups::get_roster((int) $group->id) as $member) {
+            $userid = (int) $member->userid;
+            if ($refusal = $this->gatekeeper->check_nominee_can_lead($userid)) {
+                $excluded[$userid] = ['member' => $member, 'refusal' => $refusal];
+            } else {
+                $eligible[$userid] = $member;
+            }
+        }
+
+        return ['eligible' => $eligible, 'excluded' => $excluded];
+    }
+
+    /**
      * STAFF FILL A LEADERSHIP VACANCY. This is a repair, not a transfer.
      *
      * Deletion, last unenrolment or privacy erasure can leave a group with

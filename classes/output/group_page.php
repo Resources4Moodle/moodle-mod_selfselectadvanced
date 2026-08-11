@@ -55,6 +55,8 @@ class group_page implements renderable, templatable {
      * @param \mod_selfselectadvanced\form\invite_form|null $inviteform leader's invite form, when applicable
      * @param \mod_selfselectadvanced\form\nominate_form|null $nominateform leader's succession form
      * @param \mod_selfselectadvanced\form\submit_form|null $submitform leader's submit-to-guide form
+     * @param \mod_selfselectadvanced\form\appointleader_form|null $appointleaderform staff repair of a vacancy
+     * @param array $appointexcluded members who cannot be appointed, each with userid, name and reason
      */
     public function __construct(
         /** @var api The application facade. */
@@ -69,6 +71,10 @@ class group_page implements renderable, templatable {
         private readonly ?\mod_selfselectadvanced\form\nominate_form $nominateform = null,
         /** @var \mod_selfselectadvanced\form\submit_form|null Leader's submit-to-guide form. */
         private readonly ?\mod_selfselectadvanced\form\submit_form $submitform = null,
+        /** @var \mod_selfselectadvanced\form\appointleader_form|null Staff repair of a vacancy. */
+        private readonly ?\mod_selfselectadvanced\form\appointleader_form $appointleaderform = null,
+        /** @var array<int, array{userid: int, name: string, reason: string}> Members who cannot be appointed. */
+        private readonly array $appointexcluded = [],
     ) {
     }
 
@@ -118,6 +124,11 @@ class group_page implements renderable, templatable {
         // composition columns holds :viewall on every shipped role
         // that has :manage.
         $canviewall = has_capability('mod/selfselectadvanced:viewall', $context, $this->userid);
+        // The vacancy-repair power, asked here rather than taken from the
+        // caller: whether the repair panel's staff parts are exported must not
+        // depend on a page remembering to say so.
+        $canappoint = has_capability('mod/selfselectadvanced:manage', $context, $this->userid)
+            || has_capability('mod/selfselectadvanced:managecomposition', $context, $this->userid);
         $hasidentitycap = has_capability(
             'mod/selfselectadvanced:viewparticipantidentity',
             $context,
@@ -1146,6 +1157,28 @@ class group_page implements renderable, templatable {
             ]))->out(false),
             'caninvite' => $caninvite,
             'inviteformhtml' => $caninvite && $this->inviteform ? $this->inviteform->render() : '',
+            // A LEADERSHIP VACANCY IS SHOWN TO EVERY VIEWER, staff or not.
+            // Somebody looking at a group whose leader has gone is entitled to
+            // know why nothing can be submitted, and members keep their
+            // existing Leadership help route - with no leader they are all
+            // non-leaders, which is exactly what that ticket is for.
+            'leadervacant' => $this->group->leaderid === null,
+            'leadervacantnotice' => get_string('leadervacantnotice', 'mod_selfselectadvanced'),
+            // The staff control is separate from the notice: an ordinary
+            // member sees the fact, not the repair.
+            'appointleaderformhtml' => $this->appointleaderform ? $this->appointleaderform->render() : '',
+            // GATED ON THE APPOINTING POWER, not merely on the vacancy. The
+            // excluded list names members and says why each cannot lead, and
+            // the empty state announces that nobody in the group can - both are
+            // staff information about other people, so a peer must not receive
+            // them even though the peer is told the vacancy exists.
+            'appointexcluded' => $canappoint ? array_values($this->appointexcluded) : [],
+            'hasappointexcluded' => $canappoint && $this->appointexcluded !== [],
+            // Staff with the power but nobody to appoint need an honest empty
+            // state rather than a blank control.
+            'appointleadernocandidates' => $canappoint
+                && $this->group->leaderid === null
+                && $this->appointleaderform === null,
             'invitedisabledreason' => $isleader && $isforming && $maylead && $invitedoorrefusal !== null
                 ? $invitedoorrefusal->get_message()
                 : '',

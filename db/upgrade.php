@@ -2425,8 +2425,8 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
 
         $dbman->add_key($table, $key);
 
-        // info is char(255) and upgrade_log() SWALLOWS a failed insert, so an
-        // over-long summary logs nothing at all and says nothing about it.
+        // The info column is char(255) and upgrade_log() SWALLOWS a failed
+        // insert, so an over-long summary logs nothing and says nothing.
         // The headline stays short; the explanation goes in details, which is
         // a text column.
         upgrade_log(

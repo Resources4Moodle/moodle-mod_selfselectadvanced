@@ -178,6 +178,36 @@ class behat_mod_selfselectadvanced extends behat_base {
     }
 
     /**
+     * Delete the account of a group's leader, producing a real vacancy.
+     *
+     * The vacancy this asserts is the OUTCOME of core deleting a user, not a
+     * row poked into the database - writing leaderid = NULL directly would
+     * test the template against a state the plugin might never actually
+     * reach. delete_user() fires the events the observers listen to, so the
+     * group arrives at the page the same way it would in production.
+     *
+     * @Given the leader of the :team group has been removed
+     *
+     * @param string $team plugin team name
+     */
+    public function the_leader_of_the_group_has_been_removed(string $team): void {
+        global $DB, $CFG;
+        require_once($CFG->dirroot . '/user/lib.php');
+
+        $group = $DB->get_record('selfselectadvanced_group', ['name' => $team], '*', MUST_EXIST);
+        $leader = $DB->get_record('user', ['id' => (int) $group->leaderid], '*', MUST_EXIST);
+        delete_user($leader);
+
+        $after = $DB->get_field('selfselectadvanced_group', 'leaderid', ['id' => (int) $group->id]);
+        if ($after !== null) {
+            throw new ExpectationException(
+                'deleting the leader did not vacate the leadership of "' . $team . '"',
+                $this->getSession()
+            );
+        }
+    }
+
+    /**
      * Assert the approved team's Moodle course-group mirror and members.
      *
      * @Then the Moodle group mirror for :team in :activityname should contain :usernames
