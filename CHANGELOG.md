@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.20.37 — the unfreeze guarantee, pinned (2026-08-12)
+
+> Serial `2026081201` / `1.20.37`. **No schema change and no data change.**
+> Maturity stays RC.
+
+**A test, and nothing else.** When a group is opened out after a freeze, its
+Moodle course group stays, and later roster changes — joins and departures
+alike — go on reaching it. That was already true in 1.20.36; this release makes
+it stay true.
+
+The guarantee was worth pinning because 1.20.36 made it fragile in a way no
+existing test could see. Under the new *at freeze* boundary, unfreezing moves a
+group from a state that requires a course group (frozen) into one that does not
+(approved), while its course group is alive and possibly in use by a group
+forum or assignment. Wiring the new boundary rule into the teardown, or gating
+the membership sync on it, are both plausible tidy-ups — and either would
+silently orphan a live group or quietly stop maintaining it. The test applies
+exactly that refactor and fails, so the trap is now sprung in CI rather than on
+a course.
+
+This is the good-neighbour principle applied inside the plugin's own lifecycle:
+a course group that exists is course data, and the plugin keeps serving it
+rather than abandoning it on a technicality.
+
 ## 1.20.36 — the Moodle-group mirror: when it appears, and that it goes away (2026-08-12)
 
 > Serial `2026081200` / `1.20.36`. **Schema change:** a new `mirrorat` column on

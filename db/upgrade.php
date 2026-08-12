@@ -2549,5 +2549,33 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081200, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081201) {
+        // NO SCHEMA CHANGE AND NO DATA CHANGE. 1.20.37 ships one thing: a test
+        // that pins a guarantee the previous release could have broken and did
+        // not - that unfreezing a group keeps its Moodle course group and goes
+        // on keeping it in step.
+        //
+        // The step exists because a release needs a serial: Moodle notices new
+        // code by its version, and this plugin's savepoint-tip check requires
+        // the final savepoint to equal version.php. It is deliberately inert.
+        // It writes the release notice every step here writes, and nothing
+        // else - no field, no row, no plugin table touched, which is why this
+        // serial needs no entry in the DML exemption register.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.37 (2026081201). Test-only release; no schema or data change.',
+            'Adds a regression test for the unfreeze journey: a group that is frozen and then '
+                . 'opened out again keeps its Moodle course group, and later roster changes - both '
+                . 'joins and departures - continue to reach that group. The behaviour was already '
+                . 'correct in 1.20.36; nothing in the plugin changes here. The test exists because '
+                . 'the mirror-boundary setting introduced in 1.20.36 moves an unfrozen group into a '
+                . 'state that does not itself require a mirror, so a later refactor could plausibly '
+                . 'have stopped maintaining a live course group without any existing test noticing.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081201, 'selfselectadvanced');
+    }
+
     return true;
 }

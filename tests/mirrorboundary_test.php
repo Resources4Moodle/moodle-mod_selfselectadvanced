@@ -313,6 +313,111 @@ final class mirrorboundary_test extends \advanced_testcase {
     }
 
     /**
+     * UNFREEZING KEEPS THE COURSE GROUP, AND KEEPS IT IN STEP.
+     *
+     * The maintainer's expectation, stated 2026-08-12: "when a group is opened
+     * out after a freeze, the updated group information should move to the
+     * course-wide group". This is the case the mirrorat setting could most
+     * easily have broken and nothing else covers, so it is asserted rather
+     * than assumed.
+     *
+     * The hazard is specific. Under the FREEZE boundary, FROZEN needs a mirror
+     * and FIRM does not - so unfreezing moves a team from a mirrored state to
+     * an unmirrored one while its course group is alive and in use. If
+     * state_needs_mirror() had been wired into the teardown, or if the
+     * membership sync had been gated on the same predicate, an unfreeze would
+     * silently orphan a live group or quietly stop maintaining it. Neither
+     * happens: removal is reserved for paths that DESTROY a team (delete) or
+     * un-approve it (return), and the diff-based membership sync runs whenever
+     * a live mirror exists, whatever the state says.
+     *
+     * This is the good-neighbour principle applied inside the plugin's own
+     * lifecycle: a course group that exists is course data, and the plugin
+     * goes on serving it rather than abandoning it on a technicality.
+     *
+     * MUTATION CAUGHT (run 2026-08-12): gating the membership sync on
+     * state_needs_mirror() - the plausible "tidy" refactor - fails this test's
+     * roster assertion while every other test in the suite still passes.
+     */
+    public function test_unfreezing_keeps_the_course_group_and_goes_on_updating_it(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        // The FREEZE boundary deliberately: this is where FIRM does not need a
+        // mirror, so it is the setting under which the hazard is real.
+        [$activity, $api, , $group, $leader, $member, $guide, $manager] = $this->world(freeze::MIRROR_AT_FREEZE);
+
+        $firm = $this->approve($activity, $api, $group, $leader, $guide);
+        freeze::freeze_group($activity, $firm, (int) $manager->id);
+        $frozen = groups::get($activity, (int) $group->id);
+        $mirrorid = $this->mirror($activity, $frozen);
+        $this->assertNotSame(0, $mirrorid, 'the freeze must actually mint a mirror');
+        // Three, not two: the mirror carries the GUIDE as well as the roster
+        // (decision 7, freeze::expected_core_members()). Asserted as a set
+        // rather than a count so the reason is visible in the failure.
+        $frozenmembers = array_map('intval', array_keys(groups_get_members($mirrorid)));
+        sort($frozenmembers);
+        $expectedfrozen = [(int) $leader->id, (int) $member->id, (int) $guide->id];
+        sort($expectedfrozen);
+        $this->assertSame(
+            $expectedfrozen,
+            $frozenmembers,
+            'the frozen mirror should hold the leader, the member and the guide'
+        );
+
+        // Open it out again.
+        freeze::unfreeze($activity, $frozen, (int) $manager->id);
+        $unfrozen = groups::get($activity, (int) $group->id);
+        $this->assertSame(state::FIRM, $unfrozen->state, 'the fixture did not actually unfreeze');
+        $this->assertTrue(
+            groups_group_exists($mirrorid),
+            'unfreezing destroyed the course group, which is course data other activities may use'
+        );
+        $this->assertSame(
+            $mirrorid,
+            (int) $unfrozen->coregroupid,
+            'unfreezing severed the pointer to a group that still exists'
+        );
+
+        // NOW THE HALF THAT MATTERS: a roster change after the unfreeze must
+        // reach the course group. A third student joins as a confirmed member.
+        $newcomer = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($newcomer->id, $activity->cm()->course, 'student');
+        $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced')->create_member([
+            'groupid' => (int) $group->id,
+            'userid' => (int) $newcomer->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+
+        $sync = freeze::sync_core_group($activity, (int) $group->id, (int) $manager->id);
+
+        $this->assertSame('synced', $sync->status, 'the sync refused to run on an unfrozen team');
+        $coremembers = array_map('intval', array_keys(groups_get_members($mirrorid)));
+        sort($coremembers);
+        $expected = [(int) $leader->id, (int) $member->id, (int) $newcomer->id, (int) $guide->id];
+        sort($expected);
+        $this->assertSame(
+            $expected,
+            $coremembers,
+            'a roster change after unfreezing did not reach the course group'
+        );
+
+        // And a departure reaches it too, so this is a live mirror rather than
+        // a one-way append.
+        $DB->delete_records('selfselectadvanced_member', [
+            'groupid' => (int) $group->id,
+            'userid' => (int) $member->id,
+        ]);
+        freeze::sync_core_group($activity, (int) $group->id, (int) $manager->id);
+        $after = array_map('intval', array_keys(groups_get_members($mirrorid)));
+        sort($after);
+        $expected = [(int) $leader->id, (int) $newcomer->id, (int) $guide->id];
+        sort($expected);
+        $this->assertSame($expected, $after, 'a removal after unfreezing did not reach the course group');
+    }
+
+    /**
      * The setting is a closed set. An out-of-range value must be refused at
      * the form rather than read by the predicate as "not approval", which
      * would silently pick a boundary nobody chose.
