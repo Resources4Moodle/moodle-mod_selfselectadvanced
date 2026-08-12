@@ -37,7 +37,7 @@
  * uninstall must not revoke people's access as a side effect. Anything
  * kept is named in the notice rather than passed over in silence.
  *
- * Frozen core course groups are also retained on purpose (spec 14.5):
+ * Core course groups are also retained on purpose (spec 14.5):
  * they are course data that outlives this activity.
  *
  * @return bool always true

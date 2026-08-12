@@ -173,7 +173,7 @@ function selfselectadvanced_update_instance(stdClass $data, $mform = null): bool
 /**
  * Delete an instance and all its plugin-side data.
  *
- * Core course groups created by freezing remain in place: by then they
+ * Core course groups this activity created remain in place: by then they
  * are course data (good-neighbour rule, spec section 14.5).
  *
  * @param int $id instance id

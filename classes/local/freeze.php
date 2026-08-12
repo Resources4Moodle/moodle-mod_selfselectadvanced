@@ -46,6 +46,12 @@ use stdClass;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class freeze {
+    /** @var int mirrorat: the Moodle group appears when the team is frozen. */
+    public const MIRROR_AT_FREEZE = 0;
+
+    /** @var int mirrorat: the Moodle group appears when a guide approves the team. */
+    public const MIRROR_AT_APPROVAL = 1;
+
     /** @var string The component every membership this plugin writes carries. */
     public const COMPONENT = 'mod_selfselectadvanced';
 
@@ -113,7 +119,7 @@ class freeze {
      * @param stdClass $group the group row as it stands after the write
      */
     public static function request_sync(activity $activity, stdClass $group): void {
-        if (empty($group->coregroupid) && !self::state_needs_mirror((string) ($group->state ?? ''))) {
+        if (empty($group->coregroupid) && !self::state_needs_mirror($activity, (string) ($group->state ?? ''))) {
             // No mirror and none required: nothing to keep in step.
             return;
         }
@@ -207,7 +213,7 @@ class freeze {
 
         try {
             $coregroupid = self::live_coregroupid($activity, $group);
-            if (self::state_needs_mirror((string) $group->state) && !$coregroupid) {
+            if (self::state_needs_mirror($activity, (string) $group->state) && !$coregroupid) {
                 $mint = false;
                 $lock = locks::acquire('group:' . $groupid);
                 try {
@@ -216,7 +222,7 @@ class freeze {
                         return $result;
                     }
                     $coregroupid = self::live_coregroupid($activity, $group);
-                    if (self::state_needs_mirror((string) $group->state) && !$coregroupid) {
+                    if (self::state_needs_mirror($activity, (string) $group->state) && !$coregroupid) {
                         $mint = true;
                     } else if ($coregroupid && (int) ($group->coregroupid ?? 0) !== $coregroupid) {
                         self::require_core_group_claimable((int) $coregroupid, $group);
@@ -243,7 +249,7 @@ class freeze {
                         }
                         if (!$abortaftermint) {
                             $coregroupid = self::live_coregroupid($activity, $group);
-                            if (self::state_needs_mirror((string) $group->state) && !$coregroupid) {
+                            if (self::state_needs_mirror($activity, (string) $group->state) && !$coregroupid) {
                                 $coregroupid = (int) $minted->id;
                                 $DB->set_field('selfselectadvanced_group', 'coregroupid', $coregroupid, ['id' => $groupid]);
                                 $group->coregroupid = $coregroupid;
@@ -254,7 +260,7 @@ class freeze {
                                 if ($minted->created && $coregroupid !== (int) $minted->id) {
                                     $discardminted = (int) $minted->id;
                                 }
-                            } else if (!self::state_needs_mirror((string) $group->state) && $minted->created) {
+                            } else if (!self::state_needs_mirror($activity, (string) $group->state) && $minted->created) {
                                 $discardminted = (int) $minted->id;
                             }
                         }
@@ -268,7 +274,11 @@ class freeze {
                         return $result;
                     }
                 }
-            } else if (!self::state_needs_mirror((string) $group->state) && $coregroupid && !groups_group_exists($coregroupid)) {
+            } else if (
+                !self::state_needs_mirror($activity, (string) $group->state)
+                && $coregroupid
+                && !groups_group_exists($coregroupid)
+            ) {
                 // The mirror pointer was already dangling before this
                 // team left mirrorable states. Clear the pointer and
                 // say there is nothing to sync.
@@ -277,7 +287,7 @@ class freeze {
                     $recheck = $DB->get_record('selfselectadvanced_group', ['id' => $groupid]);
                     if (
                         $recheck && !empty($recheck->coregroupid)
-                        && !self::state_needs_mirror((string) $recheck->state)
+                        && !self::state_needs_mirror($activity, (string) $recheck->state)
                         && !groups_group_exists((int) $recheck->coregroupid)
                     ) {
                         $DB->set_field('selfselectadvanced_group', 'coregroupid', null, ['id' => $groupid]);
@@ -295,7 +305,7 @@ class freeze {
                 $lock = locks::acquire('group:' . $groupid);
                 try {
                     $recheck = $DB->get_record('selfselectadvanced_group', ['id' => $groupid]);
-                    if ($recheck && self::state_needs_mirror((string) $recheck->state)) {
+                    if ($recheck && self::state_needs_mirror($activity, (string) $recheck->state)) {
                         $liveid = self::live_coregroupid($activity, $recheck);
                         if ($liveid && (int) ($recheck->coregroupid ?? 0) !== $liveid) {
                             self::require_core_group_claimable((int) $liveid, $recheck);
@@ -456,16 +466,31 @@ class freeze {
     /**
      * Does this state need a Moodle mirror?
      *
-     * Maintainer decision 2026-08-05 moved the mirror boundary from
-     * freeze to approval: approved teams are usable by Moodle
-     * activities, and frozen teams keep the same mirror while the
-     * freeze adds the snapshot contract.
+     * THE BOUNDARY IS THE SITE'S TO CHOOSE (1.20.36, maintainer ruling
+     * 2026-08-12). FROZEN always mirrors - that is what the state machine
+     * has always said FROZEN means. Whether APPROVAL does is the mirrorat
+     * setting.
      *
+     * The history is worth keeping, because both answers are defensible and
+     * the argument will recur. 1.20.6 moved the mint from freeze to approval
+     * for a real reason: a team that Moodle cannot see is useless to group
+     * forums, group assignments, quiz and workshop, and on the demo site 21
+     * of 23 approved teams had no group at all. But that change was recorded
+     * only in a commit message, never in the decision ledger, and it left
+     * this file contradicting state.php's own definition of FROZEN. A
+     * setting ends the contradiction without either camp overruling the
+     * other.
+     *
+     * @param activity $activity the activity, which carries the setting
      * @param string $state the plugin lifecycle state
      * @return bool
      */
-    private static function state_needs_mirror(string $state): bool {
-        return in_array($state, [state::FIRM, state::FROZEN], true);
+    private static function state_needs_mirror(activity $activity, string $state): bool {
+        if ($state === state::FROZEN) {
+            return true;
+        }
+
+        return $state === state::FIRM && (int) $activity->settings()->mirrorat === self::MIRROR_AT_APPROVAL;
     }
 
     /**
@@ -1494,6 +1519,78 @@ class freeze {
         $fresh->sync = $sync;
 
         return $fresh;
+    }
+
+    /**
+     * Is this team entitled to a Moodle mirror right now?
+     *
+     * The public face of the predicate, so that no screen has to keep its own
+     * copy of the rule. flagged_anomalies_table did keep one - a literal
+     * `state === FROZEN` - and it survived the 2026-08-05 boundary move
+     * unnoticed for a week, which is exactly the drift this plugin's own
+     * "the rule is written once" release was named after.
+     *
+     * @param activity $activity the activity, which carries the setting
+     * @param string $state the plugin lifecycle state
+     * @return bool
+     */
+    public static function needs_mirror(activity $activity, string $state): bool {
+        return self::state_needs_mirror($activity, $state);
+    }
+
+    /**
+     * The live mirror id for a team, pointer or idnumber, whichever answers.
+     *
+     * The public face of live_coregroupid(), for the teardown paths that live
+     * outside this class. They must not read $group->coregroupid themselves:
+     * that column can be empty or dangling while the mirror is alive and
+     * findable by its idnumber, and a caller that trusts the pointer deletes
+     * nothing while believing it deleted everything.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the plugin group row
+     * @return int the live core group id, or 0
+     */
+    public static function mirror_id(activity $activity, stdClass $group): int {
+        return self::live_coregroupid($activity, $group);
+    }
+
+    /**
+     * Remove the Moodle mirror of a team that is going away, or that has
+     * left the states entitled to one. THE PLUGIN REMOVES WHAT IT ADDED.
+     *
+     * Deliberately NOT discard_core_group(). That one is the interactive
+     * manager control: it refuses while frozen, insists on a non-empty
+     * pointer, and takes both the group lock and a transaction of its own -
+     * all correct for a button, all wrong for a teardown path that is already
+     * holding the lock, or already inside the caller's transaction, or acting
+     * on a group row that is about to cease to exist.
+     *
+     * RESOLVED WITH live_coregroupid(), not with the raw pointer. The pointer
+     * can be empty or dangling while a real mirror survives under
+     * idnumber = pluginuid - that is precisely the repair case the rest of
+     * this class models, and dissolve_group() used to leak an orphan in it by
+     * reading $group->coregroupid directly.
+     *
+     * CALL IT AFTER THE COMMIT. groups_delete_group() fires core events and
+     * third-party observers; inside a transaction those buffer, and on a
+     * rollback the plugin row would come back while the course group did not.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $group the plugin group row, as it stood before deletion
+     * @return int the core group id removed, or 0 when there was nothing to remove
+     */
+    public static function remove_mirror(activity $activity, stdClass $group): int {
+        global $CFG;
+        require_once($CFG->dirroot . '/group/lib.php');
+
+        $coregroupid = self::live_coregroupid($activity, $group);
+        if (!$coregroupid || !groups_group_exists($coregroupid)) {
+            return 0;
+        }
+        groups_delete_group($coregroupid);
+
+        return $coregroupid;
     }
 
     /**

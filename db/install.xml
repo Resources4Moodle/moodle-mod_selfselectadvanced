@@ -46,6 +46,7 @@
         <FIELD NAME="incompletepenalty" TYPE="number" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" DECIMALS="5" COMMENT="Mark penalty when a group is below its minimum size"/>
         <FIELD NAME="leadershare" TYPE="int" LENGTH="3" NOTNULL="true" DEFAULT="60" SEQUENCE="false" COMMENT="Percent of the incomplete penalty the leader carries"/>
         <FIELD NAME="contactprivacy" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1: participant email and mobile are hidden from viewers without mod/selfselectadvanced:manage except confirmed teammates, the assigned guide, and the claimant of the person's claimed ticket"/>
+        <FIELD NAME="mirrorat" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Lifecycle point at which a Moodle course group is minted: 0 = at freeze (the state machine's own definition), 1 = at approval, which makes an approved team usable by group forums and assignments before it is locked"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
       </FIELDS>

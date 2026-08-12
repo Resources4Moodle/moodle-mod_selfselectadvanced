@@ -2504,5 +2504,50 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081103, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081200) {
+        // THE MIRROR BOUNDARY BECOMES A SETTING (1.20.36, maintainer ruling
+        // 2026-08-12). Since 1.20.6 a Moodle course group was minted at
+        // APPROVAL rather than at freeze. That was a real decision - it was
+        // taken because approved teams were invisible to group forums, group
+        // assignments, quiz and workshop, 21 of 23 on the demo site - but it
+        // was recorded only in a commit message, never in the decision ledger,
+        // and it silently contradicted the state machine's own definition of
+        // FROZEN as "mirrored into a core course group and locked". Rather
+        // than one of the two camps overruling the other for ever, the point
+        // is now the site's to choose.
+        $table = new xmldb_table('selfselectadvanced');
+        $field = new xmldb_field('mirrorat', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0', 'contactprivacy');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // EXISTING ACTIVITIES KEEP TODAY'S BEHAVIOUR, and the default of 0
+        // applies only to activities created from here on. The column default
+        // is 'at freeze' because that is what the state machine says and what
+        // the maintainer expects of a fresh activity; but flipping a LIVE
+        // activity to it would strand every already-approved team's group
+        // forum and group assignment on a course group the plugin had stopped
+        // maintaining. A silent capability removal is not an upgrade. Sites
+        // that want the stricter boundary can set it per activity, and doing
+        // so does not destroy an existing mirror - only deletion does.
+        $DB->set_field('selfselectadvanced', 'mirrorat', 1, []);
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.36 (2026081200). The Moodle-group mirror point is now a per-activity '
+                . 'setting; existing activities keep mirroring at approval.',
+            'Since 1.20.6 a Moodle course group was minted when a guide APPROVED a team rather than '
+                . 'when it was frozen. That behaviour is now the "mirrorat" setting. New activities '
+                . 'default to mirroring at FREEZE, which is what this plugin\'s state machine has '
+                . 'always documented. Every EXISTING activity is set to approval, preserving exactly '
+                . 'what it does today: changing it would remove group-activity access from teams '
+                . 'that already rely on it. No existing course group is created or deleted by this '
+                . 'upgrade.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081200, 'selfselectadvanced');
+    }
+
     return true;
 }

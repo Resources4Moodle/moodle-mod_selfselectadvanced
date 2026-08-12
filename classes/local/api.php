@@ -576,6 +576,25 @@ class api {
             $lock->release();
         }
 
+        // THE MIRROR GOES WITH THE TEAM (1.20.36, maintainer ruling
+        // 2026-08-12: the plugin removes what it added). This path used not to
+        // mention the mirror at all, on the reasoning that deletion is
+        // FORMING-only and a forming team has none. That stopped being true
+        // when decision 62 (2026-08-06) made FIRM -> FORMING a legal edge one
+        // day after the mint moved to approval: approve, have a coordinator
+        // return the team, delete it, and the course group was abandoned with
+        // nothing left pointing at it. After the commit, for the same reason
+        // the attachments are: groups_delete_group() fires observers, and a
+        // rollback must not leave the plugin row alive and the group gone.
+        if ($removedmirror = freeze::remove_mirror($this->activity, $fresh)) {
+            \mod_selfselectadvanced\event\coregroup_discarded::create([
+                'objectid' => (int) $fresh->id,
+                'context' => $this->activity->context(),
+                'userid' => $userid,
+                'other' => ['pluginuid' => $fresh->pluginuid, 'oldcoregroupid' => $removedmirror],
+            ])->trigger();
+        }
+
         // The proposal attachments go with the group, and only once the
         // deletion has actually committed: file storage is not part of
         // the transaction, so removing them any earlier would destroy
@@ -869,7 +888,11 @@ class api {
             // docs/architecture.md A7 names that one exception and what
             // it drags in with it. dissolve_group() is not that
             // exception, and the ordering below is what keeps it out.
-            $oldcoregroupid = (int) ($fresh->coregroupid ?? 0);
+            // The LIVE id, not the stored pointer. The pointer can be empty
+            // or dangling while a real mirror survives under
+            // idnumber = pluginuid; reading it directly leaked an orphan in
+            // exactly the repair case freeze::live_coregroupid() exists for.
+            $oldcoregroupid = freeze::mirror_id($this->activity, $fresh);
 
             // Every staged move and every live join request that names
             // this team is closed HERE, before the group row goes. They

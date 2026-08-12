@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.20.36 — the Moodle-group mirror: when it appears, and that it goes away (2026-08-12)
+
+> Serial `2026081200` / `1.20.36`. **Schema change:** a new `mirrorat` column on
+> the activity. Existing activities are set to "at approval", preserving exactly
+> what they do today. No course group is created or deleted by the upgrade.
+> Maturity stays RC.
+
+**When the Moodle group appears is now yours to choose.** Since 1.20.6 a course
+group was minted when a guide APPROVED a team, rather than when it was frozen.
+That was a deliberate decision, taken for a good reason — an approved team that
+Moodle cannot see is useless to group forums, group assignments, quizzes and
+workshops, and on the demo site 21 of 23 approved teams had no group at all —
+but it was recorded only in a commit message, never in the decision ledger, and
+it left the code contradicting the lifecycle's own definition of *frozen* as
+"mirrored into a core course group and locked". Both readings are defensible, so
+the point is now a setting: **Create the Moodle group — at freeze, or at
+approval.** New activities default to at freeze. Frozen teams always mirror.
+
+Changing the setting never creates or destroys an existing group; it decides
+only when new ones are minted.
+
+**The plugin now removes what it added.** Deleting a team left its Moodle course
+group behind, orphaned in the course with nothing pointing at it. The route was
+opened by two changes made a day apart and never reconciled: the mint moved to
+approval on 2026-08-05, and returning an approved team to forming became legal
+on 2026-08-06. Approve, return, delete — and the group survived its team.
+
+- every path that destroys a team now removes its mirror, resolved by pointer
+  **or** idnumber, so a lost pointer no longer hides a live group from the
+  teardown — the case in which the staff dissolve control silently deleted
+  nothing;
+- a team returned from approved to forming gives its group back, because a
+  forming team is entitled to none under either setting;
+- the flagged-anomalies report asked its own private copy of the mirror rule
+  and had drifted a week behind the code; it now asks the one predicate.
+
+Deliberately unchanged: deleting the whole activity, and uninstalling the
+plugin, still leave course groups in place. By then they are course data
+(spec 14.5), and that is a separate question.
+
 ## 1.20.35 — remediation: creation authority, sentinel settings, leadership vacancies, digest subjects (2026-08-11)
 
 > Serials `2026081101`, `2026081102` and `2026081103` / `1.20.35`.

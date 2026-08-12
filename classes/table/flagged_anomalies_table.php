@@ -335,7 +335,16 @@ class flagged_anomalies_table extends \flexible_table {
             }
             // Mirror health, per group, from the maps above.
             $coregroupid = (int) ($group->coregroupid ?? 0);
-            if ($group->state === state::FROZEN && (!$coregroupid || !isset($coreexists[$coregroupid]))) {
+            // ONE COPY OF THE RULE (1.20.36). This read `state === FROZEN`,
+            // which was the whole rule until the boundary moved on 2026-08-05
+            // and is now only half of it: under the approval setting a FIRM
+            // team is entitled to a mirror too, and its absence is the same
+            // anomaly. Asking freeze is what stops this drifting again.
+            $needsmirror = \mod_selfselectadvanced\local\freeze::needs_mirror(
+                $activity,
+                (string) $group->state
+            );
+            if ($needsmirror && (!$coregroupid || !isset($coreexists[$coregroupid]))) {
                 // Catches the restore hole too: a restored group can
                 // arrive frozen with no coregroupid, and until now
                 // nothing said so anywhere.

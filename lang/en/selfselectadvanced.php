@@ -392,6 +392,7 @@ $string['errmanagermodeeoi'] = 'Expressions of interest let the group\'s leader 
 $string['errmanagermodeeoiguide'] = '"Manager assigns the guide" cannot be used while expressions of interest are enabled (Group listing and guide interest section). Turn one of the two off.';
 $string['errminmembership'] = 'The minimum memberships per student cannot exceed the membership cap.';
 $string['errminsizegtmax'] = 'Minimum group size cannot exceed maximum group size.';
+$string['errmirrorat'] = 'Choose when the Moodle group is created: at freeze, or at approval.';
 $string['errmovebadsuccessor'] = 'The successor must be a confirmed member of the source group (and not the student being moved).';
 $string['errmovenotfound'] = 'That move does not belong to this activity.';
 $string['errmovenotmember'] = 'The student is not a confirmed member of the source group.';
@@ -790,6 +791,16 @@ $string['minmembership_help'] = 'Students must belong to at least this many grou
 $string['minsize'] = 'Minimum group size';
 $string['minsize_help'] = 'The minimum number of confirmed members, leader included, before a group can be submitted to a guide. If you change this after groups are approved or frozen, nothing is reshaped automatically: existing groups are grandfathered and any now out of limits appear on the flagged report.';
 $string['minsizenote'] = 'Minimum group size: {$a->min} confirmed members';
+$string['mirrorat'] = 'Create the Moodle group';
+$string['mirrorat_help'] = 'When this activity creates the real Moodle course group that mirrors a team.
+
+**At freeze** — the group appears only once the team is locked. This is the stricter reading, and it is what the lifecycle has always documented: a frozen team is a settled one.
+
+**At approval** — the group appears as soon as a guide approves the team. Choose this when teams need to use group forums, group assignments, quizzes or workshops before they are locked; without it an approved team has no Moodle group at all and those activities cannot see it.
+
+Changing this setting never creates or deletes an existing group. It decides only when new ones are minted.';
+$string['mirroratapproval'] = 'At approval';
+$string['mirroratfreeze'] = 'At freeze';
 $string['mobilecaution'] = 'Contact numbers are shared in confidence, so your group can organise itself. Do not repost them in group chats or anywhere else the owner has not agreed to.';
 $string['mobilewithheld'] = 'Not shared';
 $string['modulename'] = 'Group self-selection (Advanced)';
@@ -1603,7 +1614,7 @@ $string['unfreezeconfirm'] = 'Unfreeze the group "{$a}"? The roster is restored 
 $string['unfreezepreviewadded'] = 'Restoring will put back:';
 $string['unfreezepreviewremoved'] = 'Restoring will remove:';
 $string['unfreezereason'] = 'Reason for the release';
-$string['uninstallnotice'] = 'Group self-selection (Advanced) was uninstalled. Core course groups created by freezing remain in place: they are course data now.';
+$string['uninstallnotice'] = 'Group self-selection (Advanced) was uninstalled. Core course groups this activity created remain in place: they are course data now.';
 $string['uninstallrolekept'] = 'The Group Coordinators role has been kept because people are still assigned to it. Uninstalling this plugin does not revoke anybody\'s role; remove the assignments first if you also want the role gone.';
 $string['viewteam'] = 'Group page';
 $string['volunteergrandfathered'] = 'You are currently guiding {$a->used} groups, above your declared capacity of {$a->n}. Existing groups stay assigned; you will not receive new assignments until your load drops below {$a->n}.';

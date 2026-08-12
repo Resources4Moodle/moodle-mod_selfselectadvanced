@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081103;
+    private const CURRENT = 2026081200;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026081102;
+    private const PREVIOUS = 2026081103;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.35';
+    private const RELEASE = '1.20.36';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -415,15 +415,15 @@ final class versionbump_test extends \advanced_testcase {
         // has to be declared separately so nobody can quietly move a table
         // between the two categories.
         $exempt = [
-            2026081103 => [
-                'tables' => ['selfselectadvanced_digestq'],
-                'creates' => ['selfselectadvanced_dqsubject'],
-                'reason' => 'Digest-subject migration: the pending digest queue is PURGED because '
-                    . 'its non-recipient subjects exist only as rendered names and cannot be mapped '
-                    . 'to ids without guessing. digestq predates this step and only its rows are '
-                    . 'touched, no column. dqsubject is created by this same step, immediately '
-                    . 'above, and is emptied only to cover a previous run that died after '
-                    . 'create_table().',
+            2026081200 => [
+                'tables' => ['selfselectadvanced'],
+                'creates' => [],
+                'reason' => 'Mirror-boundary setting: the new mirrorat column is added by this '
+                    . 'step and every EXISTING activity is set to 1 (mirror at approval) so that '
+                    . 'the upgrade preserves current behaviour instead of silently removing '
+                    . 'group-activity access from already-approved teams. The table predates the '
+                    . 'step; only the new column is written, and it is written after add_field '
+                    . 'has created it.',
             ],
         ];
         $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
@@ -577,7 +577,11 @@ final class versionbump_test extends \advanced_testcase {
         ]);
         $this->assertTrue($DB->record_exists('selfselectadvanced_digestq', ['id' => $legacy]));
 
-        $this->pretend_the_site_installed(self::PREVIOUS);
+        // Wound back to the serial BEFORE the digest step, not to PREVIOUS,
+        // which has advanced past it. A test that starts after the step it
+        // tests proves nothing; the same pin the sentinel-normalisation test
+        // above uses, and for the same reason.
+        $this->pretend_the_site_installed(2026081102);
         unset_config('allversionshash');
         unset($CFG->allversionshash);
         $this->assertTrue($this->upgrade_the_way_a_site_does(), 'the upgrade did not run');

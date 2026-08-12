@@ -68,6 +68,11 @@ final class freeze_test extends \advanced_testcase {
             'maxsize' => 4,
             'maxlead' => 1,
             'maxmembership' => 2,
+            // 1.20.36: this file pins APPROVAL-time mirroring, which is now a
+            // choice rather than the default. Opting in explicitly keeps every
+            // assertion below meaning what it meant, and a test that wants the
+            // other boundary now says so too.
+            'mirrorat' => \mod_selfselectadvanced\local\freeze::MIRROR_AT_APPROVAL,
         ], $settings), ['idnumber' => 'SSAFRZ']);
 
         $students = [];

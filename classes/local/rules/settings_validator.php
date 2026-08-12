@@ -116,6 +116,14 @@ final class settings_validator {
             }
         }
 
+        // The mirror point is a closed set, so an out-of-range value is a
+        // broken form post rather than a typo, and it must not reach a
+        // predicate that would read it as "not approval" and quietly mirror
+        // nothing.
+        if (isset($data['mirrorat']) && !in_array((int) $data['mirrorat'], [0, 1], true)) {
+            $errors['mirrorat'] = 'errmirrorat';
+        }
+
         // Student-approach mode (strategy 1.16 A): guides advertise
         // nothing, so the modes that let them - volunteering their
         // capacity, browsing listed teams, manager assignment - cannot

@@ -153,6 +153,20 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setType('contactmax', PARAM_INT);
         $mform->setDefault('contactmax', 3);
         $mform->addHelpButton('contactmax', 'contactmax', 'mod_selfselectadvanced');
+        // WHEN THE MOODLE GROUP APPEARS. Not disabledIf'd against anything:
+        // both values are coherent with every other switch on this form, and
+        // the choice is about what the rest of Moodle can see, not about how
+        // guides are chosen.
+        $mform->addElement('select', 'mirrorat', get_string('mirrorat', 'mod_selfselectadvanced'), [
+            \mod_selfselectadvanced\local\freeze::MIRROR_AT_FREEZE
+                => get_string('mirroratfreeze', 'mod_selfselectadvanced'),
+            \mod_selfselectadvanced\local\freeze::MIRROR_AT_APPROVAL
+                => get_string('mirroratapproval', 'mod_selfselectadvanced'),
+        ]);
+        $mform->setType('mirrorat', PARAM_INT);
+        $mform->setDefault('mirrorat', \mod_selfselectadvanced\local\freeze::MIRROR_AT_FREEZE);
+        $mform->addHelpButton('mirrorat', 'mirrorat', 'mod_selfselectadvanced');
+
         $mform->disabledIf('guidevolunteer', 'studentapproach', 'checked');
         $mform->disabledIf('guidemode', 'studentapproach', 'checked');
         $mform->disabledIf('eoienabled', 'studentapproach', 'checked');

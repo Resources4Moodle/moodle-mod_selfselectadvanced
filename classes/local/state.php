@@ -550,6 +550,29 @@ final class state {
             $lock->release();
         }
 
+        // THE MIRROR GOES BACK WITH THE APPROVAL (1.20.36). A returned team is
+        // forming again: it is not approved, not locked, and under no setting
+        // is it entitled to a Moodle course group. Leaving one behind was the
+        // unreconciled half of two changes made a day apart - the mint moved
+        // to approval on 2026-08-05, and FIRM -> FORMING became legal on
+        // 2026-08-06 (decision 62) - and it is what let a later delete abandon
+        // the group entirely. sync_core_group() cannot do this: its only
+        // "no longer mirrorable" arm requires the core group to be gone
+        // already, so it would go on maintaining the mirror of a forming team.
+        //
+        // After the commit and outside the lock, like every other
+        // groups_delete_group() in this plugin.
+        if ($removedmirror = freeze::remove_mirror($this->activity, $fresh)) {
+            $DB->set_field('selfselectadvanced_group', 'coregroupid', null, ['id' => (int) $fresh->id]);
+            $fresh->coregroupid = null;
+            \mod_selfselectadvanced\event\coregroup_discarded::create([
+                'objectid' => (int) $fresh->id,
+                'context' => $this->activity->context(),
+                'userid' => $actorid,
+                'other' => ['pluginuid' => $fresh->pluginuid, 'oldcoregroupid' => $removedmirror],
+            ])->trigger();
+        }
+
         // Decision 89: a return is a lifecycle event of the WHOLE GROUP, so
         // every confirmed member hears it - not the leader alone. Approval
         // (above) and freeze already fan out; a return is the one that changes
@@ -854,10 +877,10 @@ final class state {
     /** @var string Membership locked to students; guide approves or returns. */
     public const PENDING_GUIDE = 'pending_guide';
 
-    /** @var string Approved; only manager staged moves alter membership. */
+    /** @var string Approved; only manager staged moves alter membership. Mirrored when mirrorat says so. */
     public const FIRM = 'firm';
 
-    /** @var string Mirrored into a core course group and locked. */
+    /** @var string Always mirrored into a core course group, and locked. */
     public const FROZEN = 'frozen';
 
     /** @var string[][] Legal transitions: from-state to list of to-states. */
