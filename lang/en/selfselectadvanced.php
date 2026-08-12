@@ -792,13 +792,13 @@ $string['minsize'] = 'Minimum group size';
 $string['minsize_help'] = 'The minimum number of confirmed members, leader included, before a group can be submitted to a guide. If you change this after groups are approved or frozen, nothing is reshaped automatically: existing groups are grandfathered and any now out of limits appear on the flagged report.';
 $string['minsizenote'] = 'Minimum group size: {$a->min} confirmed members';
 $string['mirrorat'] = 'Create the Moodle group';
-$string['mirrorat_help'] = 'When this activity creates the real Moodle course group that mirrors a team.
+$string['mirrorat_help'] = 'When this activity creates the real Moodle course group that mirrors a group.
 
-**At freeze** — the group appears only once the team is locked. This is the stricter reading, and it is what the lifecycle has always documented: a frozen team is a settled one.
+**At freeze** — the course group appears only once the group is locked. This is the stricter reading, and it is what the lifecycle has always documented: a frozen group is a settled one.
 
-**At approval** — the group appears as soon as a guide approves the team. Choose this when teams need to use group forums, group assignments, quizzes or workshops before they are locked; without it an approved team has no Moodle group at all and those activities cannot see it.
+**At approval** — the course group appears as soon as a guide approves the group. Choose this when groups need to use group forums, group assignments, quizzes or workshops before they are locked; without it an approved group has no Moodle course group at all and those activities cannot see it.
 
-Changing this setting never creates or deletes an existing group. It decides only when new ones are minted.';
+Changing this setting never creates or deletes an existing course group. It decides only when new ones are minted.';
 $string['mirroratapproval'] = 'At approval';
 $string['mirroratfreeze'] = 'At freeze';
 $string['mobilecaution'] = 'Contact numbers are shared in confidence, so your group can organise itself. Do not repost them in group chats or anywhere else the owner has not agreed to.';

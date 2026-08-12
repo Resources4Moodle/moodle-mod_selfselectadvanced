@@ -21,8 +21,8 @@ Feature: Guide review of submitted groups
       | guide1   | C1     | teacher        |
       | teacher1 | C1     | editingteacher |
     And the following "activities" exist:
-      | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership | maxguided | guideautoapprove | guidewindow |
-      | selfselectadvanced | C1     | Lab groups | ssa1     | 2       | 4       | 1       | 2             | 5         | 1                | 86400       |
+      | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership | maxguided | guideautoapprove | guidewindow | mirrorat |
+      | selfselectadvanced | C1     | Lab groups | ssa1     | 2       | 4       | 1       | 2             | 5         | 1                | 86400       | 1        |
     And the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   |
       | ssa1               | Team Blue | student1 |
@@ -65,6 +65,11 @@ Feature: Guide review of submitted groups
     Then I should see "Returned by the guide with this comment:"
     And I should see "Please rename the work title."
 
+  # mirrorat = 1 (at approval) in the Background, deliberately: this scenario
+  # asserts the Moodle course group exists the moment the guide approves, which
+  # is the OPT-IN boundary since 1.20.36. A new activity now defaults to
+  # mirroring at freeze, so without that column this scenario would be asserting
+  # the wrong plugin's behaviour.
   Scenario: The guide approves and the group becomes firm
     Given the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name      | leader   | guide  | state         |
