@@ -135,7 +135,14 @@ final class slots_test extends \advanced_testcase {
         $result = slots::evaluate($activity3, $groupid3);
         $this->assertFalse($result->ok);
         $lastslot = end($result->slots);
-        $this->assertSame(0, $lastslot->filled);
+        // REVERSED 2026-08-13. This asserted 0 - the gender-Female seat left
+        // empty because the department seats had already taken both Female
+        // students. The team is five people against six seats, so one seat is
+        // short whichever way they sit; but reporting the Female seat as empty
+        // while two Female students sit in the group is the false report the
+        // maintainer found on a live group. The scarce seat is filled now and
+        // the shortfall lands on the distinct seat, which anybody can fill.
+        $this->assertSame(1, $lastslot->filled, 'the Female seat was starved by seats anybody could fill');
     }
 
     /**

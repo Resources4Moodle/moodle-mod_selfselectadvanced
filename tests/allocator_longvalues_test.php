@@ -249,8 +249,12 @@ final class allocator_longvalues_test extends \advanced_testcase {
             // Wave-3B: 10/10/9/9, exact E/E/f/f - a seat lost at 131.
             '12 members, 10 three-seat rules' => [
                 [2, 12, 10, 3, 6],
-                [true, 10, [0, 0, 3, 1, 0, 3, 0, 1, 2, 0],
-                    [1 => 2, 2 => 5, 3 => 8, 4 => 5, 5 => 2, 7 => 3, 9 => 5, 10 => 2, 11 => 7, 12 => 8]],
+                // Distribution re-measured 2026-08-13 (most-constrained-first);
+                // exact and totalfilled unchanged.
+                [true, 10, [0, 0, 3, 1, 0, 3, 0, 1, 1, 1],
+                    // Assignment re-measured 2026-08-13: same ten people seated,
+                    // one of them in a different seat.
+                    [1 => 2, 2 => 5, 4 => 5, 5 => 2, 7 => 3, 8 => 9, 9 => 5, 10 => 2, 11 => 7, 12 => 8]],
             ],
             // Wave-3B: 11/5/5/5, exact E/f/f/f - SIX seats lost at 51
             // characters, which is a compliant team reported six short.
@@ -274,8 +278,10 @@ final class allocator_longvalues_test extends \advanced_testcase {
             // Wave-3B: 11/11/11/8, exact E/E/E/f - three lost at 311.
             '12 members, 8 two-seat rules, five values' => [
                 [1, 12, 8, 2, 5],
-                [true, 11, [2, 0, 0, 1, 2, 2, 2, 2],
-                    [1 => 6, 2 => 4, 3 => 5, 4 => 5, 5 => 7, 6 => 0, 7 => 6, 8 => 7, 9 => 0, 11 => 3, 12 => 4]],
+                // Re-measured 2026-08-13: eleven seated before and after; the
+                // second seat now gets a member the sixth used to take.
+                [true, 11, [2, 1, 0, 1, 2, 2, 2, 1],
+                    [1 => 6, 2 => 4, 3 => 1, 4 => 5, 5 => 5, 6 => 0, 7 => 6, 8 => 7, 9 => 0, 11 => 3, 12 => 4]],
             ],
             // Wave-3B: 7/7/7/7 but exact E/f/f/f - no seat lost, yet the
             // caller is told the answer is not trustworthy purely

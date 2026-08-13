@@ -1,14 +1,85 @@
 # Changelog
 
+## 1.20.38 — the seat allocation tells the truth, and the audit's P0 set is closed (2026-08-13)
+
+> Serial `2026081300` / `1.20.38`. **No schema change.** One data change:
+> activities that combined "Manager assigns the guide" with a non-zero approach
+> limit have that limit set to 0. Maturity stays RC.
+
+**The seat allocation was crediting a member to the wrong seat.** On a live
+group with one SCOPE student, a seat rule wanting two SCOPE members reported
+*filled 0, need 2 more*, while a seat rule wanting three members from
+departments "not used by an earlier seat rule" was credited with that same
+student — a seat its own label excludes. One student, missing from the seat
+they were the only candidate for, and counted in the seat they were barred
+from.
+
+Both placements seat exactly one person, so the number of filled seats cannot
+choose between them, and a tie-break decided. That tie-break ranked seats
+*least constrained first*, which made a seated member worth more in a seat
+anybody could fill than in a seat only they could. It is now reversed: **most
+constrained first**, so the specialist seat gets the specialist and the
+shortfall lands where anybody can still fix it.
+
+What did not change, and was measured rather than assumed: the **number** of
+seats filled. 400 randomised shapes were compared against an independent
+brute-force maximum and the allocator seated the true maximum in every one; the
+ten-row golden verdict table came back with `exact` and `totalfilled` identical
+on all ten rows, only the distribution moving. Two older tests asserted the old
+behaviour outright — one named it — and both are updated with the reason.
+
+**The audit's P0 findings are closed.**
+
+- **TX-001** — the join-expiry sweep now takes the same `joinrequest:{id}` lock
+  that acceptance and withdrawal take, and re-reads the row under it. It could
+  previously overwrite a request accepted moments earlier, leaving a confirmed
+  member whose record said the request had expired, and sending them an expiry
+  notice. Pinned by a deterministic interleaving test, not a sequential one.
+- **BAK-001** — `joinexpiry` and `mirrorat` are backed up. Neither was, so a
+  restored activity silently turned request expiry off and moved Moodle
+  course-group creation to a different point in the lifecycle. A new
+  schema-vs-backup contract test fails the build when a future activity column
+  has no backup policy.
+- **BAK-002** — restore writes a leadership vacancy as NULL. It wrote `0`,
+  reintroducing the invalid user id that 1.20.35 spent a release removing.
+- **BAK-003** — a roster snapshot whose core group or taker cannot be mapped is
+  skipped and logged, rather than restored with a manufactured id of `0`. A
+  snapshot is evidence; evidence with an invented subject is not evidence.
+- **GOV-001** — "Manager assigns the guide" now closes the approach route, as
+  it already closed expressions of interest. Accepting an approach writes the
+  group's guide, so a leader could choose their own guide on an activity whose
+  help text promised the manager would. Refused at the form, the page and the
+  service, and a stale approach cannot be accepted after the switch flips.
+- **LIFE-002** — a course reset leaves plugin-made course groups in place, as
+  the good-neighbour principle requires, but withdraws the plugin's claim on
+  them: the idnumber and the component tag are cleared. Without that, group ids
+  restarting after a reset could hand an abandoned course group — and its
+  members — to a brand-new group.
+
+**LIFE-001 was a documentation defect, not a contract one.** Decision 56 already
+rules that a student may join an approved team once its guide has released it;
+the architecture still said membership was immutable. The document is corrected.
+
 ## 1.20.37 — the unfreeze guarantee, pinned (2026-08-12)
 
 > Serial `2026081201` / `1.20.37`. **No schema change and no data change.**
 > Maturity stays RC.
 
 **A test, and nothing else.** When a group is opened out after a freeze, its
-Moodle course group stays, and later roster changes — joins and departures
-alike — go on reaching it. That was already true in 1.20.36; this release makes
-it stay true.
+Moodle course group stays, and a subsequent convergence still reaches it with
+the current roster. That was already true in 1.20.36; this release makes it
+stay true.
+
+**Scoped honestly, after an external audit said otherwise** (FCA-004,
+2026-08-13). The first wording here claimed the test proved that later "joins
+and departures" reach the course group. It does not: it adds and removes
+member rows through the test generator and calls `sync_core_group()` directly.
+What it actually pins is narrower and still worth having — *a retained mirror
+is still converged after an unfreeze, and convergence adds and removes the
+right people*. It does **not** prove that the production join-acceptance and
+departure paths schedule that convergence. A behavioural test driving the real
+join-request accept and the real leave/unenrolment path, with no direct table
+writes and no manual sync call, is owed.
 
 The guarantee was worth pinning because 1.20.36 made it fragile in a way no
 existing test could see. Under the new *at freeze* boundary, unfreezing moves a

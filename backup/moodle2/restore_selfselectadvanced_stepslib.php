@@ -172,7 +172,15 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         $data = (object) $data;
         $oldid = $data->id;
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
-        $data->leaderid = $data->leaderid ? ($this->get_mappingid('user', $data->leaderid) ?: 0) : 0;
+        // NULL, NEVER 0 (external audit BAK-002, 2026-08-13). 1.20.35 made a
+        // leadership vacancy an explicit NULL and spent a whole release
+        // removing the id-zero sentinel that names user zero; this line put it
+        // straight back on every restore, for both a backed-up vacancy and a
+        // leader who could not be mapped. No replacement leader is invented
+        // either: staff appoint one with Assign leader, exactly as they would
+        // after a deletion.
+        $mappedleader = $data->leaderid ? $this->get_mappingid('user', $data->leaderid) : 0;
+        $data->leaderid = $mappedleader ?: null;
         $data->guideid = $data->guideid ? ($this->get_mappingid('user', $data->guideid) ?: null) : null;
         $data->successorid = $data->successorid
             ? ($this->get_mappingid('user', $data->successorid) ?: null)
@@ -239,8 +247,29 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
 
         $data = (object) $data;
         $data->groupid = $this->get_new_parentid('ssagroup');
-        $data->coregroupid = $data->coregroupid ? ($this->get_mappingid('group', $data->coregroupid) ?: 0) : 0;
-        $data->takenby = $data->takenby ? ($this->get_mappingid('user', $data->takenby) ?: 0) : 0;
+        // A SNAPSHOT WITH UNMAPPABLE PROVENANCE IS NOT RESTORED (external audit
+        // BAK-003, 2026-08-13). Both columns are NOT NULL and takenby names a
+        // real user, so the old `?: 0` did not record "unknown" - it
+        // manufactured an identifier, and a user-excluded or cross-site
+        // restore ended up with snapshots claiming to have been taken by user
+        // zero of a course group that does not exist.
+        //
+        // Skipping is chosen over widening the schema because a snapshot is
+        // EVIDENCE: it records who froze which roster and when, and evidence
+        // whose subject cannot be identified is not evidence. A restore that
+        // silently drops it is honest; one that invents a taker is not. The
+        // count is reported in the restore log rather than passing in silence.
+        $data->coregroupid = $data->coregroupid ? (int) $this->get_mappingid('group', $data->coregroupid) : 0;
+        $data->takenby = $data->takenby ? (int) $this->get_mappingid('user', $data->takenby) : 0;
+        if (!$data->coregroupid || !$data->takenby) {
+            $this->log(
+                'selfselectadvanced: skipped a roster snapshot whose core group or taker could not be '
+                    . 'mapped into this site; its provenance cannot be restored truthfully',
+                backup::LOG_WARNING
+            );
+
+            return;
+        }
         $roster = json_decode($data->roster, true) ?: [];
         $remapped = [];
         foreach ($roster as $entry) {

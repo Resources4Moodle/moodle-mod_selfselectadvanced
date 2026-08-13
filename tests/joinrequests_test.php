@@ -1423,6 +1423,67 @@ final class joinrequests_test extends \advanced_testcase {
      * regardless of joinexpiry fails the status assertion; dropping the
      * notifier::send() call fails the recipient assertion.
      */
+    /**
+     * THE EXPIRY SWEEP CANNOT OVERWRITE AN ANSWER (external audit TX-001).
+     *
+     * accept() and withdraw() both serialise on `joinrequest:{id}` and re-read
+     * the row under that lock; expire_due() used to do neither. It selected a
+     * candidate set and wrote to it blindly, so this interleaving was live:
+     *
+     *   1. the sweep SELECTs the request, sees `requested`
+     *   2. the leader accepts - membership committed, request answered
+     *   3. the sweep overwrites the same row to `declined`
+     *   4. the student is told their request expired
+     *
+     * leaving a confirmed member whose request record says it expired. A
+     * sequential "accept, then expire" test cannot see it, which is why the
+     * suite missed it; this one uses locks::set_test_hook() to run the accept
+     * INSIDE the sweep's window - after its discovery query, at the moment it
+     * reaches for the per-request lock.
+     *
+     * MUTATION CAUGHT (run 2026-08-13): removing the status re-read inside the
+     * lock - the exact pre-fix behaviour - fails this test on the status
+     * assertion.
+     */
+    public function test_the_expiry_sweep_does_not_overwrite_a_request_accepted_in_its_window(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $alpha, $beta, $wanderer] = $this->setup_world(['joinexpiry' => 3]);
+
+        $request = joinrequests::request($activity, (int) $beta->id, 'Please', (int) $wanderer->id);
+        $DB->set_field('selfselectadvanced_move', 'timecreated', time() - (4 * DAYSECS), ['id' => $request->id]);
+
+        // The leader accepts in the instant between the sweep's discovery
+        // query and its lock on this request.
+        $accepted = false;
+        locks::set_test_hook(function (string $resource) use (
+            &$accepted,
+            $activity,
+            $request,
+            $beta
+        ): void {
+            if ($accepted || $resource !== 'joinrequest:' . (int) $request->id) {
+                return;
+            }
+            $accepted = true;
+            locks::set_test_hook(null);
+            joinrequests::respond($activity, (int) $request->id, true, 'Welcome', (int) $beta->leaderid);
+        });
+
+        $expired = joinrequests::expire_due($activity);
+        locks::set_test_hook(null);
+
+        $this->assertTrue($accepted, 'the fixture never reached the sweep\'s lock, so it proved nothing');
+        $this->assertSame(0, $expired, 'the sweep expired a request that had just been accepted');
+        $this->assertNotSame(
+            joinrequests::STATUS_DECLINED,
+            $DB->get_field('selfselectadvanced_move', 'status', ['id' => (int) $request->id]),
+            'THE DEFECT: an accepted request was overwritten as expired'
+        );
+    }
+
     public function test_an_unanswered_request_expires_and_the_student_is_told(): void {
         global $DB;
         $this->resetAfterTest();

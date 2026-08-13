@@ -195,7 +195,7 @@ final class allocator_test extends \advanced_testcase {
      * same two seats and leaves the shortfall where it is genuinely
      * hard to fill, so that is the seating shown.
      */
-    public function test_least_restrictive_seat_takes_the_shortfall(): void {
+    public function test_the_scarce_seat_is_filled_and_the_open_seat_takes_the_shortfall(): void {
         $attrs = $this->attrs([
             1 => ['department' => 'Computer', 'gender' => 'Male'],
             2 => ['department' => 'Computer', 'gender' => 'Female'],
@@ -207,9 +207,16 @@ final class allocator_test extends \advanced_testcase {
 
         $solution = allocator::solve($template, [1, 2], $attrs);
 
-        $this->assertSame(2, $solution->totalfilled);
-        $this->assertSame([0, 2], $solution->filled, 'The shortfall belongs on the seat only one person can fill');
-        $this->assertSame([1 => 1, 2 => 1], $solution->assignment);
+        // REVERSED 2026-08-13. This asserted [0, 2]: the Female seat left empty
+        // while both members filled the Computer seat, on the old rule that the
+        // shortfall belongs on the seat fewest people can fill. Two seats are
+        // filled either way, so the count cannot choose - but [0, 2] tells a
+        // leader "you need a Female" while a Female student sits in the group,
+        // which is the same false report the maintainer hit on a live group.
+        // The scarce seat is now filled by its only candidate and the seat
+        // anybody could fill carries the shortfall.
+        $this->assertSame(2, $solution->totalfilled, 'the reversal must not cost a seat');
+        $this->assertSame([1, 1], $solution->filled, 'the sole Female did not fill the Female seat');
     }
 
     /**
@@ -549,5 +556,81 @@ final class allocator_test extends \advanced_testcase {
         }
 
         return $fill;
+    }
+
+    /**
+     * THE LIVE DEFECT, 2026-08-13, reported from the Thinking Hat portal and
+     * reproduced here exactly: seat 1 wants two SCOPE members, seat 2 wants
+     * three members from departments "not used by an earlier seat rule", and
+     * the group holds ONE SCOPE student.
+     *
+     * The screen said seat 1 was filled 0 and needed 2 more, while seat 2 —
+     * whose own label excludes SCOPE, because seat 1 uses it — was credited
+     * with that student. One student, counted in the seat they are barred
+     * from and missing from the seat they are the only candidate for.
+     *
+     * WHY IT HAPPENED, and it is not a mere tie-break. Both placements fill
+     * exactly one seat, so the maximiser cannot separate them. build_ranks()
+     * then ordered the seats least-restrictive-first, which put the DISTINCT
+     * seat ahead of the SCOPE seat; the distinct seat booked the student and
+     * RECORDED SCOPE as consumed; and the SCOPE seat, reached second, found
+     * its only candidate already spent.
+     *
+     * The class docblock claimed "Validity is decided before that tie-break
+     * and is never affected by it". That was false: the no-overlap exclusion
+     * accumulates in BOOKING order, so the ranking silently decided which
+     * bookings were feasible at all - not merely which of several equal
+     * answers was displayed. And the labels say "an earlier seat rule",
+     * meaning the manager's declared slotno order, which the ranking
+     * reversed.
+     */
+    public function test_a_scarce_member_fills_the_seat_only_they_can_fill(): void {
+        $template = [
+            $this->slot(1, 2, 'department', 'value', 'SCOPE'),
+            $this->slot(2, 3, 'department', 'distinct'),
+        ];
+        $attrs = [148 => (object) ['userid' => 148, 'department' => 'SCOPE']];
+
+        $result = slots::evaluate_from_data($template, [148], $attrs);
+
+        $this->assertSame(
+            1,
+            (int) $result->slots[0]->filled,
+            'the only SCOPE student did not fill the SCOPE seat they are the sole candidate for'
+        );
+        $this->assertSame(
+            0,
+            (int) $result->slots[1]->filled,
+            'the distinct seat was credited with a student its own label excludes, because '
+                . 'SCOPE is used by an earlier seat rule'
+        );
+        $this->assertSame(1, (int) $result->totalfilled, 'one member can fill exactly one seat');
+        $this->assertSame(1, (int) $result->slots[0]->missing, 'the SCOPE seat still needs one more');
+        $this->assertSame(3, (int) $result->slots[1]->missing, 'the distinct seat needs all three');
+    }
+
+    /**
+     * The same shape with the scarce value ARRIVING SECOND in the manager's
+     * order, so the fix cannot be "always book slot 0 first" - the exclusion
+     * follows the declared order, and the maximiser still has to place the
+     * member where it counts.
+     */
+    public function test_the_declared_order_decides_which_seat_excludes_which(): void {
+        $template = [
+            $this->slot(1, 3, 'department', 'distinct'),
+            $this->slot(2, 2, 'department', 'value', 'SCOPE'),
+        ];
+        $attrs = [148 => (object) ['userid' => 148, 'department' => 'SCOPE']];
+
+        $result = slots::evaluate_from_data($template, [148], $attrs);
+
+        // The SCOPE seat wins even though it is declared SECOND: the rule is
+        // "most constrained first", not "first declared first". A seat naming
+        // one value is more constrained than one taking any distinct set, so
+        // the sole SCOPE student goes where only they fit, and the distinct
+        // seat - which anybody could fill - carries the shortfall.
+        $this->assertSame(0, (int) $result->slots[0]->filled, 'the distinct seat took a member it did not need');
+        $this->assertSame(1, (int) $result->slots[1]->filled, 'the SCOPE seat did not get the sole SCOPE student');
+        $this->assertSame(1, (int) $result->totalfilled);
     }
 }

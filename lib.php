@@ -345,7 +345,7 @@ function selfselectadvanced_reset_course_form_defaults($course): array {
  * @return array status rows
  */
 function selfselectadvanced_reset_userdata($data): array {
-    global $DB;
+    global $CFG, $DB;
 
     $status = [];
     if (empty($data->reset_selfselectadvanced_groups)) {
@@ -391,8 +391,72 @@ function selfselectadvanced_reset_userdata($data): array {
                 }
             }
         }
+        // LIFE-002, maintainer ruling 2026-08-13, option B. The Moodle course
+        // groups this plugin made SURVIVE a reset - they are course data, and
+        // another activity's group forum or assignment may already depend on
+        // them, which is the same good-neighbour reasoning as ruling 98. But
+        // the plugin's claim on them does not survive, and that half was
+        // missing: the group rows carrying coregroupid were deleted while the
+        // course groups kept this plugin's idnumber (the group's pluginuid),
+        // its description marker and its component-tagged memberships.
+        //
+        // WHY A DANGLING CLAIM IS WORSE THAN UNTIDY. build_pluginuid() derives
+        // the uid from the plugin group's row id, and freeze::live_coregroupid()
+        // finds a mirror by idnumber = pluginuid. After a reset the ids start
+        // again, so a NEW group could be handed the abandoned course group of a
+        // deleted one - inheriting its members. Stripping the idnumber breaks
+        // that adoption path; clearing the component tag stops the plugin
+        // claiming memberships it no longer manages.
+        //
+        // The group, its name and its members stay exactly where they are.
+        if ($groupids) {
+            require_once($CFG->dirroot . '/group/lib.php');
+            [$mrsql, $mrparams] = $DB->get_in_or_equal($groupids);
+            $mirrors = $DB->get_fieldset_select(
+                'selfselectadvanced_group',
+                'coregroupid',
+                "id $mrsql AND coregroupid IS NOT NULL",
+                $mrparams
+            );
+            foreach (array_filter(array_map('intval', $mirrors)) as $coregroupid) {
+                if (!$DB->record_exists('groups', ['id' => $coregroupid])) {
+                    continue;
+                }
+                // Not groups_update_group(): the name and description are the
+                // course's now, and only the machine-readable claim is ours to
+                // withdraw.
+                $DB->set_field('groups', 'idnumber', '', ['id' => $coregroupid]);
+                $DB->set_field_select(
+                    'groups_members',
+                    'component',
+                    '',
+                    'groupid = ? AND component = ?',
+                    [$coregroupid, 'mod_selfselectadvanced']
+                );
+                $DB->set_field_select(
+                    'groups_members',
+                    'itemid',
+                    0,
+                    'groupid = ? AND itemid <> 0',
+                    [$coregroupid]
+                );
+            }
+        }
         $DB->delete_records('selfselectadvanced_group', ['activityid' => $instance->id]);
         $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_reminded_' . $instance->id]);
+        // The per-group reminder markers go with the groups (external audit
+        // PRIV-002, 2026-08-13). Instance deletion has always done this; reset
+        // deleted the activity-level marker and left the group-level ones
+        // behind, pointing at group ids that no longer exist - and since the
+        // privacy provider discovers them by walking CURRENT groups, an
+        // orphan is not merely stale, it is unreachable by the export that
+        // would otherwise disclose it.
+        if ($groupids) {
+            [$psql, $pparams] = $DB->get_in_or_equal(
+                array_map(static fn($gid) => 'mod_selfselectadvanced_gremind_' . (int) $gid, $groupids)
+            );
+            $DB->delete_records_select('user_preferences', "name $psql", $pparams);
+        }
         if (empty($data->reset_gradebook_grades)) {
             selfselectadvanced_grade_item_update($instance, 'reset');
         }

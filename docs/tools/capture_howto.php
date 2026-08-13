@@ -17,8 +17,11 @@
 /**
  * Maintainer utility: capture the how-to walkthrough screenshots.
  *
- * Not part of the released plugin - docs/ is excluded from the release
- * zip. Signs each demonstration persona in through the ordinary login
+ * Maintainer tooling, NOT part of any supported workflow - but it IS in the
+ * release zip. This header used to say "docs/ is excluded from the release
+ * zip"; the 1.20.37 package contains docs/ in full, and no exclusion manifest
+ * exists (external audit FCA-003, 2026-08-13). Either the packaging or this
+ * sentence had to change, and the sentence was the false one. Signs each demonstration persona in through the ordinary login
  * form and drives the local Selenium Grid, so every frame is what that
  * role really sees. Group and activity ids are resolved from the
  * database by course shortname and group name, so nothing numeric has
@@ -43,7 +46,7 @@ require_once($CFG->libdir . '/clilib.php');
 
 [$options, $unrecognised] = cli_get_params(
     [
-        'wwwroot' => '', 'shortname' => 'SSAHOWTO', 'pass' => 'SsaDemo#2026', 'out' => '',
+        'wwwroot' => '', 'shortname' => 'SSAHOWTO', 'pass' => '', 'out' => '',
         'driver' => 'http://127.0.0.1:4444', 'only' => '', 'help' => false,
     ],
     ['h' => 'help']
@@ -59,6 +62,13 @@ if ($options['help'] || $options['wwwroot'] === '') {
 $wwwroot = rtrim((string) $options['wwwroot'], '/');
 $shortname = (string) $options['shortname'];
 $pass = (string) $options['pass'];
+// REFUSE rather than proceed with nothing. This option used to carry a
+// hard-coded demonstration password, which shipped in the release zip; the
+// default is gone, and an empty value must stop the run rather than silently
+// attempt a blank login (external audit FCA-003, 2026-08-13).
+if ($pass === '') {
+    cli_error('--pass is required: the demonstration password is no longer hard-coded here.');
+}
 $out = (string) ($options['out'] ?: sys_get_temp_dir() . '/selfselectadvanced-howto');
 $driver = rtrim((string) $options['driver'], '/');
 @mkdir($out, 0777, true);

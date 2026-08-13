@@ -17,8 +17,11 @@
 /**
  * Maintainer utility: seed the guided demonstration course.
  *
- * Not part of the released plugin - docs/ is excluded from the release
- * zip. Builds one course with the activity configured with a 2-level
+ * Maintainer tooling, NOT part of any supported workflow - but it IS in the
+ * release zip. This header used to say "docs/ is excluded from the release
+ * zip"; the 1.20.37 package contains docs/ in full, and no exclusion manifest
+ * exists (external audit FCA-003, 2026-08-13). Either the packaging or this
+ * sentence had to change, and the sentence was the false one. Builds one course with the activity configured with a 2-level
  * department vocabulary, a counting rule, a seat plan, the pick-that-team
  * (EOI) flow enabled, and groups left in every interesting lifecycle
  * state, so the how-to deck can show each step with a real screenshot:
@@ -60,7 +63,7 @@ use mod_selfselectadvanced\local\state;
 use mod_selfselectadvanced\local\volunteering;
 
 [$options, $unrecognised] = cli_get_params(
-    ['shortname' => 'SSAHOWTO', 'password' => 'SsaDemo#2026', 'reset' => false, 'help' => false],
+    ['shortname' => 'SSAHOWTO', 'password' => '', 'reset' => false, 'help' => false],
     ['h' => 'help']
 );
 if ($unrecognised) {
@@ -75,6 +78,12 @@ if ($options['help']) {
 \core\session\manager::set_user(get_admin());
 $shortname = (string) $options['shortname'];
 $password = (string) $options['password'];
+// REFUSE rather than seed every persona with an empty password. The default
+// used to be a hard-coded literal that shipped in the release zip (external
+// audit FCA-003, 2026-08-13).
+if ($password === '') {
+    cli_error('--password is required: the demonstration password is no longer hard-coded here.');
+}
 
 // Seeding drives the real transition services, so every transition
 // sends its real notification. The demonstration box has no interest

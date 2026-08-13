@@ -67,6 +67,16 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'eoienabled', 'eoiwindow', 'eoimax', 'eoisequential', 'eoipeers', 'eoigroupmax',
             'minmembership', 'defaulterpenalty', 'incompletepenalty', 'leadershare',
             'contactprivacy',
+            // ADDED 2026-08-13 (external audit BAK-001). Both were schema
+            // additions that never reached this list, so a restored activity
+            // silently changed policy: joinexpiry fell back to 0, turning
+            // request expiry OFF, and mirrorat fell back to 0, moving Moodle
+            // course-group creation from approval to freeze - which downstream
+            // group activities can depend on. schema_backup_contract_test now
+            // fails the build when a new activity column has no backup policy,
+            // because this is the second time the same class of omission
+            // shipped.
+            'joinexpiry', 'mirrorat',
             'timecreated', 'timemodified',
         ]);
         $quotas = new backup_nested_element('quotas');

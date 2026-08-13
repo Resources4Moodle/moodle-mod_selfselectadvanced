@@ -177,6 +177,9 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         // teacher can tick and then be told off for is a worse
         // explanation than one that visibly does not apply.
         $mform->disabledIf('eoienabled', 'guidemode', 'eq', 1);
+        // GOV-001 (2026-08-13): the approach route is a preassignment route
+        // too, so manager mode closes it the same way it closes EOI.
+        $mform->disabledIf('contactmax', 'guidemode', 'eq', 1);
 
         // Formation window.
         $mform->addElement('header', 'formationwindow', get_string('formationwindow', 'mod_selfselectadvanced'));

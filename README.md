@@ -10,17 +10,27 @@ downstream activity can use.
 
 ## Requirements
 
-**Moodle 5.2 on PHP 8.4 or later ONLY.** MariaDB or PostgreSQL.
+**Moodle 5.2.1 or later in the 5.2 series, on PHP 8.4 or later ONLY.**
+MariaDB or PostgreSQL.
 
 That is a promise narrowed on purpose, not by drift. The plugin was
 previously declared for "4.5 LTS or 5.x", but it is developed, gated and
 CI-tested against Moodle 5.2 on PHP 8.4 and nothing else, and promising
 four branches while verifying one is a claim the project cannot stand
 behind — the same reasoning `version.php` itself records beside
-`supported = [502, 502]`. The PHP 8.4 floor is asserted at runtime on
-install and on upgrade (`db/install.php`, `db/upgrade.php`), because
-Moodle's `version.php` format has no field for a PHP minimum; a site
-below the floor is refused before anything is created or migrated.
+`supported = [502, 502]`. `requires = 2026042001` is the **5.2.1** serial —
+5.2.0 is `2026042000` — so the floor is 5.2.1, not every 5.2 site.
+
+The PHP 8.4 floor is asserted at runtime on install and on upgrade
+(`db/install.php`, `db/upgrade.php`), because Moodle's `version.php` format
+has no field for a PHP minimum. **Stated precisely:** those are the plugin's
+own hooks, and `xmldb_selfselectadvanced_install()` is a POST-install hook —
+core creates the `db/install.xml` schema before calling it. So on a site below
+the floor the install is refused, but not before the tables are made. Earlier
+wording here claimed the refusal came "before anything is created"; that was
+wrong (external audit FCA-001, 2026-08-13). Expressing the floor as a real
+environment requirement, which core evaluates before installing anything, is
+owed.
 
 ## Features
 
@@ -300,18 +310,26 @@ faculty member in person and comes away with an address or an employee
 id: the id is recorded as the surname and so already matched, the
 address did not.
 
-**What this does and does not promise, stated plainly, because an
-earlier draft of this section over-claimed and a blind audit measured
-the gap.** A substring match leaks the string it matches: with the
-address arm unconditional, a plain enrolled student recovered a whole
-guide address — a local part with no relation to the guide's name — in
-453 picker calls, extending a matched fragment one character at a time
-on found/not-found alone. Requiring the `@` does not close that; a
-determined prober can anchor on the `@` and grow outwards. It removes
-the free sweep, and the trade was taken deliberately: **the guide list
-is a staff directory reachable by anyone who can open a guide picker,
-and that is accepted.** Exact-address matching was considered and not
-adopted.
+**What this does and does not promise, stated plainly, because this
+section has twice described a matcher the code did not have.** A
+substring match leaks the string it matches: with the address arm
+unconditional, a plain enrolled student recovered a whole guide address
+— a local part with no relation to the guide's name — in 453 picker
+calls, extending a matched fragment one character at a time on
+found/not-found alone. Requiring an `@` would not have closed that; a
+prober can anchor on the `@` and grow outwards, and this section said
+so while accepting the residue.
+
+**That is history. The code now matches an address by EXACT,
+case-insensitive EQUALITY**, and the address arm engages only when the
+whole query is a syntactically valid address (core's `validate_email()`).
+A partial address matches nothing and falls through to name matching, so
+there is no found/not-found gradient left to climb and the 453-call
+oracle is closed rather than accepted. The address column is selected
+from the database only when the query could use it. This paragraph
+claimed the opposite until 2026-08-13, when an external audit (DOC-002)
+pointed out that the documentation was describing a live oracle the
+implementation had already removed.
 
 What *is* absolute:
 

@@ -176,9 +176,12 @@ final class allocator_exactness_test extends \advanced_testcase {
             'nine members over eight rules gave up before it was out of memory'
         );
         $this->assertSame(9, $result->totalfilled);
-        $this->assertSame([4, 3, 2, 0, 0, 0, 0, 0], $result->filled);
+        $this->assertSame([4, 1, 1, 1, 0, 0, 1, 1], $result->filled);
         $this->assertSame(
-            [1 => 2, 2 => 0, 3 => 0, 4 => 2, 5 => 0, 6 => 1, 7 => 0, 8 => 1, 9 => 1],
+            // Re-measured 2026-08-13 with the reversal. Nine members, nine
+            // seated, same as before - who sits WHERE moved, how many sit
+            // did not.
+            [1 => 1, 2 => 0, 3 => 0, 4 => 7, 5 => 0, 6 => 6, 7 => 0, 8 => 3, 9 => 2],
             $result->assignment
         );
 
@@ -192,9 +195,9 @@ final class allocator_exactness_test extends \advanced_testcase {
             $result->totalfilled,
             'seven of these fourteen can be seated; a smaller number is a compliant team called non-compliant'
         );
-        $this->assertSame([1, 1, 1, 1, 1, 0, 0, 1, 1], $result->filled);
+        $this->assertSame([1, 1, 1, 1, 1, 0, 1, 1, 0], $result->filled);
         $this->assertSame(
-            [1 => 0, 4 => 8, 6 => 7, 7 => 4, 10 => 2, 13 => 3, 14 => 1],
+            [1 => 0, 3 => 3, 6 => 7, 7 => 4, 10 => 6, 13 => 2, 14 => 1],
             $result->assignment
         );
     }
@@ -218,13 +221,20 @@ final class allocator_exactness_test extends \advanced_testcase {
     public function test_the_verdict_table_has_not_moved(): void {
         // Key [seed, members, slots, seats, values], value [exact, totalfilled, filled].
         $cases = [
-            [[224, 9, 8, 4, 3], [true, 9, [4, 3, 2, 0, 0, 0, 0, 0]]],
-            [[649, 14, 9, 1, 6], [true, 7, [1, 1, 1, 1, 1, 0, 0, 1, 1]]],
-            [[311, 12, 11, 2, 6], [true, 9, [0, 2, 2, 2, 0, 1, 0, 0, 0, 2, 0]]],
-            [[292, 9, 12, 1, 5], [true, 8, [1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1]]],
+            // REGENERATED 2026-08-13 for the most-constrained-first reversal.
+            // Every row was re-measured and `exact` and `totalfilled` are
+            // UNCHANGED on all ten - only the distribution moved, which is
+            // what a tie-break may do and a fill rule may not. The totals are
+            // asserted before the distribution below precisely so that a
+            // future change which costs a seat fails on the total, loudly,
+            // rather than being absorbed into a regenerated array.
+            [[224, 9, 8, 4, 3], [true, 9, [4, 1, 1, 1, 0, 0, 1, 1]]],
+            [[649, 14, 9, 1, 6], [true, 7, [1, 1, 1, 1, 1, 0, 1, 1, 0]]],
+            [[311, 12, 11, 2, 6], [true, 9, [0, 2, 2, 2, 0, 0, 0, 0, 1, 2, 0]]],
+            [[292, 9, 12, 1, 5], [true, 8, [1, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1]]],
             [[28, 29, 4, 3, 3], [true, 10, [2, 2, 3, 3]]],
             [[543, 24, 7, 2, 6], [true, 8, [2, 0, 2, 0, 2, 0, 2]]],
-            [[53, 10, 9, 3, 6], [true, 9, [0, 1, 3, 2, 0, 1, 2, 0, 0]]],
+            [[53, 10, 9, 3, 6], [true, 9, [0, 1, 3, 2, 1, 2, 0, 0, 0]]],
             [[1, 12, 6, 2, 4], [true, 2, [2, 0, 0, 0, 0, 0]]],
             [[99, 6, 3, 2, 3], [true, 5, [2, 2, 1]]],
             [[7, 20, 5, 3, 5], [false, 12, [3, 3, 1, 3, 2]]],

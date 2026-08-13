@@ -1459,14 +1459,52 @@ class joinrequests {
             ]
         );
 
+        // TX-001 (external audit, 2026-08-13). THE SWEEP JOINS THE SAME
+        // CONCURRENCY BOUNDARY THE HUMAN VERBS USE. accept() and withdraw()
+        // both serialise on joinrequest:{id} and re-read the row under it
+        // before changing anything; this loop did neither. It selected a
+        // candidate set and then wrote to it blindly, so a request accepted or
+        // withdrawn in the interval was overwritten to "declined" - leaving a
+        // confirmed membership on one side and a record saying the request
+        // expired on the other, plus an expiry message to a student who had
+        // just been let in.
+        //
+        // Background maintenance is not lower-risk than interactive code; it
+        // is the same rows. The discovery query stays outside the lock (it is
+        // a candidate list, nothing more), and each candidate is then locked,
+        // re-read, re-tested and only then written.
         $expired = 0;
-        foreach ($due as $request) {
-            $DB->update_record('selfselectadvanced_move', (object) [
-                'id' => $request->id,
-                'status' => self::STATUS_DECLINED,
-                'responsenote' => get_string('joinexpiredreason', 'mod_selfselectadvanced', $days),
-                'timemodified' => $now,
-            ]);
+        $sent = [];
+        foreach ($due as $candidate) {
+            $lock = locks::acquire('joinrequest:' . (int) $candidate->id);
+            try {
+                $request = $DB->get_record('selfselectadvanced_move', ['id' => (int) $candidate->id]);
+                // Gone, already answered, or no longer old enough because the
+                // setting moved while the sweep ran: all three mean this is
+                // not ours to expire.
+                if (
+                    !$request
+                    || $request->status !== self::STATUS_REQUESTED
+                    || (int) $request->timecreated >= $deadline
+                ) {
+                    continue;
+                }
+                $DB->update_record('selfselectadvanced_move', (object) [
+                    'id' => $request->id,
+                    'status' => self::STATUS_DECLINED,
+                    'responsenote' => get_string('joinexpiredreason', 'mod_selfselectadvanced', $days),
+                    'timemodified' => $now,
+                ]);
+            } finally {
+                $lock->release();
+            }
+            $sent[] = $candidate;
+            $expired++;
+        }
+
+        // Messages after the locks, house rule 1: a notification never travels
+        // under a plugin lock, and an expiry that was skipped must not send one.
+        foreach ($sent as $request) {
             notifier::send(
                 $activity,
                 'joinrequests',
@@ -1477,7 +1515,6 @@ class joinrequests {
                 new \moodle_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]),
                 format_string($request->groupname)
             );
-            $expired++;
         }
 
         return $expired;

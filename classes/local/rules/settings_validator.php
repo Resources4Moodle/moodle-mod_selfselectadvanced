@@ -152,6 +152,27 @@ final class settings_validator {
             }
         }
 
+        // GOV-001, maintainer ruling 2026-08-13, option A. Approach-a-guide has
+        // the SAME material effect as an expression of interest - contacts::
+        // respond() writes group.guideid on acceptance, and submit() gives any
+        // preassigned guide precedence - so decision 75's reasoning applies to
+        // it unchanged. Only the EOI sibling was classified as a preassignment
+        // route in 1.20.24, and the omission mattered more than EOI's did:
+        // contactmax DEFAULTS to 3, so the bypass was live on a fresh activity
+        // whose teacher had just been told the manager allocates guides.
+        //
+        // Both halves are marked, for the same cross-section reason as the EOI
+        // pair: the two controls sit in different collapsed sections.
+        if (
+            (int) ($data['guidemode'] ?? 0) === 1
+            && (int) ($data['contactmax'] ?? 0) > 0
+        ) {
+            $errors['contactmax'] = 'errmanagermodecontact';
+            if (!isset($errors['guidemode'])) {
+                $errors['guidemode'] = 'errmanagermodecontactguide';
+            }
+        }
+
         // THE PUBLIC PROMISE WINS (decision 75). "Manager assigns the
         // guide" tells the teacher, in its own help text, that groups
         // arrive without a guide and a manager allocates one. Expressions

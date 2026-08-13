@@ -862,6 +862,93 @@ final class privacygaps_test extends \advanced_testcase {
     }
 
     /**
+     * The per-page preference is declared AND exported.
+     *
+     * External audit PRIV-001 (2026-08-13): perpage::resolve() has stored
+     * mod_selfselectadvanced_perpage since the paging work, and the provider
+     * declared only the reminder, digest and guide-reminder families. A stored
+     * user preference is personal data whether or not it is interesting; an
+     * undeclared one is invisible to a subject access request, which is the
+     * one request that exists to find it.
+     *
+     * MUTATIONS CAUGHT (run 2026-08-13): removing the declaration fails the
+     * first assertion; making the export read null fails the second.
+     */
+    public function test_the_perpage_preference_is_declared_and_exported(): void {
+        $this->resetAfterTest();
+        $user = $this->getDataGenerator()->create_user();
+
+        set_user_preference('mod_selfselectadvanced_perpage', 50, $user->id);
+
+        // Declared in the metadata collection.
+        $collection = provider::get_metadata(new \core_privacy\local\metadata\collection('mod_selfselectadvanced'));
+        $declared = [];
+        foreach ($collection->get_collection() as $item) {
+            if ($item instanceof \core_privacy\local\metadata\types\user_preference) {
+                $declared[] = $item->get_name();
+            }
+        }
+        $this->assertContains('mod_selfselectadvanced_perpage', $declared, 'the preference is not declared');
+
+        // ...and actually exported for the person who has one.
+        writer::reset();
+        provider::export_user_preferences((int) $user->id);
+        $exported = writer::with_context(\context_system::instance())->get_user_preferences('mod_selfselectadvanced');
+        $this->assertObjectHasProperty('mod_selfselectadvanced_perpage', $exported);
+        $this->assertSame('50', (string) $exported->mod_selfselectadvanced_perpage->value);
+    }
+
+    /**
+     * A course reset takes the per-group reminder markers with the groups.
+     *
+     * External audit PRIV-002 (2026-08-13). Instance deletion has always done
+     * this; reset deleted the activity-level marker and left the group-level
+     * ones pointing at group ids that no longer exist. Worse than stale: the
+     * provider discovers these by walking CURRENT groups, so an orphan is
+     * unreachable by the very export that would otherwise disclose it.
+     *
+     * MUTATION CAUGHT (run 2026-08-13): disabling the new deletion in
+     * selfselectadvanced_reset_userdata() fails this test.
+     */
+    public function test_course_reset_removes_the_group_reminder_markers(): void {
+        global $CFG, $DB;
+
+        require_once($CFG->dirroot . '/mod/selfselectadvanced/lib.php');
+        $this->resetAfterTest();
+
+        [$course, $instance] = $this->module_fixture();
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $guide = $this->getDataGenerator()->create_user();
+        $leader = $this->getDataGenerator()->create_user();
+        $group = $plugingen->create_group([
+            'activityid' => (int) $instance->id,
+            'leaderid' => (int) $leader->id,
+            'name' => 'Reset me',
+        ]);
+        $marker = 'mod_selfselectadvanced_gremind_' . (int) $group->id;
+        set_user_preference($marker, 90, $guide->id);
+        set_user_preference('mod_selfselectadvanced_reminded_' . (int) $instance->id, 1, $guide->id);
+        $this->assertSame(1, $DB->count_records('user_preferences', ['name' => $marker]));
+
+        selfselectadvanced_reset_userdata((object) [
+            'courseid' => (int) $course->id,
+            'reset_selfselectadvanced_groups' => 1,
+            'timeshift' => 0,
+        ]);
+
+        $this->assertSame(
+            0,
+            $DB->count_records('selfselectadvanced_group', ['activityid' => (int) $instance->id]),
+            'the fixture did not actually reset'
+        );
+        $this->assertSame(
+            0,
+            $DB->count_records('user_preferences', ['name' => $marker]),
+            'the reset left a reminder marker for a group it had deleted'
+        );
+    }
+
+    /**
      * Insert a queued digest row with a resolved payload AND its subject
      * index, the way notifier::send() writes the pair.
      *

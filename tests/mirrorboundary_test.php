@@ -338,6 +338,16 @@ final class mirrorboundary_test extends \advanced_testcase {
      * MUTATION CAUGHT (run 2026-08-12): gating the membership sync on
      * state_needs_mirror() - the plausible "tidy" refactor - fails this test's
      * roster assertion while every other test in the suite still passes.
+     *
+     * WHAT THIS TEST DOES NOT PROVE, stated because the release notes once
+     * claimed it did (external audit FCA-004, 2026-08-13). The roster changes
+     * below are made through the generator and converged by calling
+     * sync_core_group() directly. That pins convergence itself - the right
+     * people are added and removed - and NOT that the production
+     * join-acceptance or departure paths schedule it. joinrequests::respond()
+     * does hand the sync back today; a behavioural test driving those real
+     * services, with no direct member-table writes and no manual sync call, is
+     * owed and is not this test.
      */
     public function test_unfreezing_keeps_the_course_group_and_goes_on_updating_it(): void {
         global $DB;

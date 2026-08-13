@@ -1560,6 +1560,9 @@ if (
     && $group->state === \mod_selfselectadvanced\local\state::FORMING
     && empty($group->guideid)
     && (int) ($activity->settings()->contactmax ?? 0) > 0
+    // GOV-001: manager mode allocates guides, so the approach control is
+    // not offered. The service refuses it too; this keeps the page honest.
+    && (int) ($activity->settings()->guidemode ?? 0) !== 1
 ) {
     $left = \mod_selfselectadvanced\local\contacts::remaining($activity, (int) $group->id);
     echo html_writer::div(

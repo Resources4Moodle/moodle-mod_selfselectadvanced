@@ -72,6 +72,13 @@ class contacts {
     ): stdClass {
         global $DB;
 
+        // GOV-001 (2026-08-13). Manager mode means the manager allocates the
+        // guide, so a leader may not reach one this way - refused HERE and not
+        // only in the form, because a setting changed mid-course leaves live
+        // approach pages open in browsers.
+        if ((int) ($activity->settings()->guidemode ?? 0) === 1) {
+            throw new workflow_refusal('refusalcontactmanagermode', 'mod_selfselectadvanced');
+        }
         $max = (int) ($activity->settings()->contactmax ?? 0);
         if ($max < 1) {
             throw new workflow_refusal('refusalcontactdisabled', 'mod_selfselectadvanced');
@@ -195,6 +202,15 @@ class contacts {
         int $userid
     ): stdClass {
         global $DB;
+
+        // GOV-001 (2026-08-13): an approach sent before the activity moved to
+        // manager mode must not be ACCEPTED into a preassignment afterwards -
+        // acceptance is what writes group.guideid. Declining stays available,
+        // because a stale approach still needs clearing and a decline
+        // preassigns nobody.
+        if ($accept && (int) ($activity->settings()->guidemode ?? 0) === 1) {
+            throw new workflow_refusal('refusalcontactmanagermode', 'mod_selfselectadvanced');
+        }
 
         // Fast path only; the authoritative check is inside the locks
         // below.

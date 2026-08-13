@@ -35,11 +35,17 @@ $functions = [
     ],
     'mod_selfselectadvanced_search_groups' => [
         'classname' => \mod_selfselectadvanced\external\search_groups::class,
-        'description' => 'Search this activity\'s teams by name or project id, for the move, '
+        'description' => 'Search this activity\'s groups by name or project id, for the move, '
             . 'override and join-request pickers.',
         'type' => 'read',
         'ajax' => true,
-        'capabilities' => 'mod/selfselectadvanced:respond',
+        // The REAL door, not one of its three arms. execute() admits manage,
+        // coordinate OR respond; naming only respond understated the audience
+        // to any administrator reading this file (external audit API-001,
+        // 2026-08-13). This field is informational - execute() enforces - but
+        // an inaccurate declaration misleads exactly the people auditing it.
+        'capabilities' => 'mod/selfselectadvanced:manage, mod/selfselectadvanced:coordinate, '
+            . 'mod/selfselectadvanced:respond',
     ],
     'mod_selfselectadvanced_search_guides' => [
         'classname' => \mod_selfselectadvanced\external\search_guides::class,
@@ -47,7 +53,10 @@ $functions = [
             . 'returning name, department and current load.',
         'type' => 'read',
         'ajax' => true,
-        'capabilities' => 'mod/selfselectadvanced:respond',
+        // As above: execute() admits any of these six.
+        'capabilities' => 'mod/selfselectadvanced:respond, mod/selfselectadvanced:lead, '
+            . 'mod/selfselectadvanced:guide, mod/selfselectadvanced:manage, '
+            . 'mod/selfselectadvanced:coordinate, mod/selfselectadvanced:assignguide',
     ],
     'mod_selfselectadvanced_search_participants' => [
         'classname' => \mod_selfselectadvanced\external\search_participants::class,

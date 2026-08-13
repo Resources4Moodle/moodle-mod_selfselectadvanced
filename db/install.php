@@ -27,8 +27,15 @@
  * Create the Group Coordinator role on a fresh install.
  */
 function xmldb_selfselectadvanced_install(): void {
-    // PHP 8.4 floor, asserted before anything is created. Moodle offers no
-    // version.php field for a PHP minimum, so the plugin has to say it itself.
+    // PHP 8.4 floor. STATED PRECISELY, because the previous comment here and
+    // the README both claimed this runs "before anything is created" and it
+    // does not: xmldb_selfselectadvanced_install() is Moodle's POST-install
+    // hook, and core installs the db/install.xml schema before calling it. So
+    // on a site below the floor the tables can already exist when this throws.
+    // Moodle offers no version.php field for a PHP minimum, so the plugin has
+    // to say it itself; expressing it as a real environment requirement, which
+    // core WOULD evaluate before installing, is owed (external audit FCA-001).
+    // db/upgrade.php makes the same check for an existing site.
     // db/upgrade.php makes the same check for an existing site.
     if (version_compare(PHP_VERSION, '8.4.0', '<')) {
         throw new moodle_exception('errorphptoolow', 'mod_selfselectadvanced', '', PHP_VERSION);

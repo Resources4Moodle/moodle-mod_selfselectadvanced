@@ -53,11 +53,13 @@ use stdClass;
  *  - a slot without allowoverlap refuses a member ANY of whose values,
  *    in ANY dimension, was recorded by an earlier slot.
  *
- * Where several maximum-fill assignments exist, the one shown is the
- * one that leaves the shortfall on the MOST restrictive seats: the
- * maintainer's least-restrictive placement rule (a seat many people
- * could fill is offered before a seat almost nobody can). Validity is
- * decided before that tie-break and is never affected by it.
+ * Where several maximum-fill assignments exist, the one shown seats each
+ * member in the MOST constrained seat they can take - the specialist seat
+ * goes to the specialist, and the shortfall lands on the seats that anybody
+ * could still fill. REVERSED 2026-08-13; see build_ranks() for the live
+ * defect that forced it. Validity is decided before that tie-break and is
+ * never affected by it: fill strictly dominates the ranking, and the
+ * no-overlap exclusion accumulates in DECLARED slot order regardless.
  *
  * The search is pure computation over arrays the caller already loaded:
  * no queries, no capability checks, no strings, no clock and no random
@@ -581,13 +583,42 @@ final class allocator {
     }
 
     /**
-     * Rank the slots from least to most restrictive.
+     * Rank the slots from MOST to least restrictive.
      *
-     * The maintainer's placement rule: a seat many people could fill is
-     * offered before a seat almost nobody can, so where several
-     * maximum-fill assignments exist the shortfall lands on the seats
-     * that are hardest to fill. Ties fall back to the manager's own
-     * declared order, so the ranking is total and deterministic.
+     * REVERSED 2026-08-13, from a defect the maintainer found on a live
+     * group. The rule here used to be the opposite - "a seat many people
+     * could fill is offered before a seat almost nobody can, so the
+     * shortfall lands on the seats that are hardest to fill" - and that
+     * produced an answer no reader could accept.
+     *
+     * THE CASE. Seat 1 wants two members with Department SCOPE; seat 2 wants
+     * three members from departments "not used by an earlier seat rule"; the
+     * group holds exactly one SCOPE student. Both placements seat one person,
+     * so fill cannot separate them and this ranking decides. Ranking the
+     * flexible seat first made a seated member worth MORE there, so the panel
+     * credited the SCOPE student to the distinct seat - a seat whose own label
+     * excludes SCOPE, because seat 1 uses it - and reported the SCOPE seat as
+     * needing two more while its only possible occupant sat in the group.
+     *
+     * The old rule is not merely cosmetic when read: it takes a member out of
+     * the one seat only they can fill and puts them in a seat anybody could,
+     * then reports the scarce seat as empty. "Most constrained first" is the
+     * standard rule for exactly this reason, and it is what a human does by
+     * hand: give the specialist seat to the specialist, then fill the general
+     * seats from whoever is left.
+     *
+     * WHAT THIS DOES NOT CHANGE, stated because the previous docblock made a
+     * claim about it. Fill still strictly dominates - `weight` is chosen so
+     * that one more seated member always beats any rank preference - so the
+     * MAXIMUM number of seats filled is identical before and after; only the
+     * choice among equally-full assignments moves. And validity is genuinely
+     * untouched: `best_from()` recurses in DECLARED slot order, so the
+     * no-overlap `consumed` set accumulates in the manager's own order
+     * whatever this ranking says. That is what makes "an earlier seat rule"
+     * in the labels mean what it says.
+     *
+     * Ties fall back to the manager's declared order, so the ranking is total
+     * and deterministic.
      */
     private function build_ranks(): void {
         $order = [];
@@ -600,9 +631,15 @@ final class allocator {
             }
             $flexible = $this->matchtype[$i] === 'distinct' || $this->slotvalue[$i] === null;
             $order[] = [
-                -$supply,
-                $this->overlap[$i] ? 0 : 1,
-                $flexible ? 0 : 1,
+                // Fewest candidates first: the scarce seat gets its scarce
+                // member before a seat that anybody could fill.
+                $supply,
+                // A seat naming one value is more constrained than one that
+                // takes any value, or any distinct set of them.
+                $flexible ? 1 : 0,
+                // A seat that refuses already-used values is more constrained
+                // than one that tolerates them.
+                $this->overlap[$i] ? 1 : 0,
                 $i,
             ];
         }

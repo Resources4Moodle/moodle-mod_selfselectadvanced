@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081201;
+    private const CURRENT = 2026081300;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026081200;
+    private const PREVIOUS = 2026081201;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.37';
+    private const RELEASE = '1.20.38';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -415,6 +415,14 @@ final class versionbump_test extends \advanced_testcase {
         // has to be declared separately so nobody can quietly move a table
         // between the two categories.
         $exempt = [
+            2026081300 => [
+                'tables' => ['selfselectadvanced'],
+                'creates' => [],
+                'reason' => 'GOV-001: activities combining manager-assigned guides with a non-zero '
+                    . 'approach limit are settled to 0, because the pair is now refused by the form '
+                    . 'and leaving it stored would make an unrelated settings edit unsaveable. The '
+                    . 'table and both columns long predate this step.',
+            ],
         ];
         $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
         $allowed = array_key_exists(self::CURRENT, $exempt)

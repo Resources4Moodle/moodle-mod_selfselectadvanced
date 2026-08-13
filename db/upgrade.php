@@ -2577,5 +2577,44 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081201, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081300) {
+        // GOV-001 (maintainer ruling 2026-08-13, option A). "Manager assigns
+        // the guide" is now incompatible with letting a group approach one,
+        // exactly as it has been incompatible with expressions of interest
+        // since decision 75 - because accepting an approach writes
+        // group.guideid and submit() gives a preassigned guide precedence, so
+        // the two settings together meant the opposite of what the help text
+        // promised.
+        //
+        // Existing activities can hold that pair, and contactmax DEFAULTS to
+        // 3, so it is not rare. Left alone they would sit in a state the
+        // settings form now refuses to save, which is a trap: a teacher opens
+        // settings to change something unrelated and cannot save. The pair is
+        // therefore settled the way the ruling settles it - the manager mode
+        // the teacher chose is kept, and the route that contradicted it is
+        // closed.
+        $affected = $DB->count_records_select('selfselectadvanced', 'guidemode = 1 AND contactmax > 0');
+        if ($affected) {
+            $DB->execute('UPDATE {selfselectadvanced} SET contactmax = 0 WHERE guidemode = 1 AND contactmax > 0');
+        }
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.38 (2026081300). Approach-a-guide closed under manager mode on '
+                . $affected . ' activity(ies).',
+            'Accepting an approach writes the group\'s guide, and submission gives a preassigned '
+                . 'guide precedence, so a group could choose its own guide on an activity whose '
+                . 'setting says the manager allocates them - the same contradiction decision 75 '
+                . 'already refused for expressions of interest. Activities combining "Manager '
+                . 'assigns the guide" with a non-zero approach limit have had that limit set to 0. '
+                . 'No approach already accepted is undone; the guide stays where it is. Groups on '
+                . 'those activities can no longer start a new approach, and the settings form now '
+                . 'refuses the combination.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081300, 'selfselectadvanced');
+    }
+
     return true;
 }

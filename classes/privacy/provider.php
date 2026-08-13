@@ -166,6 +166,15 @@ class provider implements
             'mod_selfselectadvanced_gremind_',
             'privacy:metadata:preference:gremind'
         );
+        // Declared 2026-08-13 (external audit PRIV-001). perpage::resolve()
+        // has stored this since the paging work and nothing here said so: a
+        // stored user preference is personal data whether or not it is
+        // interesting, and an undeclared one is invisible to a subject access
+        // request.
+        $collection->add_user_preference(
+            'mod_selfselectadvanced_perpage',
+            'privacy:metadata:preference:perpage'
+        );
 
         return $collection;
     }
@@ -1110,6 +1119,19 @@ class provider implements
      */
     public static function export_user_preferences(int $userid): void {
         global $DB;
+
+        // Site-wide, so it is exported once and not inside the per-activity
+        // loop below: perpage::resolve() stores one value for the person, not
+        // one per activity.
+        $perpage = get_user_preferences('mod_selfselectadvanced_perpage', null, $userid);
+        if ($perpage !== null) {
+            writer::export_user_preference(
+                'mod_selfselectadvanced',
+                'mod_selfselectadvanced_perpage',
+                $perpage,
+                get_string('privacy:metadata:preference:perpage', 'mod_selfselectadvanced')
+            );
+        }
 
         foreach ($DB->get_records('selfselectadvanced', null, 'id ASC', 'id') as $row) {
             $pref = get_user_preferences('mod_selfselectadvanced_reminded_' . $row->id, null, $userid);
