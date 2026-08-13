@@ -282,7 +282,7 @@ final class fit_test extends \advanced_testcase {
      * Female seat OR the second Computer seat; both leave two seats
      * filled, and the Computer pair is the roomier of the two.
      */
-    public function test_seat_named_is_the_least_restrictive_available(): void {
+    public function test_seat_named_is_the_most_constrained_available(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator();
@@ -322,9 +322,14 @@ final class fit_test extends \advanced_testcase {
         $verdict = fit::for_person($activity, $group, (int) $candidate->id);
 
         $this->assertTrue($verdict->fits);
-        $this->assertSame((int) $computer->slotno, $verdict->seatno, 'The roomier Computer seat is the one named');
-        $this->assertNotSame((int) $female->slotno, $verdict->seatno);
-        $this->assertStringContainsStringIgnoringCase('computer', (string) $verdict->seat);
+        // REVERSED 2026-08-13 with the allocator's tie-break. This asserted the
+        // roomier Computer seat. The candidate is the group's only Female, so
+        // the Female seat is the one only they can fill; naming the roomier
+        // seat told a leader the candidate would fill a seat two people could,
+        // while the seat that needed them specifically stayed empty.
+        $this->assertSame((int) $female->slotno, $verdict->seatno, 'The seat only this candidate can fill is named');
+        $this->assertNotSame((int) $computer->slotno, $verdict->seatno);
+        $this->assertStringContainsStringIgnoringCase('female', (string) $verdict->seat);
     }
 
     /**
@@ -494,11 +499,28 @@ final class fit_test extends \advanced_testcase {
         $this->assertSame($row->seatno, $single->seatno, 'Picker and gate must not disagree');
         $this->assertSame($row->seat, $single->seat);
 
-        // And this really is the divergence case: the shortfall that
-        // falls belongs to slot 2, the Female seat, which is the seat
-        // the old algorithm would have named. If a future engine change
-        // stops re-seating here, this assertion fails and says so
-        // rather than letting the test quietly stop testing anything.
+        // THIS SHAPE IS NO LONGER A DIVERGENCE CASE, and the assertion below
+        // that used to prove it was is gone rather than rewritten to match.
+        //
+        // The author of this test wrote: "If a future engine change stops
+        // re-seating here, this assertion fails and says so rather than
+        // letting the test quietly stop testing anything." On 2026-08-13 the
+        // allocator's tie-break was reversed to most-constrained-first, and
+        // that assertion failed exactly as promised. The reason is that the
+        // new rule seats the Female incumbent in the Female seat from the
+        // start, so the candidate's arrival re-seats nobody: measured here,
+        // the Female seat's shortfall is now 0 both before and after, and the
+        // Science seat's falls 1 -> 0.
+        //
+        // Updating the numbers would have left a test that passes while
+        // demonstrating nothing, which is the failure its own comment was
+        // written to prevent. What survives above is the assertion that
+        // matters - fit names a seat the candidate is ACTUALLY in - and that
+        // still fails if the shortfall-diff body is restored, because a Male
+        // candidate cannot be in the Female seat under any seating.
+        //
+        // OWED: a new fixture that re-seats an incumbent under the current
+        // tie-break, to restore the divergence half of this guard.
         $template = slots::get_all($activity);
         $attrs = manager::get_for_users([(int) $m1->id, (int) $m2->id, (int) $f1->id, (int) $candidate->id]);
         $roster = [(int) $m1->id, (int) $m2->id, (int) $f1->id];
@@ -513,14 +535,11 @@ final class fit_test extends \advanced_testcase {
 
             return -1;
         };
-        $this->assertGreaterThan($after->totalfilled - 1, $after->totalfilled);
         $this->assertSame($before->totalfilled + 1, $after->totalfilled, 'The candidate must raise the fill');
-        $this->assertSame(1, $shortfall($before, 2), 'The Female seat is short before');
-        $this->assertSame(0, $shortfall($after, 2), 'and full after - so shortfall-diff would name it');
         $this->assertSame(
-            $shortfall($before, 3),
-            $shortfall($after, 3),
-            'while the Science seat the candidate actually takes shows no change in shortfall'
+            0,
+            $shortfall($before, 2),
+            'the Female incumbent is seated in the Female seat from the start now, so nothing re-seats'
         );
     }
 }
