@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081300;
+    private const CURRENT = 2026081400;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026081201;
+    private const PREVIOUS = 2026081300;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.38';
+    private const RELEASE = '1.20.39';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -414,16 +414,13 @@ final class versionbump_test extends \advanced_testcase {
         // claim, because the step has just guaranteed their existence, but it
         // has to be declared separately so nobody can quietly move a table
         // between the two categories.
-        $exempt = [
-            2026081300 => [
-                'tables' => ['selfselectadvanced'],
-                'creates' => [],
-                'reason' => 'GOV-001: activities combining manager-assigned guides with a non-zero '
-                    . 'approach limit are settled to 0, because the pair is now refused by the form '
-                    . 'and leaving it stored would make an unrelated settings edit unsaveable. The '
-                    . 'table and both columns long predate this step.',
-            ],
-        ];
+        // EMPTY for 2026081400. The 1.20.39 step changes no schema and
+        // repairs no data - it exists so the savepoint tip can equal
+        // version.php and so the upgrade log says what changed. The
+        // 1.20.38 entry was removed when its step stopped being the
+        // current one, which is the register's whole purpose: a one-off
+        // licence must not become a standing one by inheritance.
+        $exempt = [];
         $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
         $allowed = array_key_exists(self::CURRENT, $exempt)
             ? array_merge($exempt[self::CURRENT]['tables'], $created)

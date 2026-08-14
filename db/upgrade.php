@@ -2616,5 +2616,34 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081300, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081400) {
+        // No schema change and no data to repair: 1.20.39 is a message
+        // and a page. Recorded all the same, because the savepoint tip
+        // must equal version.php and because an upgrade log is where a
+        // site administrator looks to find out what changed under them.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.39 (2026081400). Requesters can now see their own requests, '
+                . 'and five notification subjects render.',
+            'Three fixes, all found on a live site rather than by a test. (1) Five subject '
+                . 'lines carried a bare {$a}, which Moodle only substitutes for a scalar '
+                . 'payload - the notifier always sends an object, so recipients were sent the '
+                . 'placeholder verbatim. A group leader really did receive Leadership help '
+                . 'requested for "{$a}". (2) Every ticket notification linked to the queue '
+                . 'page, which requires manage or coordinate, including the ones sent to the '
+                . 'requester - so a student was told their request had been picked up and '
+                . 'handed a link that refused them. (3) There was no page at all on which a '
+                . 'requester could see their own request or the note that closed it; the '
+                . 'design put the outcome in the message, and when the message went astray '
+                . 'nothing was left. myrequests.php now shows a person the requests they '
+                . 'filed, their status and their resolution, and lets them withdraw one that '
+                . 'nobody has claimed - which tickets::withdraw() has always permitted and no '
+                . 'requester could reach.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081400, 'selfselectadvanced');
+    }
+
     return true;
 }

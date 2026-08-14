@@ -20,6 +20,7 @@ use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\state;
+use mod_selfselectadvanced\local\tickets;
 use renderable;
 use renderer_base;
 use templatable;
@@ -309,6 +310,14 @@ class landing implements renderable, templatable {
         $data->iscoordinator = !$data->ismanager
             && has_capability('mod/selfselectadvanced:coordinate', $context, $this->userid, false);
         $data->ticketsurl = (new \moodle_url('/mod/selfselectadvanced/coordinator.php', ['id' => $cmid]))->out(false);
+
+        // The way in to your own requests. Drawn only for somebody who
+        // has actually filed one: myrequests.php admits everybody, so an
+        // always-on button would put a link to an empty page on every
+        // student's landing page. The condition is a COUNT, not a fetch
+        // - this runs for every viewer of the activity.
+        $data->hasmyrequests = tickets::mine_count($activity, $this->userid) > 0;
+        $data->myrequestsurl = (new \moodle_url('/mod/selfselectadvanced/myrequests.php', ['id' => $cmid]))->out(false);
 
         if (has_capability('mod/selfselectadvanced:viewall', $context, $this->userid, false)) {
             $data->isstaff = true;

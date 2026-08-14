@@ -897,9 +897,9 @@ $string['msgdeclinedbody'] = '{$a->member} has declined your invitation to "{$a-
 The seat they were holding is free again, so you can invite somebody else.';
 $string['msgdeclinedsubject'] = '{$a->user} declined the invitation to "{$a->group}"';
 $string['msgdisbandcancelbody'] = 'The leader of "{$a->group}" has cancelled the request to wind the group up. The group stands.';
-$string['msgdisbandcancelsubject'] = '{$a} will not be disbanded';
+$string['msgdisbandcancelsubject'] = '{$a->group} will not be disbanded';
 $string['msgdisbandrequestbody'] = 'The leader of "{$a->group}" asks the group to wind up. Their reason: {$a->reason} - open the group page and use "Leave this winding-up group" if you agree. Nothing happens to your membership until you act.';
-$string['msgdisbandrequestsubject'] = 'Your leader asks {$a} to wind up';
+$string['msgdisbandrequestsubject'] = 'Your leader asks {$a->group} to wind up';
 $string['msgeoiacceptedbody'] = 'Dear {$a->firstname}, the leader of "{$a->group}" in {$a->activity} accepted your interest. The group will reach you for review when it is submitted. See your guide dashboard at {$a->url}.';
 $string['msgeoiacceptedsubject'] = 'Your interest in "{$a->group}" was accepted';
 $string['msgeoiautodeclinedbody'] = 'Dear {$a->firstname}, the leader of "{$a->group}" in {$a->activity} accepted a different guide, so your interest was released. Your open-interest slot is free again; browse other listed groups at {$a->url}.';
@@ -930,7 +930,7 @@ $string['msgguidechangedbody'] = 'The guide of your group "{$a->group}" has chan
 {$a->guide} is now guiding the group.';
 $string['msgguidechangedsubject'] = 'New guide for "{$a->group}"';
 $string['msgguiderelievedbody'] = 'You have been relieved as the guide of group "{$a->group}". The coordinator wrote: {$a->comment}';
-$string['msgguiderelievedsubject'] = 'You are relieved as guide of {$a}';
+$string['msgguiderelievedsubject'] = 'You are relieved as guide of {$a->group}';
 $string['msgguidereminderbody'] = 'Dear {$a->firstname}, the group "{$a->group}" ({$a->pluginuid}) in {$a->activity} awaits your decision. Approve or return it by {$a->deadline}; after that it is automatically counted as accepted. Review at {$a->url}.';
 $string['msgguideremindersubject'] = 'Reminder: decide on "{$a->group}" by {$a->deadline}';
 $string['msgguideremovedbody'] = 'Dear {$a->firstname}, the guide of your group "{$a->group}" in {$a->activity} is no longer available, so the group currently has no guide. You can choose a new guide when you next submit the group, or a manager will assign one. Details at {$a->url}.';
@@ -953,7 +953,7 @@ $string['msgjoinacceptedsubject'] = 'You have joined {$a->group}';
 $string['msgjoindeclinedbody'] = 'Your request to join {$a->group} was declined.';
 $string['msgjoindeclinedsubject'] = 'Your request to join {$a->group}';
 $string['msgjoinexpiredbody'] = 'Nobody answered your request to join "{$a->group}" within {$a->days} day(s), so it has been withdrawn. You are free to ask another group.';
-$string['msgjoinexpiredsubject'] = 'Your request to join "{$a}" has expired';
+$string['msgjoinexpiredsubject'] = 'Your request to join "{$a->group}" has expired';
 $string['msgjoinguidechangedbody'] = '{$a->student} joined {$a->group} after you released the group for changes.';
 $string['msgjoinguidechangedsubject'] = 'Released group {$a->group} changed';
 $string['msgjoinrequestedbody'] = '{$a->student} has asked to join {$a->group}, saying: {$a->note}';
@@ -961,7 +961,7 @@ $string['msgjoinrequestedsubject'] = 'Somebody would like to join {$a->group}';
 $string['msgleaderchangefiledbody'] = 'A member of your group "{$a->group}" has asked the coordinators for help with its leadership.
 What they said: {$a->reason}
 A coordinator will look at it. You do not need to do anything right now.';
-$string['msgleaderchangefiledsubject'] = 'Leadership help requested for "{$a}"';
+$string['msgleaderchangefiledsubject'] = 'Leadership help requested for "{$a->group}"';
 $string['msgleaderpromotedbody'] = 'You are now the leader of group "{$a->group}".
 Leading a group means inviting members, submitting to a guide, and answering what the guide asks.';
 $string['msgleaderpromotedsubject'] = 'You now lead "{$a->group}"';
@@ -1028,6 +1028,13 @@ $string['msgwithdrawnsubject'] = 'Invitation to "{$a->group}" withdrawn';
 $string['mygroups'] = 'My groups';
 $string['myinvitations'] = 'My invitations';
 $string['mynominations'] = 'My nominations';
+$string['myrequests'] = 'My requests';
+$string['myrequestsclaimedhint'] = 'Somebody is handling this.';
+$string['myrequestsintro'] = 'Requests you have sent to the coordinators, and what came back. You will also be told by message when one is picked up or closed.';
+$string['myrequestsnone'] = 'You have not sent any requests.';
+$string['myrequestsnonote'] = 'Closed without a note.';
+$string['myrequestswithdraw'] = 'Withdraw';
+$string['myrequestswithdrawn'] = 'Your request was withdrawn.';
 $string['newteam'] = 'New group';
 $string['newteamleader'] = 'Leader of the new group';
 $string['newteamleader_help'] = 'The student who will lead the group you are creating. Their own groups-led and membership caps still apply: if they are already at their membership cap, park them first and the slot frees up.';

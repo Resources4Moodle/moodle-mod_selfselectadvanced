@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.20.39 — the person who asked can see the answer (2026-08-14)
+
+> Serial `2026081400` / `1.20.39`. **No schema change, no data change.**
+> Maturity stays RC.
+
+Three defects, all found on the live dev site rather than by any test, all in
+the path between a person asking for help and being told what happened.
+
+**Five notification subjects were shipping `{$a}` to the reader.** Moodle
+substitutes a bare `{$a}` only when the payload is a scalar; `notifier::send()`
+casts every payload to an object so it can add the recipient's name and the
+context URL. So the bare form could never resolve, whatever the call site
+passed. A group leader on the dev site was sent, literally, `Leadership help
+requested for "{$a}"`. The five subjects — disband cancel, disband request,
+guide relieved, join expired and leadership help — now use `{$a->group}`, the
+key their payloads always carried.
+
+A new contract test pins the whole class rather than the five instances. It
+reads the token stream rather than the text, because this plugin quotes its own
+call signatures both in comments and in debugging strings, and a scanner that
+reads prose reports defects that are not there. It also refuses to skip an
+indirection it cannot follow: writing it surfaced three the author had not
+found — a key built by concatenation, a key arriving in adhoc task data, and a
+key chosen by a ternary — none of which carried the defect, all of which are
+now checked.
+
+**Ticket notifications linked every recipient to the staff queue**, including
+the requester, whom that page refuses. The message that exists *because* the
+requester cannot open the queue was handing them a link to the queue. Staff
+still get `tickets.php`; a requester now gets their own page.
+
+**And that page now exists.** There was no surface anywhere in the plugin on
+which a requester could see their own request, its status, or the note that
+closed it. The design deliberately put the outcome in the closing message — but
+a message can be missed, and on the dev site every notification email was being
+refused by the mail relay, silently. `myrequests.php` shows a person the
+requests they filed, what came back, and offers a **Withdraw** control while
+nobody has claimed it. `tickets::withdraw()` has enforced requester ownership
+since 1.18, but its only caller sat behind the guide capability, so no student
+or leader could ever reach it: a gate with no reachable caller is not a gate.
+
+The way in is drawn on the landing page only for somebody who has actually
+filed something, so it never becomes a link to an empty page.
+
 ## 1.20.38 — the seat allocation tells the truth, and the audit's P0 set is closed (2026-08-13)
 
 > Serial `2026081300` / `1.20.38`. **No schema change.** One data change:

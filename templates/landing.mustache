@@ -235,6 +235,9 @@
 {{#iscoordinator}}
     <p><a href="{{ticketsurl}}" class="btn btn-outline-primary">{{#str}} coordinatordashboard, mod_selfselectadvanced {{/str}}</a></p>
 {{/iscoordinator}}
+{{#hasmyrequests}}
+    <p><a href="{{myrequestsurl}}" class="btn btn-outline-secondary">{{#str}} myrequests, mod_selfselectadvanced {{/str}}</a></p>
+{{/hasmyrequests}}
 
 {{#isstaff}}
     <h3>{{#str}} allgroups, mod_selfselectadvanced {{/str}}</h3>

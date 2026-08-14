@@ -1446,6 +1446,72 @@ class tickets {
     }
 
     /**
+     * The tickets one person filed, newest first.
+     *
+     * WHY THIS EXISTS. Until 1.20.39 nothing in the plugin showed a
+     * requester their own request. The queue belongs to the staff who
+     * work it, and the design put the outcome in the closing message
+     * instead - see notify() at the foot of this class. That was a
+     * decision, but it left three real gaps: a message can be missed or
+     * undelivered (on the dev site every notification email was being
+     * refused by the relay, silently); a claimed request produces a
+     * message that says "somebody has this" and then nothing until it
+     * closes; and withdraw() below implemented requester ownership that
+     * no requester could reach, because its only caller sat behind the
+     * guide capability.
+     *
+     * The scope is the filer and nobody else. There is no capability
+     * check here on purpose, matching file(): the authority to see a
+     * request is having made it, which is a fact about the row, not a
+     * role. A viewer with no tickets gets an empty list, which is the
+     * correct answer rather than a refusal.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the requester
+     * @param int $limitfrom paging offset
+     * @param int $limitnum page size, 0 for all
+     * @return array<int, stdClass> ticket rows, each with groupname and grouppluginuid
+     */
+    public static function mine(activity $activity, int $userid, int $limitfrom = 0, int $limitnum = 0): array {
+        global $DB;
+
+        // LEFT JOIN for the same reason queue() uses one: a team-limit
+        // request carries no groupid and is about no team at all.
+        return $DB->get_records_sql(
+            "SELECT t.*, g.name AS groupname, g.pluginuid AS grouppluginuid
+               FROM {selfselectadvanced_ticket} t
+          LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
+              WHERE t.activityid = :activityid AND t.requestedby = :userid
+           ORDER BY CASE t.status
+                        WHEN 'open' THEN 0
+                        WHEN 'claimed' THEN 1
+                        ELSE 2
+                    END,
+                    t.timecreated DESC,
+                    t.id DESC",
+            ['activityid' => $activity->id(), 'userid' => $userid],
+            $limitfrom,
+            $limitnum
+        );
+    }
+
+    /**
+     * How many tickets one person has filed.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the requester
+     * @return int
+     */
+    public static function mine_count(activity $activity, int $userid): int {
+        global $DB;
+
+        return $DB->count_records('selfselectadvanced_ticket', [
+            'activityid' => $activity->id(),
+            'requestedby' => $userid,
+        ]);
+    }
+
+    /**
      * How many OPEN tickets precede a given offset in the queue.
      *
      * The queue numbers open tickets 1, 2, 3 for the people waiting in
@@ -1558,6 +1624,23 @@ class tickets {
         $subject = $group !== null
             ? format_string($group->name)
             : get_string('tickethasnoteam', 'mod_selfselectadvanced');
+
+        // WHERE THE LINK GOES depends on who is reading. The queue is
+        // staff-only (tickets.php requires manage or coordinate), and
+        // for a while this method sent its URL to everyone - including
+        // the requester, who is refused at that door. So the message
+        // that exists BECAUSE the requester cannot open the queue
+        // linked them to the queue: a student was told their request
+        // had been picked up, followed the link, and was refused. That
+        // is the whole of "a response cannot be viewed".
+        //
+        // The requester now gets myrequests.php, which shows them their
+        // own rows and nothing else, and which no capability gates.
+        // Not the group page, which can refuse them - a guide relieved
+        // of a group no longer passes teamaccess::may_open_team(), and
+        // the ticket that outlives the relationship is exactly the one
+        // that would land there.
+        $isrequester = $touserid === (int) $ticket->requestedby;
         notifier::send(
             $activity,
             'tickets',
@@ -1573,7 +1656,9 @@ class tickets {
                 // their outcome has to travel in the message itself.
                 'resolution' => trim(html_to_text((string) ($ticket->resolution ?? ''))),
             ],
-            new \moodle_url('/mod/selfselectadvanced/tickets.php', ['id' => $activity->cm()->id]),
+            $isrequester
+                ? new \moodle_url('/mod/selfselectadvanced/myrequests.php', ['id' => $activity->cm()->id])
+                : new \moodle_url('/mod/selfselectadvanced/tickets.php', ['id' => $activity->cm()->id]),
             $subject
         );
     }

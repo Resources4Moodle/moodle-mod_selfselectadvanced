@@ -102,6 +102,7 @@ class behat_mod_selfselectadvanced extends behat_base {
             'coordinators' => '/mod/selfselectadvanced/coordinators.php',
             'core sync' => '/mod/selfselectadvanced/coresync.php',
             'guide queue' => '/mod/selfselectadvanced/guidequeue.php',
+            'my requests' => '/mod/selfselectadvanced/myrequests.php',
             'join' => '/mod/selfselectadvanced/joinrequest.php',
             'eoi list' => '/mod/selfselectadvanced/eoilist.php',
         ];
