@@ -189,7 +189,7 @@ plugin, still leave course groups in place. By then they are course data
 > deleted** — see below for why they cannot be migrated. Maturity stays RC.
 
 Remediation of findings raised against 1.20.34 by an external audit package,
-implemented from `CLAUDE-FIX-GUIDE-selfselectadvanced-1.20.34-B01-B07-privacy.md`.
+implemented from the supplied fix guide covering findings B01-B07 (privacy).
 
 **Creating a group now requires permission to lead one.** Creation installs the
 creator as leader, so asking only for the create capability produced groups that
