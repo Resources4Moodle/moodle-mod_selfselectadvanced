@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.20.41 — ticket text grows up, and the queue can be triaged (2026-08-15)
+
+> Serial `2026081402` / `1.20.41`. **No schema change, no data change.**
+> Maturity stays RC.
+
+**Ticket requests and resolutions accept multi-line text.** Every ticket text
+field was a single-line `<input>` stored as `FORMAT_PLAIN`, and three of the
+reading paths ran the text through `PARAM_TEXT` — `strip_tags()` — on the way
+in. So a request had to fit one line and could carry nothing. The five fields
+are now textareas stored as `FORMAT_MOODLE` (multi-line, auto-linked, filtered
+at render), the one format-blind renderer on the queue page honours the stored
+format, and existing plain-text rows keep their stored format and render
+unchanged. Deliberately **not** a full editor: the five forms are hand-rolled,
+and converting them to moodleforms for a toolbar (and attachments, which need a
+filearea, pluginfile, backup and privacy plumbing) is a separately-costed job.
+The notification paths still flatten to text, so mail and the bell never carry
+raw HTML.
+
+**The staff queue can be narrowed by type and status.** It previously offered
+paging and nothing else — a coordinator carrying a term's worth of tickets had
+no way to see, say, open composition changes. Both filters ride on the queue
+service (validated against the known type/status sets; the page whitelists
+before calling), survive paging and every action redirect, and state the match
+count so a narrowed view cannot be mistaken for the whole queue. The
+queue-position numbering stays true under filtering.
+
+Built under the new working split: the plan and review at the top tier, the
+edits and test-writing by lower-cost agents — each slice proven red-first
+against the unfixed tree and verified with the full ticket-related unit and
+Behat suites, phpcs and phpdoc before handback.
+
 ## 1.20.40 — a leave request can be answered both ways (2026-08-14)
 
 > Serial `2026081401` / `1.20.40`. **No schema change, no data change.**

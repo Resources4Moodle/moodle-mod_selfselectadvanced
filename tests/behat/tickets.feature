@@ -113,6 +113,47 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     And I follow "Lab groups"
     Then I should not see "Ticket queue"
 
+  Scenario: The queue can be narrowed by type and status
+    # A second requester, so there is a second ticket of a DIFFERENT type
+    # to tell apart from Team Blue's composition-change request - the
+    # confirmed member's "leadership help" ask, filed through the group
+    # page exactly as myrequests.feature does it.
+    Given the following "users" exist:
+      | username | firstname | lastname | email          |
+      | student2 | Sara      | Two      | s2@example.com |
+    And the following "course enrolments" exist:
+      | user     | course | role    |
+      | student2 | C1     | student |
+    And the following "mod_selfselectadvanced > members" exist:
+      | ssagroup  | user     | status    |
+      | Team Blue | student2 | confirmed |
+    When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
+    And I click on "Group page" "link" in the "Team Blue" "table_row"
+    And I set the field "Why is this change needed?" to "Swap in a data specialist"
+    And I press "File request"
+    Then I should see "Your request has been queued for the managers and coordinators."
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
+    And I set the field "Ask for leadership help (say what the group needs):" to "Our leader has gone quiet"
+    And I press "File request"
+    Then I should see "Your request has been queued for the managers and coordinators."
+    When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
+    Then I should see "Swap in a data specialist"
+    And I should see "Our leader has gone quiet"
+    # Narrowed to one type: only that ticket's text remains, and the
+    # match count says so plainly rather than leaving an unstated total
+    # behind a paged, filtered table.
+    When I set the field "Request" to "Composition change"
+    And I press "Filter"
+    Then I should see "1 ticket(s) match"
+    And I should see "Swap in a data specialist"
+    And I should not see "Our leader has gone quiet"
+    # Cleared back to all types: both are visible again.
+    When I set the field "Request" to "All types"
+    And I press "Filter"
+    Then I should see "Swap in a data specialist"
+    And I should see "Our leader has gone quiet"
+
   Scenario: A direct unfreeze resolves the team's unfreeze request by itself
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
     And I follow "Groups I guide"

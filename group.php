@@ -805,14 +805,14 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
     // File a queue ticket (strategy 1.16 B); the service enforces who
     // may file which type on which state.
     $tickettype = required_param('tickettype', PARAM_ALPHA);
-    $reason = optional_param('reason', '', PARAM_TEXT);
+    $reason = optional_param('reason', '', PARAM_RAW);
     try {
         \mod_selfselectadvanced\local\tickets::file(
             $activity,
             $group,
             $tickettype,
             $reason,
-            FORMAT_PLAIN,
+            FORMAT_MOODLE,
             (int) $USER->id
         );
         redirect(
@@ -1565,7 +1565,12 @@ foreach ($requestable as $tickettype) {
             'ticketreason-' . $tickettype
         )
         . ' '
-        . html_writer::empty_tag('input', ['type' => 'text', 'name' => 'reason', 'size' => 40,
+        // A <textarea>, not an <input type=text>: slice A (multi-line
+        // rich-ish requests, FORMAT_MOODLE storage) needs somewhere for
+        // more than one line to go. html_writer::tag() is used rather
+        // than empty_tag() because a textarea needs its own closing tag
+        // - an empty_tag() self-close would draw a placeholder-less box.
+        . html_writer::tag('textarea', '', ['name' => 'reason', 'rows' => 3, 'class' => 'form-control',
             'id' => 'ticketreason-' . $tickettype,
             'placeholder' => get_string('ticketreasonhint', 'mod_selfselectadvanced')])
         . ' '

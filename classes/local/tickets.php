@@ -1361,6 +1361,67 @@ class tickets {
     }
 
     /**
+     * Refuse a queue filter value that is not really one of ours.
+     *
+     * Slice C2: tickets.php whitelists the GET params it reads against
+     * these same TYPE_* constants BEFORE ever calling queue(),
+     * queue_count() or count_open() - so a value that gets here and is
+     * not empty and not a known type is a caller bug, not something a
+     * person typed. That is why this throws coding_exception rather
+     * than a workflow_refusal (contrast file(), which validates a type
+     * a PERSON supplied and is right to keep that narrower list rather
+     * than this one - guidecap/guidereduce/guidegone are filed through
+     * their own dedicated methods, but a queue filter has to be able to
+     * SHOW every type a ticket can hold, including those three).
+     *
+     * @param string $type '' (no filter) or one of self::TYPE_*
+     * @throws \coding_exception if $type is neither
+     */
+    private static function validate_type_filter(string $type): void {
+        if ($type === '') {
+            return;
+        }
+        $known = [
+            self::TYPE_COMPCHANGE,
+            self::TYPE_UNFREEZE,
+            self::TYPE_GUIDECAP,
+            self::TYPE_GUIDEGONE,
+            self::TYPE_GUIDEREDUCE,
+            self::TYPE_DATES,
+            self::TYPE_PENALTY,
+            self::TYPE_LEADERCHANGE,
+        ];
+        if (!in_array($type, $known, true)) {
+            throw new \coding_exception('Unknown ticket type filter ' . $type);
+        }
+    }
+
+    /**
+     * Refuse a queue filter value that is not really one of ours.
+     *
+     * The status twin of validate_type_filter() above - same reasoning,
+     * same reason it is a coding_exception and not a workflow_refusal.
+     *
+     * @param string $status '' (no filter) or one of self::STATUS_*
+     * @throws \coding_exception if $status is neither
+     */
+    private static function validate_status_filter(string $status): void {
+        if ($status === '') {
+            return;
+        }
+        $known = [
+            self::STATUS_OPEN,
+            self::STATUS_CLAIMED,
+            self::STATUS_RESOLVED,
+            self::STATUS_DECLINED,
+            self::STATUS_WITHDRAWN,
+        ];
+        if (!in_array($status, $known, true)) {
+            throw new \coding_exception('Unknown ticket status filter ' . $status);
+        }
+    }
+
+    /**
      * The queue: open tickets first come first served, then claimed,
      * then closed newest first.
      *
@@ -1370,15 +1431,23 @@ class tickets {
      *                      0 for the whole queue
      * @param int $limitfrom first row to return, 0 for the start
      * @param int $limitnum how many rows to return, 0 for all of them
+     * @param string $type self::TYPE_*, or '' for every type (slice C2 triage filter)
+     * @param string $status self::STATUS_*, or '' for every status (slice C2 triage filter)
      * @return stdClass[] ticket rows
+     * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
     public static function queue(
         activity $activity,
         int $viewerid = 0,
         int $limitfrom = 0,
-        int $limitnum = 0
+        int $limitnum = 0,
+        string $type = '',
+        string $status = ''
     ): array {
         global $DB;
+
+        self::validate_type_filter($type);
+        self::validate_status_filter($status);
 
         // A worker is not shown the requests they filed themselves
         // (strategy 1.17 A3). They are refused if they try to take one
@@ -1391,6 +1460,19 @@ class tickets {
             $mine = ' AND t.requestedby <> :viewerid';
             $params['viewerid'] = $viewerid;
         }
+        // The triage filter (slice C2): a busy queue can be narrowed to
+        // one type and/or one status before it is paged. Both are plain
+        // AND clauses - empty means unfiltered, exactly like $mine above.
+        $typesql = '';
+        if ($type !== '') {
+            $typesql = ' AND t.type = :type';
+            $params['type'] = $type;
+        }
+        $statussql = '';
+        if ($status !== '') {
+            $statussql = ' AND t.status = :status';
+            $params['status'] = $status;
+        }
 
         // The team's name comes back with the row rather than being
         // looked up afterwards. The page used to resolve names by
@@ -1402,7 +1484,7 @@ class tickets {
             "SELECT t.*, g.name AS groupname, g.pluginuid AS grouppluginuid
                FROM {selfselectadvanced_ticket} t
           LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
-              WHERE t.activityid = :activityid" . $mine . "
+              WHERE t.activityid = :activityid" . $mine . $typesql . $statussql . "
            ORDER BY CASE t.status
                         WHEN 'open' THEN 0
                         WHEN 'claimed' THEN 1
@@ -1426,10 +1508,16 @@ class tickets {
      *
      * @param activity $activity the activity
      * @param int $viewerid the viewer, 0 for no filtering
+     * @param string $type self::TYPE_*, or '' for every type (slice C2 triage filter)
+     * @param string $status self::STATUS_*, or '' for every status (slice C2 triage filter)
      * @return int
+     * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
-    public static function queue_count(activity $activity, int $viewerid = 0): int {
+    public static function queue_count(activity $activity, int $viewerid = 0, string $type = '', string $status = ''): int {
         global $DB;
+
+        self::validate_type_filter($type);
+        self::validate_status_filter($status);
 
         $params = ['activityid' => $activity->id()];
         $mine = '';
@@ -1437,10 +1525,20 @@ class tickets {
             $mine = ' AND t.requestedby <> :viewerid';
             $params['viewerid'] = $viewerid;
         }
+        $typesql = '';
+        if ($type !== '') {
+            $typesql = ' AND t.type = :type';
+            $params['type'] = $type;
+        }
+        $statussql = '';
+        if ($status !== '') {
+            $statussql = ' AND t.status = :status';
+            $params['status'] = $status;
+        }
 
         return $DB->count_records_sql(
             "SELECT COUNT(1) FROM {selfselectadvanced_ticket} t
-              WHERE t.activityid = :activityid" . $mine,
+              WHERE t.activityid = :activityid" . $mine . $typesql . $statussql,
             $params
         );
     }
@@ -1519,13 +1617,29 @@ class tickets {
      * sort first, so the count of open ones before an offset is simply
      * the smaller of the offset and the total number open.
      *
+     * Slice C2: $type/$status are the page's ACTIVE filter, not a
+     * separate query - a filter is a WHERE clause, it does not touch the
+     * ordering, so "open still sorts first" stays true under it and
+     * min(offset, count_open(same filter)) stays the right position
+     * count for that filtered page too. Passed straight through to
+     * count_open(); left at '' this is exactly the old unfiltered call.
+     *
      * @param activity $activity the activity
      * @param int $viewerid the viewer, 0 for no filtering
      * @param int $limitfrom the page offset
+     * @param string $type self::TYPE_*, or '' for every type (slice C2 triage filter)
+     * @param string $status self::STATUS_*, or '' for every status (slice C2 triage filter)
      * @return int
+     * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
-    public static function open_before(activity $activity, int $viewerid, int $limitfrom): int {
-        return min($limitfrom, self::count_open($activity, $viewerid));
+    public static function open_before(
+        activity $activity,
+        int $viewerid,
+        int $limitfrom,
+        string $type = '',
+        string $status = ''
+    ): int {
+        return min($limitfrom, self::count_open($activity, $viewerid, $type, $status));
     }
 
     /**
@@ -1534,12 +1648,25 @@ class tickets {
      * A count, because the pages that want this number wanted only this
      * number and were fetching the entire queue to arrive at it.
      *
+     * Slice C2: $status is ANDed with the existing status = open
+     * restriction below, not substituted for it - so a $status other
+     * than '' or self::STATUS_OPEN can only ever match zero rows here.
+     * That is correct, not a bug: on a page filtered to, say, resolved
+     * tickets, nothing is ever "open" to number, so open_before() above
+     * must return 0 for it, and it does without any special case.
+     *
      * @param activity $activity the activity
      * @param int $viewerid the viewer, 0 for no filtering
+     * @param string $type self::TYPE_*, or '' for every type (slice C2 triage filter)
+     * @param string $status self::STATUS_*, or '' for every status (slice C2 triage filter)
      * @return int
+     * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
-    public static function count_open(activity $activity, int $viewerid = 0): int {
+    public static function count_open(activity $activity, int $viewerid = 0, string $type = '', string $status = ''): int {
         global $DB;
+
+        self::validate_type_filter($type);
+        self::validate_status_filter($status);
 
         $params = ['activityid' => $activity->id(), 'open' => self::STATUS_OPEN];
         $mine = '';
@@ -1547,10 +1674,20 @@ class tickets {
             $mine = ' AND t.requestedby <> :viewerid';
             $params['viewerid'] = $viewerid;
         }
+        $typesql = '';
+        if ($type !== '') {
+            $typesql = ' AND t.type = :type';
+            $params['type'] = $type;
+        }
+        $statussql = '';
+        if ($status !== '') {
+            $statussql = ' AND t.status = :status';
+            $params['status'] = $status;
+        }
 
         return $DB->count_records_sql(
             "SELECT COUNT(1) FROM {selfselectadvanced_ticket} t
-              WHERE t.activityid = :activityid AND t.status = :open" . $mine,
+              WHERE t.activityid = :activityid AND t.status = :open" . $mine . $typesql . $statussql,
             $params
         );
     }

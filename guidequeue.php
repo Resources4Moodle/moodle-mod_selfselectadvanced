@@ -63,9 +63,9 @@ $resolver = $api->gatekeeper()->resolver();
 // in the reason text; the coordinators rehome teams deliberately.
 if ($action === 'askreduce' && data_submitted() && confirm_sesskey()) {
     $requested = required_param('requested', PARAM_INT);
-    $reason = required_param('reason', PARAM_TEXT);
+    $reason = required_param('reason', PARAM_RAW);
     try {
-        tickets::file_guidereduce($activity, $requested, $reason, FORMAT_PLAIN, (int) $USER->id);
+        tickets::file_guidereduce($activity, $requested, $reason, FORMAT_MOODLE, (int) $USER->id);
         redirect(
             new moodle_url($baseurl, ['tab' => 'mine']),
             get_string('guidereducefiled', 'mod_selfselectadvanced'),
@@ -85,9 +85,9 @@ if ($action === 'askreduce' && data_submitted() && confirm_sesskey()) {
 // Asking the coordinators for a higher team limit.
 if ($action === 'askcap' && data_submitted() && confirm_sesskey()) {
     $requested = required_param('requested', PARAM_INT);
-    $reason = required_param('reason', PARAM_TEXT);
+    $reason = required_param('reason', PARAM_RAW);
     try {
-        tickets::file_guidecap($activity, $requested, $reason, FORMAT_PLAIN, (int) $USER->id);
+        tickets::file_guidecap($activity, $requested, $reason, FORMAT_MOODLE, (int) $USER->id);
         redirect(
             new moodle_url($baseurl, ['tab' => 'mine']),
             get_string('guidecapfiled', 'mod_selfselectadvanced'),
@@ -271,8 +271,11 @@ if ($tab === 'waiting') {
         echo html_writer::end_div();
         echo html_writer::start_div('mb-2');
         echo html_writer::label(get_string('reason', 'mod_selfselectadvanced'), 'ssa-reason', true, ['class' => 'd-block']);
-        echo html_writer::empty_tag('input', ['type' => 'text', 'name' => 'reason', 'id' => 'ssa-reason',
-            'size' => 60, 'class' => 'form-control']);
+        // A <textarea>, not <input type=text>: slice A (multi-line
+        // rich-ish requests, FORMAT_MOODLE storage). html_writer::tag()
+        // rather than empty_tag() - a textarea needs a closing tag.
+        echo html_writer::tag('textarea', '', ['name' => 'reason', 'id' => 'ssa-reason',
+            'rows' => 3, 'class' => 'form-control']);
         echo html_writer::end_div();
         echo html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-primary',
             'value' => get_string('guidecapsend', 'mod_selfselectadvanced')]);
@@ -306,8 +309,11 @@ if ($tab === 'waiting') {
                 true,
                 ['class' => 'd-block']
             );
-            echo html_writer::empty_tag('input', ['type' => 'text', 'name' => 'reason', 'id' => 'ssa-reduce-reason',
-                'size' => 60, 'class' => 'form-control',
+            // A <textarea>, not <input type=text>: slice A (multi-line
+            // rich-ish requests, FORMAT_MOODLE storage). html_writer::tag()
+            // rather than empty_tag() - a textarea needs a closing tag.
+            echo html_writer::tag('textarea', '', ['name' => 'reason', 'id' => 'ssa-reduce-reason',
+                'rows' => 3, 'class' => 'form-control',
                 'placeholder' => get_string('guidereducereasonhint', 'mod_selfselectadvanced')]);
             echo html_writer::end_div();
             echo html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-outline-primary',

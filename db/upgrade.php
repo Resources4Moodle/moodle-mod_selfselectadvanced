@@ -2670,5 +2670,26 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081401, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081402) {
+        // No schema change and no data to repair: 1.20.41 changes how
+        // ticket text is captured and how the queue is read.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.41 (2026081402). Ticket requests and resolutions accept multi-line '
+                . 'text, and the staff queue can be narrowed by type and status.',
+            'Every ticket text field was a single-line input stored as plain text, and two of the '
+                . 'reading paths stripped markup on the way in - so a request had to fit one line '
+                . 'and could carry no formatting. The five fields are now multi-line and stored as '
+                . 'FORMAT_MOODLE; existing plain-text rows keep their stored format and render '
+                . 'unchanged. The queue page previously offered paging only; staff can now filter '
+                . 'by ticket type and status, with the match count stated so a narrowed view '
+                . 'cannot be mistaken for the whole queue. The queue-position numbering stays true '
+                . 'under filtering.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081402, 'selfselectadvanced');
+    }
+
     return true;
 }

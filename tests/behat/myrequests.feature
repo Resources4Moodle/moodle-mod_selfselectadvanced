@@ -55,7 +55,7 @@ Feature: A requester can see the request they made and what came back
     # requester only by message.
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
     And I press "Take up"
-    And I set the field with xpath "//input[@name='resolution']" to "Spoken to the leader, all settled"
+    And I set the field with xpath "//textarea[@name='resolution']" to "Spoken to the leader, all settled"
     And I press "Resolve"
     Then I should see "Resolved"
     # And the requester can read it.

@@ -36,6 +36,38 @@ use mod_selfselectadvanced\local\tickets;
 $id = required_param('id', PARAM_INT);
 $action = optional_param('action', '', PARAM_ALPHA);
 
+// The triage filter (slice C2). Whitelisted here, against the page's
+// own copy of the known types/statuses, because this IS user input -
+// unlike the service layer's validate_type_filter()/validate_status_filter(),
+// which exist to catch a CALLER bug and throw for one, an unrecognised
+// value arriving on the querystring is just dropped back to "no filter"
+// silently, the same way $tab is handled in guidequeue.php.
+$typefilter = optional_param('type', '', PARAM_ALPHA);
+$knowntypes = [
+    tickets::TYPE_COMPCHANGE,
+    tickets::TYPE_UNFREEZE,
+    tickets::TYPE_GUIDECAP,
+    tickets::TYPE_GUIDEGONE,
+    tickets::TYPE_GUIDEREDUCE,
+    tickets::TYPE_DATES,
+    tickets::TYPE_PENALTY,
+    tickets::TYPE_LEADERCHANGE,
+];
+if (!in_array($typefilter, $knowntypes, true)) {
+    $typefilter = '';
+}
+$statusfilter = optional_param('status', '', PARAM_ALPHA);
+$knownstatuses = [
+    tickets::STATUS_OPEN,
+    tickets::STATUS_CLAIMED,
+    tickets::STATUS_RESOLVED,
+    tickets::STATUS_DECLINED,
+    tickets::STATUS_WITHDRAWN,
+];
+if (!in_array($statusfilter, $knownstatuses, true)) {
+    $statusfilter = '';
+}
+
 [$course, $cm] = get_course_and_cm_from_cmid($id, 'selfselectadvanced');
 require_login($course, true, $cm);
 
@@ -46,7 +78,18 @@ if (!$canmanage) {
     require_capability('mod/selfselectadvanced:coordinate', $context);
 }
 
+// The filter travels on $baseurl itself, not just the filter form's own
+// querystring: every paging link, the "released back to the queue"
+// forms and every post-action redirect below are all built from
+// $baseurl, so the filter would otherwise vanish the moment the queue
+// worker took any action at all.
 $baseurl = new moodle_url('/mod/selfselectadvanced/tickets.php', ['id' => $cm->id]);
+if ($typefilter !== '') {
+    $baseurl->param('type', $typefilter);
+}
+if ($statusfilter !== '') {
+    $baseurl->param('status', $statusfilter);
+}
 $PAGE->set_url($baseurl);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
@@ -70,7 +113,7 @@ if ($action === 'grant' && data_submitted() && confirm_sesskey()) {
     $ticketid = required_param('ticket', PARAM_INT);
     $note = optional_param('resolution', '', PARAM_RAW);
     try {
-        tickets::grant_guidecap($activity, $ticketid, $note, FORMAT_PLAIN, (int) $USER->id);
+        tickets::grant_guidecap($activity, $ticketid, $note, FORMAT_MOODLE, (int) $USER->id);
         redirect(
             $baseurl,
             get_string('guidecapgranted', 'mod_selfselectadvanced'),
@@ -91,7 +134,7 @@ if (in_array($action, ['resolve', 'decline', 'release'], true) && data_submitted
         'release' => tickets::STATUS_OPEN,
     ][$action];
     try {
-        tickets::close($activity, $ticketid, $outcome, $note, FORMAT_PLAIN, (int) $USER->id);
+        tickets::close($activity, $ticketid, $outcome, $note, FORMAT_MOODLE, (int) $USER->id);
         redirect(
             $baseurl,
             get_string('ticketclosednotice', 'mod_selfselectadvanced'),
@@ -107,18 +150,63 @@ echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('tickets', 'mod_selfselectadvanced'));
 echo html_writer::div(get_string('ticketsintro', 'mod_selfselectadvanced'), 'alert alert-info');
 
+// The triage filter form (slice C2), modelled on guidequeue.php's own
+// kind filter: GET, a hidden id, one select per axis, and a submit -
+// changing either select drops any existing page number, which is the
+// right behaviour since the old page number belongs to a different,
+// unfiltered list.
+echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
+    'class' => 'd-inline-flex gap-2 align-items-center flex-wrap mb-3']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+echo html_writer::label(get_string('tickettype', 'mod_selfselectadvanced'), 'ssa-ticket-type', true, ['class' => 'me-2']);
+$typeoptions = ['' => get_string('ticketfilterall', 'mod_selfselectadvanced')];
+foreach ($knowntypes as $knowntype) {
+    $typeoptions[$knowntype] = get_string('tickettype' . $knowntype, 'mod_selfselectadvanced');
+}
+echo html_writer::select(
+    $typeoptions,
+    'type',
+    $typefilter,
+    false,
+    ['id' => 'ssa-ticket-type', 'class' => 'form-select form-select-sm w-auto me-2']
+);
+echo html_writer::label(get_string('ticketstatus', 'mod_selfselectadvanced'), 'ssa-ticket-status', true, ['class' => 'me-2']);
+$statusoptions = ['' => get_string('ticketfilterallstatuses', 'mod_selfselectadvanced')];
+foreach ($knownstatuses as $knownstatus) {
+    $statusoptions[$knownstatus] = get_string('ticketstatus' . $knownstatus, 'mod_selfselectadvanced');
+}
+echo html_writer::select(
+    $statusoptions,
+    'status',
+    $statusfilter,
+    false,
+    ['id' => 'ssa-ticket-status', 'class' => 'form-select form-select-sm w-auto me-2']
+);
+echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('ticketfilterapply', 'mod_selfselectadvanced'),
+    'class' => 'btn btn-secondary btn-sm']);
+echo html_writer::end_tag('form');
+
 // Paged: resolved and declined tickets are never removed, so an
 // activity's queue grows all semester and returning the whole of it was
 // a page that got slower every week. The page size control is the same
 // one every other table on this plugin uses.
 $perpage = \mod_selfselectadvanced\local\perpage::current(50);
 $page = optional_param('page', 0, PARAM_INT);
-$totaltickets = tickets::queue_count($activity, (int) $USER->id);
-$queue = tickets::queue($activity, (int) $USER->id, $page * $perpage, $perpage);
+$totaltickets = tickets::queue_count($activity, (int) $USER->id, $typefilter, $statusfilter);
+$queue = tickets::queue($activity, (int) $USER->id, $page * $perpage, $perpage, $typefilter, $statusfilter);
 if (!$queue) {
     echo html_writer::div(get_string('ticketsempty', 'mod_selfselectadvanced'));
     echo $OUTPUT->footer();
     die;
+}
+// A filtered view that silently showed page 1 of an unstated total
+// would invite misreading it as the whole answer - so once a filter is
+// narrowing the queue, the total the filter matched is stated plainly.
+if ($typefilter !== '' || $statusfilter !== '') {
+    echo html_writer::div(
+        get_string('ticketfiltermatches', 'mod_selfselectadvanced', $totaltickets),
+        'small text-muted mb-2'
+    );
 }
 
 $groupnames = [];
@@ -196,7 +284,7 @@ $requesterline = static function (int $requesterid, bool $mine) use ($requesterc
     return $line;
 };
 
-$position = tickets::open_before($activity, (int) $USER->id, $page * $perpage);
+$position = tickets::open_before($activity, (int) $USER->id, $page * $perpage, $typefilter, $statusfilter);
 foreach ($queue as $ticket) {
     $isopen = $ticket->status === tickets::STATUS_OPEN;
     $isclaimed = $ticket->status === tickets::STATUS_CLAIMED;
@@ -211,7 +299,15 @@ foreach ($queue as $ticket) {
         in_array($ticket->status, [tickets::STATUS_RESOLVED, tickets::STATUS_DECLINED], true)
         && trim((string) $ticket->resolution) !== ''
     ) {
-        $statuscell .= html_writer::div(s($ticket->resolution), 'small text-muted');
+        // Rendered via format_text(), not s(): slice A stores the
+        // resolution as FORMAT_MOODLE (a hand-rolled textarea, nl2br +
+        // auto-links + filters at render - see this file's
+        // grant/resolve/decline handlers above), and the stored format
+        // travels with the row.
+        $statuscell .= html_writer::div(
+            format_text((string) $ticket->resolution, (int) $ticket->resolutionformat, ['context' => $context]),
+            'small text-muted'
+        );
     }
 
     $actions = '';
@@ -252,7 +348,11 @@ foreach ($queue as $ticket) {
         $actions = html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)])
             . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
             . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
-            . html_writer::empty_tag('input', ['type' => 'text', 'name' => 'resolution', 'size' => 24,
+            // A <textarea>, not <input type=text>: slice A (multi-line
+            // rich-ish resolutions, FORMAT_MOODLE storage).
+            // html_writer::tag() rather than empty_tag() - a textarea
+            // needs a closing tag.
+            . html_writer::tag('textarea', '', ['name' => 'resolution', 'rows' => 3, 'class' => 'form-control',
                 'placeholder' => get_string('ticketresolutionhint', 'mod_selfselectadvanced')])
             . ' '
             . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-success btn-sm',
@@ -271,7 +371,11 @@ foreach ($queue as $ticket) {
             $actions = html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)])
                 . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
                 . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
-                . html_writer::empty_tag('input', ['type' => 'text', 'name' => 'resolution', 'size' => 24,
+                // A <textarea>, not <input type=text>: slice A (multi-line
+                // rich-ish resolutions, FORMAT_MOODLE storage).
+                // html_writer::tag() rather than empty_tag() - a textarea
+                // needs a closing tag.
+                . html_writer::tag('textarea', '', ['name' => 'resolution', 'rows' => 3, 'class' => 'form-control',
                     'placeholder' => get_string('ticketresolutionhint', 'mod_selfselectadvanced')])
                 . ' '
                 . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-success btn-sm',
