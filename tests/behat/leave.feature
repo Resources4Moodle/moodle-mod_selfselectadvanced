@@ -41,3 +41,37 @@ Feature: Leaving a forming team
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
     Then I should not see "Ask to leave this group"
+
+  Scenario: A member takes back a request they have not had answered
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
+    And I follow "Team Blue"
+    And I press "Ask to leave this group"
+    Then I should see "Leave request sent to the leader."
+    And "Withdraw my request to leave" "button" should exist
+    When I press "Withdraw my request to leave"
+    Then I should see "Your request to leave was withdrawn. You are still a member."
+    # Back where they started: the ask is offered again, the take-back is not.
+    And "Ask to leave this group" "button" should exist
+    And "Withdraw my request to leave" "button" should not exist
+    # And the leader has nothing left to answer.
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    And I follow "Team Blue"
+    Then I should not see "Confirm leave"
+
+  Scenario: The leader declines a request and the member stays
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
+    And I follow "Team Blue"
+    And I press "Ask to leave this group"
+    And I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    And I follow "Team Blue"
+    Then "Decline" "button" should exist
+    When I press "Decline"
+    Then I should see "You declined the request. The member stays in the group."
+    And I should see "Tara" in the ".selfselectadvanced-roster" "css_element"
+    And I should not see "Confirm leave"
+    # The member is still a member, and may ask again rather than being
+    # barred by having been refused once.
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
+    And I follow "Team Blue"
+    Then "Ask to leave this group" "button" should exist
+    And "Withdraw my request to leave" "button" should not exist

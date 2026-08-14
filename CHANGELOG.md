@@ -1,5 +1,70 @@
 # Changelog
 
+## 1.20.40 — a leave request can be answered both ways (2026-08-14)
+
+> Serial `2026081401` / `1.20.40`. **No schema change, no data change.**
+> Maturity stays RC.
+
+Asking to leave a forming group set a timestamp on the membership and told
+the leader. The only thing that cleared it was the leader confirming — which
+removes the member. So a request could end exactly one way, and two obvious
+answers had no code behind them.
+
+**A member can now withdraw their own request.** Before this, changing your
+mind was not a thing the software allowed: the ask control went disabled with
+"you have asked to leave" and there was nothing else to click, so a mis-click
+or a conversation that settled the matter left a request standing until the
+leader removed you over it. Withdrawing returns the member exactly to where
+they were — still confirmed, free to ask again — and tells the leader, because
+the leader was told about the request and should not open the page to answer
+something that is no longer there.
+
+**A leader can now decline.** The only button in the leader's box was Confirm,
+so the only answer a leader could give was yes; keeping a member meant leaving
+their request open indefinitely with their control disabled underneath it.
+Declining ends the request and nothing else: the membership is untouched,
+`isleader` is not written, the roster does not change size, and the member may
+ask again. A decline that also barred re-asking would be a punishment nobody
+decided on.
+
+The gate for declining is `can_confirm_leave()`, called rather than copied —
+the preconditions for answering a leave request are the same whichever way the
+leader answers it, and only the write differs. Withdrawing has its own
+predicate, `can_cancel_leave()`, which the page and the service both ask, so
+the button cannot offer something the service will refuse.
+
+Pinned by six unit tests and two Behat scenarios, including the invariant that
+a member is always offered exactly one of ask-or-withdraw — never both, and
+never neither, which was the defect. Two mutations are recorded as caught:
+giving either new path `confirm_leave()`'s write, which is the plausible
+copy-paste error, removes a member who should have stayed and fails.
+
+**Two people answering one request at the same moment** — the member pressing
+Withdraw while the leader presses Confirm — was checked rather than assumed,
+and it is safe. Every write that removes a member from a group holds that
+group's lock: `confirm_leave()`, `self_leave()`, the invitation withdrawal,
+succession, and the manager staged-move path, whose `lock_resources_for()`
+takes `group:<id>` for both ends of every move. `cancel_leave()` takes the same
+lock and re-reads the membership row inside it, so the two cannot interleave
+mid-write — one commits in full and the other answers on the committed state.
+
+What was wrong was what the loser was told. A member who lost to a confirm got
+"You are not a confirmed member of this group", which reads as though the
+membership had never existed, one second after their request was granted; a
+member who lost to a decline got the leader's sentence, "there is no pending
+leave request **for this member**". Both now have their own wording:
+`refusalleavealreadyleft` and `refusalleavenothingtowithdraw`.
+
+`tests/leave_race_test.php` drives four real handoffs through
+`locks::set_test_hook()` — both orders of confirm-versus-withdraw,
+decline-versus-withdraw, and an assertion that `cancel_leave()` actually takes
+the group lock, since that lock is the whole reason this is safe and a future
+refactor could drop it. Each asserts its hook fired, so a race test that did
+not race cannot pass quietly. The decisive mutation is recorded: making the
+gate judge a stale row instead of the re-read reproduces exactly the two
+failures — a withdrawal accepted after the member was removed, and one request
+answered twice.
+
 ## 1.20.39 — the person who asked can see the answer (2026-08-14)
 
 > Serial `2026081400` / `1.20.39`. **No schema change, no data change.**

@@ -299,18 +299,45 @@
         </button>
         <span class="ms-1 text-muted small">{{leavereason}}</span>
     {{/leavereason}}
+    {{! The way back out of "I asked to leave". Before 1.20.40 the only }}
+    {{! exit from that state was the leader removing you, so a member who }}
+    {{! changed their mind had nothing to click. }}
+    {{#cancancelleave}}
+        <form method="post" action="{{actionurl}}" class="d-inline mb-2">
+            <input type="hidden" name="id" value="{{cmid}}">
+            <input type="hidden" name="g" value="{{groupid}}">
+            <input type="hidden" name="action" value="cancelleave">
+            <input type="hidden" name="sesskey" value="{{sesskey}}">
+            <button type="submit" class="btn btn-outline-primary btn-sm ms-1">
+                {{#str}} cancelleave, mod_selfselectadvanced {{/str}}
+            </button>
+        </form>
+    {{/cancancelleave}}
     {{#hasleaverequests}}
         <div class="alert alert-warning selfselectadvanced-leaverequests">
             {{#leaverequests}}
-                <form method="post" action="{{actionurl}}" class="d-inline me-2">
+                <span class="me-2">{{fullname}}:</span>
+                <form method="post" action="{{actionurl}}" class="d-inline me-1">
                     <input type="hidden" name="id" value="{{cmid}}">
                     <input type="hidden" name="g" value="{{groupid}}">
                     <input type="hidden" name="action" value="confirmleave">
                     <input type="hidden" name="m" value="{{memberid}}">
                     <input type="hidden" name="sesskey" value="{{sesskey}}">
-                    {{fullname}}:
                     <button type="submit" class="btn btn-secondary btn-sm">
                         {{#str}} confirmleave, mod_selfselectadvanced {{/str}}
+                    </button>
+                </form>
+                {{! A leader may answer no. Until 1.20.40 the only answer }}
+                {{! this box could give was yes, so a leader who wanted to }}
+                {{! keep the member had to leave the request standing. }}
+                <form method="post" action="{{actionurl}}" class="d-inline me-2">
+                    <input type="hidden" name="id" value="{{cmid}}">
+                    <input type="hidden" name="g" value="{{groupid}}">
+                    <input type="hidden" name="action" value="declineleave">
+                    <input type="hidden" name="m" value="{{memberid}}">
+                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                        {{#str}} declineleave, mod_selfselectadvanced {{/str}}
                     </button>
                 </form>
             {{/leaverequests}}

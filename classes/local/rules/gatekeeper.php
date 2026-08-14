@@ -1266,6 +1266,64 @@ class gatekeeper {
     }
 
     /**
+     * May this member take back the leave request they sent?
+     *
+     * The same conditions as asking, plus the obvious one: there has to
+     * be a request to take back. Until 1.20.40 there was no way back at
+     * all - the ask set a timestamp, the member's own control went
+     * disabled with "you have asked to leave", and only the leader could
+     * end that state, by removing them. A member who changed their mind,
+     * or who clicked it by accident, had nothing to click.
+     *
+     * The leader relationship is NOT re-tested here beyond the request's
+     * existence: a member cannot become the leader while holding a
+     * pending leave request (succession makes them leader only from
+     * outside this state), and if that ever changes, the request they
+     * are withdrawing is still their own row.
+     *
+     * @param \stdClass $group group row
+     * @param \stdClass $member the asking member's row
+     * @param int $actorid the acting user
+     * @return refusal|null null when allowed
+     */
+    public function can_cancel_leave(stdClass $group, stdClass $member, int $actorid): ?refusal {
+        if ($group->state !== state::FORMING) {
+            return new refusal('refusalwrongstate');
+        }
+        // THE RACE ARM, and the reason it is first. A member pressing
+        // Withdraw at the same moment their leader presses Confirm loses
+        // the group lock by a hair, re-reads their own row, and finds it
+        // REMOVED. The generic refusal below is true of that row - they
+        // are indeed no longer a confirmed member - but it reads as "you
+        // were never a member of this group", which is a false thing to
+        // teach somebody about their own membership one second after
+        // their request was granted. So the removal is named.
+        //
+        // Only their OWN row can say this: somebody else's removal is
+        // not a fact this actor is entitled to read off a refusal, and
+        // the identity test below still guards that.
+        if (
+            (int) $member->userid === $actorid
+            && $member->status === groups::STATUS_REMOVED
+        ) {
+            return new refusal('refusalleavealreadyleft');
+        }
+        if ((int) $member->userid !== $actorid || $member->status !== groups::STATUS_CONFIRMED) {
+            return new refusal('refusalleavenotmember');
+        }
+        // The other half of the same race: the leader DECLINED while the
+        // withdrawal was in flight, so the request has been answered and
+        // there is nothing to take back. refusalnoleaverequest is the
+        // leader's sentence ("for this member") and is wrong in a
+        // member's mouth, so this path has its own.
+        if (empty($member->leaverequested)) {
+            return new refusal('refusalleavenothingtowithdraw');
+        }
+
+        return null;
+    }
+
+    /**
      * May the leader confirm this member's leave request? (Spec 6.3.
      * Limit 4A.1 applies to manager moves, not here: leaving a FORMING
      * group is always possible, since the minimum size gates submission.)

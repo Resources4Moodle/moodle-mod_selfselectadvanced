@@ -494,6 +494,14 @@ class group_page implements renderable, templatable {
         }
         $leavecontrol = control::decide_with_reason($isconfirmedhere, $leavereason);
         $canrequestleave = $leavecontrol->show && $leavecontrol->enabled;
+        // Taking it back (1.20.40). The predicate is CALLED, not
+        // transcribed: can_cancel_leave() is the same question the
+        // service re-asks under the lock, so the button cannot offer
+        // something the service will refuse. Drawn only when there is a
+        // request to withdraw, which is exactly when the ask control
+        // above is disabled - the member always has one of the two.
+        $cancancelleave = $ownrow
+            && $this->api->gatekeeper()->can_cancel_leave($this->group, $ownrow, $this->userid) === null;
         $leaverequests = [];
         if ($isleader && $isforming && $maylead) {
             $namefields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
@@ -1005,6 +1013,7 @@ class group_page implements renderable, templatable {
             'showeoiempty' => $showeoiempty,
             'showeoisequentialnote' => $showeoisequentialnote,
             'canrequestleave' => $canrequestleave,
+            'cancancelleave' => $cancancelleave,
             'leavereason' => $leavecontrol->show && !$leavecontrol->enabled ? $leavecontrol->reason : '',
             'leaverequests' => $leaverequests,
             'hasleaverequests' => !empty($leaverequests),

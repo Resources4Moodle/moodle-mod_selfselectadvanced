@@ -554,6 +554,40 @@ if ($action === 'confirmleave' && data_submitted() && confirm_sesskey()) {
     }
 }
 
+if ($action === 'cancelleave' && data_submitted() && confirm_sesskey()) {
+    // Member takes their own leave request back. Same shape as
+    // requestleave above, and gated the same way - relationally, in the
+    // service, on a row re-read under the group lock.
+    try {
+        $api->invitations()->cancel_leave($group, (int) $USER->id);
+        redirect(
+            $baseurl,
+            get_string('leavecancelled', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
+if ($action === 'declineleave' && data_submitted() && confirm_sesskey()) {
+    // Leader answers a leave request with no. The membership survives;
+    // only the request ends. Same authority as confirmleave.
+    $memberid = required_param('m', PARAM_INT);
+    try {
+        $api->invitations()->decline_leave($group, $memberid, (int) $USER->id);
+        redirect(
+            $baseurl,
+            get_string('leavedeclined', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
 if (($action === 'eoilist' || $action === 'eoiunlist') && data_submitted() && confirm_sesskey()) {
     // Leader's listing toggle (spec: EOI). CALLED, not transcribed
     // (AUTH-001). This branch used to be the whole thing: four inline

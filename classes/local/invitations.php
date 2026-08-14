@@ -684,6 +684,204 @@ class invitations {
     }
 
     /**
+     * A member takes back the leave request they sent.
+     *
+     * WHY THIS EXISTS. request_leave() set a timestamp and told the
+     * leader; nothing cleared it but confirm_leave(), which removes the
+     * member. So the only exit from "I asked to leave" was leaving. A
+     * member who changed their mind - or mis-clicked - was left with a
+     * disabled control explaining that they had asked, and a leader
+     * holding a request neither of them wanted.
+     *
+     * NOT gated on :lead, and deliberately not on any capability, for
+     * request_leave()'s own reason: a student who has lost every
+     * capability here must still be able to correct what they said about
+     * their own membership. The gate is relational and is the
+     * gatekeeper's, re-read inside the lock like every other arm.
+     *
+     * The leader is told, because they were told about the request. A
+     * leader who opens the group page to act on something that has since
+     * been withdrawn should learn that from a message, not from a button
+     * that has quietly disappeared.
+     *
+     * TWO PEOPLE ANSWERING AT ONCE (maintainer question, 2026-08-14): the
+     * member presses Withdraw while the leader presses Confirm. Both
+     * pages were rendered when the request was live, so both POSTs are
+     * valid on what their sender saw, and exactly one may win.
+     *
+     * What makes that safe is the lock plus the re-read, not luck. EVERY
+     * write that removes a member from a group holds group:<id> -
+     * confirm_leave() and self_leave() below, withdraw() above,
+     * succession, and the manager staged-move path through
+     * moves::lock_resources_for(), which takes group:<id> for both ends
+     * of every move. This method takes the same lock and re-reads the
+     * membership row INSIDE it, so the two cannot interleave mid-write:
+     * one commits in full, the other reads the committed state and its
+     * gate answers on what is true now.
+     *
+     * Both orders end correctly, and each loser is told something true
+     * about their own position:
+     *   - the confirmation lands first: the row is REMOVED and this call
+     *     is refused with refusalleavealreadyleft - "your request was
+     *     already confirmed, so you have left" - and NOT with the
+     *     generic not-a-member sentence, which would read as though the
+     *     membership had never existed;
+     *   - this withdrawal lands first: confirm_leave() re-reads, finds no
+     *     leaverequested, and is refused with refusalnoleaverequest. That
+     *     is the direction that would remove somebody on a request they
+     *     had already taken back, if either side trusted its page's copy
+     *     of the row instead of re-reading under the lock.
+     * Pinned by tests/leave_race_test.php, which drives real handoffs
+     * through locks::set_test_hook() rather than two sequential calls.
+     *
+     * @param stdClass $group group row (may be stale; re-read under the lock)
+     * @param int $userid the member taking their request back
+     * @return stdClass the member row with leaverequested cleared
+     * @throws \moodle_exception when the gatekeeper refuses
+     */
+    public function cancel_leave(stdClass $group, int $userid): stdClass {
+        global $DB;
+
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = groups::get($this->activity, (int) $group->id);
+            $member = $DB->get_record('selfselectadvanced_member', [
+                'groupid' => $fresh->id,
+                'userid' => $userid,
+            ], '*', MUST_EXIST);
+            if ($refusal = $this->gatekeeper->can_cancel_leave($fresh, $member, $userid)) {
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            }
+
+            $now = time();
+            $member->leaverequested = null;
+            $member->timemodified = $now;
+            $DB->update_record('selfselectadvanced_member', $member);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            // Unconditional since 1.20 wave 3D - see send().
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+        }
+
+        // Mail never travels under a lock.
+        notifier::send(
+            $this->activity,
+            'leaverequest',
+            (int) $fresh->leaderid,
+            'msgleavecancelledsubject',
+            'msgleavecancelledbody',
+            (object) [
+                'user' => fullname(\core_user::get_user($userid)),
+                'group' => format_string($fresh->name),
+            ],
+            $this->group_url((int) $fresh->id),
+            format_string($fresh->name)
+        );
+
+        return $member;
+    }
+
+    /**
+     * The leader declines a member's leave request: the request ends,
+     * the membership does not.
+     *
+     * WHY THIS EXISTS. Until 1.20.40 the leader's only control was
+     * Confirm, so the only answer a leader could give to "may I leave?"
+     * was yes. A leader who wanted to keep the member - because the work
+     * is nearly done, because they have talked it over - had to leave
+     * the request standing for ever, and the member's own leave control
+     * stayed disabled underneath it.
+     *
+     * The gate is can_confirm_leave(), CALLED and not transcribed: the
+     * preconditions for answering a leave request are the same whichever
+     * way the leader answers it - a forming group, the actor is its
+     * leader, and there is a live request from a confirmed member. Only
+     * the write differs.
+     *
+     * Declining returns the member to the state they were in before they
+     * asked, including the ability to ask again. A decline that also
+     * barred the member from re-asking would be a punishment nobody
+     * decided on, and the group is forming: it must always be able to
+     * shrink when the people in it agree that it should.
+     *
+     * RACING THE MEMBER'S OWN WITHDRAWAL: this and cancel_leave() both
+     * end the same request, and both hold group:<id> while they do it,
+     * so only one can. Whichever commits second re-reads a row with no
+     * leaverequested and is refused - the leader by
+     * refusalnoleaverequest, the member by refusalleavenothingtowithdraw,
+     * which says the request may have just been answered rather than
+     * implying they never made one. The membership survives either way,
+     * because neither path writes status. See tests/leave_race_test.php.
+     *
+     * @param stdClass $group group row (may be stale; re-read under the lock)
+     * @param int $memberid the member row id
+     * @param int $actorid the acting leader
+     * @return stdClass the member row, still confirmed, request cleared
+     * @throws \moodle_exception when the gatekeeper refuses
+     * @throws \required_capability_exception when the leader does not
+     *         hold :lead
+     */
+    public function decline_leave(stdClass $group, int $memberid, int $actorid): stdClass {
+        global $DB;
+
+        // A leader action, so the leader authority (A-02), exactly as
+        // confirm_leave() requires it.
+        authority::require_lead($this->activity, $actorid);
+
+        $lock = locks::acquire('group:' . $group->id);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = groups::get($this->activity, (int) $group->id);
+            $member = $DB->get_record('selfselectadvanced_member', [
+                'id' => $memberid,
+                'groupid' => $fresh->id,
+            ], '*', MUST_EXIST);
+            if ($refusal = $this->gatekeeper->can_confirm_leave($fresh, $member, $actorid)) {
+                throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
+            }
+
+            $now = time();
+            // The membership is untouched on purpose: status stays
+            // CONFIRMED and isleader is not written. Only the request ends.
+            $member->leaverequested = null;
+            $member->timemodified = $now;
+            $DB->update_record('selfselectadvanced_member', $member);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            if (isset($transaction) && !$transaction->is_disposed()) {
+                $transaction->rollback($e);
+            }
+            throw $e;
+        } finally {
+            $lock->release();
+        }
+
+        // Mail never travels under a lock.
+        notifier::send(
+            $this->activity,
+            'leaveresult',
+            (int) $member->userid,
+            'msgleavedeclinedsubject',
+            'msgleavedeclinedbody',
+            (object) ['group' => format_string($fresh->name)],
+            $this->group_url((int) $fresh->id),
+            format_string($fresh->name)
+        );
+
+        return $member;
+    }
+
+    /**
      * The leader confirms a member's leave request (spec 6.3, L1-gated).
      *
      * @param stdClass $group group row (may be stale; re-read under the lock)

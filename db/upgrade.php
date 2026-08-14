@@ -2645,5 +2645,30 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081400, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081401) {
+        // No schema change and no data to repair: 1.20.40 adds two ways
+        // to end a leave request that already existed as a state.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.40 (2026081401). A leave request can now be withdrawn by the member '
+                . 'and declined by the leader.',
+            'Asking to leave a forming group set a timestamp on the membership and told the leader. '
+                . 'The only thing that cleared it was the leader confirming, which removes the member '
+                . '- so a request could end exactly one way. A member who changed their mind saw '
+                . 'their own control disabled with "you have asked to leave" and had nothing to '
+                . 'click, and a leader who wanted to keep the member had no answer but yes. Both '
+                . 'endings now exist: the member withdraws their own request, the leader declines '
+                . 'it, and in both cases the membership survives untouched and the request simply '
+                . 'ends. Declining does not bar the member from asking again. Existing pending '
+                . 'requests need no migration - they become answerable, which is what they were '
+                . 'always meant to be. Two people answering one request at the same moment is '
+                . 'serialised by the group lock every remover already holds, and each loser is '
+                . 'now told which answer landed rather than being told they were never a member.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081401, 'selfselectadvanced');
+    }
+
     return true;
 }
