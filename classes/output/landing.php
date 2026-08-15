@@ -319,6 +319,25 @@ class landing implements renderable, templatable {
         $data->hasmyrequests = tickets::mine_count($activity, $this->userid) > 0;
         $data->myrequestsurl = (new \moodle_url('/mod/selfselectadvanced/myrequests.php', ['id' => $cmid]))->out(false);
 
+        // 1.20.43 deliverable B: an entry point for the general help
+        // type that does NOT require a group page - "any eligible user"
+        // per the spec, which this page answers with the exact
+        // eligibility predicate tickets::file_help() itself enforces
+        // (tickets::may_raise()), asked against my_group_for_help()'s
+        // own resolution of "their group" (led, else confirmed-member-
+        // of, else none) - so this button and the service cannot drift
+        // into disagreeing about who it is offered to. Deliberately NOT
+        // gated on tickets::may_be_responsible() here (deliverable C):
+        // the spec is explicit that a raiser the responsible-person mode
+        // blocks "still sees a refusal string, not a silent absence" -
+        // the link stays offered to whoever the checkbox admits, and
+        // filehelp.php is what shows the specific pointer-to-leader/
+        // pointer-to-guide reason instead of the form.
+        $tickethelpgroup = tickets::my_group_for_help($activity, $this->userid);
+        $tickethelprole = tickets::raiser_role($tickethelpgroup, $this->userid);
+        $data->showtickethelp = tickets::may_raise($activity, $tickethelprole);
+        $data->tickethelpurl = (new \moodle_url('/mod/selfselectadvanced/filehelp.php', ['id' => $cmid]))->out(false);
+
         if (has_capability('mod/selfselectadvanced:viewall', $context, $this->userid, false)) {
             $data->isstaff = true;
             $totalgroups = $DB->count_records('selfselectadvanced_group', ['activityid' => $activity->id()]);

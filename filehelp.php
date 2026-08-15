@@ -1,0 +1,149 @@
+<?php
+// This file is part of Moodle - https://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+
+/**
+ * File a general `help` ticket without a group page (1.20.43 deliverable
+ * B, maintainer's stated gap: "today a leader's only ticket is
+ * unfreeze-on-frozen"). The other filing surface, on the group page
+ * itself, is group.php's own ticket section; this one exists precisely
+ * because the landing page has no group in view.
+ *
+ * "Their group" (tickets::my_group_for_help()) is resolved the same way
+ * for the link that offers this page and for the filing here, so the
+ * two cannot disagree about whose group a raiser without one in view is
+ * asking on behalf of.
+ *
+ * GET renders (including the disclaimer gate screen, deliverable D); the
+ * filing itself is a single sesskey-protected POST.
+ *
+ * @package    mod_selfselectadvanced
+ * @copyright  2026 JSP <jsp@jsp.net.in>
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
+require(__DIR__ . '/../../config.php');
+
+use mod_selfselectadvanced\local\tickets;
+
+$id = required_param('id', PARAM_INT);
+$action = optional_param('action', '', PARAM_ALPHA);
+$ticketack = optional_param('ticketack', 0, PARAM_BOOL);
+
+[$course, $cm] = get_course_and_cm_from_cmid($id, 'selfselectadvanced');
+require_login($course, true, $cm);
+
+$activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
+$context = $activity->context();
+
+$baseurl = new moodle_url('/mod/selfselectadvanced/filehelp.php', ['id' => $cm->id]);
+$viewurl = new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]);
+$PAGE->set_url($baseurl);
+$PAGE->set_title($activity->name());
+$PAGE->set_heading(format_string($course->fullname));
+
+// The raiser's own group, resolved once and reused for both the
+// eligibility check below and the filing itself - the same call
+// landing.php makes to decide whether to offer the link that brought
+// the viewer here.
+$group = tickets::my_group_for_help($activity, (int) $USER->id);
+
+if ($action === 'filehelp' && data_submitted() && confirm_sesskey()) {
+    $reason = optional_param('reason', '', PARAM_RAW);
+    $ack = (bool) optional_param('disclaimerack', 0, PARAM_BOOL);
+    try {
+        $filedticket = tickets::file_help($activity, $group, $reason, FORMAT_MOODLE, (int) $USER->id, $ack);
+        redirect(
+            $viewurl,
+            get_string('ticketfilednotice', 'mod_selfselectadvanced') . ' ' . html_writer::link(
+                new moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $filedticket->id]),
+                get_string('ticketthreadopen', 'mod_selfselectadvanced')
+            ),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
+// UI HIDES WHAT THE SERVICE FORBIDS, not the other way round: this
+// screen asks the exact predicates file_help() enforces so a refused
+// viewer is told why rather than shown a form that can only fail.
+$role = tickets::raiser_role($group, (int) $USER->id);
+$refusal = null;
+if (!tickets::may_raise($activity, $role)) {
+    $refusal = get_string('refusalticketraise' . $role, 'mod_selfselectadvanced');
+} else if (!tickets::may_be_responsible($activity, $group, (int) $USER->id)) {
+    $refusal = get_string(
+        'refusalticketresponsible' . tickets::responsible_role($group),
+        'mod_selfselectadvanced'
+    );
+}
+
+echo $OUTPUT->header();
+echo $OUTPUT->heading(get_string('ticketfilehelp', 'mod_selfselectadvanced'));
+
+if ($refusal !== null) {
+    echo $OUTPUT->notification($refusal, 'info', false);
+} else {
+    $settings = $activity->settings();
+    $disclaimertext = trim(html_to_text((string) ($settings->ticketdisclaimer ?? '')));
+    if ($disclaimertext !== '' && !$ticketack) {
+        // Deliverable D: the gate screen precedes the form - it only
+        // renders after this "I acknowledge" link is followed.
+        echo html_writer::div(
+            format_text((string) $settings->ticketdisclaimer, (int) $settings->ticketdisclaimerformat, ['context' => $context]),
+            'selfselectadvanced-ticketdisclaimer alert alert-info'
+        );
+        echo $OUTPUT->single_button(
+            new moodle_url($baseurl, ['ticketack' => 1]),
+            get_string('ticketdisclaimeracknowledge', 'mod_selfselectadvanced'),
+            'get'
+        );
+    } else {
+        echo html_writer::tag('p', get_string('tickethelpintro', 'mod_selfselectadvanced'));
+        echo html_writer::start_tag('form', [
+            'method' => 'post',
+            'action' => $baseurl->out(false),
+            'class' => 'selfselectadvanced-tickethelpform',
+        ]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'filehelp']);
+        echo html_writer::empty_tag(
+            'input',
+            ['type' => 'hidden', 'name' => 'disclaimerack', 'value' => $ticketack ? 1 : 0]
+        );
+        echo html_writer::label(
+            get_string('ticketfilehelp', 'mod_selfselectadvanced'),
+            'ssa-tickethelpreason'
+        );
+        echo html_writer::tag('textarea', '', [
+            'name' => 'reason',
+            'id' => 'ssa-tickethelpreason',
+            'rows' => 4,
+            'class' => 'form-control',
+            'placeholder' => get_string('ticketreasonhint', 'mod_selfselectadvanced'),
+        ]);
+        echo html_writer::empty_tag('input', [
+            'type' => 'submit',
+            'class' => 'btn btn-primary mt-2',
+            'value' => get_string('ticketfilebutton', 'mod_selfselectadvanced'),
+        ]);
+        echo html_writer::end_tag('form');
+    }
+}
+echo html_writer::link($viewurl, get_string('back'), ['class' => 'btn btn-secondary ms-2 mt-2']);
+echo $OUTPUT->footer();

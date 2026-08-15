@@ -70,12 +70,18 @@ Feature: Invitation-only joining with reserved seats
   # page and the leader's own pending-invites panel both ask. Driving
   # the roster past maxsize AFTER the invitation was issued - exactly
   # the audit's scenario ("the group becomes full ... after the
-  # invite") - is the RED case: on the pre-fix tree this page still
-  # showed Sam a live Accept button here, and pressing it would have
-  # landed on the very refusal asserted below. Decline is pinned
-  # separately and must survive: withdrawing from an offer the group
-  # has outgrown is cleanup, not the join the gate refuses.
-  Scenario: The group page withdraws Accept, not Decline, once the group has outgrown the invitation
+  # invite") - is what makes the gate refuse.
+  #
+  # D-106 (maintainer decision, 2026-08-15 07:32): INV-001's fix first
+  # OMITTED the Accept button when the gate refused; the landing page
+  # had always shown a DISABLED Accept with the reason instead, and the
+  # maintainer chose that idiom for both pages. Accept is asserted
+  # PRESENT and DISABLED below, not absent - the group page's markup now
+  # matches landing.mustache's own `{{#blocked}}disabled
+  # title="..."{{/blocked}}` idiom exactly. Decline is pinned separately
+  # and must survive: withdrawing from an offer the group has outgrown
+  # is cleanup, not the join the gate refuses.
+  Scenario: The group page disables Accept, not Decline, once the group has outgrown the invitation
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
     And I follow "Team Blue"
     Then I should see "1 of 3 seats filled, 1 invitation(s) pending"
@@ -102,7 +108,8 @@ Feature: Invitation-only joining with reserved seats
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
     Then I should see "Decline" in the ".selfselectadvanced-respond" "css_element"
-    And I should not see "Accept" in the ".selfselectadvanced-respond" "css_element"
+    And I should see "Accept" in the ".selfselectadvanced-respond" "css_element"
+    And the "Accept" "button" should be disabled
     And I should see "No free seats: confirmed members and pending invitations hold every seat." in the ".selfselectadvanced-respond" "css_element"
 
   Scenario: Accepting one invitation auto-declines the others at the cap

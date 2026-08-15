@@ -47,6 +47,12 @@
         <FIELD NAME="leadershare" TYPE="int" LENGTH="3" NOTNULL="true" DEFAULT="60" SEQUENCE="false" COMMENT="Percent of the incomplete penalty the leader carries"/>
         <FIELD NAME="contactprivacy" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1: participant email and mobile are hidden from viewers without mod/selfselectadvanced:manage except confirmed teammates, the assigned guide, and the claimant of the person's claimed ticket"/>
         <FIELD NAME="mirrorat" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Lifecycle point at which a Moodle course group is minted: 0 = at freeze (the state machine's own definition), 1 = at approval, which makes an approved team usable by group forums and assignments before it is locked"/>
+        <FIELD NAME="ticketraiseguide" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1.20.43: the activity's assigned guide may raise tickets"/>
+        <FIELD NAME="ticketraiseleader" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1.20.43: a group leader may raise tickets for their group"/>
+        <FIELD NAME="ticketraisemember" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1.20.43: any enrolled participant (including one not yet in a group) may raise tickets"/>
+        <FIELD NAME="ticketresponsiblemode" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1.20.43: 0 = anyone eligible may raise a ticket, 1 = only the person responsible for the group at its current stage (self, leader or guide)"/>
+        <FIELD NAME="ticketdisclaimer" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="1.20.43: rich-text notice shown before any ticket is raised; empty means no gate screen"/>
+        <FIELD NAME="ticketdisclaimerformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1.20.43: text format of ticketdisclaimer"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
       </FIELDS>
@@ -479,6 +485,7 @@
         <FIELD NAME="resolution" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="What the claimant did, or why it was declined"/>
         <FIELD NAME="resolutionformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
         <FIELD NAME="requested" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="The number asked for, on a guidecap request; null on every other type"/>
+        <FIELD NAME="disclaimerack" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1.20.43: 1 when the requester acknowledged the activity's ticket disclaimer at file() time; stays 0 when no disclaimer was set"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
       </FIELDS>

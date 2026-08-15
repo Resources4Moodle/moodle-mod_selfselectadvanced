@@ -806,15 +806,33 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
     // may file which type on which state.
     $tickettype = required_param('tickettype', PARAM_ALPHA);
     $reason = optional_param('reason', '', PARAM_RAW);
+    // Deliverable D: the hidden field the filing form above carries -
+    // the server-side gate is tickets::file()/file_help() itself, which
+    // throws unless the activity's disclaimer (if any) was acknowledged.
+    $ticketdisclaimerack = (bool) optional_param('disclaimerack', 0, PARAM_BOOL);
     try {
-        $filedticket = \mod_selfselectadvanced\local\tickets::file(
-            $activity,
-            $group,
-            $tickettype,
-            $reason,
-            FORMAT_MOODLE,
-            (int) $USER->id
-        );
+        // Deliverable B: help is filed through its own service method -
+        // the (group, type) duplicate guard the other five types share
+        // does not fit a ticket that can carry no group, so it keeps its
+        // own per-requester guard rather than disturbing that one.
+        $filedticket = $tickettype === \mod_selfselectadvanced\local\tickets::TYPE_HELP
+            ? \mod_selfselectadvanced\local\tickets::file_help(
+                $activity,
+                $group,
+                $reason,
+                FORMAT_MOODLE,
+                (int) $USER->id,
+                $ticketdisclaimerack
+            )
+            : \mod_selfselectadvanced\local\tickets::file(
+                $activity,
+                $group,
+                $tickettype,
+                $reason,
+                FORMAT_MOODLE,
+                (int) $USER->id,
+                $ticketdisclaimerack
+            );
         // Slice B2 (deliverable 2): the confirmation LINKS to the new
         // thread rather than sending the filer away to it - staying on
         // this page is what lets a duplicate-ticket attempt (or a second
@@ -1521,6 +1539,24 @@ echo html_writer::div(
 // frozen team may request a composition change; the guide or leader of
 // a frozen team may request an unfreeze. Both go to the sequential
 // ticket queue that managers and Group Coordinators work exclusively.
+//
+// 1.20.43 deliverable A: the who-may-raise checkboxes are ELIGIBILITY on
+// top of every relational check below - they narrow what is offered,
+// never widen it - asked through the exact predicate tickets::file()/
+// file_help() enforce (tickets::may_raise()), so this list and the
+// service cannot drift into disagreeing about who may file what. The
+// general help type (deliverable B, "the leader gap is real") is
+// offered to whichever of guide/leader/member this viewer actually is
+// for this group.
+//
+// Deliverable C (responsible-person mode) is deliberately NOT asked
+// here to decide what is DRAWN: the spec is explicit that a blocked
+// raiser "still sees a refusal string, not a silent absence" - unlike a
+// checkbox switched off, the control stays offered to whoever the
+// checkboxes admit, and tickets::require_responsible() inside the
+// service is what turns a submission from the wrong person into that
+// specific pointer-to-leader/pointer-to-guide sentence, delivered the
+// same way every other refusal on this page already is.
 $ticketforms = '';
 $isassignedguide = (int) $group->guideid === (int) $USER->id && (int) $group->guideid > 0;
 $isgroupleader = (int) $group->leaderid === (int) $USER->id;
@@ -1528,13 +1564,16 @@ $statefirmish = in_array($group->state, [
     \mod_selfselectadvanced\local\state::FIRM,
     \mod_selfselectadvanced\local\state::FROZEN,
 ], true);
+$mayraiseguide = \mod_selfselectadvanced\local\tickets::may_raise($activity, 'guide');
+$mayraiseleader = \mod_selfselectadvanced\local\tickets::may_raise($activity, 'leader');
+$mayraisemember = \mod_selfselectadvanced\local\tickets::may_raise($activity, 'member');
 $requestable = [];
-if ($isassignedguide && $statefirmish) {
+if ($isassignedguide && $statefirmish && $mayraiseguide) {
     $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_COMPCHANGE;
 }
 if (
-    ($isassignedguide || $isgroupleader)
-        && $group->state === \mod_selfselectadvanced\local\state::FROZEN
+    $group->state === \mod_selfselectadvanced\local\state::FROZEN
+    && (($isassignedguide && $mayraiseguide) || ($isgroupleader && $mayraiseleader))
 ) {
     $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_UNFREEZE;
 }
@@ -1547,7 +1586,7 @@ $stateguided = $isassignedguide && in_array($group->state, [
     \mod_selfselectadvanced\local\state::FIRM,
     \mod_selfselectadvanced\local\state::FROZEN,
 ], true);
-if ($stateguided) {
+if ($stateguided && $mayraiseguide) {
     $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_DATES;
     $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_PENALTY;
 }
@@ -1557,6 +1596,7 @@ if ($stateguided) {
 // inside the lock; this only decides whether the form is drawn.
 if (
     !$isgroupleader
+    && $mayraisemember
     && $DB->record_exists('selfselectadvanced_member', [
         'groupid' => (int) $group->id,
         'userid' => (int) $USER->id,
@@ -1565,28 +1605,71 @@ if (
 ) {
     $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_LEADERCHANGE;
 }
-foreach ($requestable as $tickettype) {
-    $ticketforms .= html_writer::start_tag('form', ['method' => 'post', 'class' => 'mb-2',
-        'action' => (new moodle_url($baseurl, ['action' => 'ticket']))->out(false)])
-        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
-        . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'tickettype', 'value' => $tickettype])
-        . html_writer::label(
-            get_string('ticketfile' . $tickettype, 'mod_selfselectadvanced'),
-            'ticketreason-' . $tickettype
-        )
-        . ' '
-        // A <textarea>, not an <input type=text>: slice A (multi-line
-        // rich-ish requests, FORMAT_MOODLE storage) needs somewhere for
-        // more than one line to go. html_writer::tag() is used rather
-        // than empty_tag() because a textarea needs its own closing tag
-        // - an empty_tag() self-close would draw a placeholder-less box.
-        . html_writer::tag('textarea', '', ['name' => 'reason', 'rows' => 3, 'class' => 'form-control',
-            'id' => 'ticketreason-' . $tickettype,
-            'placeholder' => get_string('ticketreasonhint', 'mod_selfselectadvanced')])
-        . ' '
-        . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-secondary btn-sm',
-            'value' => get_string('ticketfilebutton', 'mod_selfselectadvanced')])
-        . html_writer::end_tag('form');
+// 1.20.43 deliverable B: general help, offered to any eligible raiser -
+// a manager or viewall visitor with no membership row of their own gets
+// nothing here, because "member" for the checkbox means a participant,
+// not a supervisor of one.
+$hasmemberrow = $DB->record_exists('selfselectadvanced_member', [
+    'groupid' => (int) $group->id,
+    'userid' => (int) $USER->id,
+]);
+$helprole = \mod_selfselectadvanced\local\tickets::raiser_role($group, (int) $USER->id);
+if (
+    ($helprole !== 'member' || $hasmemberrow)
+    && \mod_selfselectadvanced\local\tickets::may_raise($activity, $helprole)
+) {
+    $requestable[] = \mod_selfselectadvanced\local\tickets::TYPE_HELP;
+}
+
+// 1.20.43 deliverable D: the disclaimer gate precedes every filing
+// surface when the activity has one set - the request form only
+// renders after acknowledgement. A plain GET link carries the ack
+// forward on this page load ($ticketack); the hidden field on each
+// ticket form below is what actually reaches tickets::file()/
+// file_help(), which is the server-side gate that matters.
+$ticketdisclaimertext = trim(html_to_text((string) ($activity->settings()->ticketdisclaimer ?? '')));
+$ticketack = optional_param('ticketack', 0, PARAM_BOOL);
+if ($requestable && $ticketdisclaimertext !== '' && !$ticketack) {
+    $ticketforms = html_writer::div(
+        format_text(
+            (string) $activity->settings()->ticketdisclaimer,
+            (int) $activity->settings()->ticketdisclaimerformat,
+            ['context' => $context]
+        ),
+        'selfselectadvanced-ticketdisclaimer alert alert-info'
+    ) . $OUTPUT->single_button(
+        new moodle_url($baseurl, ['ticketack' => 1]),
+        get_string('ticketdisclaimeracknowledge', 'mod_selfselectadvanced'),
+        'get'
+    );
+} else {
+    foreach ($requestable as $tickettype) {
+        $ticketforms .= html_writer::start_tag('form', ['method' => 'post', 'class' => 'mb-2',
+            'action' => (new moodle_url($baseurl, ['action' => 'ticket']))->out(false)])
+            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
+            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'tickettype', 'value' => $tickettype])
+            . html_writer::empty_tag(
+                'input',
+                ['type' => 'hidden', 'name' => 'disclaimerack', 'value' => $ticketack ? 1 : 0]
+            )
+            . html_writer::label(
+                get_string('ticketfile' . $tickettype, 'mod_selfselectadvanced'),
+                'ticketreason-' . $tickettype
+            )
+            . ' '
+            // A <textarea>, not an <input type=text>: slice A (multi-line
+            // rich-ish requests, FORMAT_MOODLE storage) needs somewhere for
+            // more than one line to go. html_writer::tag() is used rather
+            // than empty_tag() because a textarea needs its own closing tag
+            // - an empty_tag() self-close would draw a placeholder-less box.
+            . html_writer::tag('textarea', '', ['name' => 'reason', 'rows' => 3, 'class' => 'form-control',
+                'id' => 'ticketreason-' . $tickettype,
+                'placeholder' => get_string('ticketreasonhint', 'mod_selfselectadvanced')])
+            . ' '
+            . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-secondary btn-sm',
+                'value' => get_string('ticketfilebutton', 'mod_selfselectadvanced')])
+            . html_writer::end_tag('form');
+    }
 }
 if ($ticketforms !== '') {
     echo html_writer::div(

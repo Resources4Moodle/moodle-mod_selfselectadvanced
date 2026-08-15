@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.20.43 — who may ask, who is responsible, and what they agree to first (2026-08-15)
+
+> Serial `2026081501` / `1.20.43`. **Schema change: seven new columns**
+> (six activity settings, one ticket flag); no existing row is migrated.
+> Maturity stays RC.
+
+**Who may raise tickets is now the activity's choice.** Three checkboxes —
+guide, group leader, group member — all on by default so existing activities
+behave exactly as before. The layer is eligibility on top of the existing
+per-type relational gates, enforced in the service with a typed refusal per
+arm, never only hidden in the UI.
+
+**The leader gap is closed with a general `help` type.** Until now a group
+leader's only possible ticket was unfreeze-on-frozen. Any eligible raiser —
+including a student not yet in any group — can now file a free-form help
+request, from the landing page or their group page, flowing through the same
+queue, filters, thread and notifications as every other type, with a
+one-live-per-requester duplicate guard.
+
+**Responsible-person mode narrows raising to whoever owns the group's stage
+of life** (maintainer's design): no group yet — the individual; a led group
+without a guide — its leader; a group under an assigned guide — only the
+guide. Blocked raisers see the pointer ("your leader raises tickets for the
+group"), never a silent absence. Recorded consequence, by design: with the
+mode on, a member cannot file leaderchange behind their own leader's back.
+
+**A disclaimer the student must acknowledge.** The activity form gains a
+rich-text notice; when set, every student filing surface shows it first with
+an acknowledge step, the service refuses a filing whose acknowledgement was
+not passed, and the acknowledgement is recorded on the ticket row and in the
+filed event. Guide-initiated filings (guidecap/guidereduce/guidegone) carry
+the checkbox layer but no disclaimer gate — the maintainer's wording scopes
+the notice to the student.
+
+**Accept reads the same everywhere (D-106).** The group page now shows a
+disabled Accept with the refusal reason — the landing page's own idiom —
+instead of omitting the button, so an invitee can see the invitation still
+exists even while it cannot currently be accepted.
+
 ## 1.20.42 — a ticket becomes a conversation with a memory (2026-08-15)
 
 > Serial `2026081500` / `1.20.42`. **Schema change: one new table**

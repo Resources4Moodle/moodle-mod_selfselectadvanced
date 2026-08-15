@@ -108,25 +108,25 @@ final class groupaccept_gate_test extends \advanced_testcase {
     }
 
     /**
-     * A group the invitee's acceptance would now overshoot hides Accept
-     * and keeps Decline.
+     * A group the invitee's acceptance would now overshoot renders
+     * Accept DISABLED, with the reason, and keeps Decline live (D-106,
+     * maintainer decision 2026-08-15 07:32).
      *
-     * RED-FIRST PROOF (INV-001): run against the pre-fix tree, this test
-     * fails on the very first new assertion - `acceptgateblocked` and
-     * `candecline` do not exist as keys on the exported context at all
-     * (PHP emits "Undefined property"), because the pre-fix exporter has
-     * only `showrespond`/`respondblocked` and `showrespond` is computed
-     * from `$mayrespond` alone. `showrespond` itself reads TRUE on the
-     * unpatched tree in this exact fixture - the group has been driven
-     * over its seat count between invite and view, exactly the audit's
-     * scenario - which is the live proof of INV-001: the pre-fix page
-     * would draw a live Accept button here although
-     * gatekeeper::can_accept() already refuses it (asserted directly
-     * below, independent of the exporter, so the gate's own answer is on
-     * the record).
+     * Until D-106 this page OMITTED the Accept button outright when the
+     * gate refused - the landing page has always rendered a DISABLED
+     * Accept with the reason instead (classes/output/landing.php,
+     * templates/landing.mustache's `{{#blocked}}disabled
+     * title="{{blockedreason}}"{{/blocked}}` idiom). The maintainer chose
+     * disabled-with-reason on BOTH pages, so this test now asserts the
+     * group page's markup matches that idiom rather than asserting the
+     * button's absence - the exported flags (`candecline`,
+     * `acceptgateblocked`, `acceptblockedreason`) are unchanged by D-106,
+     * only what templates/group_page.mustache does with them changed, so
+     * the render_from_template() assertions below are what actually
+     * proves the markup shifted.
      */
-    public function test_accept_is_hidden_but_decline_stays_when_the_group_has_outgrown_the_invitation(): void {
-        global $DB;
+    public function test_accept_is_disabled_with_reason_but_decline_stays_when_the_group_has_outgrown_the_invitation(): void {
+        global $DB, $PAGE;
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator();
@@ -183,16 +183,34 @@ final class groupaccept_gate_test extends \advanced_testcase {
             $ctx->candecline,
             'Decline must stay available - cleanup must never be blocked by the rule that blocks joining'
         );
-        $this->assertFalse(
-            $ctx->showrespond,
-            'Accept must not be offered when gatekeeper::can_accept() refuses (INV-001)'
-        );
         $this->assertTrue($ctx->acceptgateblocked, 'the page must know WHY Accept is withheld, not just that it is');
         $this->assertNotSame('', $ctx->acceptblockedreason, 'a refused-but-eligible viewer is told why (decision 83)');
         $this->assertStringContainsString(
             get_string('refusalnoseatsheld', 'mod_selfselectadvanced'),
             $ctx->acceptblockedreason,
             'the reason exported must be the real refusal, not a placeholder'
+        );
+
+        // D-106: the RENDERED page, not just the exported flags - this is
+        // what actually proves the markup shifted from omission to a
+        // disabled button, mirroring landing.mustache's own idiom.
+        $PAGE->set_url('/mod/selfselectadvanced/group.php', ['id' => $activity->cm()->id]);
+        $html = $PAGE->get_renderer('core')->render_from_template('mod_selfselectadvanced/group_page', $ctx);
+        $this->assertStringContainsString(
+            'name="action" value="accept"',
+            $html,
+            'D-106: the Accept form must still be RENDERED, not omitted, when the gate refuses'
+        );
+        // The disabled attribute and the refusal text must sit on the
+        // SAME button, not merely appear somewhere on the page - pull
+        // out the accept form block and assert both inside it.
+        preg_match('/<form[^>]*>((?:(?!<\/form>).)*?value="accept"(?:(?!<\/form>).)*)<\/form>/s', $html, $matches);
+        $this->assertNotEmpty($matches, 'fixture: the accept form block must be found in the rendered markup');
+        $this->assertStringContainsString('disabled', $matches[1], 'D-106: the Accept button must be DISABLED, not absent');
+        $this->assertStringContainsString(
+            get_string('refusalnoseatsheld', 'mod_selfselectadvanced'),
+            $matches[1],
+            'D-106: the refusal reason must be attached to the disabled button (title attribute)'
         );
     }
 }

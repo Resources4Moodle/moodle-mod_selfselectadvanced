@@ -103,6 +103,9 @@ class behat_mod_selfselectadvanced extends behat_base {
             'core sync' => '/mod/selfselectadvanced/coresync.php',
             'guide queue' => '/mod/selfselectadvanced/guidequeue.php',
             'my requests' => '/mod/selfselectadvanced/myrequests.php',
+            // 1.20.43 deliverable B: the landing page's own filing entry
+            // for the general help type, needing no group in view.
+            'file help' => '/mod/selfselectadvanced/filehelp.php',
             'join' => '/mod/selfselectadvanced/joinrequest.php',
             'eoi list' => '/mod/selfselectadvanced/eoilist.php',
         ];

@@ -2753,5 +2753,107 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081500, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081501) {
+        // 1.20.43: the settings release - who may raise a ticket, a
+        // responsible-person mode, the general help type, and a filing
+        // disclaimer. Three checkboxes gate ELIGIBILITY on top of the
+        // existing per-type relational gates (default 1 preserves
+        // today's behaviour exactly); one select adds the
+        // responsible-person restriction (default 0, off); two columns
+        // hold an optional rich-text disclaimer shown before any ticket
+        // is raised. The ticket row itself gains disclaimerack, set at
+        // file() time and defaulting to 0 for every existing ticket -
+        // no existing row needs migrating, and an activity with no
+        // disclaimer shows no gate screen and records nothing new.
+        $table = new xmldb_table('selfselectadvanced');
+
+        $field = new xmldb_field('ticketraiseguide', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1', 'mirrorat');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field(
+            'ticketraiseleader',
+            XMLDB_TYPE_INTEGER,
+            '1',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            '1',
+            'ticketraiseguide'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field(
+            'ticketraisemember',
+            XMLDB_TYPE_INTEGER,
+            '1',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            '1',
+            'ticketraiseleader'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field(
+            'ticketresponsiblemode',
+            XMLDB_TYPE_INTEGER,
+            '1',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            '0',
+            'ticketraisemember'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('ticketdisclaimer', XMLDB_TYPE_TEXT, null, null, null, null, null, 'ticketresponsiblemode');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field(
+            'ticketdisclaimerformat',
+            XMLDB_TYPE_INTEGER,
+            '4',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            '1',
+            'ticketdisclaimer'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $tickettable = new xmldb_table('selfselectadvanced_ticket');
+        $field = new xmldb_field('disclaimerack', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0', 'requested');
+        if (!$dbman->field_exists($tickettable, $field)) {
+            $dbman->add_field($tickettable, $field);
+        }
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() SWALLOWS the
+            // insert exception an overlong value raises on PostgreSQL - a
+            // longer sentence here simply never becomes a row, and the
+            // versionbump marker test is how anyone finds out. Prose belongs
+            // in details below.
+            'Upgraded to 1.20.43 (2026081501). Who-may-raise checkboxes, responsible-person '
+                . 'mode, the help ticket type, and a disclaimer acknowledgement.',
+            'Six new columns on the activity table (ticketraiseguide, ticketraiseleader, '
+                . 'ticketraisemember, ticketresponsiblemode, ticketdisclaimer, ticketdisclaimerformat) '
+                . 'all default to the values that reproduce pre-upgrade behaviour exactly: every '
+                . 'checkbox on, responsible-person mode off, no disclaimer. One new column on the '
+                . 'ticket table (disclaimerack) defaults to 0 for every existing ticket, which is '
+                . 'correct - none of them were filed past a disclaimer that did not yet exist.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081501, 'selfselectadvanced');
+    }
+
     return true;
 }

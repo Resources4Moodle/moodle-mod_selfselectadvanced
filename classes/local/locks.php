@@ -48,10 +48,16 @@ final class locks {
      * 2 joinrequest:{requestid}     one request
      * 3 ticket:{ticketid}           one queue ticket
      * 4 guidecap:{userid}           one guide's cap request stream
+     * 4 helpticketraiser:{userid}   one raiser's groupless help-ticket stream (1.20.43)
      * 5 override:{scope}:{targetid} one override row
      * 6 activity:{activityid}       activity-wide counts (L3/L4), move sets, autogroup runs
      * 7 eoiguide:{guideid}          one guide's capacity (L5)
      * 8 group:{groupid}             one team's roster/state  <-- innermost, ascending id
+     *
+     * helpticketraiser shares guidecap's rank deliberately: both are
+     * "one person's own request stream," never tied to a group, and
+     * file_help() takes only this one lock when the raiser has no group
+     * - it is never nested with anything guidecap: also holds.
      *
      * @var array<string, int> resource prefix => rank
      */
@@ -60,6 +66,7 @@ final class locks {
         'joinrequest:' => 2,
         'ticket:' => 3,
         'guidecap:' => 4,
+        'helpticketraiser:' => 4,
         'override:' => 5,
         'activity:' => 6,
         'eoiguide:' => 7,

@@ -100,6 +100,19 @@ class tickets {
      */
     public const TYPE_LEADERCHANGE = 'leaderchange';
 
+    /**
+     * @var string A free-form request from any eligible raiser (1.20.43,
+     *      maintainer decision): the general channel a group leader did
+     *      not have before this - until now a leader's only ticket was
+     *      unfreeze-on-frozen. groupid is the raiser's own group, or 0
+     *      when they have none (the display idiom already used for
+     *      guidecap's groupless requests). Filed through file_help(),
+     *      never through file() - the (group, type) duplicate guard the
+     *      other types share does not fit a ticket that can carry no
+     *      group at all, so this type keeps its own per-requester guard.
+     */
+    public const TYPE_HELP = 'help';
+
     /** @var string Waiting in the queue. */
     public const STATUS_OPEN = 'open';
 
@@ -171,6 +184,9 @@ class tickets {
      * @param string $request why, from the requester
      * @param int $requestformat text format of the request
      * @param int $userid the requester
+     * @param bool $disclaimerack whether the requester passed the
+     *        activity's disclaimer acknowledgement (1.20.43); ignored
+     *        when the activity has no disclaimer set
      * @return stdClass the ticket row
      * @throws \moodle_exception when a gate refuses
      */
@@ -180,7 +196,8 @@ class tickets {
         string $type,
         string $request,
         int $requestformat,
-        int $userid
+        int $userid,
+        bool $disclaimerack = false
     ): stdClass {
         global $DB;
 
@@ -197,6 +214,7 @@ class tickets {
         if (trim(html_to_text($request)) === '') {
             throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
+        self::require_disclaimer_ack($activity, $disclaimerack);
 
         $lock = locks::acquire('group:' . $group->id);
         try {
@@ -261,6 +279,30 @@ class tickets {
                 }
             }
 
+            // 1.20.43 deliverable A, ON TOP of the relational checks
+            // above: a member with the member checkbox unticked cannot
+            // file anything, and a member with it ticked still cannot
+            // file a guide-only type - the checks above already decided
+            // WHO may file this type at all, and this only asks whether
+            // the activity still allows that role to raise tickets.
+            // UNFREEZE is the one type two roles can file, so its role
+            // follows whichever relational arm actually admitted this
+            // actor above.
+            $role = match (true) {
+                $type === self::TYPE_UNFREEZE && $isguide => 'guide',
+                $type === self::TYPE_UNFREEZE => 'leader',
+                $type === self::TYPE_LEADERCHANGE => 'member',
+                default => 'guide',
+            };
+            self::require_may_raise($activity, $role);
+            // Deliverable C, ON TOP of deliverable A: the responsible-
+            // person mode, when on, narrows raising further to the one
+            // person responsible for this SPECIFIC group at its current
+            // stage. Re-asked here, after the group re-read inside the
+            // lock above, for the same reason every other gate in this
+            // method is.
+            self::require_responsible($activity, $group, $userid);
+
             $live = $DB->get_record_select(
                 'selfselectadvanced_ticket',
                 "groupid = :groupid AND type = :type AND status IN (:open, :claimed, :needsinfo)",
@@ -285,6 +327,7 @@ class tickets {
                 'requestedby' => $userid,
                 'request' => $request,
                 'requestformat' => $requestformat,
+                'disclaimerack' => $disclaimerack ? 1 : 0,
                 'timecreated' => $now,
                 'timemodified' => $now,
             ];
@@ -307,6 +350,7 @@ class tickets {
                     'action' => self::ACTION_FILED,
                     'groupid' => (int) $group->id,
                     'ticketlogid' => $ticketlogid,
+                    'disclaimerack' => $disclaimerack ? 1 : 0,
                 ],
             ])->trigger();
 
@@ -383,6 +427,13 @@ class tickets {
         if (trim(html_to_text($request)) === '') {
             throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
+        // Deliverable A: the guide checkbox, on top of the :guide
+        // capability just asked above. Not gated on the disclaimer
+        // (deliverable D) - this method has no UI of its own that could
+        // ever pass an ack, and gating it here without one would make a
+        // capacity request permanently unfileable the moment an activity
+        // set a disclaimer.
+        self::require_may_raise($activity, 'guide');
 
         // Asking for nothing, or for less than the activity's own
         // ceiling allows, is not a request anybody can act on.
@@ -447,6 +498,7 @@ class tickets {
                     'action' => self::ACTION_FILED,
                     'groupid' => 0,
                     'ticketlogid' => $ticketlogid,
+                    'disclaimerack' => 0,
                 ],
             ])->trigger();
 
@@ -496,6 +548,8 @@ class tickets {
         if (trim(html_to_text($request)) === '') {
             throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
+        // Deliverable A, same scope note as file_guidecap() above.
+        self::require_may_raise($activity, 'guide');
 
         $ceiling = (new api($activity))->gatekeeper()->resolver()->guide_capacity_ceiling($userid);
         if ($requested < 0) {
@@ -556,6 +610,7 @@ class tickets {
                     'action' => self::ACTION_FILED,
                     'groupid' => 0,
                     'ticketlogid' => $ticketlogid,
+                    'disclaimerack' => 0,
                 ],
             ])->trigger();
 
@@ -702,6 +757,7 @@ class tickets {
                     'action' => self::ACTION_FILED,
                     'groupid' => (int) $group->id,
                     'ticketlogid' => $ticketlogid,
+                    'disclaimerack' => 0,
                 ],
             ]);
 
@@ -717,6 +773,380 @@ class tickets {
         self::notify_workers($activity, $ticket, $group);
 
         return $ticket;
+    }
+
+    /**
+     * File the general `help` type (1.20.43, maintainer decision): a
+     * free-form request from any eligible raiser, about their own group
+     * or about nothing in particular.
+     *
+     * Unlike file(), $group is OPTIONAL: a raiser with no group at all
+     * may still ask, and the ticket's groupid is stored as 0 rather than
+     * the group's own id - the same "not about a team" idiom guidecap
+     * already uses, but as a literal 0 here (spec: "schema already
+     * tolerates 0") rather than guidecap's null, because unlike a
+     * guidecap request this ticket DOES have a specific requester's
+     * group when they have one, and 0 is what marks the case where they
+     * do not.
+     *
+     * The duplicate guard is its OWN, by requester rather than by
+     * (group, type): the group-and-type guard file() shares across its
+     * five types does not fit a ticket that can carry no group, and
+     * this must not disturb that guard for the other types.
+     *
+     * @param activity $activity the activity
+     * @param stdClass|null $group the raiser's own group, or null when
+     *        they have none
+     * @param string $request the request, in the raiser's own words
+     * @param int $requestformat text format of the request
+     * @param int $userid the raiser
+     * @param bool $disclaimerack whether the raiser passed the
+     *        activity's disclaimer acknowledgement; ignored when the
+     *        activity has no disclaimer set
+     * @return stdClass the ticket row
+     * @throws \moodle_exception when a gate refuses
+     */
+    public static function file_help(
+        activity $activity,
+        ?stdClass $group,
+        string $request,
+        int $requestformat,
+        int $userid,
+        bool $disclaimerack = false
+    ): stdClass {
+        global $DB;
+
+        if (trim(html_to_text($request)) === '') {
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
+        }
+        self::require_disclaimer_ack($activity, $disclaimerack);
+        self::require_may_raise($activity, self::raiser_role($group, $userid));
+
+        // Locked on the group when there is one (the same lock every
+        // other filing arm takes, so a concurrent leadership or guide
+        // change cannot land between the responsible-mode read and the
+        // insert below); on the REQUESTER when there is not, because a
+        // groupless raiser has no group row to serialise on and the
+        // duplicate guard below still needs to be race-safe against a
+        // second submission from the same person.
+        $lockkey = $group !== null ? ('group:' . $group->id) : ('helpticketraiser:' . $userid);
+        $lock = locks::acquire($lockkey);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            if ($group !== null) {
+                // Re-read inside the lock (house rule A7): a leadership
+                // or guide change landing between page render and this
+                // call decides the responsible-mode question, not the
+                // caller's possibly-stale copy.
+                $group = groups::get($activity, (int) $group->id);
+                self::require_responsible($activity, $group, $userid);
+            }
+
+            $live = $DB->get_record_select(
+                'selfselectadvanced_ticket',
+                "activityid = :activityid AND type = :type AND requestedby = :userid"
+                    . " AND status IN (:open, :claimed, :needsinfo)",
+                [
+                    'activityid' => $activity->id(),
+                    'type' => self::TYPE_HELP,
+                    'userid' => $userid,
+                    'open' => self::STATUS_OPEN,
+                    'claimed' => self::STATUS_CLAIMED,
+                    'needsinfo' => self::STATUS_NEEDSINFO,
+                ]
+            );
+            if ($live) {
+                throw new workflow_refusal('refusalticketduplicatehelp', 'mod_selfselectadvanced', '', (int) $live->id);
+            }
+
+            $now = time();
+            $ticket = (object) [
+                'activityid' => $activity->id(),
+                'groupid' => $group !== null ? (int) $group->id : 0,
+                'type' => self::TYPE_HELP,
+                'status' => self::STATUS_OPEN,
+                'requestedby' => $userid,
+                'request' => $request,
+                'requestformat' => $requestformat,
+                'disclaimerack' => $disclaimerack ? 1 : 0,
+                'timecreated' => $now,
+                'timemodified' => $now,
+            ];
+            $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
+
+            $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
+
+            \mod_selfselectadvanced\event\ticket_filed::create([
+                'objectid' => $ticket->id,
+                'context' => $activity->context(),
+                'other' => [
+                    'type' => self::TYPE_HELP,
+                    'pluginuid' => $group->pluginuid ?? '',
+                    'action' => self::ACTION_FILED,
+                    'groupid' => $group !== null ? (int) $group->id : 0,
+                    'ticketlogid' => $ticketlogid,
+                    'disclaimerack' => $disclaimerack ? 1 : 0,
+                ],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
+        } finally {
+            $lock->release();
+        }
+
+        self::notify_workers($activity, $ticket, $group);
+
+        return $ticket;
+    }
+
+    /**
+     * A raiser's group for a groupless-context filing surface (the
+     * landing page, B2's "entry point that does not require a group
+     * page"): the group they LEAD, if any, else the first group they are
+     * a CONFIRMED member of, else null.
+     *
+     * DISCRETIONARY CALL (flagged for the orchestrator): the spec does
+     * not say which group to prefer when a raiser holds more than one
+     * (maxmembership > 1). Leadership is preferred here because the
+     * maintainer's stated gap is specifically a LEADER'S missing filing
+     * route ("today a leader's only ticket is unfreeze-on-frozen") - a
+     * leader filing help from the landing page should get the group they
+     * lead, not an arbitrary other one. A group in view already (the
+     * group page's own filing form) never calls this; it always knows
+     * its own group.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the raiser
+     * @return stdClass|null the group row, or null when they lead and
+     *         belong to none
+     */
+    public static function my_group_for_help(activity $activity, int $userid): ?stdClass {
+        global $DB;
+
+        $led = $DB->get_record_sql(
+            "SELECT * FROM {selfselectadvanced_group} WHERE activityid = :activityid AND leaderid = :userid ORDER BY id",
+            ['activityid' => $activity->id(), 'userid' => $userid],
+            IGNORE_MULTIPLE
+        );
+        if ($led) {
+            return $led;
+        }
+
+        $memberof = $DB->get_record_sql(
+            "SELECT g.*
+               FROM {selfselectadvanced_group} g
+               JOIN {selfselectadvanced_member} m ON m.groupid = g.id
+              WHERE g.activityid = :activityid AND m.userid = :userid AND m.status = :confirmed
+           ORDER BY g.id",
+            [
+                'activityid' => $activity->id(),
+                'userid' => $userid,
+                'confirmed' => groups::STATUS_CONFIRMED,
+            ],
+            IGNORE_MULTIPLE
+        );
+
+        return $memberof ?: null;
+    }
+
+    /**
+     * The raiser's role for the who-may-raise checkboxes and the
+     * responsible-person mode (1.20.43 deliverable A): the activity's
+     * guide relation, or a group's leader, or the catch-all "member" -
+     * "any enrolled student participant in the activity (including one
+     * not yet in a group)" per the spec.
+     *
+     * CALLED, not transcribed, from both the UI (group.php, landing.php,
+     * filehelp.php decide what to draw) and the service gate below, so
+     * the two cannot drift into disagreeing about who somebody is.
+     *
+     * @param stdClass|null $group the group the ticket is about, or null
+     *        for a groupless raiser
+     * @param int $userid the raiser
+     * @return string 'guide', 'leader' or 'member'
+     */
+    public static function raiser_role(?stdClass $group, int $userid): string {
+        if ($group !== null && $userid > 0) {
+            if ((int) ($group->guideid ?? 0) === $userid) {
+                return 'guide';
+            }
+            if ((int) ($group->leaderid ?? 0) === $userid) {
+                return 'leader';
+            }
+        }
+
+        return 'member';
+    }
+
+    /**
+     * Whether the activity's who-may-raise checkbox for this role is on.
+     *
+     * @param activity $activity the activity
+     * @param string $role 'guide', 'leader' or 'member'
+     * @return bool
+     */
+    public static function may_raise(activity $activity, string $role): bool {
+        return self::may_raise_refusalkey($activity, $role) === null;
+    }
+
+    /**
+     * Refuse unless the activity's who-may-raise checkbox for this role
+     * is on (1.20.43 deliverable A).
+     *
+     * This is ELIGIBILITY on top of the existing per-type relational
+     * gates each file_* entry point already applies - it never widens
+     * them, only narrows: a member with the member box unticked cannot
+     * file anything, and a member with it ticked still cannot file a
+     * guide-only type, because the relational check that established
+     * "this actor may file THIS type" already ran before this one does.
+     *
+     * @param activity $activity the activity
+     * @param string $role 'guide', 'leader' or 'member'
+     * @throws \moodle_exception refusalticketraise{role} when the
+     *         checkbox is off
+     */
+    public static function require_may_raise(activity $activity, string $role): void {
+        if ($key = self::may_raise_refusalkey($activity, $role)) {
+            throw new workflow_refusal($key, 'mod_selfselectadvanced');
+        }
+    }
+
+    /**
+     * The refusal key for require_may_raise(), or null when the
+     * checkbox is on. Extracted so may_raise() and require_may_raise()
+     * ask exactly one question between them.
+     *
+     * @param activity $activity the activity
+     * @param string $role 'guide', 'leader' or 'member'
+     * @return string|null
+     */
+    private static function may_raise_refusalkey(activity $activity, string $role): ?string {
+        $settings = $activity->settings();
+        $flag = match ($role) {
+            'guide' => (int) ($settings->ticketraiseguide ?? 1),
+            'leader' => (int) ($settings->ticketraiseleader ?? 1),
+            'member' => (int) ($settings->ticketraisemember ?? 1),
+            default => throw new \coding_exception('Unknown raiser role ' . $role),
+        };
+
+        return $flag ? null : ('refusalticketraise' . $role);
+    }
+
+    /**
+     * The role responsible-person mode restricts raising to for this
+     * group at its current stage (1.20.43 deliverable C), or null when
+     * nobody is specially restricted (stage 1: no group at all, or a
+     * group with neither a leader nor a guide - a leadership vacancy
+     * sits here too, deliberately: nobody but staff can fix a vacancy,
+     * so the mode must not also lock every member out of asking for
+     * help while one stands).
+     *
+     * Design reading, exactly as specified: "firmed under a guide" means
+     * the group HAS AN ASSIGNED GUIDE - the guide relation, not the
+     * frozen flag - so a frozen team with no guide stays at stage 2, not
+     * stage 3.
+     *
+     * @param stdClass|null $group the group, or null for a groupless raiser
+     * @return string|null 'guide', 'leader' or null
+     */
+    public static function responsible_role(?stdClass $group): ?string {
+        if ($group === null) {
+            return null;
+        }
+        if (!empty($group->guideid)) {
+            return 'guide';
+        }
+        if ($group->leaderid !== null) {
+            return 'leader';
+        }
+
+        return null;
+    }
+
+    /**
+     * Refuse unless this actor is the person responsible, when
+     * responsible-person mode is on (1.20.43 deliverable C). ON TOP of
+     * require_may_raise() above - the mode gates RAISING only, never a
+     * requester's own withdraw or provide-info on a ticket they already
+     * hold, and never staff handling.
+     *
+     * RECORDED CONSEQUENCE (maintainer's stated intent, not softened):
+     * with the mode on, a confirmed member can never file leaderchange
+     * about their own leader while that leader stands unassigned-to-a-
+     * guide - file()'s own relational check already refuses the LEADER
+     * for that type (succession is theirs to drive instead), and this
+     * refuses everyone else who is not the responsible person, which at
+     * that stage is the leader. The two refusals together close the
+     * behind-the-back channel by design: the member still sees a
+     * specific refusal string, never a silent absence.
+     *
+     * @param activity $activity the activity
+     * @param stdClass|null $group the group the ticket is about, or null
+     * @param int $userid the raiser
+     * @throws \moodle_exception refusalticketresponsibleguide or
+     *         refusalticketresponsibleleader
+     */
+    public static function require_responsible(activity $activity, ?stdClass $group, int $userid): void {
+        if (empty($activity->settings()->ticketresponsiblemode)) {
+            return;
+        }
+        $required = self::responsible_role($group);
+        if ($required === 'guide' && (int) $group->guideid !== $userid) {
+            throw new workflow_refusal('refusalticketresponsibleguide', 'mod_selfselectadvanced');
+        }
+        if ($required === 'leader' && (int) $group->leaderid !== $userid) {
+            throw new workflow_refusal('refusalticketresponsibleleader', 'mod_selfselectadvanced');
+        }
+    }
+
+    /**
+     * The boolean twin of require_responsible(), for a page deciding
+     * whether to OFFER a control rather than refusing a submission - the
+     * same UX-001 reasoning tickets::involvement() is built on.
+     *
+     * @param activity $activity the activity
+     * @param stdClass|null $group the group the ticket is about, or null
+     * @param int $userid the raiser
+     * @return bool
+     */
+    public static function may_be_responsible(activity $activity, ?stdClass $group, int $userid): bool {
+        if (empty($activity->settings()->ticketresponsiblemode)) {
+            return true;
+        }
+
+        return match (self::responsible_role($group)) {
+            'guide' => (int) $group->guideid === $userid,
+            'leader' => (int) $group->leaderid === $userid,
+            default => true,
+        };
+    }
+
+    /**
+     * Refuse unless the raiser acknowledged the activity's disclaimer,
+     * when one is set (1.20.43 deliverable D). Empty disclaimer means
+     * nothing to acknowledge - the gate never fires, and disclaimerack
+     * stays 0 on the ticket row.
+     *
+     * The emptiness test mirrors the one file()/file_help() already
+     * apply to the request itself: a disclaimer that renders to nothing
+     * (an editor left blank, which stores markup like "<p><br></p>"
+     * rather than an empty string) is not a disclaimer to gate on.
+     *
+     * @param activity $activity the activity
+     * @param bool $disclaimerack whether the caller passed an ack
+     * @throws \moodle_exception refusalticketdisclaimerack
+     */
+    private static function require_disclaimer_ack(activity $activity, bool $disclaimerack): void {
+        $disclaimer = (string) ($activity->settings()->ticketdisclaimer ?? '');
+        if (trim(html_to_text($disclaimer)) === '') {
+            return;
+        }
+        if (!$disclaimerack) {
+            throw new workflow_refusal('refusalticketdisclaimerack', 'mod_selfselectadvanced');
+        }
     }
 
     /**
@@ -1881,6 +2311,7 @@ class tickets {
             self::TYPE_DATES,
             self::TYPE_PENALTY,
             self::TYPE_LEADERCHANGE,
+            self::TYPE_HELP,
         ];
         if (!in_array($type, $known, true)) {
             throw new \coding_exception('Unknown ticket type filter ' . $type);

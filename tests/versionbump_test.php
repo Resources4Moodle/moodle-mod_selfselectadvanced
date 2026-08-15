@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081500;
+    private const CURRENT = 2026081501;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026081402;
+    private const PREVIOUS = 2026081500;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.42';
+    private const RELEASE = '1.20.43';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -414,27 +414,14 @@ final class versionbump_test extends \advanced_testcase {
         // claim, because the step has just guaranteed their existence, but it
         // has to be declared separately so nobody can quietly move a table
         // between the two categories.
-        // 2026081500 creates the ticketlog table and performs NO DML at
-        // all. It appears here anyway because the touched-scan below
-        // cannot tell an FK REFTABLE from a query: the step declares
-        // $table->add_key(..., 'selfselectadvanced_ticket', ...) and the
-        // scan sees a quoted plugin-table name outside a blanked xmldb
-        // constructor (the blanking covers `new xmldb_key(...)` but
-        // add_key() is the method-call spelling of the same schema
-        // declaration). The 'tables' claim this entry makes - that
-        // selfselectadvanced_ticket predates the step - is true and is
-        // exactly what an FK to it requires. The 2026081402 entry was
-        // empty and is gone, which is the register's whole purpose: a
+        // EMPTY for 2026081501. The 1.20.43 step only ADDS COLUMNS through
+        // xmldb declarations (six on the activity table, disclaimerack on
+        // the ticket table) - no DML, no FK reftable named in add_key()
+        // method form, nothing the touched-scan can see. The 2026081500
+        // entry (ticketlog FK reftable) was removed when its step stopped
+        // being the current one, which is the register's whole purpose: a
         // one-off licence must not become a standing one by inheritance.
-        $exempt = [
-            2026081500 => [
-                'tables' => ['selfselectadvanced_ticket'],
-                'creates' => ['selfselectadvanced_ticketlog'],
-                'reason' => 'The ticket table is named only as the reftable of the new ticketlog '
-                    . 'FK - a schema declaration in add_key() method form, not a row read or '
-                    . 'write. The step queries nothing.',
-            ],
-        ];
+        $exempt = [];
         $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
         $allowed = array_key_exists(self::CURRENT, $exempt)
             ? array_merge($exempt[self::CURRENT]['tables'], $created)

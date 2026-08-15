@@ -40,6 +40,8 @@
         "studentapproachnotice": "",
         "iscoordinator": false,
         "ticketsurl": "https://example.com/mod/selfselectadvanced/coordinator.php?id=1",
+        "showtickethelp": true,
+        "tickethelpurl": "https://example.com/mod/selfselectadvanced/filehelp.php?id=1",
         "showconsent": true,
         "consentgranted": false,
         "privacystatement": "Contact privacy is ON for this activity. Your email address is not shown to other participants anywhere in this activity.",
@@ -238,6 +240,9 @@
 {{#hasmyrequests}}
     <p><a href="{{myrequestsurl}}" class="btn btn-outline-secondary">{{#str}} myrequests, mod_selfselectadvanced {{/str}}</a></p>
 {{/hasmyrequests}}
+{{#showtickethelp}}
+    <p><a href="{{tickethelpurl}}" class="btn btn-outline-secondary">{{#str}} ticketfilehelp, mod_selfselectadvanced {{/str}}</a></p>
+{{/showtickethelp}}
 
 {{#isstaff}}
     <h3>{{#str}} allgroups, mod_selfselectadvanced {{/str}}</h3>

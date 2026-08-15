@@ -77,6 +77,11 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             // because this is the second time the same class of omission
             // shipped.
             'joinexpiry', 'mirrorat',
+            // 1.20.43 (the settings release): the who-may-raise
+            // checkboxes, the responsible-person mode, and the optional
+            // ticket disclaimer.
+            'ticketraiseguide', 'ticketraiseleader', 'ticketraisemember', 'ticketresponsiblemode',
+            'ticketdisclaimer', 'ticketdisclaimerformat',
             'timecreated', 'timemodified',
         ]);
         $quotas = new backup_nested_element('quotas');
@@ -149,7 +154,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'groupid', 'type', 'status', 'requestedby', 'request', 'requestformat',
             'claimedby', 'timeclaimed', 'resolvedby', 'timeresolved',
             'resolution', 'resolutionformat', 'timecreated', 'timemodified',
-            'requested',
+            'requested', 'disclaimerack',
         ]);
         // The history trail (decision 1, 2026-08-15) nests under its own
         // ticket, not under the activity beside $tickets: a trail row is

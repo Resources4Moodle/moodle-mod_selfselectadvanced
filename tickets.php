@@ -55,6 +55,7 @@ $knowntypes = [
     tickets::TYPE_DATES,
     tickets::TYPE_PENALTY,
     tickets::TYPE_LEADERCHANGE,
+    tickets::TYPE_HELP,
 ];
 if (!in_array($typefilter, $knowntypes, true)) {
     $typefilter = '';

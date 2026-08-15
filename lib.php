@@ -74,6 +74,27 @@ function selfselectadvanced_settle_studentapproach(stdClass $data): void {
 }
 
 /**
+ * Split the ticket disclaimer editor's ['text' => ..., 'format' => ...]
+ * array back into the two scalar columns it is stored as (1.20.43).
+ *
+ * The standard editor save idiom for a rich-text field beyond intro's
+ * own automatic one: mod_form.php names the element
+ * ticketdisclaimer_editor precisely so it cannot collide with these two
+ * real columns while the array is still on $data, and this is the other
+ * half of that idiom, called from both add_instance() and
+ * update_instance() before the row is written.
+ *
+ * @param stdClass $data form data, modified in place
+ */
+function selfselectadvanced_split_ticketdisclaimer_editor(stdClass $data): void {
+    if (!isset($data->ticketdisclaimer_editor) || !is_array($data->ticketdisclaimer_editor)) {
+        return;
+    }
+    $data->ticketdisclaimer = $data->ticketdisclaimer_editor['text'] ?? '';
+    $data->ticketdisclaimerformat = $data->ticketdisclaimer_editor['format'] ?? FORMAT_HTML;
+}
+
+/**
  * Add a new instance of the activity.
  *
  * @param stdClass $data form data
@@ -84,6 +105,7 @@ function selfselectadvanced_add_instance(stdClass $data, $mform = null): int {
     global $DB;
 
     selfselectadvanced_settle_studentapproach($data);
+    selfselectadvanced_split_ticketdisclaimer_editor($data);
     $data->timecreated = time();
     $data->timemodified = $data->timecreated;
     $data->id = $DB->insert_record('selfselectadvanced', $data);
@@ -108,6 +130,7 @@ function selfselectadvanced_update_instance(stdClass $data, $mform = null): bool
     global $DB, $USER;
 
     selfselectadvanced_settle_studentapproach($data);
+    selfselectadvanced_split_ticketdisclaimer_editor($data);
     $data->id = $data->instance;
     $data->timemodified = time();
     $before = $DB->get_record('selfselectadvanced', ['id' => $data->id], '*', MUST_EXIST);

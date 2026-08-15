@@ -138,6 +138,10 @@ class provider implements
             'type' => 'privacy:metadata:ticket:type',
             'status' => 'privacy:metadata:ticket:status',
             'requested' => 'privacy:metadata:ticket:requested',
+            // 1.20.43: per-ticket, set by the service at file() time, so
+            // it is the requester's own data exactly like every other
+            // column on this row.
+            'disclaimerack' => 'privacy:metadata:ticket:disclaimerack',
         ], 'privacy:metadata:ticket');
         // The history trail (decision 1, 2026-08-15): one row per action
         // taken on a ticket, so the same personal data the ticket row
@@ -940,7 +944,7 @@ class provider implements
             $tickets = $DB->get_records_sql(
                 "SELECT t.id, g.name, g.pluginuid, t.type, t.status, t.requestedby, t.claimedby,
                         t.resolvedby, t.request, t.requestformat, t.resolution, t.resolutionformat,
-                        t.requested, t.timecreated, t.timeresolved
+                        t.requested, t.disclaimerack, t.timecreated, t.timeresolved
                    FROM {selfselectadvanced_ticket} t
               LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
                   WHERE t.activityid = :activityid
@@ -1158,6 +1162,10 @@ class provider implements
                             && ((int) ($t->resolvedby ?? 0) === $userid || (int) $t->requestedby === $userid)
                             ? format_text($t->resolution, $t->resolutionformat, ['context' => $context])
                             : null,
+                        // 1.20.43: whether the requester acknowledged the
+                        // activity's disclaimer when they filed this -
+                        // always 0/No when the activity had none set.
+                        'disclaimerack' => transform::yesno($t->disclaimerack),
                         'timecreated' => transform::datetime($t->timecreated),
                         'timeresolved' => $t->timeresolved ? transform::datetime($t->timeresolved) : null,
                         // The history trail, nested here rather than a

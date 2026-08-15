@@ -357,8 +357,66 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setDefault('contactprivacy', 1);
         $mform->addHelpButton('contactprivacy', 'contactprivacy', 'mod_selfselectadvanced');
 
+        // Tickets (1.20.43, the settings release). Three who-may-raise
+        // checkboxes, all on by default so every existing activity
+        // upgrades with exactly today's behaviour; the responsible-
+        // person mode, off by default; and an optional rich-text
+        // disclaimer, empty by default.
+        $mform->addElement('header', 'ticketsheading', get_string('ticketsheading', 'mod_selfselectadvanced'));
+        $mform->addElement('advcheckbox', 'ticketraiseguide', get_string('ticketraiseguide', 'mod_selfselectadvanced'));
+        $mform->setDefault('ticketraiseguide', 1);
+        $mform->addHelpButton('ticketraiseguide', 'ticketraiseguide', 'mod_selfselectadvanced');
+        $mform->addElement('advcheckbox', 'ticketraiseleader', get_string('ticketraiseleader', 'mod_selfselectadvanced'));
+        $mform->setDefault('ticketraiseleader', 1);
+        $mform->addHelpButton('ticketraiseleader', 'ticketraiseleader', 'mod_selfselectadvanced');
+        $mform->addElement('advcheckbox', 'ticketraisemember', get_string('ticketraisemember', 'mod_selfselectadvanced'));
+        $mform->setDefault('ticketraisemember', 1);
+        $mform->addHelpButton('ticketraisemember', 'ticketraisemember', 'mod_selfselectadvanced');
+        $mform->addElement('select', 'ticketresponsiblemode', get_string('ticketresponsiblemode', 'mod_selfselectadvanced'), [
+            0 => get_string('ticketresponsiblemodeanyone', 'mod_selfselectadvanced'),
+            1 => get_string('ticketresponsiblemodeperson', 'mod_selfselectadvanced'),
+        ]);
+        $mform->setType('ticketresponsiblemode', PARAM_INT);
+        $mform->setDefault('ticketresponsiblemode', 0);
+        $mform->addHelpButton('ticketresponsiblemode', 'ticketresponsiblemode', 'mod_selfselectadvanced');
+        // Moodle's rich text interface (maintainer): the standard editor
+        // save/restore idiom, matching this plugin's own group_form.php
+        // brief field - a plain editor element with no draft file area,
+        // since no other rich-text field in this plugin embeds files
+        // either. Named distinctly from the ticketdisclaimer/
+        // ticketdisclaimerformat DB columns because an editor element
+        // returns a ['text' => ..., 'format' => ...] array rather than a
+        // scalar; data_preprocessing() below loads the stored columns
+        // into it, and lib.php's add/update_instance() split it back out
+        // before the row is written - $DB->insert_record()/
+        // update_record() silently drop any property that names no real
+        // column, so leaving the array on $data afterwards is harmless.
+        $mform->addElement(
+            'editor',
+            'ticketdisclaimer_editor',
+            get_string('ticketdisclaimer', 'mod_selfselectadvanced')
+        );
+        $mform->setType('ticketdisclaimer_editor', PARAM_RAW);
+        $mform->addHelpButton('ticketdisclaimer_editor', 'ticketdisclaimer', 'mod_selfselectadvanced');
+
         $this->standard_coursemodule_elements();
         $this->add_action_buttons();
+    }
+
+    /**
+     * Load the stored disclaimer text/format into the editor element
+     * (1.20.43): moodleform_mod::set_data() calls this before handing
+     * the defaults to formslib, which is the standard extension point
+     * for a custom rich-text field beyond intro's own automatic one.
+     *
+     * @param array $defaultvalues passed by reference
+     */
+    public function data_preprocessing(&$defaultvalues): void {
+        parent::data_preprocessing($defaultvalues);
+        $defaultvalues['ticketdisclaimer_editor'] = [
+            'text' => $defaultvalues['ticketdisclaimer'] ?? '',
+            'format' => $defaultvalues['ticketdisclaimerformat'] ?? FORMAT_HTML,
+        ];
     }
 
     /**
