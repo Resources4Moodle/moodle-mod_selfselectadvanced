@@ -132,6 +132,7 @@ activity instance.
 | `mod/selfselectadvanced:viewall` | editingteacher (the non-editing teacher was removed in 1.20.1 — **on fresh installs only**; no existing site loses it) |
 | `mod/selfselectadvanced:viewassignedteams` | teacher (non-editing) — open the team pages of teams they are the assigned guide of, and only those |
 | `mod/selfselectadvanced:viewparticipantidentity` | none (granted deliberately) — see participants' identity and mobile columns inside this activity; AND-ed onto the core identity capabilities, never a substitute for them. Since 1.20.1 it does **not** reopen an email address while contact privacy is on: nothing does |
+| `mod/selfselectadvanced:api` | none (granted deliberately) — act as the LLM API's service account: read tickets and the knowledgebank, claim, request information, respond and escalate. Always required **alongside** `:coordinate` or `:manage` — this capability alone is never enough. See "Connecting an LLM" below |
 
 Every action checks the capability, never the role name.
 
@@ -149,6 +150,69 @@ invite members, edit, submit and otherwise run their groups. The activity's
 `timeopen` / `timecutoff` formation window remains the normal date-based
 control; the capability split is for role- or activity-specific permission
 policy and does not add a duplicate setting.
+
+## Connecting an LLM
+
+Since 1.20.46 an LLM-based system can read the ticket queue and the
+knowledgebank, respond to requesters, and hand work to humans, through the
+`selfselectadvanced_llm` web service and its eight functions
+(`mod_selfselectadvanced_api_list_tickets`, `..._api_get_ticket`,
+`..._api_list_kb`, `..._api_search_kb`, `..._api_claim`,
+`..._api_request_info`, `..._api_respond`, `..._api_escalate`). This is
+**read + respond**, not resolve-and-close: there is no resolve or decline
+endpoint anywhere in the API, by design. Resolving a ticket stays a human act
+— the group coordinator closes it, or the editing teacher closes it once a
+coordinator has escalated it.
+
+The setup is standard Moodle web-service administration, not anything this
+plugin reinvents:
+
+1. **Create a dedicated role** (Site administration → Users → Permissions →
+   Define roles) at the Activity module context level. Allow it exactly two
+   capabilities: `mod/selfselectadvanced:api` and either
+   `mod/selfselectadvanced:coordinate` or `mod/selfselectadvanced:manage`.
+   Both are required — the API capability alone is refused everywhere, the
+   same `required_capability_exception` a human coordinator missing
+   `:coordinate` would get. Grant nothing else: this role should not be able
+   to manage settings, quotas, dates or groups.
+2. **Create a dedicated user account** for the service (e.g. `llm-service`),
+   and **enrol** it in each course whose activities the LLM should handle,
+   with the role from step 1 assigned in the relevant activity's context. The
+   account is a real Moodle user — every action it takes is logged and
+   evented under its own `userid`, exactly as a human coordinator's is.
+3. **Enable web services** (Site administration → General → Advanced
+   features → "Enable web services"), enable the REST protocol (or your
+   preferred protocol) under "Manage protocols", then create a **service**
+   for `selfselectadvanced_llm` if it is not already listed (Site
+   administration → Plugins → Web services → External services — the
+   service ships with `restrictedusers` on, so it is only usable by
+   explicitly authorised users) and authorise the service account against
+   it.
+4. **Mint a token** for the service account against the `selfselectadvanced_llm`
+   service (Site administration → Plugins → Web services → Manage tokens),
+   and give that token to the LLM system. This is the standard Moodle
+   webservice token flow — see the Moodle admin documentation for "Using web
+   services" if any of these screens are unfamiliar.
+
+Every post the service account makes shows on the ticket thread under a
+configurable display name (default **"Automated Assistant"**, Site
+administration → Plugins → Activity modules → Group self-selection
+(Advanced) → `assistantname`) suffixed "(automated)" — a student always sees
+when a machine answered, never mistaking it for a staff member. Renaming the
+setting applies retroactively to every past post, because the thread renders
+it from the poster's *current* `:api` capability, not from anything stored on
+the post itself. The requester's own anonymised view of a claimed ticket is
+unaffected either way: it still reads "Somebody is handling this."
+
+Read payloads carry the requester's identity — full name and role (student,
+leader or guide) — exactly as a human coordinator sees it in the queue, but
+**never** an email address or a phone number, in any payload, under any
+setting: the contact-privacy cardinal rule governs contact details and has no
+trusted-role exception for a machine consumer. Every other trail actor is
+identified by role label only (`requester`, `coordinator`, `editing teacher`),
+never by name. Attachment filenames are listed per post; the bytes are not
+exposed to the machine — the service declares `downloadfiles`/`uploadfiles`
+off.
 
 ## Admin walkthrough (one full lifecycle)
 

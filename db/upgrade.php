@@ -2944,5 +2944,35 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081503, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081504) {
+        // 1.20.46: the API an LLM-based system uses. NO SCHEMA AT ALL -
+        // this step exists so the savepoint tip can equal version.php,
+        // and so an upgraded site's log says what arrived. The new
+        // mod/selfselectadvanced:api capability and the
+        // selfselectadvanced_llm web service are installed by core from
+        // db/access.php and db/services.php on the version bump; both
+        // are re-read only when $plugin->version changes, which is
+        // precisely why this otherwise-empty step is not optional.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // SAME GOTCHA the three steps above pin: info is
+            // varchar(255) and upgrade_log() SWALLOWS an overlong
+            // insert's exception on PostgreSQL - keep this short.
+            'Upgraded to 1.20.46 (2026081504). A web service an LLM system can read and answer with.',
+            'No schema changes. A new capability (mod/selfselectadvanced:api, granted to no '
+                . 'archetype by default) and a web service of eight functions let an enrolled '
+                . 'service account read the ticket queue and the knowledgebank, claim a ticket, '
+                . 'ask the requester for more information, post a reply, and escalate to staff. '
+                . 'It cannot resolve or decline: no such function exists, because closing a '
+                . 'ticket is a human act. It sees a requester by name and role and never by '
+                . 'email or phone, and an escalated ticket refuses it exactly as it refuses a '
+                . 'coordinator. Its posts are attributed on the thread to the display name set '
+                . 'in the site setting, so a student always knows a machine answered.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081504, 'selfselectadvanced');
+    }
+
     return true;
 }

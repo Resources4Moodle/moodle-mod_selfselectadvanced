@@ -65,6 +65,20 @@ if ($hassiteconfig) {
             'txt' => new lang_string('exporttxt', 'mod_selfselectadvanced'),
         ]
     ));
+    // 1.20.46: the LLM API's display name (BUILD spec section D - "NOT a
+    // per-activity setting", maintainer decision, exact default string
+    // "Automated Assistant"). classes/output/ticket_page.php reads it at
+    // RENDER time for any thread post whose actor holds mod/
+    // selfselectadvanced:api in that activity's context, so renaming here
+    // applies retroactively to every past post rather than being copied
+    // onto the row when it was written.
+    $settings->add(new admin_setting_configtext(
+        'mod_selfselectadvanced/assistantname',
+        new lang_string('assistantname', 'mod_selfselectadvanced'),
+        new lang_string('assistantname_desc', 'mod_selfselectadvanced'),
+        'Automated Assistant',
+        PARAM_TEXT
+    ));
     $ADMIN->add('modselfselectadvancedcat', $settings);
     $settings = null;
 } else {

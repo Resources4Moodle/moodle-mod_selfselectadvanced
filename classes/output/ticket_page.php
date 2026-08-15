@@ -160,6 +160,45 @@ class ticket_page implements renderable, templatable {
     }
 
     /**
+     * The LLM API's configured display name (1.20.46, BUILD spec section
+     * D: site-level admin setting mod_selfselectadvanced/assistantname,
+     * default "Automated Assistant" verbatim). An admin_setting's default
+     * is never written to mdl_config until an administrator actually
+     * visits the settings page and saves it (settings.php's own default
+     * value only pre-fills that form), so get_config() answers false on
+     * every site that has not - the same gap exporter.php's
+     * default_format() already falls back around for exportformat.
+     *
+     * @return string
+     */
+    private function assistant_display_name(): string {
+        $configured = (string) get_config('mod_selfselectadvanced', 'assistantname');
+
+        return $configured !== '' ? $configured : 'Automated Assistant';
+    }
+
+    /**
+     * A staff member's display label on the thread: the configured
+     * assistant name (suffixed "(automated)") when they CURRENTLY hold
+     * mod/selfselectadvanced:api in this activity's context, else
+     * $fallback unchanged. The one predicate export_entry() (a trail
+     * post) and export_actionbox() (the "claimed by" line) both go
+     * through, so the two can never disagree about whether a given
+     * staff member is shown as the machine or as themselves.
+     *
+     * @param int $userid the staff member
+     * @param string $fallback their real display label when not the assistant
+     * @return string
+     */
+    private function staff_display_name(int $userid, string $fallback): string {
+        if (has_capability('mod/selfselectadvanced:api', $this->activity->context(), $userid)) {
+            return get_string('threadassistantname', 'mod_selfselectadvanced', $this->assistant_display_name());
+        }
+
+        return $fallback;
+    }
+
+    /**
      * The requester's full name, shown to staff only - the requester
      * themself always reads as "You" (export_for_template above), and
      * name display carries no contact-privacy restriction of its own:
@@ -188,9 +227,18 @@ class ticket_page implements renderable, templatable {
         $isrequesteraction = in_array($row->action, self::REQUESTER_ACTIONS, true);
 
         if ($withactors) {
-            $actorlabel = $isrequesteraction && (int) $row->actorid === (int) $this->ticket->requestedby
-                ? $requesterlabel
-                : $row->actorname;
+            if ($isrequesteraction && (int) $row->actorid === (int) $this->ticket->requestedby) {
+                $actorlabel = $requesterlabel;
+            } else {
+                // 1.20.46: computed at RENDER time from the actor's
+                // CURRENT capability, never stored on the trail row - a
+                // human never impersonates the assistant (their post
+                // reads under their own name unless they themselves hold
+                // :api), and renaming the admin setting applies
+                // retroactively to every past post, exactly as the
+                // BUILD spec requires.
+                $actorlabel = $this->staff_display_name((int) $row->actorid, $row->actorname);
+            }
         } else {
             // The anonymised requester trail: an action the REQUESTER
             // performed is their own and reads as "You" (their own
@@ -352,10 +400,17 @@ class ticket_page implements renderable, templatable {
         ) {
             $box->showclaimedbyline = true;
             $claimant = $ticket->claimedby ? \core_user::get_user((int) $ticket->claimedby) : null;
+            // 1.20.46: the same substitution export_entry() applies to a
+            // trail post - a claimant holding :api reads under the
+            // configured assistant name here too, never their real
+            // Moodle identity.
             $box->claimedbyline = get_string(
                 'ticketthreadclaimedby',
                 'mod_selfselectadvanced',
-                $claimant ? fullname($claimant) : (string) $ticket->claimedby
+                $this->staff_display_name(
+                    (int) $ticket->claimedby,
+                    $claimant ? fullname($claimant) : (string) $ticket->claimedby
+                )
             );
         }
 

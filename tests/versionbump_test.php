@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081503;
+    private const CURRENT = 2026081504;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026081502;
+    private const PREVIOUS = 2026081503;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.45';
+    private const RELEASE = '1.20.46';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -414,24 +414,14 @@ final class versionbump_test extends \advanced_testcase {
         // claim, because the step has just guaranteed their existence, but it
         // has to be declared separately so nobody can quietly move a table
         // between the two categories.
-        // 2026081503 CREATES the knowledgebank table and performs no
-        // DML. It is registered because the touched-scan cannot tell an
-        // FK REFTABLE from a query: the step names
-        // selfselectadvanced_ticket as the reftable of the kb table's
-        // sourceticketid key, in add_key() method form, which the xmldb
-        // blanking above does not cover. The claim the entry makes -
-        // that the ticket table predates this step - is true and is
-        // exactly what the FK requires. The 2026081502 entry was empty
-        // and is gone: a one-off licence must not become a standing one.
-        $exempt = [
-            2026081503 => [
-                'tables' => ['selfselectadvanced_ticket'],
-                'creates' => ['selfselectadvanced_kb'],
-                'reason' => 'The ticket table is named only as the reftable of the new kb '
-                    . 'table sourceticketid FK - a schema declaration in add_key() method '
-                    . 'form, not a row read or write. The step queries nothing.',
-            ],
-        ];
+        // EMPTY for 2026081504. The 1.20.46 step touches no schema at
+        // all - it carries an upgrade_log() marker and its savepoint, so
+        // the tip can equal version.php and core re-reads db/access.php
+        // and db/services.php. The 2026081503 entry (the kb table's FK
+        // reftable) was removed when its step stopped being the current
+        // one, which is the register's whole purpose: a one-off licence
+        // must not become a standing one by inheritance.
+        $exempt = [];
         $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
         $allowed = array_key_exists(self::CURRENT, $exempt)
             ? array_merge($exempt[self::CURRENT]['tables'], $created)

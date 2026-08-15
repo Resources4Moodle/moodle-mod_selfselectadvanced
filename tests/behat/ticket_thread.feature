@@ -6,22 +6,24 @@ Feature: The ticket becomes a forum-style thread
 
   Background:
     Given the following "users" exist:
-      | username | firstname | lastname    | email               |
-      | student1 | Sam       | One         | s1@example.com      |
-      | student2 | Sara      | Two         | s2@example.com      |
-      | guide1   | Gina      | Guide       | g1@example.com      |
-      | teacher1 | Tina      | Teach       | teach1@example.com  |
-      | coord1   | Cora      | Coordinator | coord1@example.com  |
+      | username   | firstname | lastname    | email                |
+      | student1   | Sam       | One         | s1@example.com       |
+      | student2   | Sara      | Two         | s2@example.com       |
+      | guide1     | Gina      | Guide       | g1@example.com       |
+      | teacher1   | Tina      | Teach       | teach1@example.com   |
+      | coord1     | Cora      | Coordinator | coord1@example.com   |
+      | assistant1 | Assistant | One         | assistant1@example.com |
     And the following "courses" exist:
       | fullname | shortname |
       | Course 1 | C1        |
     And the following "course enrolments" exist:
-      | user     | course | role           |
-      | student1 | C1     | student        |
-      | student2 | C1     | student        |
-      | guide1   | C1     | teacher        |
-      | teacher1 | C1     | editingteacher |
-      | coord1   | C1     | teacher        |
+      | user       | course | role           |
+      | student1   | C1     | student        |
+      | student2   | C1     | student        |
+      | guide1     | C1     | teacher        |
+      | teacher1   | C1     | editingteacher |
+      | coord1     | C1     | teacher        |
+      | assistant1 | C1     | student        |
     And the following "activities" exist:
       | activity           | course | name       | idnumber | minsize | maxlead | maxmembership |
       | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 1       | 2             |
@@ -127,3 +129,29 @@ Feature: The ticket becomes a forum-style thread
     Then I should see "Open"
     And I press "Take up"
     Then I should see "Ticket taken up"
+
+  Scenario: The thread shows the automated assistant's display name on a machine-authored post
+    # 1.20.46: the LLM API service account is a USER holding the plugin's
+    # own capabilities, never a superpower - its post is driven straight
+    # through the SERVICE METHODS (tickets::claim()/tickets::comment()),
+    # the exact calls classes/external/api_claim.php and
+    # classes/external/api_respond.php themselves make, rather than over
+    # HTTP: this scenario proves what the thread PAGE renders once that
+    # account has posted, not the web service transport.
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
+    And I set the field "Ask for leadership help (say what the group needs):" to "Our leader has gone quiet"
+    And I press "File request"
+    And assistant1 has been set up as the automated assistant for "Lab groups"
+    And assistant1 has claimed and replied "Checking on this now." to the "Team Blue" ticket in "Lab groups"
+
+    When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
+    # teacher1 is not this ticket's claimant (assistant1 is), so the
+    # queue row offers "View thread" rather than "Open thread" - the same
+    # split tickets.php draws for any staff viewer who is not $mine.
+    And I follow "View thread"
+    # The default display name (maintainer decision, exact string),
+    # suffixed with the plugin's own "(automated)" idiom - never the
+    # service account's real Moodle name ("Assistant One").
+    Then I should see "Automated Assistant (automated)"
+    And I should see "Checking on this now."
+    And I should not see "Assistant One"

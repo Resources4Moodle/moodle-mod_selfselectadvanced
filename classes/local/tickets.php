@@ -203,6 +203,15 @@ class tickets {
     public const ACTION_PUBLISHED_FAQ = 'published_faq';
 
     /**
+     * @var string A THREAD POST that does not close the ticket (1.20.46,
+     *      the LLM API's "respond" half of read+respond): the claimant
+     *      replies, the ticket stays exactly where it was. Requester-
+     *      visible like inforeply/resolved - never staff-internal - so it
+     *      is deliberately absent from STAFF_INTERNAL_ACTIONS below.
+     */
+    public const ACTION_COMMENTED = 'commented';
+
+    /**
      * @var string[] Trail actions that are ladder machinery between
      *      staff, never narrated to the REQUESTER's anonymised view
      *      (1.20.44). Part 2 of the same release calls a referral's or
@@ -2258,6 +2267,117 @@ class tickets {
                 'group' => $groupname,
                 'type' => get_string('tickettype' . $fresh->type, 'mod_selfselectadvanced'),
                 'reply' => trim(html_to_text($reply)),
+            ],
+            new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticketid]),
+            $groupname
+        );
+
+        return $fresh;
+    }
+
+    /**
+     * Post a thread reply that does NOT close the ticket (1.20.46: the
+     * LLM API's "respond" half of read+respond, BUILD spec section C -
+     * "implemented as the trail 'comment' action ... claimant-only, logs
+     * a note-bearing trail row visible to the requester, fires
+     * ticket_commented with the full payload bar, notifies the
+     * requester"). No 1.20.44 trail action fit this shape: filed/
+     * inforeply/withdrawn are the requester's own; claimed/released/
+     * needsinfo/resolved/declined all carry a status change; referred/
+     * escalated/published_faq are staff-internal. A reply that changes
+     * nothing about the ticket's status or claim, and that the requester
+     * DOES see, needed its own action - ACTION_COMMENTED.
+     *
+     * Authority mirrors request_info() exactly: record ownership (the
+     * ticket's own current claimant, whoever that is right now), only
+     * while CLAIMED - the same shape a genuine "I'm working on it, here's
+     * an update" reply has for a human coordinator, and the one that
+     * keeps a machine caller from posting into a ticket mid-handoff
+     * (NEEDSINFO, waiting on the requester) or one nobody has taken up
+     * yet.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the claimed ticket
+     * @param string $note the reply
+     * @param int $noteformat text format of the note
+     * @param int $actorid the claimant
+     * @return stdClass the ticket row (unchanged but for timemodified)
+     * @throws \moodle_exception when refused
+     */
+    public static function comment(
+        activity $activity,
+        int $ticketid,
+        string $note,
+        int $noteformat,
+        int $actorid
+    ): stdClass {
+        global $DB;
+
+        if (trim(html_to_text($note)) === '') {
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
+        }
+
+        $lock = locks::acquire('ticket:' . $ticketid);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticketid], '*', MUST_EXIST);
+            if ((int) $fresh->activityid !== $activity->id()) {
+                throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
+            }
+            if ($fresh->status !== self::STATUS_CLAIMED) {
+                throw new workflow_refusal('refusalticketnotclaimed', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->claimedby !== $actorid) {
+                throw new workflow_refusal(
+                    'refusalticketnotclaimant',
+                    'mod_selfselectadvanced',
+                    '',
+                    fullname(\core_user::get_user((int) $fresh->claimedby))
+                );
+            }
+
+            // No status/claim change - only the trail grows. timemodified
+            // still advances (every other transition in this class does
+            // the same on its own write), so "last activity" stays true
+            // for a ticket that just gained a reply.
+            $fresh->timemodified = time();
+            $DB->update_record('selfselectadvanced_ticket', $fresh);
+
+            $ticketlogid = self::log($ticketid, $actorid, self::ACTION_COMMENTED, $note, $noteformat);
+
+            $event = \mod_selfselectadvanced\event\ticket_commented::create([
+                'objectid' => $ticketid,
+                'context' => $activity->context(),
+                'relateduserid' => (int) $fresh->requestedby,
+                'other' => [
+                    'type' => $fresh->type,
+                    'action' => self::ACTION_COMMENTED,
+                    'groupid' => (int) ($fresh->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                ],
+            ]);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
+        } finally {
+            $lock->release();
+        }
+
+        $event->trigger();
+
+        $groupname = self::subject_name($activity, $fresh);
+        notifier::send(
+            $activity,
+            'tickets',
+            (int) $fresh->requestedby,
+            'msgticketcommentedsubject',
+            'msgticketcommentedbody',
+            (object) [
+                'group' => $groupname,
+                'type' => get_string('tickettype' . $fresh->type, 'mod_selfselectadvanced'),
+                'note' => trim(html_to_text($note)),
             ],
             new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticketid]),
             $groupname

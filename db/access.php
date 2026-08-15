@@ -298,4 +298,22 @@ $capabilities = [
         'contextlevel' => CONTEXT_MODULE,
         'archetypes' => [],
     ],
+
+    // The LLM API (1.20.46): a dedicated service account holds this AND
+    // the plugin's coordinate-level authority (:coordinate or :manage) -
+    // every classes/external/api_*.php endpoint checks BOTH, explicitly,
+    // never this alone (mod_selfselectadvanced\local\llmapi::
+    // require_api_authority()). Granted to no archetype: an administrator
+    // creates a dedicated role for the service account, exactly as they
+    // do for a Group Coordinator, and assigns it deliberately (README
+    // "Connecting an LLM"). RISK_PERSONAL because a holder reads
+    // requester identity (fullname + role, MAINTAINER DECISION 2026-08-15
+    // "a definite yes") - never email or phone, which the PII-absence
+    // test pins structurally, not just by convention.
+    'mod/selfselectadvanced:api' => [
+        'riskbitmask' => RISK_PERSONAL,
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => [],
+    ],
 ];

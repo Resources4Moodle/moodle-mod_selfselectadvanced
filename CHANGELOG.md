@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.20.46 — a machine may help, and may not decide (2026-08-15)
+
+> Serial `2026081504` / `1.20.46`. **No schema change**: a new capability, a
+> web service, and a site setting. Maturity stays RC.
+
+**An LLM-based system can now work the ticket queue as a user, not as a
+superpower.** A dedicated service account is enrolled and granted a new
+`mod/selfselectadvanced:api` capability — held by no role archetype by
+default — alongside the ordinary coordinator authority, and reaches the
+plugin through Moodle's standard web service tokens. Eight functions: read
+the queue, read one ticket's thread, list and search the knowledgebank,
+claim a ticket, ask the requester for more information, post a reply, and
+escalate to staff.
+
+**What it cannot do is the point.** There is no resolve function and no
+decline function — not disabled, not permission-gated, *absent* — because
+closing a ticket is a human act: the group coordinator resolves, or an
+editing teacher does once a coordinator has escalated. Every write is a thin
+wrapper over the same service method a human uses, so an escalated ticket
+refuses the machine for exactly the reason it refuses a coordinator, and no
+authority rule has a second implementation to drift.
+
+**It sees who it is helping, and never how to contact them.** Payloads carry
+the requester's name and role, as a human coordinator sees in the queue, and
+never an email address or a phone number — the contact-privacy rule has no
+trusted-role arm for a machine. Staff names in a thread are replaced by role
+labels; the knowledgebank comes through the same serialiser the plugin uses
+internally, still carrying no ticket provenance and no author identity.
+
+**A student always knows when a machine answered.** The assistant's posts
+are attributed on the thread to the name in a new site setting, "Automated
+Assistant" by default, and every action it takes lands in the ticket trail
+and the Moodle log under its own account, exactly as a person's would.
+
 ## 1.20.45 — answers that outlive the ticket that produced them (2026-08-15)
 
 > Serial `2026081503` / `1.20.45`. **Schema change: one new table**

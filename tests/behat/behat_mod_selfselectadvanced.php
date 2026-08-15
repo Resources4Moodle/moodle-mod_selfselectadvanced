@@ -140,6 +140,80 @@ class behat_mod_selfselectadvanced extends behat_base {
     }
 
     /**
+     * Sets up a user as the LLM API's service account in one activity
+     * (1.20.46): a dedicated role holding mod/selfselectadvanced:api
+     * PLUS the coordinate-level authority a human queue worker also
+     * needs - the shape README's "Connecting an LLM" section describes
+     * (create a role, assign :api + coordinate, enrol the account, mint
+     * a token), minted here in code because the one Behat scenario that
+     * needs this exists to prove what the THREAD renders once that
+     * account posts, not to exercise the admin role-creation screens or
+     * the web service token flow themselves.
+     *
+     * @Given :username has been set up as the automated assistant for :activityname
+     *
+     * @param string $username the service account's username
+     * @param string $activityname the activity
+     */
+    public function has_been_set_up_as_the_automated_assistant(string $username, string $activityname): void {
+        $cm = $this->get_cm_by_activity_name('selfselectadvanced', $activityname);
+        $context = \context_module::instance($cm->id);
+        $userid = $this->user_id_by_username($username);
+
+        $roleid = create_role(
+            'LLM service (behat fixture)',
+            'llmservicebehat',
+            'mod_selfselectadvanced LLM API service account fixture role'
+        );
+        set_role_contextlevels($roleid, [CONTEXT_MODULE]);
+        assign_capability('mod/selfselectadvanced:api', CAP_ALLOW, $roleid, $context->id, true);
+        assign_capability('mod/selfselectadvanced:coordinate', CAP_ALLOW, $roleid, $context->id, true);
+        role_assign($roleid, $userid, $context->id);
+    }
+
+    /**
+     * Drives tickets::claim() (if the ticket is still open) and
+     * tickets::comment() DIRECTLY - "drive via the service method
+     * directly in a generator step, not via HTTP" (1.20.46 BUILD spec
+     * section E) - the exact calls classes/external/api_claim.php and
+     * classes/external/api_respond.php themselves make.
+     *
+     * @Given :username has claimed and replied :note to the :team ticket in :activityname
+     *
+     * @param string $username the service account's username
+     * @param string $note the reply text
+     * @param string $team the plugin team name the ticket is about
+     * @param string $activityname the activity
+     */
+    public function has_claimed_and_replied_to_ticket(
+        string $username,
+        string $note,
+        string $team,
+        string $activityname
+    ): void {
+        global $DB;
+
+        $cm = $this->get_cm_by_activity_name('selfselectadvanced', $activityname);
+        $activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
+        $userid = $this->user_id_by_username($username);
+        $groupid = $this->group_id_by_name((int) $cm->instance, $team);
+
+        $ticketrow = $DB->get_record_sql(
+            'SELECT * FROM {selfselectadvanced_ticket} WHERE groupid = :groupid ORDER BY id DESC',
+            ['groupid' => $groupid],
+            IGNORE_MULTIPLE
+        );
+        if (!$ticketrow) {
+            throw new Exception('No mod_selfselectadvanced ticket found for team "' . $team . '"');
+        }
+
+        if ($ticketrow->status === \mod_selfselectadvanced\local\tickets::STATUS_OPEN) {
+            \mod_selfselectadvanced\local\tickets::claim($activity, (int) $ticketrow->id, $userid);
+        }
+        \mod_selfselectadvanced\local\tickets::comment($activity, (int) $ticketrow->id, $note, FORMAT_PLAIN, $userid);
+    }
+
+    /**
      * A plugin group id from its name inside one activity.
      *
      * @param int $instanceid the selfselectadvanced instance id

@@ -67,4 +67,104 @@ $functions = [
         // enforcing check is in search_participants::execute().
         'capabilities' => 'mod/selfselectadvanced:manage, mod/selfselectadvanced:managecomposition',
     ],
+
+    // The LLM API (1.20.46): read tickets and the knowledgebank, claim,
+    // request information, respond and escalate. Deliberately NOT ajax -
+    // these are called by an external LLM-based system holding a
+    // standard admin-issued web service token for the dedicated service
+    // account, not by this plugin's own pages. Every function's
+    // 'capabilities' entry is advisory (Moodle convention, as above);
+    // execute() enforces BOTH mod/selfselectadvanced:api AND the same
+    // coordinate-level authority a human queue worker needs
+    // (mod_selfselectadvanced\local\llmapi::require_api_authority()) -
+    // the api capability alone is never enough.
+    'mod_selfselectadvanced_api_list_tickets' => [
+        'classname' => \mod_selfselectadvanced\external\api_list_tickets::class,
+        'description' => 'List this activity\'s ticket queue: id, type, status, escalated flag, group name, '
+            . 'requester identity (fullname + role, never email or phone) and queue position.',
+        'type' => 'read',
+        'ajax' => false,
+        'capabilities' => 'mod/selfselectadvanced:api, mod/selfselectadvanced:coordinate, mod/selfselectadvanced:manage',
+    ],
+    'mod_selfselectadvanced_api_get_ticket' => [
+        'classname' => \mod_selfselectadvanced\external\api_get_ticket::class,
+        'description' => 'One ticket\'s full thread: the staff trail with actor identities replaced by role '
+            . 'labels, the requester\'s own identity, attachment filenames (no URLs or bytes) and the '
+            . 'requester\'s previous-ticket count.',
+        'type' => 'read',
+        'ajax' => false,
+        'capabilities' => 'mod/selfselectadvanced:api, mod/selfselectadvanced:coordinate, mod/selfselectadvanced:manage',
+    ],
+    'mod_selfselectadvanced_api_list_kb' => [
+        'classname' => \mod_selfselectadvanced\external\api_list_kb::class,
+        'description' => 'Every published knowledgebank entry for this activity, via the 1.20.45 serialiser '
+            . '(kb::export_entry()) verbatim.',
+        'type' => 'read',
+        'ajax' => false,
+        'capabilities' => 'mod/selfselectadvanced:api, mod/selfselectadvanced:coordinate, mod/selfselectadvanced:manage',
+    ],
+    'mod_selfselectadvanced_api_search_kb' => [
+        'classname' => \mod_selfselectadvanced\external\api_search_kb::class,
+        'description' => 'Search the published knowledgebank by free text and/or ticket type, via the 1.20.45 '
+            . 'serialiser (kb::export_entry()) verbatim.',
+        'type' => 'read',
+        'ajax' => false,
+        'capabilities' => 'mod/selfselectadvanced:api, mod/selfselectadvanced:coordinate, mod/selfselectadvanced:manage',
+    ],
+    'mod_selfselectadvanced_api_claim' => [
+        'classname' => \mod_selfselectadvanced\external\api_claim::class,
+        'description' => 'Claim an open ticket - a thin wrapper over tickets::claim(), no new state logic.',
+        'type' => 'write',
+        'ajax' => false,
+        'capabilities' => 'mod/selfselectadvanced:api, mod/selfselectadvanced:coordinate, mod/selfselectadvanced:manage',
+    ],
+    'mod_selfselectadvanced_api_request_info' => [
+        'classname' => \mod_selfselectadvanced\external\api_request_info::class,
+        'description' => 'Ask the requester a question on a claimed ticket - a thin wrapper over '
+            . 'tickets::request_info(), no new state logic.',
+        'type' => 'write',
+        'ajax' => false,
+        'capabilities' => 'mod/selfselectadvanced:api, mod/selfselectadvanced:coordinate, mod/selfselectadvanced:manage',
+    ],
+    'mod_selfselectadvanced_api_respond' => [
+        'classname' => \mod_selfselectadvanced\external\api_respond::class,
+        'description' => 'Post a requester-visible reply on a claimed ticket without closing it - a thin '
+            . 'wrapper over tickets::comment(), no new state logic. There is no resolve or decline endpoint: '
+            . 'closing a ticket is human-only.',
+        'type' => 'write',
+        'ajax' => false,
+        'capabilities' => 'mod/selfselectadvanced:api, mod/selfselectadvanced:coordinate, mod/selfselectadvanced:manage',
+    ],
+    'mod_selfselectadvanced_api_escalate' => [
+        'classname' => \mod_selfselectadvanced\external\api_escalate::class,
+        'description' => 'Hand a ticket up to the editing-teacher/manager tier - a thin wrapper over '
+            . 'tickets::escalate(), no new state logic.',
+        'type' => 'write',
+        'ajax' => false,
+        'capabilities' => 'mod/selfselectadvanced:api, mod/selfselectadvanced:coordinate, mod/selfselectadvanced:manage',
+    ],
+];
+
+$services = [
+    'selfselectadvanced_llm' => [
+        'functions' => [
+            'mod_selfselectadvanced_api_list_tickets',
+            'mod_selfselectadvanced_api_get_ticket',
+            'mod_selfselectadvanced_api_list_kb',
+            'mod_selfselectadvanced_api_search_kb',
+            'mod_selfselectadvanced_api_claim',
+            'mod_selfselectadvanced_api_request_info',
+            'mod_selfselectadvanced_api_respond',
+            'mod_selfselectadvanced_api_escalate',
+        ],
+        'restrictedusers' => 1,
+        'enabled' => 1,
+        'shortname' => 'selfselectadvanced_llm',
+        // Attachments are NOT exposed to the machine in 1.20.46 - a read
+        // payload lists attachment FILENAMES only (classes/external/
+        // api_get_ticket.php). Exposing the bytes is a separate,
+        // deliberately unmade maintainer decision.
+        'downloadfiles' => 0,
+        'uploadfiles' => 0,
+    ],
 ];
