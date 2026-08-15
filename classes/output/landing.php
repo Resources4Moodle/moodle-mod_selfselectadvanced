@@ -19,6 +19,7 @@ namespace mod_selfselectadvanced\output;
 use mod_selfselectadvanced\local\api;
 use mod_selfselectadvanced\local\authority;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\kb;
 use mod_selfselectadvanced\local\state;
 use mod_selfselectadvanced\local\tickets;
 use renderable;
@@ -337,6 +338,13 @@ class landing implements renderable, templatable {
         $tickethelprole = tickets::raiser_role($tickethelpgroup, $this->userid);
         $data->showtickethelp = tickets::may_raise($activity, $tickethelprole);
         $data->tickethelpurl = (new \moodle_url('/mod/selfselectadvanced/filehelp.php', ['id' => $cmid]))->out(false);
+
+        // 1.20.45: "Common questions" - drawn only once the activity has
+        // at least one published entry (spec), for anyone who can view
+        // the activity at all (kb.php's own door), not gated on any
+        // ticket-raising eligibility the way the button above is.
+        $data->haskbentries = kb::has_published($activity);
+        $data->kburl = (new \moodle_url('/mod/selfselectadvanced/kb.php', ['id' => $cmid]))->out(false);
 
         if (has_capability('mod/selfselectadvanced:viewall', $context, $this->userid, false)) {
             $data->isstaff = true;

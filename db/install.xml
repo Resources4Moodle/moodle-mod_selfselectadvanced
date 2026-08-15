@@ -516,5 +516,31 @@
         <KEY NAME="fk_actorid" TYPE="foreign" FIELDS="actorid" REFTABLE="user" REFFIELDS="id"/>
       </KEYS>
     </TABLE>
+    <TABLE NAME="selfselectadvanced_kb" COMMENT="1.20.45: the knowledgebank - staff-edited FAQ articles grown from resolved tickets (publish_from_ticket, sourceticketid names the origin) or authored directly (sourceticketid 0). Anonymised by the human edit before publishing; the service refuses the lazy path where the wording still names the requester or the group verbatim.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="question" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="The public wording of the question, staff-edited - never auto-copied verbatim from the source ticket's request"/>
+        <FIELD NAME="questionformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="answer" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="The public answer, staff-edited - never auto-copied verbatim from the source ticket's resolution"/>
+        <FIELD NAME="answerformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="tickettype" TYPE="char" LENGTH="128" NOTNULL="true" DEFAULT="" SEQUENCE="false" COMMENT="'' = general (no specific ticket type); otherwise a value tickets::known_types() recognises"/>
+        <FIELD NAME="keywords" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT="" SEQUENCE="false" COMMENT="Comma-separated, stored lowercase - deflect()/search() match against this and the title"/>
+        <FIELD NAME="published" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="sourceticketid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 = authored directly. INTERNAL PROVENANCE ONLY - never in export_entry()'s output, and the ticketlog note it produces carries no public link back."/>
+        <FIELD NAME="usercreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="activityid_tickettype" UNIQUE="false" FIELDS="activityid, tickettype"/>
+      </INDEXES>
+    </TABLE>
   </TABLES>
 </XMLDB>

@@ -201,11 +201,24 @@ if (in_array($action, ['resolve', 'decline'], true) && data_submitted() && confi
     // staff-internal-shaped short note stays text-only) - the draft id
     // is read, and the save below runs, ONLY on the resolve arm.
     $resolutiondraftid = $action === 'resolve' ? optional_param('resolutionattachments', 0, PARAM_INT) : 0;
+    // 1.20.45: the resolve form's own "Publish as FAQ" checkbox
+    // (ticketpost_form.php's showpublishfaq); decline carries no such
+    // field at all, so this reads 0 for that arm without even asking.
+    $publishfaq = $action === 'resolve' && (bool) optional_param('publishfaq', 0, PARAM_BOOL);
     $outcome = $action === 'resolve' ? tickets::STATUS_RESOLVED : tickets::STATUS_DECLINED;
     try {
         tickets::close($activity, $t, $outcome, $note, FORMAT_MOODLE, (int) $USER->id);
         if ($action === 'resolve') {
             tickets::save_post_attachments($activity, $t, $resolutiondraftid);
+        }
+        if ($publishfaq) {
+            // Publishing is a SECOND deliberate step (maintainer's own
+            // words), never a side effect of resolving: this redirects to
+            // the knowledgebank's pre-filled DRAFT form - kb.php - which
+            // the staff member still has to edit and save. Resolving
+            // itself is already committed above regardless of what
+            // happens next on that screen.
+            redirect(new moodle_url('/mod/selfselectadvanced/kb.php', ['id' => $cm->id, 'action' => 'form', 't' => $t]));
         }
         redirect(
             $baseurl,

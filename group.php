@@ -1649,6 +1649,18 @@ if (
 // file_help(), which is the server-side gate that matters.
 $ticketdisclaimertext = trim(html_to_text((string) ($activity->settings()->ticketdisclaimer ?? '')));
 $ticketack = optional_param('ticketack', 0, PARAM_BOOL);
+// 1.20.45: the filing deflection - one block per requestable type that
+// has matches (lib.php's own docblock: "shows deflect() results above
+// the form... NO forced block"), built BEFORE the disclaimer gate below
+// decides what to draw so both arms can consult it without asking twice.
+$kbdeflectionhtml = '';
+foreach ($requestable as $tickettype) {
+    $kbdeflectionhtml .= selfselectadvanced_kb_deflection_screen(
+        $activity,
+        $tickettype,
+        new moodle_url($baseurl, ['ticketack' => $ticketack ? 1 : 0, 'showform' => 1])
+    );
+}
 if ($requestable && $ticketdisclaimertext !== '' && !$ticketack) {
     $ticketforms = html_writer::div(
         format_text(
@@ -1662,6 +1674,11 @@ if ($requestable && $ticketdisclaimertext !== '' && !$ticketack) {
         get_string('ticketdisclaimeracknowledge', 'mod_selfselectadvanced'),
         'get'
     );
+} else if ($kbdeflectionhtml !== '') {
+    // Deflection shown, every filing form withheld until "continue" -
+    // NO forced block (spec), so nothing here stops a requester reaching
+    // the form; it is only ever one click further away.
+    $ticketforms = $kbdeflectionhtml;
 } else {
     // 1.20.44 part 2: a real moodleform per type, purely to get
     // file_save_draft_area_files() draft-area handling for the new

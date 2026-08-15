@@ -90,6 +90,17 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
                 'ssaticketlog',
                 '/activity/selfselectadvanced/tickets/ticket/ticketlogs/ticketlog'
             );
+            // Sibling of tickets, not nested under one: an entry authored
+            // directly (sourceticketid 0) is not "about" any ticket, and
+            // one published FROM a ticket still stands as its own row
+            // once restored - process_ssakbentry() maps sourceticketid
+            // with get_mappingid() against the OLD id, the same "was THIS
+            // ticket ever mapped at all" question process_ssaticketlog()
+            // asks of ITS ticketid.
+            $paths[] = new restore_path_element(
+                'ssakbentry',
+                '/activity/selfselectadvanced/kbentries/kbentry'
+            );
             $paths[] = new restore_path_element(
                 'ssacontact',
                 '/activity/selfselectadvanced/contacts/contact'
@@ -525,6 +536,35 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         // add_related_files('ticketpost', 'ssaticketlog') in
         // after_execute() below can find them.
         $this->set_mapping('ssaticketlog', $oldid, $newid, true);
+    }
+
+    /**
+     * Restore a knowledgebank entry (1.20.45). The content itself
+     * (title/question/answer) is reusable course data and is never
+     * dropped for an unmappable relation - unlike process_ssaticket()'s
+     * requestedby, this row names no one who MUST exist for it to mean
+     * anything. usercreated and usermodified degrade to 0 individually
+     * on an unmappable user, the same "de-link, do not destroy" policy
+     * privacy erasure already applies to these two exact columns
+     * (classes/privacy/provider.php's own annotated-columns idiom).
+     * sourceticketid degrades to 0 ("authored directly") when the
+     * source ticket was dropped or is not being restored (no userinfo,
+     * so ssaticket carries no mapping at all) - the article stands on
+     * its own either way.
+     *
+     * @param array $data the row
+     */
+    protected function process_ssakbentry($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $data->activityid = $this->get_new_parentid('selfselectadvanced');
+        $data->usercreated = $this->get_mappingid('user', $data->usercreated) ?: 0;
+        $data->usermodified = $this->get_mappingid('user', $data->usermodified) ?: 0;
+        $data->sourceticketid = !empty($data->sourceticketid)
+            ? ($this->get_mappingid('ssaticket', $data->sourceticketid) ?: 0)
+            : 0;
+        $DB->insert_record('selfselectadvanced_kb', $data);
     }
 
     /**

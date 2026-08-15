@@ -2890,5 +2890,50 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081502, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081503) {
+        // 1.20.45: the knowledgebank grown from resolved tickets. A new
+        // table only - nothing on any existing table changes shape, so
+        // every row anywhere upgrades untouched.
+        $table = new xmldb_table('selfselectadvanced_kb');
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+            $table->add_field('activityid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('title', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('question', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+            $table->add_field('questionformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
+            $table->add_field('answer', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+            $table->add_field('answerformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
+            $table->add_field('tickettype', XMLDB_TYPE_CHAR, '128', null, XMLDB_NOTNULL, null, '');
+            $table->add_field('keywords', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, '');
+            $table->add_field('published', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1');
+            $table->add_field('sourceticketid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('usercreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('usermodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_key('fk_activityid', XMLDB_KEY_FOREIGN, ['activityid'], 'selfselectadvanced', ['id']);
+            $table->add_index('activityid_tickettype', XMLDB_INDEX_NOTUNIQUE, ['activityid', 'tickettype']);
+            $dbman->create_table($table);
+        }
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // SAME GOTCHA the two steps above pin: info is varchar(255)
+            // and upgrade_log() SWALLOWS an overlong insert's exception
+            // on PostgreSQL - keep this line short, prose below.
+            'Upgraded to 1.20.45 (2026081503). The knowledgebank: FAQs grown from resolved tickets.',
+            'One new table, selfselectadvanced_kb - nothing on any existing table changes shape. '
+                . 'Staff resolving a ticket may tick "publish as FAQ" and edit the wording (the '
+                . 'service refuses the lazy path where it still names the requester or the group); '
+                . 'staff may also add an article directly. Published entries are searchable by '
+                . 'anyone who can view the activity; the filing screen offers matching entries '
+                . 'before a new ticket is raised, informing only, never blocking.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081503, 'selfselectadvanced');
+    }
+
     return true;
 }

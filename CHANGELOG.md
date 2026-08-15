@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.20.45 — answers that outlive the ticket that produced them (2026-08-15)
+
+> Serial `2026081503` / `1.20.45`. **Schema change: one new table**
+> (`selfselectadvanced_kb`); no existing row is migrated.
+> Maturity stays RC.
+
+**The knowledgebank grows out of resolved tickets.** When staff resolve a
+ticket they can tick *Publish as FAQ*, which opens a draft pre-filled from
+the request and the resolution — and it is the staff-edited wording that gets
+stored, never an automatic copy. Anonymisation is enforced by the service,
+not merely requested in a help string: a draft still containing the
+requester's name or the group's name is refused, in any case. Publishing
+leaves a staff-internal trail row on the source ticket, with no public link
+back to it.
+
+**Articles nobody has asked for yet can be written directly**, from the same
+knowledgebank page, so common questions can be answered before they are
+asked. Staff see every entry with edit, unpublish and delete; students see
+the published ones, grouped by ticket type, with a search box.
+
+**Deflection informs without blocking.** Before any ticket form, matching
+entries appear above it — matched on the ticket type and the words of the
+request — and the form is one click away regardless. Nothing refuses a
+filing because an article looked similar.
+
+**Built LLM-first, as asked.** One serialiser is the single place a KB row
+becomes output: it returns the answer as both HTML and plain text so a
+machine consumer never has to parse markup, and it carries no provenance and
+no author identity — the ticket an answer grew from is internal, and stays
+internal. The 1.20.46 API pins against exactly that key set.
+
 ## 1.20.44 — the ladder up, and papers attached to the case (2026-08-15)
 
 > Serial `2026081502` / `1.20.44`. **Schema change: one new column**

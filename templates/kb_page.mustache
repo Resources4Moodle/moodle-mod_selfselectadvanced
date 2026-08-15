@@ -1,0 +1,146 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_selfselectadvanced/kb_page
+
+    The knowledgebank's list screen: the staff list, or the student
+    browse+search view - kb_page.php decides which this viewer gets.
+
+    Example context (json):
+    {
+        "cmid": 1,
+        "isstaff": true,
+        "sesskey": "abc",
+        "actionurl": "https://example.com/mod/selfselectadvanced/kb.php",
+        "backurl": "https://example.com/mod/selfselectadvanced/view.php?id=1",
+        "backlabel": "Back",
+        "staffheading": "Manage the knowledge base",
+        "addurl": "https://example.com/mod/selfselectadvanced/kb.php?id=1&action=form",
+        "addlabel": "Add an article",
+        "entries": [
+            {
+                "id": 5, "title": "How do I ask for an unfreeze?", "typelabel": "Unfreeze",
+                "published": true, "statuslabel": "Published",
+                "editurl": "https://example.com/mod/selfselectadvanced/kb.php?id=1&action=form&e=5"
+            }
+        ],
+        "hasentries": true,
+        "noarticles": "No articles yet.",
+        "studentheading": "Common questions",
+        "searchurl": "https://example.com/mod/selfselectadvanced/kb.php?id=1",
+        "searchlabel": "Search",
+        "searchplaceholder": "Search the knowledge base",
+        "searchbutton": "Search",
+        "q": "",
+        "groups": [
+            {
+                "typelabel": "Unfreeze",
+                "entries": [
+                    {"title": "How do I ask for an unfreeze?", "answerhtml": "<p>Use the unfreeze request on your group page.</p>"}
+                ]
+            }
+        ],
+        "hasgroups": true,
+        "nopublished": "No common questions have been published yet."
+    }
+}}
+<div class="selfselectadvanced-kbpage">
+{{#isstaff}}
+    <h3>{{staffheading}}</h3>
+    <p><a href="{{addurl}}" class="btn btn-primary">{{addlabel}}</a></p>
+    {{#hasentries}}
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>{{#str}} kbtitlelabel, mod_selfselectadvanced {{/str}}</th>
+                    <th>{{#str}} kbtypelabel, mod_selfselectadvanced {{/str}}</th>
+                    <th>{{#str}} kbpublishedlabel, mod_selfselectadvanced {{/str}}</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{#entries}}
+                <tr>
+                    <td>{{title}}</td>
+                    <td>{{typelabel}}</td>
+                    <td>{{statuslabel}}</td>
+                    <td class="text-end">
+                        <a href="{{editurl}}" class="btn btn-sm btn-outline-secondary">
+                            {{#str}} kbedit, mod_selfselectadvanced {{/str}}
+                        </a>
+                        <form method="post" action="{{actionurl}}" class="d-inline">
+                            <input type="hidden" name="e" value="{{id}}">
+                            <input type="hidden" name="sesskey" value="{{sesskey}}">
+                            {{#published}}
+                                <input type="hidden" name="action" value="unpublish">
+                                <button type="submit" class="btn btn-sm btn-outline-warning">
+                                    {{#str}} kbunpublish, mod_selfselectadvanced {{/str}}
+                                </button>
+                            {{/published}}
+                            {{^published}}
+                                <input type="hidden" name="action" value="republish">
+                                <button type="submit" class="btn btn-sm btn-outline-success">
+                                    {{#str}} kbrepublish, mod_selfselectadvanced {{/str}}
+                                </button>
+                            {{/published}}
+                        </form>
+                        <form method="post" action="{{actionurl}}" class="d-inline">
+                            <input type="hidden" name="e" value="{{id}}">
+                            <input type="hidden" name="sesskey" value="{{sesskey}}">
+                            <input type="hidden" name="action" value="delete">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                {{#str}} kbdelete, mod_selfselectadvanced {{/str}}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {{/entries}}
+            </tbody>
+        </table>
+    {{/hasentries}}
+    {{^hasentries}}
+        <p class="text-muted">{{noarticles}}</p>
+    {{/hasentries}}
+{{/isstaff}}
+{{^isstaff}}
+    <h3>{{studentheading}}</h3>
+    <form method="get" action="{{searchurl}}" class="form-inline mb-3">
+        <input type="hidden" name="id" value="{{cmid}}">
+        <label for="selfselectadvanced-kbsearch" class="me-2">{{searchlabel}}</label>
+        <input type="text" id="selfselectadvanced-kbsearch" name="q" value="{{q}}"
+            placeholder="{{searchplaceholder}}" class="form-control d-inline-block me-2" style="width: auto;">
+        <button type="submit" class="btn btn-secondary">{{searchbutton}}</button>
+    </form>
+    {{#hasgroups}}
+        {{#groups}}
+            <h4>{{typelabel}}</h4>
+            {{#entries}}
+                <div class="selfselectadvanced-kbentry card mb-2">
+                    <div class="card-body">
+                        <h5 class="card-title">{{title}}</h5>
+                        <div class="card-text">{{{answerhtml}}}</div>
+                    </div>
+                </div>
+            {{/entries}}
+        {{/groups}}
+    {{/hasgroups}}
+    {{^hasgroups}}
+        <p class="text-muted">{{nopublished}}</p>
+    {{/hasgroups}}
+{{/isstaff}}
+    <a href="{{backurl}}" class="btn btn-secondary mt-3">{{backlabel}}</a>
+</div>

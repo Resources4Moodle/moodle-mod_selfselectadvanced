@@ -330,7 +330,12 @@ class ticket_page implements renderable, templatable {
                 $box->isguidecap
                     ? get_string('guidecapgrant', 'mod_selfselectadvanced', $box->guidecaprequested)
                     : get_string('ticketresolve', 'mod_selfselectadvanced'),
-                false
+                false,
+                // 1.20.45: the checkbox belongs to a genuine RESOLVE only -
+                // a guidecap grant has no "public wording" of the kind the
+                // knowledgebank publishes (its resolution is a capacity
+                // number, not an answer to a question).
+                !$box->isguidecap
             );
             // Restored per orchestrator review (2026-08-15): the
             // claimant's hand-back-to-the-queue affordance, alongside
@@ -393,6 +398,9 @@ class ticket_page implements renderable, templatable {
      * @param string $label the textarea's label
      * @param string $buttonlabel the submit button's label
      * @param bool $required whether the text field is required
+     * @param bool $showpublishfaq 1.20.45: whether to add the "Publish
+     *        as FAQ" checkbox - true for a genuine resolve, never for
+     *        request-info, reply or a guidecap grant
      * @return string rendered form HTML
      */
     private function render_ticketpost_form(
@@ -400,7 +408,8 @@ class ticket_page implements renderable, templatable {
         string $actionname,
         string $label,
         string $buttonlabel,
-        bool $required
+        bool $required,
+        bool $showpublishfaq = false
     ): string {
         $context = $this->activity->context();
         $fileoptions = tickets::file_options();
@@ -414,6 +423,7 @@ class ticket_page implements renderable, templatable {
                 'buttonlabel' => $buttonlabel,
                 'required' => $required,
                 'fileoptions' => $fileoptions,
+                'showpublishfaq' => $showpublishfaq,
             ]
         );
         $draftid = 0;

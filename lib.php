@@ -95,6 +95,69 @@ function selfselectadvanced_split_ticketdisclaimer_editor(stdClass $data): void 
 }
 
 /**
+ * The filing screen's knowledgebank deflection (1.20.45 spec: "shows
+ * deflect() results above the form... a 'my question is different -
+ * continue' link reveals the form. NO forced block - deflection
+ * informs, never forbids"), shared between filehelp.php's single-type
+ * screen and group.php's per-type ticket section so the two idioms
+ * cannot drift apart.
+ *
+ * Called with no free text (deflect()'s $text argument is '') because
+ * this runs before the requester has typed anything - deflect() itself
+ * degrades to "this type's most recently edited published entries"
+ * when no keyword survives extraction, which is exactly what is useful
+ * the moment the screen renders.
+ *
+ * The GET round trip is the SAME idiom the disclaimer gate right above
+ * this on both filing screens already uses (an "I acknowledge"/
+ * "continue" link that reloads with a flag set) rather than JavaScript -
+ * $continueurl is expected to carry every other query param this
+ * screen needs preserved (the disclaimer's own ticketack among them)
+ * plus showform=1.
+ *
+ * @param \mod_selfselectadvanced\activity $activity the activity
+ * @param string $type tickets::TYPE_*, or '' for a groupless/general screen
+ * @param \moodle_url $continueurl where "continue" reveals the form
+ * @return string rendered HTML, or '' when showform=1 was already
+ *         passed or there is nothing to deflect with - callers check
+ *         truthiness to decide whether to render the form instead
+ */
+function selfselectadvanced_kb_deflection_screen(
+    \mod_selfselectadvanced\activity $activity,
+    string $type,
+    \moodle_url $continueurl
+): string {
+    if (optional_param('showform', 0, PARAM_BOOL)) {
+        return '';
+    }
+    $matches = \mod_selfselectadvanced\local\kb::deflect($activity, $type, '');
+    if (!$matches) {
+        return '';
+    }
+
+    $out = html_writer::start_div('selfselectadvanced-kbdeflect alert alert-info');
+    $out .= html_writer::tag('p', get_string('kbdeflectheading', 'mod_selfselectadvanced'), ['class' => 'fw-bold mb-2']);
+    foreach ($matches as $match) {
+        // Through export_entry(), the single serialiser (kb.php's own
+        // class docblock) - this screen never calls format_text() on a
+        // kb row itself.
+        $exported = \mod_selfselectadvanced\local\kb::export_entry($match);
+        $out .= html_writer::start_tag('details', ['class' => 'selfselectadvanced-kbdeflectentry mb-2']);
+        $out .= html_writer::tag('summary', $exported['title']);
+        $out .= html_writer::div($exported['answerhtml'], 'mt-1');
+        $out .= html_writer::end_tag('details');
+    }
+    $out .= html_writer::link(
+        $continueurl,
+        get_string('kbcontinueanyway', 'mod_selfselectadvanced'),
+        ['class' => 'btn btn-outline-secondary btn-sm mt-1']
+    );
+    $out .= html_writer::end_div();
+
+    return $out;
+}
+
+/**
  * Add a new instance of the activity.
  *
  * @param stdClass $data form data

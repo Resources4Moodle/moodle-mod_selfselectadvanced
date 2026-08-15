@@ -155,6 +155,16 @@ class provider implements
             'note' => 'privacy:metadata:ticketlog:note',
             'timecreated' => 'privacy:metadata:ticketlog:timecreated',
         ], 'privacy:metadata:ticketlog');
+        // The knowledgebank (1.20.45). Declared for the two annotated
+        // columns only, the same idiom override/group/move already use
+        // for THEIR usermodified - the article's own content (title,
+        // question, answer) is staff-authored public-facing wording, not
+        // the erased person's personal narrative the way a ticket's own
+        // request/resolution is.
+        $collection->add_database_table('selfselectadvanced_kb', [
+            'usercreated' => 'privacy:metadata:kb:usercreated',
+            'usermodified' => 'privacy:metadata:kb:usermodified',
+        ], 'privacy:metadata:kb');
         $collection->add_database_table('selfselectadvanced_penalty', [
             'groupid' => 'privacy:metadata:penalty:groupid',
             'dayslate' => 'privacy:metadata:penalty:dayslate',
@@ -267,7 +277,11 @@ class provider implements
                          WHERE om.activityid = a.id AND om.usermodified = :userid21)
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_move} mm
-                         WHERE mm.activityid = a.id AND mm.usermodified = :userid22)";
+                         WHERE mm.activityid = a.id AND mm.usermodified = :userid22)
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_kb} kb
+                         WHERE kb.activityid = a.id
+                           AND (kb.usercreated = :userid25 OR kb.usermodified = :userid26))";
         // The last six clauses close the reverse asymmetry the
         // get_users_in_context() comment describes: whoever triggered a
         // grouping run, sent an invitation, took a roster snapshot or is
@@ -298,7 +312,7 @@ class provider implements
             'userid15' => $userid, 'userid16' => $userid, 'userid17' => $userid,
             'userid18' => $userid, 'userid19' => $userid, 'userid20' => $userid,
             'userid21' => $userid, 'userid22' => $userid, 'userid23' => $userid,
-            'userid24' => $userid,
+            'userid24' => $userid, 'userid25' => $userid, 'userid26' => $userid,
         ]);
 
         global $DB;
@@ -673,6 +687,28 @@ class provider implements
               WHERE mv.usermodified > 0",
             $params
         );
+        // The knowledgebank (1.20.45): the same annotated-columns idiom
+        // as override/group/move's own usermodified above, plus the
+        // author (usercreated has no vacancy-style 0-for-nobody meaning
+        // the way group.leaderid does, but it IS a modifier-style column
+        // that degrades to 0 on erasure exactly like usermodified does,
+        // so both are guarded the same way here).
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT kb.usercreated AS userid
+               FROM {selfselectadvanced_kb} kb
+               JOIN {course_modules} cm ON cm.instance = kb.activityid AND cm.id = :cmid
+              WHERE kb.usercreated > 0",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT kb.usermodified AS userid
+               FROM {selfselectadvanced_kb} kb
+               JOIN {course_modules} cm ON cm.instance = kb.activityid AND cm.id = :cmid
+              WHERE kb.usermodified > 0",
+            $params
+        );
 
         // The participants an auto-grouping log NAMES, not merely the
         // manager who started the run (H-05). The log body is the
@@ -904,6 +940,19 @@ class provider implements
                 'id ASC',
                 'id, scope, status, timecreated'
             );
+            // Knowledgebank entries this person authored or last edited
+            // (1.20.45) - the two annotated columns only, the same
+            // declared-and-exported pair the two queries above already
+            // cover for group/override. A row reached only through
+            // usermodified still names the TITLE so the export makes
+            // sense on its own, not the whole staff-authored content.
+            $kbauthored = $DB->get_records_sql(
+                "SELECT kb.id, kb.title, kb.tickettype, kb.published, kb.timecreated, kb.timemodified,
+                        kb.usercreated, kb.usermodified
+                   FROM {selfselectadvanced_kb} kb
+                  WHERE kb.activityid = :activityid AND (kb.usercreated = :u1 OR kb.usermodified = :u2)",
+                ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid]
+            );
             $volunteer = $DB->get_record('selfselectadvanced_volunteer', [
                 'activityid' => $cm->instance,
                 'userid' => $userid,
@@ -1102,6 +1151,18 @@ class provider implements
                         'pluginuid' => $g->pluginuid,
                         'timemodified' => transform::datetime($g->timemodified),
                     ], $modifiedgroups)),
+                    // 1.20.45. wasauthor/waseditor rather than a raw
+                    // usercreated/usermodified comparison repeated inline -
+                    // the same "wasyou"-shaped flag 'moves' above uses for
+                    // a third party it must not name by id.
+                    'kbarticlesauthored' => array_values(array_map(static fn($kbrow) => (object) [
+                        'title' => format_string($kbrow->title),
+                        'wasauthor' => transform::yesno((int) $kbrow->usercreated === $userid),
+                        'waseditor' => transform::yesno((int) $kbrow->usermodified === $userid),
+                        'published' => transform::yesno($kbrow->published),
+                        'timecreated' => transform::datetime($kbrow->timecreated),
+                        'timemodified' => transform::datetime($kbrow->timemodified),
+                    ], $kbauthored)),
                     'overridesgranted' => array_values(array_map(static fn($o) => (object) [
                         'scope' => $o->scope,
                         'status' => $o->status,
@@ -1388,6 +1449,13 @@ class provider implements
         $DB->set_field('selfselectadvanced_group', 'guidenotes', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'returncomment', null, ['activityid' => $cm->instance]);
         $DB->set_field('selfselectadvanced_group', 'usermodified', 0, ['activityid' => $cm->instance]);
+        // The knowledgebank (1.20.45): the SAME "content stays, modifier
+        // de-links" treatment as the group row just above - a published
+        // FAQ is reusable course content, not the erased person's own
+        // narrative, so a full context purge blanks the two annotated
+        // columns rather than deleting every article.
+        $DB->set_field('selfselectadvanced_kb', 'usercreated', 0, ['activityid' => $cm->instance]);
+        $DB->set_field('selfselectadvanced_kb', 'usermodified', 0, ['activityid' => $cm->instance]);
 
         // Empty every mirror of every plugin-owned membership. The cost
         // per group equals the roster being purged - unavoidable, and
@@ -1563,6 +1631,22 @@ class provider implements
         );
         $DB->set_field(
             'selfselectadvanced_group',
+            'usermodified',
+            0,
+            ['activityid' => $activityid, 'usermodified' => $userid]
+        );
+        // The knowledgebank (1.20.45): the annotated-columns idiom this
+        // whole method is built on, applied to BOTH columns kb declares -
+        // usercreated and usermodified individually, since one person can
+        // be either, neither or both on a given row.
+        $DB->set_field(
+            'selfselectadvanced_kb',
+            'usercreated',
+            0,
+            ['activityid' => $activityid, 'usercreated' => $userid]
+        );
+        $DB->set_field(
+            'selfselectadvanced_kb',
             'usermodified',
             0,
             ['activityid' => $activityid, 'usermodified' => $userid]

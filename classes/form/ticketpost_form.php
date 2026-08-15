@@ -37,7 +37,10 @@ require_once($CFG->libdir . '/formslib.php');
  * Custom data: field (the element name: question, reply or resolution),
  * label (lang string key for the textarea), buttonlabel (lang string
  * key for the submit button, or a resolved string for the guidecap
- * grant's amount-carrying variant), fileoptions (filemanager options).
+ * grant's amount-carrying variant), fileoptions (filemanager options),
+ * showpublishfaq (bool, 1.20.45: adds the "Publish as FAQ" checkbox -
+ * the RESOLVE instance only, never request-info, reply or the guidecap
+ * grant variant, which ticket_page.php's own call site decides).
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -83,6 +86,20 @@ class ticketpost_form extends \moodleform {
             null,
             $this->_customdata['fileoptions']
         );
+
+        // 1.20.45: the resolve form's own "Publish as FAQ" checkbox -
+        // publishing is a SECOND deliberate step (maintainer's own
+        // words), never a side effect of resolving, so this only flags
+        // the intent; ticket.php's resolve arm is what actually redirects
+        // to kb.php's pre-filled draft form once close() has succeeded.
+        if (!empty($this->_customdata['showpublishfaq'])) {
+            $mform->addElement(
+                'advcheckbox',
+                'publishfaq',
+                get_string('kbpublishfaqcheckbox', 'mod_selfselectadvanced')
+            );
+            $mform->setType('publishfaq', PARAM_BOOL);
+        }
 
         $this->add_action_buttons(false, $this->_customdata['buttonlabel']);
     }

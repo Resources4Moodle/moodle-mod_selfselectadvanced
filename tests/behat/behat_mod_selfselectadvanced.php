@@ -106,6 +106,9 @@ class behat_mod_selfselectadvanced extends behat_base {
             // 1.20.43 deliverable B: the landing page's own filing entry
             // for the general help type, needing no group in view.
             'file help' => '/mod/selfselectadvanced/filehelp.php',
+            // 1.20.45: the knowledgebank - the staff list or the student
+            // browse/search view, kb.php itself decides which.
+            'kb' => '/mod/selfselectadvanced/kb.php',
             'join' => '/mod/selfselectadvanced/joinrequest.php',
             'eoi list' => '/mod/selfselectadvanced/eoilist.php',
         ];

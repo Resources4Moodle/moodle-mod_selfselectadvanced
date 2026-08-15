@@ -177,6 +177,17 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $ticketlog = new backup_nested_element('ticketlog', ['id'], [
             'ticketid', 'actorid', 'action', 'note', 'noteformat', 'timecreated',
         ]);
+        // The knowledgebank (1.20.45): sourceticketid travels EXPLICITLY,
+        // the same reason ticketlog's own ticketid does above (a ticket
+        // can be dropped by process_ssaticket() on restore, and the FAQ
+        // it grew is not dropped with it - get_mappingid() at restore
+        // time is what lets that be told apart from "no source ticket").
+        $kbentries = new backup_nested_element('kbentries');
+        $kbentry = new backup_nested_element('kbentry', ['id'], [
+            'title', 'question', 'questionformat', 'answer', 'answerformat', 'tickettype',
+            'keywords', 'published', 'sourceticketid', 'usercreated', 'usermodified',
+            'timecreated', 'timemodified',
+        ]);
 
         $activity->add_child($quotas);
         $quotas->add_child($quota);
@@ -211,6 +222,10 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         // means nothing without the ticket it narrates.
         $ticket->add_child($ticketlogs);
         $ticketlogs->add_child($ticketlog);
+        // After the tickets subtree, so a restore already holds the
+        // ssaticket mapping a published entry's sourceticketid needs.
+        $activity->add_child($kbentries);
+        $kbentries->add_child($kbentry);
         // After the groups subtree, like tickets, so a restore already
         // holds the mapping their groupid needs.
         $activity->add_child($contacts);
@@ -240,6 +255,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             );
             $ticket->set_source_table('selfselectadvanced_ticket', ['activityid' => backup::VAR_PARENTID]);
             $ticketlog->set_source_table('selfselectadvanced_ticketlog', ['ticketid' => backup::VAR_PARENTID]);
+            $kbentry->set_source_table('selfselectadvanced_kb', ['activityid' => backup::VAR_PARENTID]);
             $contact->set_source_table('selfselectadvanced_contact', ['activityid' => backup::VAR_PARENTID]);
         }
 
@@ -261,6 +277,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $ticket->annotate_ids('user', 'claimedby');
         $ticket->annotate_ids('user', 'resolvedby');
         $ticketlog->annotate_ids('user', 'actorid');
+        $kbentry->annotate_ids('user', 'usercreated');
+        $kbentry->annotate_ids('user', 'usermodified');
         $contact->annotate_ids('user', 'guideid');
         $contact->annotate_ids('user', 'sentby');
 

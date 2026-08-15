@@ -191,6 +191,18 @@ class tickets {
     public const ACTION_ESCALATED = 'escalated';
 
     /**
+     * @var string A claimant published this resolved ticket to the
+     *      knowledgebank (1.20.45, kb::publish_from_ticket()). Staff-
+     *      internal by design - see STAFF_INTERNAL_ACTIONS below - the
+     *      maintainer's own words are "no public link back": the
+     *      published article is anonymised (requester and group
+     *      stripped), and this trail row exists so STAFF can see it was
+     *      done, never so the requester can recognise their own ticket
+     *      reflected back at them.
+     */
+    public const ACTION_PUBLISHED_FAQ = 'published_faq';
+
+    /**
      * @var string[] Trail actions that are ladder machinery between
      *      staff, never narrated to the REQUESTER's anonymised view
      *      (1.20.44). Part 2 of the same release calls a referral's or
@@ -201,10 +213,17 @@ class tickets {
      *      releases a coordinator's claim shows as the ticket badge
      *      going back to "Open") - what is withheld is the narration of
      *      WHY, and to whom.
+     *
+     * ACTION_PUBLISHED_FAQ joins this list in 1.20.45 for the same
+     * reason: it changes nothing about the ticket's own status, so
+     * hiding it from the requester's trail costs them no information
+     * about their request - only the (deliberately anonymised) fact
+     * that their words informed an FAQ elsewhere.
      */
     public const STAFF_INTERNAL_ACTIONS = [
         self::ACTION_REFERRED,
         self::ACTION_ESCALATED,
+        self::ACTION_PUBLISHED_FAQ,
     ];
 
     /**
@@ -2872,7 +2891,25 @@ class tickets {
         if ($type === '') {
             return;
         }
-        $known = [
+        if (!in_array($type, self::known_types(), true)) {
+            throw new \coding_exception('Unknown ticket type filter ' . $type);
+        }
+    }
+
+    /**
+     * Every ticket type this plugin knows (the "type registry" other
+     * callers outside this class validate against without duplicating
+     * the list - 1.20.45's knowledgebank keys its tickettype column on
+     * exactly this set, since 'compchange' is a string, not a row this
+     * database could enforce a real foreign key against).
+     *
+     * Extracted from validate_type_filter()'s own literal, which now
+     * calls this rather than keeping a second copy that could drift.
+     *
+     * @return string[]
+     */
+    public static function known_types(): array {
+        return [
             self::TYPE_COMPCHANGE,
             self::TYPE_UNFREEZE,
             self::TYPE_GUIDECAP,
@@ -2883,9 +2920,6 @@ class tickets {
             self::TYPE_LEADERCHANGE,
             self::TYPE_HELP,
         ];
-        if (!in_array($type, $known, true)) {
-            throw new \coding_exception('Unknown ticket type filter ' . $type);
-        }
     }
 
     /**
@@ -3340,6 +3374,24 @@ class tickets {
             'noteformat' => $noteformat,
             'timecreated' => time(),
         ]);
+    }
+
+    /**
+     * Record that a ticket was published to the knowledgebank (1.20.45),
+     * for kb::publish_from_ticket() - log() itself stays private (the
+     * docblock above it is emphatic: "ONE PLACE THIS TABLE IS WRITTEN"),
+     * so a caller outside this class gets this one narrow door rather
+     * than a second insert path. No note: the maintainer's own words are
+     * "no public link back", and ACTION_PUBLISHED_FAQ is staff-internal
+     * (STAFF_INTERNAL_ACTIONS) precisely so this row never reaches the
+     * requester's anonymised trail regardless.
+     *
+     * @param int $ticketid the resolved ticket that was published
+     * @param int $actorid who published it
+     * @return int the inserted ticketlog row id
+     */
+    public static function note_published_faq(int $ticketid, int $actorid): int {
+        return self::log($ticketid, $actorid, self::ACTION_PUBLISHED_FAQ, null, FORMAT_PLAIN);
     }
 
     /**

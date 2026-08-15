@@ -121,6 +121,11 @@ if ($refusal !== null) {
 } else {
     $settings = $activity->settings();
     $disclaimertext = trim(html_to_text((string) ($settings->ticketdisclaimer ?? '')));
+    // 1.20.45: the filing deflection's own "continue" url, built before
+    // the branching below so both the disclaimer gate and the deflection
+    // screen read from the one computation.
+    $kbcontinueurl = new moodle_url($baseurl, ['ticketack' => $ticketack ? 1 : 0, 'showform' => 1]);
+    $kbdeflectionhtml = selfselectadvanced_kb_deflection_screen($activity, tickets::TYPE_HELP, $kbcontinueurl);
     if ($disclaimertext !== '' && !$ticketack) {
         // Deliverable D: the gate screen precedes the form - it only
         // renders after this "I acknowledge" link is followed.
@@ -133,6 +138,11 @@ if ($refusal !== null) {
             get_string('ticketdisclaimeracknowledge', 'mod_selfselectadvanced'),
             'get'
         );
+    } else if ($kbdeflectionhtml !== '') {
+        // Deflection shown, the form withheld until "continue" - NO
+        // forced block (spec), so nothing here stops the requester
+        // reaching the form; it is only ever one click further away.
+        echo $kbdeflectionhtml;
     } else {
         echo html_writer::tag('p', get_string('tickethelpintro', 'mod_selfselectadvanced'));
         // 1.20.44 part 2: a real moodleform, purely for

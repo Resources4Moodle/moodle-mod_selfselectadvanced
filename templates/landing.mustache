@@ -42,6 +42,8 @@
         "ticketsurl": "https://example.com/mod/selfselectadvanced/coordinator.php?id=1",
         "showtickethelp": true,
         "tickethelpurl": "https://example.com/mod/selfselectadvanced/filehelp.php?id=1",
+        "haskbentries": true,
+        "kburl": "https://example.com/mod/selfselectadvanced/kb.php?id=1",
         "showconsent": true,
         "consentgranted": false,
         "privacystatement": "Contact privacy is ON for this activity. Your email address is not shown to other participants anywhere in this activity.",
@@ -243,6 +245,9 @@
 {{#showtickethelp}}
     <p><a href="{{tickethelpurl}}" class="btn btn-outline-secondary">{{#str}} ticketfilehelp, mod_selfselectadvanced {{/str}}</a></p>
 {{/showtickethelp}}
+{{#haskbentries}}
+    <p><a href="{{kburl}}" class="btn btn-outline-secondary">{{#str}} kblinklabel, mod_selfselectadvanced {{/str}}</a></p>
+{{/haskbentries}}
 
 {{#isstaff}}
     <h3>{{#str}} allgroups, mod_selfselectadvanced {{/str}}</h3>
