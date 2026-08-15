@@ -54,7 +54,10 @@
         "pendinginvites": [
             {"memberid": 3, "fullname": "Cara Invitee", "invitedon": "Wednesday, 22 July", "declined": false}
         ],
+        "candecline": false,
         "showrespond": false,
+        "acceptgateblocked": false,
+        "acceptblockedreason": "",
         "showjoinpanel": true,
         "joinallurl": "https://example.com/mod/selfselectadvanced/joinrequest.php?id=1&tab=answer",
         "joinrows": [
@@ -439,9 +442,22 @@
             <span>{{#str}} respondprompt, mod_selfselectadvanced {{/str}}</span>
         </div>
     {{/respondblocked}}
-    {{#showrespond}}
+    {{! INV-001 (external audit, 1.20.37): Accept and Decline are no longer  }}
+    {{! one flag. candecline is the :respond capability answer alone, so    }}
+    {{! Decline is drawn whenever it is true - cleanup must never wait on   }}
+    {{! the accept gate. showrespond additionally requires can_accept() to  }}
+    {{! be open, so Accept is drawn ONLY then; acceptgateblocked is the     }}
+    {{! remaining case - capability present, gate refused - and carries the }}
+    {{! same sentence the service would refuse the click with.             }}
+    {{#candecline}}
         <div class="selfselectadvanced-respond alert alert-info d-flex align-items-center flex-wrap gap-2">
             <span class="me-2">{{#str}} respondprompt, mod_selfselectadvanced {{/str}}</span>
+            {{#acceptgateblocked}}
+                <span class="d-block small text-danger selfselectadvanced-invitation-blocked">
+                    {{acceptblockedreason}}
+                </span>
+            {{/acceptgateblocked}}
+            {{#showrespond}}
             <form method="post" action="{{actionurl}}" class="d-inline">
                 <input type="hidden" name="id" value="{{cmid}}">
                 <input type="hidden" name="g" value="{{groupid}}">
@@ -449,6 +465,7 @@
                 <input type="hidden" name="sesskey" value="{{sesskey}}">
                 <button type="submit" class="btn btn-primary btn-sm">{{#str}} accept, mod_selfselectadvanced {{/str}}</button>
             </form>
+            {{/showrespond}}
             <form method="post" action="{{actionurl}}" class="d-inline">
                 <input type="hidden" name="id" value="{{cmid}}">
                 <input type="hidden" name="g" value="{{groupid}}">
@@ -457,7 +474,7 @@
                 <button type="submit" class="btn btn-secondary btn-sm">{{#str}} decline, mod_selfselectadvanced {{/str}}</button>
             </form>
         </div>
-    {{/showrespond}}
+    {{/candecline}}
 
     <h4>{{#str}} roster, mod_selfselectadvanced {{/str}}</h4>
     {{! The filter form is gated on hasanyroster, NOT hasroster: a filter that }}

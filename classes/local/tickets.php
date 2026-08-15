@@ -106,6 +106,16 @@ class tickets {
     /** @var string One manager or coordinator is working it. */
     public const STATUS_CLAIMED = 'claimed';
 
+    /**
+     * @var string The claimant asked the requester a question and the
+     *      ticket is waiting for the answer (maintainer decision 2,
+     *      2026-08-15). Counts as LIVE everywhere open and claimed
+     *      already did - the point of the state is that the ticket is
+     *      still somebody's active work, not that it has stopped being
+     *      anybody's.
+     */
+    public const STATUS_NEEDSINFO = 'needsinfo';
+
     /** @var string Done, with a resolution note. */
     public const STATUS_RESOLVED = 'resolved';
 
@@ -114,6 +124,37 @@ class tickets {
 
     /** @var string Taken back by the requester while still open. */
     public const STATUS_WITHDRAWN = 'withdrawn';
+
+    /**
+     * @var string ACTION_* below name every row selfselectadvanced_ticketlog
+     *      can hold (decision 1, 2026-08-15: the history trail). Several
+     *      share their string with a STATUS_* constant above by
+     *      coincidence, not by reuse - a status is what the TICKET is now;
+     *      an action is what HAPPENED to it, and 'filed', 'released' and
+     *      'inforeply' have no status of their own at all.
+     */
+    public const ACTION_FILED = 'filed';
+
+    /** @var string A worker took the ticket out of the open queue. */
+    public const ACTION_CLAIMED = 'claimed';
+
+    /** @var string The claimant let go of it without deciding it. */
+    public const ACTION_RELEASED = 'released';
+
+    /** @var string The claimant asked the requester a question. */
+    public const ACTION_NEEDSINFO = 'needsinfo';
+
+    /** @var string The requester answered a needs-info question. */
+    public const ACTION_INFOREPLY = 'inforeply';
+
+    /** @var string Closed with an outcome the requester gets. */
+    public const ACTION_RESOLVED = 'resolved';
+
+    /** @var string Refused, with the reason. */
+    public const ACTION_DECLINED = 'declined';
+
+    /** @var string The requester took it back while still open. */
+    public const ACTION_WITHDRAWN = 'withdrawn';
 
     /**
      * File a ticket.
@@ -222,12 +263,13 @@ class tickets {
 
             $live = $DB->get_record_select(
                 'selfselectadvanced_ticket',
-                "groupid = :groupid AND type = :type AND status IN (:open, :claimed)",
+                "groupid = :groupid AND type = :type AND status IN (:open, :claimed, :needsinfo)",
                 [
                     'groupid' => $group->id,
                     'type' => $type,
                     'open' => self::STATUS_OPEN,
                     'claimed' => self::STATUS_CLAIMED,
+                    'needsinfo' => self::STATUS_NEEDSINFO,
                 ]
             );
             if ($live) {
@@ -248,10 +290,24 @@ class tickets {
             ];
             $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
 
+            // The request text already lives on the ticket row, so the
+            // trail's own note is null - the filed action itself is
+            // what the trail records, not a second copy of the words.
+            // Logged BEFORE the event (B2, addendum item 1): the
+            // event's other.ticketlogid names this very row, so the row
+            // has to exist first.
+            $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
+
             \mod_selfselectadvanced\event\ticket_filed::create([
                 'objectid' => $ticket->id,
                 'context' => $activity->context(),
-                'other' => ['type' => $type, 'pluginuid' => $group->pluginuid],
+                'other' => [
+                    'type' => $type,
+                    'pluginuid' => $group->pluginuid,
+                    'action' => self::ACTION_FILED,
+                    'groupid' => (int) $group->id,
+                    'ticketlogid' => $ticketlogid,
+                ],
             ])->trigger();
 
             $transaction->allow_commit();
@@ -350,7 +406,7 @@ class tickets {
             $live = $DB->get_record_select(
                 'selfselectadvanced_ticket',
                 "activityid = :activityid AND type IN (:type, :reduce) AND requestedby = :userid"
-                    . " AND status IN (:open, :claimed)",
+                    . " AND status IN (:open, :claimed, :needsinfo)",
                 [
                     'activityid' => $activity->id(),
                     'type' => self::TYPE_GUIDECAP,
@@ -358,6 +414,7 @@ class tickets {
                     'userid' => $userid,
                     'open' => self::STATUS_OPEN,
                     'claimed' => self::STATUS_CLAIMED,
+                    'needsinfo' => self::STATUS_NEEDSINFO,
                 ]
             );
             if ($live) {
@@ -379,10 +436,18 @@ class tickets {
             ];
             $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
 
+            $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
+
             \mod_selfselectadvanced\event\ticket_filed::create([
                 'objectid' => $ticket->id,
                 'context' => $activity->context(),
-                'other' => ['type' => self::TYPE_GUIDECAP, 'pluginuid' => ''],
+                'other' => [
+                    'type' => self::TYPE_GUIDECAP,
+                    'pluginuid' => '',
+                    'action' => self::ACTION_FILED,
+                    'groupid' => 0,
+                    'ticketlogid' => $ticketlogid,
+                ],
             ])->trigger();
 
             $transaction->allow_commit();
@@ -450,7 +515,7 @@ class tickets {
             $live = $DB->get_record_select(
                 'selfselectadvanced_ticket',
                 "activityid = :activityid AND type IN (:cap, :reduce) AND requestedby = :userid"
-                    . " AND status IN (:open, :claimed)",
+                    . " AND status IN (:open, :claimed, :needsinfo)",
                 [
                     'activityid' => $activity->id(),
                     'cap' => self::TYPE_GUIDECAP,
@@ -458,6 +523,7 @@ class tickets {
                     'userid' => $userid,
                     'open' => self::STATUS_OPEN,
                     'claimed' => self::STATUS_CLAIMED,
+                    'needsinfo' => self::STATUS_NEEDSINFO,
                 ]
             );
             if ($live) {
@@ -479,10 +545,18 @@ class tickets {
             ];
             $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
 
+            $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
+
             \mod_selfselectadvanced\event\ticket_filed::create([
                 'objectid' => $ticket->id,
                 'context' => $activity->context(),
-                'other' => ['type' => self::TYPE_GUIDEREDUCE, 'pluginuid' => ''],
+                'other' => [
+                    'type' => self::TYPE_GUIDEREDUCE,
+                    'pluginuid' => '',
+                    'action' => self::ACTION_FILED,
+                    'groupid' => 0,
+                    'ticketlogid' => $ticketlogid,
+                ],
             ])->trigger();
 
             $transaction->allow_commit();
@@ -565,14 +639,22 @@ class tickets {
                 return null;
             }
 
+            // Includes needsinfo alongside open and claimed (LIVENESS,
+            // decision 2): without it, a coordinator's question left
+            // outstanding on the first observer's ticket would not read
+            // as live to the SECOND observer racing the same removal
+            // (core unenrols before it deletes), and this idempotent
+            // path would file a genuine duplicate rather than returning
+            // the one already being triaged.
             $live = $DB->get_record_select(
                 'selfselectadvanced_ticket',
-                "groupid = :groupid AND type = :type AND status IN (:open, :claimed)",
+                "groupid = :groupid AND type = :type AND status IN (:open, :claimed, :needsinfo)",
                 [
                     'groupid' => (int) $group->id,
                     'type' => self::TYPE_GUIDEGONE,
                     'open' => self::STATUS_OPEN,
                     'claimed' => self::STATUS_CLAIMED,
+                    'needsinfo' => self::STATUS_NEEDSINFO,
                 ]
             );
             if ($live) {
@@ -599,6 +681,14 @@ class tickets {
             ];
             $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
 
+            // The trail row is a DATABASE WRITE - it belongs inside
+            // this transaction and before the commit, exactly where
+            // every other transition logs its own row, not deferred
+            // alongside the event dispatch. Written before the event
+            // below is built (B2, addendum item 1) so ticketlogid names
+            // a row that actually exists.
+            $ticketlogid = self::log($ticket->id, $actorid, self::ACTION_FILED, null, FORMAT_PLAIN);
+
             // Payload built INSIDE the critical section, dispatched
             // after the commit AND the release below - the binding
             // rule for new code (docs/architecture.md, "Events under a
@@ -606,7 +696,13 @@ class tickets {
             $event = \mod_selfselectadvanced\event\ticket_filed::create([
                 'objectid' => $ticket->id,
                 'context' => $activity->context(),
-                'other' => ['type' => self::TYPE_GUIDEGONE, 'pluginuid' => $group->pluginuid],
+                'other' => [
+                    'type' => self::TYPE_GUIDEGONE,
+                    'pluginuid' => $group->pluginuid,
+                    'action' => self::ACTION_FILED,
+                    'groupid' => (int) $group->id,
+                    'ticketlogid' => $ticketlogid,
+                ],
             ]);
 
             $transaction->allow_commit();
@@ -748,10 +844,22 @@ class tickets {
             $fresh->timemodified = time();
             $DB->update_record('selfselectadvanced_ticket', $fresh);
 
+            $ticketlogid = self::log($ticketid, $userid, self::ACTION_WITHDRAWN, null, FORMAT_PLAIN);
+
+            // No relateduserid: withdraw() only ever runs from an OPEN
+            // ticket (never claimed - see the status guard above), so
+            // there is no claimant yet to name as the other party, and
+            // the actor IS the requester already named by userid.
             \mod_selfselectadvanced\event\ticket_closed::create([
                 'objectid' => $ticketid,
                 'context' => $activity->context(),
-                'other' => ['type' => $fresh->type, 'outcome' => self::STATUS_WITHDRAWN],
+                'other' => [
+                    'type' => $fresh->type,
+                    'outcome' => self::STATUS_WITHDRAWN,
+                    'action' => self::ACTION_WITHDRAWN,
+                    'groupid' => (int) ($fresh->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                ],
             ])->trigger();
 
             $transaction->allow_commit();
@@ -884,10 +992,19 @@ class tickets {
                 );
             }
 
+            $ticketlogid = self::log($ticketid, $userid, self::ACTION_CLAIMED, null, FORMAT_PLAIN);
+
             \mod_selfselectadvanced\event\ticket_claimed::create([
                 'objectid' => $ticketid,
                 'context' => $activity->context(),
-                'other' => ['type' => $claimed->type, 'pluginuid' => $group->pluginuid ?? ''],
+                'relateduserid' => (int) $claimed->requestedby,
+                'other' => [
+                    'type' => $claimed->type,
+                    'pluginuid' => $group->pluginuid ?? '',
+                    'action' => self::ACTION_CLAIMED,
+                    'groupid' => (int) ($claimed->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                ],
             ])->trigger();
 
             $transaction->allow_commit();
@@ -965,7 +1082,15 @@ class tickets {
             if ((int) $fresh->activityid !== $activity->id()) {
                 throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
             }
-            if ($fresh->status !== self::STATUS_CLAIMED) {
+            // NEEDSINFO ALLOWED HERE TOO (decision 2, LIVENESS): the
+            // claimant may decide a ticket without the answer they
+            // asked for, exactly as they could before it was ever
+            // asked. Release from needsinfo is allowed by the same
+            // widening rather than singled out, because this one gate
+            // guards all three outcomes and a ticket "not currently
+            // claimed" only when it is truly neither claimed nor
+            // waiting on an answer.
+            if (!in_array($fresh->status, [self::STATUS_CLAIMED, self::STATUS_NEEDSINFO], true)) {
                 throw new workflow_refusal('refusalticketnotclaimed', 'mod_selfselectadvanced');
             }
             $ismanager = has_capability('mod/selfselectadvanced:manage', $activity->context(), $userid);
@@ -992,10 +1117,36 @@ class tickets {
             }
             $DB->update_record('selfselectadvanced_ticket', $fresh);
 
+            // The trail's action names what HAPPENED - released, for a
+            // release, which carries no note of its own - rather than
+            // reusing $outcome's 'open' verbatim, which would misname
+            // the row (nothing about a released ticket's trail entry is
+            // "open").
+            $action = $outcome === self::STATUS_OPEN ? self::ACTION_RELEASED
+                : ($outcome === self::STATUS_RESOLVED ? self::ACTION_RESOLVED : self::ACTION_DECLINED);
+            $ticketlogid = self::log(
+                $ticketid,
+                $userid,
+                $action,
+                $outcome === self::STATUS_OPEN ? null : $resolution,
+                $outcome === self::STATUS_OPEN ? FORMAT_PLAIN : $resolutionformat
+            );
+
+            // Relateduserid is the requester: every outcome close()
+            // reaches (resolved, declined, a claimant's own release, or
+            // a manager's force-release) is a STAFF action about this
+            // person's request.
             \mod_selfselectadvanced\event\ticket_closed::create([
                 'objectid' => $ticketid,
                 'context' => $activity->context(),
-                'other' => ['type' => $fresh->type, 'outcome' => $outcome],
+                'relateduserid' => (int) $fresh->requestedby,
+                'other' => [
+                    'type' => $fresh->type,
+                    'outcome' => $outcome,
+                    'action' => $action,
+                    'groupid' => (int) ($fresh->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                ],
             ])->trigger();
 
             $transaction->allow_commit();
@@ -1020,6 +1171,224 @@ class tickets {
     }
 
     /**
+     * The claimant asks the requester a question; the ticket waits.
+     *
+     * Maintainer decision 2 (2026-08-15): until now a claimant with a
+     * genuine question had exactly two ways to answer it - resolve the
+     * ticket on a guess, or decline a request that might be perfectly
+     * good - because closing was the only door out of CLAIMED. This is
+     * a third one that keeps the ticket alive: NEEDSINFO is LIVE
+     * everywhere OPEN and CLAIMED already are (the duplicate guards, the
+     * guidecap/guidereduce single-slot rule, the auto-resolve
+     * candidates), so a requester cannot file a second, contradictory
+     * request just because the first is waiting on their own answer.
+     *
+     * Only the ticket's OWN claimant may ask - asking is working the
+     * ticket, the same authority close() checks, in the same order:
+     * status first, then identity - and only while it is CLAIMED. A
+     * second question cannot be asked while the first is still
+     * unanswered (there is nowhere on the row to put it, and the trail
+     * would not know which question the eventual reply was to), and an
+     * open ticket has no claimant to be asking one.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the claimed ticket
+     * @param string $question what the claimant needs to know
+     * @param int $questionformat text format of the question
+     * @param int $actorid the claimant
+     * @return stdClass the updated ticket
+     * @throws \moodle_exception when refused
+     */
+    public static function request_info(
+        activity $activity,
+        int $ticketid,
+        string $question,
+        int $questionformat,
+        int $actorid
+    ): stdClass {
+        global $DB;
+
+        // The emptiness idiom file() and close() both use: a question
+        // that says nothing is not a question a requester could answer.
+        if (trim(html_to_text($question)) === '') {
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
+        }
+
+        // Lock + transaction + re-read + rollback discipline copied
+        // from claim(): the authority question here is entirely about
+        // RECORD OWNERSHIP (this ticket's claimant, whoever that is
+        // right now), so unlike close() there is no separate queue-
+        // authority re-ask before the lock - the claim itself already
+        // proved that once, and nothing here grants a NEW authority a
+        // stale read could get wrong.
+        $lock = locks::acquire('ticket:' . $ticketid);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticketid], '*', MUST_EXIST);
+            if ((int) $fresh->activityid !== $activity->id()) {
+                throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
+            }
+            if ($fresh->status !== self::STATUS_CLAIMED) {
+                throw new workflow_refusal('refusalticketnotclaimed', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->claimedby !== $actorid) {
+                throw new workflow_refusal(
+                    'refusalticketnotclaimant',
+                    'mod_selfselectadvanced',
+                    '',
+                    fullname(\core_user::get_user((int) $fresh->claimedby))
+                );
+            }
+
+            $fresh->status = self::STATUS_NEEDSINFO;
+            $fresh->timemodified = time();
+            $DB->update_record('selfselectadvanced_ticket', $fresh);
+
+            $ticketlogid = self::log($ticketid, $actorid, self::ACTION_NEEDSINFO, $question, $questionformat);
+
+            \mod_selfselectadvanced\event\ticket_info_requested::create([
+                'objectid' => $ticketid,
+                'context' => $activity->context(),
+                'relateduserid' => (int) $fresh->requestedby,
+                'other' => [
+                    'type' => $fresh->type,
+                    'action' => self::ACTION_NEEDSINFO,
+                    'groupid' => (int) ($fresh->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                ],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
+        } finally {
+            $lock->release();
+        }
+
+        // The requester, always - there is no staff-vs-requester branch
+        // to copy here the way notify() has one, because this message
+        // has exactly one possible recipient. B2 (deliverable 3): the
+        // question they need to answer is ON the thread now, so the
+        // link goes straight there rather than to myrequests.php, which
+        // only says the ticket is waiting and makes them find it again.
+        $groupname = self::subject_name($activity, $fresh);
+        notifier::send(
+            $activity,
+            'tickets',
+            (int) $fresh->requestedby,
+            'msgticketneedsinfosubject',
+            'msgticketneedsinfobody',
+            (object) [
+                'group' => $groupname,
+                'type' => get_string('tickettype' . $fresh->type, 'mod_selfselectadvanced'),
+                'question' => trim(html_to_text($question)),
+            ],
+            new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticketid]),
+            $groupname
+        );
+
+        return $fresh;
+    }
+
+    /**
+     * The requester answers a needs-info question; handling resumes
+     * with the SAME claimant.
+     *
+     * Decision 2's other half. Only the requester may answer - the same
+     * ownership withdraw() checks, ('errticketnotfound' for the wrong
+     * activity, then 'refusalticketnotyours' for the wrong person) -
+     * and only while the ticket is actually waiting on them. The
+     * claimant who asked is never displaced: this is a reply to their
+     * question, not a reopening of the queue, so status returns
+     * straight to CLAIMED naming the same claimedby, rather than to
+     * OPEN where a second claimant could intervene.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the needs-info ticket
+     * @param string $reply the answer
+     * @param int $replyformat text format of the reply
+     * @param int $userid the requester
+     * @return stdClass the updated ticket
+     * @throws \moodle_exception when refused
+     */
+    public static function provide_info(
+        activity $activity,
+        int $ticketid,
+        string $reply,
+        int $replyformat,
+        int $userid
+    ): stdClass {
+        global $DB;
+
+        if (trim(html_to_text($reply)) === '') {
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
+        }
+
+        $lock = locks::acquire('ticket:' . $ticketid);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticketid], '*', MUST_EXIST);
+            if ((int) $fresh->activityid !== $activity->id()) {
+                throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->requestedby !== $userid) {
+                throw new workflow_refusal('refusalticketnotyours', 'mod_selfselectadvanced');
+            }
+            if ($fresh->status !== self::STATUS_NEEDSINFO) {
+                throw new workflow_refusal('refusalticketnotneedsinfo', 'mod_selfselectadvanced');
+            }
+
+            $fresh->status = self::STATUS_CLAIMED;
+            $fresh->timemodified = time();
+            $DB->update_record('selfselectadvanced_ticket', $fresh);
+
+            $ticketlogid = self::log($ticketid, $userid, self::ACTION_INFOREPLY, $reply, $replyformat);
+
+            \mod_selfselectadvanced\event\ticket_info_provided::create([
+                'objectid' => $ticketid,
+                'context' => $activity->context(),
+                'relateduserid' => (int) $fresh->claimedby,
+                'other' => [
+                    'type' => $fresh->type,
+                    'action' => self::ACTION_INFOREPLY,
+                    'groupid' => (int) ($fresh->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                ],
+            ])->trigger();
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
+        } finally {
+            $lock->release();
+        }
+
+        // The claimant, always - the mirror of request_info()'s single
+        // fixed recipient above. B2 (deliverable 3): the reply is ON
+        // the thread, so that is where the link now goes rather than to
+        // the queue, which would show the ticket but not the answer.
+        $groupname = self::subject_name($activity, $fresh);
+        notifier::send(
+            $activity,
+            'tickets',
+            (int) $fresh->claimedby,
+            'msgticketinforeplysubject',
+            'msgticketinforeplybody',
+            (object) [
+                'group' => $groupname,
+                'type' => get_string('tickettype' . $fresh->type, 'mod_selfselectadvanced'),
+                'reply' => trim(html_to_text($reply)),
+            ],
+            new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticketid]),
+            $groupname
+        );
+
+        return $fresh;
+    }
+
+    /**
      * A direct unfreeze resolves the group's open or claimed unfreeze
      * ticket, so the queue never lists work already done.
      *
@@ -1030,14 +1399,21 @@ class tickets {
     public static function autoresolve_unfreeze(activity $activity, int $groupid, int $userid): void {
         global $DB;
 
+        // Includes needsinfo alongside open and claimed (LIVENESS,
+        // decision 2): an unfreeze ticket left waiting on the
+        // requester's answer is still the queue's record of that
+        // request, and a direct unfreeze must close it exactly as it
+        // would an open or claimed one, or it sits in the queue as work
+        // already done.
         $candidate = $DB->get_record_select(
             'selfselectadvanced_ticket',
-            "groupid = :groupid AND type = :type AND status IN (:open, :claimed)",
+            "groupid = :groupid AND type = :type AND status IN (:open, :claimed, :needsinfo)",
             [
                 'groupid' => $groupid,
                 'type' => self::TYPE_UNFREEZE,
                 'open' => self::STATUS_OPEN,
                 'claimed' => self::STATUS_CLAIMED,
+                'needsinfo' => self::STATUS_NEEDSINFO,
             ]
         );
         if (!$candidate) {
@@ -1048,11 +1424,21 @@ class tickets {
         // inside it: without this a claim landing between the read and
         // the write would be silently overwritten by a whole-row
         // update carrying the stale claimant.
+        //
+        // A DELEGATED TRANSACTION, added alongside the trail (decision
+        // 1): this method used to run its single UPDATE with no
+        // transaction of its own, which was safe only because it wrote
+        // one row. It now also writes a log row, and the two must
+        // commit or roll back together - the same reason every other
+        // transition here already opens one before its first write.
         $lock = locks::acquire('ticket:' . $candidate->id);
         try {
+            $transaction = $DB->start_delegated_transaction();
+
             $live = $DB->get_record('selfselectadvanced_ticket', ['id' => $candidate->id]);
-            if (!$live || !in_array($live->status, [self::STATUS_OPEN, self::STATUS_CLAIMED], true)) {
+            if (!$live || !in_array($live->status, [self::STATUS_OPEN, self::STATUS_CLAIMED, self::STATUS_NEEDSINFO], true)) {
                 // Someone closed it while we waited - their outcome stands.
+                $transaction->allow_commit();
                 return;
             }
             $now = time();
@@ -1065,6 +1451,12 @@ class tickets {
             $live->resolutionformat = FORMAT_PLAIN;
             $live->timemodified = $now;
             $DB->update_record('selfselectadvanced_ticket', $live);
+
+            self::log($live->id, $userid, self::ACTION_RESOLVED, $live->resolution, $live->resolutionformat);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
         } finally {
             $lock->release();
         }
@@ -1096,6 +1488,35 @@ class tickets {
             return;
         }
         require_capability('mod/selfselectadvanced:coordinate', $context, $userid);
+    }
+
+    /**
+     * Whether this viewer may open a ticket's thread (ticket.php, slice
+     * B2): the ticket's own requester, OR anyone who passes
+     * require_queue_authority() (manage or coordinate). A group LEADER
+     * is NOT granted access by leadership alone - filing-authority
+     * changes are 1.20.43's, not this one.
+     *
+     * Extracted so the page's door has exactly one predicate to call, in
+     * the same spirit as teamaccess::may_review_team() for review.php: a
+     * test can drive every arm of the rule without executing the page
+     * script PHPUnit cannot run end-to-end (require_login(), redirect(),
+     * echo $OUTPUT->header()).
+     *
+     * @param activity $activity the activity
+     * @param stdClass $ticket the ticket row
+     * @param int $userid the viewer
+     * @return bool
+     */
+    public static function may_view_thread(activity $activity, stdClass $ticket, int $userid): bool {
+        if ((int) $ticket->requestedby === $userid) {
+            return true;
+        }
+
+        $context = $activity->context();
+
+        return has_capability('mod/selfselectadvanced:manage', $context, $userid)
+            || has_capability('mod/selfselectadvanced:coordinate', $context, $userid);
     }
 
     /**
@@ -1301,6 +1722,76 @@ class tickets {
     }
 
     /**
+     * The history trail of one ticket, oldest first.
+     *
+     * Two readers, one query (maintainer decision 3, for the UI agent
+     * building on this): a REQUESTER is meant to see STATE CHANGES ONLY
+     * - no staff identity at all, ever - while STAFF see the full trail,
+     * actor included. $withactors is what tells the two views apart,
+     * and there is exactly one SQL statement per branch rather than one
+     * query filtered afterwards in PHP, so the requester-facing rows
+     * never carry actor identity to strip - the column is never
+     * fetched, not merely hidden.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the ticket
+     * @param bool $withactors true for the staff view (adds actorid and
+     *        actorname to every row); false for the requester view,
+     *        where NEITHER key is present on the returned objects at all
+     * @return stdClass[] log rows oldest-first, keyed by id: action,
+     *         note, noteformat, timecreated always; actorid and
+     *         actorname only when $withactors
+     */
+    public static function trail(activity $activity, int $ticketid, bool $withactors): array {
+        global $DB;
+
+        // Ownership, exactly like get() above: a ticket belongs to the
+        // activity asking about it, or the caller is asking about the
+        // wrong thing entirely - this throws errticketnotfound rather
+        // than silently returning another activity's trail.
+        self::get($activity, $ticketid);
+
+        if (!$withactors) {
+            return $DB->get_records_sql(
+                "SELECT l.id, l.action, l.note, l.noteformat, l.timecreated
+                   FROM {selfselectadvanced_ticketlog} l
+                  WHERE l.ticketid = :ticketid
+               ORDER BY l.timecreated, l.id",
+                ['ticketid' => $ticketid]
+            );
+        }
+
+        // The name fields fullname() needs, joined in rather than
+        // resolved with a get_user() call per row - the trail of a
+        // long-handled ticket can hold a dozen rows, and this plugin's
+        // house rule against a query per row applies here exactly as it
+        // does to notify_workers()'s recipient loop.
+        $rows = $DB->get_records_sql(
+            "SELECT l.id, l.action, l.note, l.noteformat, l.timecreated, l.actorid,
+                    u.firstname, u.lastname, u.firstnamephonetic, u.lastnamephonetic,
+                    u.middlename, u.alternatename
+               FROM {selfselectadvanced_ticketlog} l
+               JOIN {user} u ON u.id = l.actorid
+              WHERE l.ticketid = :ticketid
+           ORDER BY l.timecreated, l.id",
+            ['ticketid' => $ticketid]
+        );
+        foreach ($rows as $row) {
+            $row->actorname = fullname($row);
+            unset(
+                $row->firstname,
+                $row->lastname,
+                $row->firstnamephonetic,
+                $row->lastnamephonetic,
+                $row->middlename,
+                $row->alternatename
+            );
+        }
+
+        return $rows;
+    }
+
+    /**
      * Contact details of ticket requesters the viewer is connected to
      * via an ACTIVE CLAIM (contact-privacy rule (c)).
      *
@@ -1412,6 +1903,7 @@ class tickets {
         $known = [
             self::STATUS_OPEN,
             self::STATUS_CLAIMED,
+            self::STATUS_NEEDSINFO,
             self::STATUS_RESOLVED,
             self::STATUS_DECLINED,
             self::STATUS_WITHDRAWN,
@@ -1488,9 +1980,10 @@ class tickets {
            ORDER BY CASE t.status
                         WHEN 'open' THEN 0
                         WHEN 'claimed' THEN 1
-                        ELSE 2
+                        WHEN 'needsinfo' THEN 2
+                        ELSE 3
                     END,
-                    CASE WHEN t.status IN ('open','claimed') THEN t.timecreated ELSE -t.timemodified END,
+                    CASE WHEN t.status IN ('open','claimed','needsinfo') THEN t.timecreated ELSE -t.timemodified END,
                     t.id",
             $params,
             $limitfrom,
@@ -1575,21 +2068,89 @@ class tickets {
 
         // LEFT JOIN for the same reason queue() uses one: a team-limit
         // request carries no groupid and is about no team at all.
+        //
+        // NEEDSINFO ranks FIRST (B2, addendum item 2), ahead of open and
+        // claimed rather than merely alongside them: it is the one
+        // status here that demands the REQUESTER's own action - their
+        // question is unanswered, not merely unclaimed or being worked -
+        // so it must not sink to the closed/withdrawn tier the way B1
+        // left it (uncovered by the CASE below, falling into ELSE and
+        // sorting with resolved/declined/withdrawn history).
         return $DB->get_records_sql(
             "SELECT t.*, g.name AS groupname, g.pluginuid AS grouppluginuid
                FROM {selfselectadvanced_ticket} t
           LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
               WHERE t.activityid = :activityid AND t.requestedby = :userid
            ORDER BY CASE t.status
-                        WHEN 'open' THEN 0
-                        WHEN 'claimed' THEN 1
-                        ELSE 2
+                        WHEN 'needsinfo' THEN 0
+                        WHEN 'open' THEN 1
+                        WHEN 'claimed' THEN 2
+                        ELSE 3
                     END,
                     t.timecreated DESC,
                     t.id DESC",
             ['activityid' => $activity->id(), 'userid' => $userid],
             $limitfrom,
             $limitnum
+        );
+    }
+
+    /**
+     * Every OTHER ticket one requester has filed in this activity, newest
+     * first - the maintainer's repeated-request blocker (B2, deliverable
+     * 1): a staff member deciding a live ticket can see whether this
+     * requester has a pattern before they decide it.
+     *
+     * The scope is by REQUESTER, exactly like mine() above, but the
+     * viewer is not the requester here - it is staff, so unlike mine()
+     * this DOES gate on queue authority, checked on the viewer argument
+     * (never the requester, who is never asked for one): a requester
+     * must never reach another requester's history through this door,
+     * and only mine()/myrequests.php is theirs.
+     *
+     * SPEC NOTE (B2): the ticket named `tickets::history(activity
+     * $activity, int $requesterid, int $excludeticketid = 0): array` -
+     * three parameters, no viewer. That signature cannot implement the
+     * very next sentence of the same spec ("enforce inside the method:
+     * throw if the VIEWER argument lacks queue authority") because no
+     * viewer argument exists to check. Treated as a drafting omission
+     * and implemented with the viewer this method's own contract
+     * requires; $viewerid precedes $excludeticketid so the optional
+     * parameter can still default (PHP requires defaulted parameters to
+     * trail, and $viewerid must never default to anything).
+     *
+     * @param activity $activity the activity
+     * @param int $requesterid whose other tickets
+     * @param int $viewerid the staff member asking; must pass
+     *        require_queue_authority()
+     * @param int $excludeticketid the ticket already on screen, left out;
+     *        0 to exclude nothing
+     * @return stdClass[] ticket rows, each with groupname and
+     *         grouppluginuid, newest first
+     * @throws \required_capability_exception when the viewer lacks
+     *         queue authority
+     */
+    public static function history(
+        activity $activity,
+        int $requesterid,
+        int $viewerid,
+        int $excludeticketid = 0
+    ): array {
+        global $DB;
+
+        self::require_queue_authority($activity, $viewerid);
+
+        return $DB->get_records_sql(
+            "SELECT t.*, g.name AS groupname, g.pluginuid AS grouppluginuid
+               FROM {selfselectadvanced_ticket} t
+          LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
+              WHERE t.activityid = :activityid AND t.requestedby = :userid AND t.id <> :excludeid
+           ORDER BY t.timecreated DESC, t.id DESC",
+            [
+                'activityid' => $activity->id(),
+                'userid' => $requesterid,
+                'excludeid' => $excludeticketid,
+            ]
         );
     }
 
@@ -1741,6 +2302,69 @@ class tickets {
     }
 
     /**
+     * Append one row to a ticket's history trail (maintainer decision 1,
+     * 2026-08-15).
+     *
+     * ONE PLACE THIS TABLE IS WRITTEN. Every transition above calls this
+     * INSIDE its own transaction and BEFORE allow_commit() - the same
+     * discipline the ticket row's own write already keeps - so the
+     * trail can never record a step whose ticket-row write did not also
+     * commit, and can never be missing one that did.
+     *
+     * @param int $ticketid the ticket
+     * @param int $actorid who performed the action
+     * @param string $action one of self::ACTION_*
+     * @param string|null $note the question, the reply, or the closing
+     *        note; null for a bare transition (filed, claimed, released,
+     *        withdrawn)
+     * @param int $noteformat text format of $note - stored even when
+     *        $note is null, exactly as resolutionformat is on the
+     *        ticket row itself
+     * @return int the inserted row's id (B2, decision addendum item 1):
+     *         every event this class fires now carries `ticketlogid` in
+     *         its `other` payload, so a logged event can be joined back
+     *         to the exact stored text - which needs this method to
+     *         hand the id back rather than write and forget it.
+     */
+    private static function log(int $ticketid, int $actorid, string $action, ?string $note, int $noteformat): int {
+        global $DB;
+
+        return $DB->insert_record('selfselectadvanced_ticketlog', (object) [
+            'ticketid' => $ticketid,
+            'actorid' => $actorid,
+            'action' => $action,
+            'note' => $note,
+            'noteformat' => $noteformat,
+            'timecreated' => time(),
+        ]);
+    }
+
+    /**
+     * The team a ticket names in its notifications, or the "no team"
+     * placeholder for a guidecap/guidereduce request.
+     *
+     * NOT used by notify() below: every caller of notify() already
+     * holds the group row it would otherwise re-fetch here (notify()
+     * takes $group as a parameter for exactly that reason - repeating
+     * this lookup once per recipient in notify_workers()'s loop would
+     * be a query per worker for a value the caller already has). This
+     * exists for request_info() and provide_info(), which notify
+     * exactly one fixed recipient each and have no group already in
+     * hand at the point they need this string.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $ticket the ticket row
+     * @return string
+     */
+    private static function subject_name(activity $activity, stdClass $ticket): string {
+        $group = self::group_of($activity, $ticket);
+
+        return $group !== null
+            ? format_string($group->name)
+            : get_string('tickethasnoteam', 'mod_selfselectadvanced');
+    }
+
+    /**
      * Send one queue notification (provider tickets).
      *
      * @param activity $activity the activity
@@ -1762,22 +2386,22 @@ class tickets {
             ? format_string($group->name)
             : get_string('tickethasnoteam', 'mod_selfselectadvanced');
 
-        // WHERE THE LINK GOES depends on who is reading. The queue is
-        // staff-only (tickets.php requires manage or coordinate), and
-        // for a while this method sent its URL to everyone - including
-        // the requester, who is refused at that door. So the message
-        // that exists BECAUSE the requester cannot open the queue
-        // linked them to the queue: a student was told their request
-        // had been picked up, followed the link, and was refused. That
-        // is the whole of "a response cannot be viewed".
+        // WHERE THE LINK GOES used to depend on who was reading: the
+        // queue is staff-only (tickets.php requires manage or
+        // coordinate), and for a while this method sent its URL to
+        // everyone - including the requester, who is refused at that
+        // door. So the message that exists BECAUSE the requester cannot
+        // open the queue linked them to the queue: a student was told
+        // their request had been picked up, followed the link, and was
+        // refused. That was the whole of "a response cannot be viewed".
         //
-        // The requester now gets myrequests.php, which shows them their
-        // own rows and nothing else, and which no capability gates.
-        // Not the group page, which can refuse them - a guide relieved
-        // of a group no longer passes teamaccess::may_open_team(), and
-        // the ticket that outlives the relationship is exactly the one
-        // that would land there.
-        $isrequester = $touserid === (int) $ticket->requestedby;
+        // B2 (deliverable 3): every recipient now goes to the ticket's
+        // OWN thread (ticket.php), staff and requester alike. It admits
+        // both (the access rule is "the requester, OR queue authority"),
+        // it carries the whole conversation rather than a status line,
+        // and it replaces the requester-vs-staff branch this method used
+        // to need: nobody is sent to a door that refuses them, because
+        // there is only the one door now.
         notifier::send(
             $activity,
             'tickets',
@@ -1788,14 +2412,13 @@ class tickets {
                 'group' => $subject,
                 'type' => get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced'),
                 'status' => get_string('ticketstatus' . $ticket->status, 'mod_selfselectadvanced'),
-                // The requester cannot open the queue - it belongs to
-                // the staff who work it - so the note that explains
-                // their outcome has to travel in the message itself.
+                // Kept even though the thread now shows the resolution
+                // too: a message may be read on a device with no
+                // browser session at hand, and the outcome should not
+                // depend on following the link.
                 'resolution' => trim(html_to_text((string) ($ticket->resolution ?? ''))),
             ],
-            $isrequester
-                ? new \moodle_url('/mod/selfselectadvanced/myrequests.php', ['id' => $activity->cm()->id])
-                : new \moodle_url('/mod/selfselectadvanced/tickets.php', ['id' => $activity->cm()->id]),
+            new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticket->id]),
             $subject
         );
     }

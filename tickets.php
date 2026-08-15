@@ -21,8 +21,11 @@
  * One worker claims a ticket exclusively; a racing second claimant is
  * refused and told who holds it.
  *
- * GET renders; claim, release, resolve and decline are
- * sesskey-protected POSTs.
+ * GET renders; claim and release (a manager unsticking someone else's
+ * claim) are sesskey-protected POSTs here. Resolve, decline, the
+ * guidecap grant and everything else that is a CONVERSATION rather than
+ * triage moved to the ticket's own thread (ticket.php) in slice B2 -
+ * every row below links there.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -109,32 +112,18 @@ if ($action === 'claim' && data_submitted() && confirm_sesskey()) {
     }
 }
 
-if ($action === 'grant' && data_submitted() && confirm_sesskey()) {
+// Resolve, decline and the guidecap grant moved to the ticket's own
+// thread (ticket.php) in slice B2 - conversation happens there now, and
+// the queue keeps only the triage-speed actions: taking a ticket up, and
+// (below) a manager putting someone else's stuck claim back in the
+// queue. Release is a bare one-click state reset with no note of its
+// own (close() only requires a resolution for the resolved/declined
+// outcomes), so it stayed a queue-level action rather than moving with
+// the two that need a form.
+if ($action === 'release' && data_submitted() && confirm_sesskey()) {
     $ticketid = required_param('ticket', PARAM_INT);
-    $note = optional_param('resolution', '', PARAM_RAW);
     try {
-        tickets::grant_guidecap($activity, $ticketid, $note, FORMAT_MOODLE, (int) $USER->id);
-        redirect(
-            $baseurl,
-            get_string('guidecapgranted', 'mod_selfselectadvanced'),
-            null,
-            \core\output\notification::NOTIFY_SUCCESS
-        );
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
-    }
-}
-
-if (in_array($action, ['resolve', 'decline', 'release'], true) && data_submitted() && confirm_sesskey()) {
-    $ticketid = required_param('ticket', PARAM_INT);
-    $note = optional_param('resolution', '', PARAM_RAW);
-    $outcome = [
-        'resolve' => tickets::STATUS_RESOLVED,
-        'decline' => tickets::STATUS_DECLINED,
-        'release' => tickets::STATUS_OPEN,
-    ][$action];
-    try {
-        tickets::close($activity, $ticketid, $outcome, $note, FORMAT_MOODLE, (int) $USER->id);
+        tickets::close($activity, $ticketid, tickets::STATUS_OPEN, '', FORMAT_PLAIN, (int) $USER->id);
         redirect(
             $baseurl,
             get_string('ticketclosednotice', 'mod_selfselectadvanced'),
@@ -216,13 +205,20 @@ $userids = [];
 // connection that opens a requester's contact details to a coordinator
 // (contact-privacy rule (c)). An open ticket sitting in the queue is
 // not a connection, and neither is being eligible to decide one.
+// needsinfo counts alongside claimed (decision 2, LIVENESS): the
+// claimant is still the same connection while the ticket waits on the
+// requester's answer, exactly as tickets.php's own $isworked check
+// below treats the two statuses alike.
 $claimedmine = [];
 foreach ($queue as $ticket) {
     $userids[] = (int) $ticket->requestedby;
     if ($ticket->claimedby) {
         $userids[] = (int) $ticket->claimedby;
     }
-    if ($ticket->status === tickets::STATUS_CLAIMED && (int) $ticket->claimedby === (int) $USER->id) {
+    if (
+        in_array($ticket->status, [tickets::STATUS_CLAIMED, tickets::STATUS_NEEDSINFO], true)
+        && (int) $ticket->claimedby === (int) $USER->id
+    ) {
         $claimedmine[] = (int) $ticket->requestedby;
     }
 }
@@ -287,132 +283,102 @@ $requesterline = static function (int $requesterid, bool $mine) use ($requesterc
 $position = tickets::open_before($activity, (int) $USER->id, $page * $perpage, $typefilter, $statusfilter);
 foreach ($queue as $ticket) {
     $isopen = $ticket->status === tickets::STATUS_OPEN;
-    $isclaimed = $ticket->status === tickets::STATUS_CLAIMED;
-    $mine = $isclaimed && (int) $ticket->claimedby === (int) $USER->id;
+    // Needsinfo counts alongside claimed for "is this viewer working
+    // it" purposes (decision 2, LIVENESS): the claimant may still
+    // resolve or decline from needsinfo, so the thread link and the
+    // dimming below must treat the two statuses the same way.
+    $isworked = in_array($ticket->status, [tickets::STATUS_CLAIMED, tickets::STATUS_NEEDSINFO], true);
+    $mine = $isworked && (int) $ticket->claimedby === (int) $USER->id;
     $position += $isopen ? 1 : 0;
 
     $statuscell = get_string('ticketstatus' . $ticket->status, 'mod_selfselectadvanced');
-    if ($isclaimed) {
+    if ($isworked) {
         $statuscell .= ' — ' . ($usernames[(int) $ticket->claimedby] ?? $ticket->claimedby);
     }
     if (
         in_array($ticket->status, [tickets::STATUS_RESOLVED, tickets::STATUS_DECLINED], true)
         && trim((string) $ticket->resolution) !== ''
     ) {
-        // Rendered via format_text(), not s(): slice A stores the
-        // resolution as FORMAT_MOODLE (a hand-rolled textarea, nl2br +
-        // auto-links + filters at render - see this file's
-        // grant/resolve/decline handlers above), and the stored format
-        // travels with the row.
+        // Rendered via format_text(), not s(): the resolution is stored
+        // as FORMAT_MOODLE (a hand-rolled textarea, nl2br + auto-links +
+        // filters at render - the form now lives on ticket.php, slice
+        // B2), and the stored format travels with the row.
         $statuscell .= html_writer::div(
             format_text((string) $ticket->resolution, (int) $ticket->resolutionformat, ['context' => $context]),
             'small text-muted'
         );
     }
 
+    // Slice B2 (deliverable 2): every row links to its thread now -
+    // conversation, and for a claimed/needsinfo ticket the resolve,
+    // decline and request-info forms, all live on ticket.php.
+    $threadurl = new moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticket->id]);
+
     $actions = '';
-    if ($isopen) {
-        // The Claim control asks the gate claim() enforces (seam audit
-        // B6, 1.20.20): an involved narrow-authority coordinator used
-        // to be offered a button whose only outcome was the COI
-        // refusal. require_uninvolved() embodies decision 65 - :manage
-        // holders pass at once, involvement refuses the rest.
-        $claimrefusal = '';
-        if ((int) $ticket->groupid) {
-            $tgroup = $DB->get_record('selfselectadvanced_group', ['id' => (int) $ticket->groupid]);
-            if ($tgroup) {
-                try {
-                    \mod_selfselectadvanced\local\tickets::require_uninvolved($activity, $tgroup, (int) $USER->id);
-                } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-                    $claimrefusal = $e->getMessage();
+    if ($mine) {
+        // Resolve/decline/the guidecap grant all live on the thread now
+        // - this row just points there, and that IS this row's link to
+        // its thread (deliverable 2), not a second one alongside it.
+        $actions = html_writer::link($threadurl, get_string('ticketthreadopen', 'mod_selfselectadvanced'), [
+            'class' => 'btn btn-primary btn-sm',
+        ]);
+    } else {
+        if ($isopen) {
+            // The Claim control asks the gate claim() enforces (seam
+            // audit B6, 1.20.20): an involved narrow-authority
+            // coordinator used to be offered a button whose only
+            // outcome was the COI refusal. require_uninvolved() embodies
+            // decision 65 - :manage holders pass at once, involvement
+            // refuses the rest.
+            $claimrefusal = '';
+            if ((int) $ticket->groupid) {
+                $tgroup = $DB->get_record('selfselectadvanced_group', ['id' => (int) $ticket->groupid]);
+                if ($tgroup) {
+                    try {
+                        \mod_selfselectadvanced\local\tickets::require_uninvolved($activity, $tgroup, (int) $USER->id);
+                    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+                        $claimrefusal = $e->getMessage();
+                    }
                 }
             }
-        }
-        if ($claimrefusal !== '') {
-            $actions = html_writer::tag('button', get_string('ticketclaim', 'mod_selfselectadvanced'), [
-                'type' => 'button',
-                'class' => 'btn btn-secondary btn-sm',
-                'disabled' => 'disabled',
-                'title' => $claimrefusal,
-            ]) . html_writer::span(s($claimrefusal), 'small text-muted ms-1');
-        } else {
+            if ($claimrefusal !== '') {
+                $actions = html_writer::tag('button', get_string('ticketclaim', 'mod_selfselectadvanced'), [
+                    'type' => 'button',
+                    'class' => 'btn btn-secondary btn-sm',
+                    'disabled' => 'disabled',
+                    'title' => $claimrefusal,
+                ]) . html_writer::span(s($claimrefusal), 'small text-muted ms-1');
+            } else {
+                $actions = html_writer::start_tag('form', ['method' => 'post',
+                    'action' => new moodle_url($baseurl, ['action' => 'claim'])])
+                    . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
+                    . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
+                    . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-primary btn-sm',
+                        'value' => get_string('ticketclaim', 'mod_selfselectadvanced')])
+                    . html_writer::end_tag('form');
+            }
+        } else if ($isworked && $canmanage) {
+            // Somebody else is holding this one. A manager can put it
+            // back in the queue: without this door, a claim by a
+            // coordinator who has since left the course would sit there
+            // for ever, and the team could never file that kind of
+            // request again because the live ticket blocks duplicates.
             $actions = html_writer::start_tag('form', ['method' => 'post',
-                'action' => new moodle_url($baseurl, ['action' => 'claim'])])
+                'action' => new moodle_url($baseurl, ['action' => 'release'])])
                 . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
                 . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
-                . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-primary btn-sm',
-                    'value' => get_string('ticketclaim', 'mod_selfselectadvanced')])
+                . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-outline-secondary btn-sm',
+                    'value' => get_string('ticketforcerelease', 'mod_selfselectadvanced')])
                 . html_writer::end_tag('form');
         }
-    } else if ($mine) {
-        $actions = html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)])
-            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
-            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
-            // A <textarea>, not <input type=text>: slice A (multi-line
-            // rich-ish resolutions, FORMAT_MOODLE storage).
-            // html_writer::tag() rather than empty_tag() - a textarea
-            // needs a closing tag.
-            . html_writer::tag('textarea', '', ['name' => 'resolution', 'rows' => 3, 'class' => 'form-control',
-                'placeholder' => get_string('ticketresolutionhint', 'mod_selfselectadvanced')])
-            . ' '
-            . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-success btn-sm',
-                'formaction' => (new moodle_url($baseurl, ['action' => 'resolve']))->out(false),
-                'value' => get_string('ticketresolve', 'mod_selfselectadvanced')])
-            . ' '
-            . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-warning btn-sm',
-                'formaction' => (new moodle_url($baseurl, ['action' => 'decline']))->out(false),
-                'value' => get_string('ticketdecline', 'mod_selfselectadvanced')])
-            . ' '
-            . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-secondary btn-sm',
-                'formaction' => (new moodle_url($baseurl, ['action' => 'release']))->out(false),
-                'value' => get_string('ticketrelease', 'mod_selfselectadvanced')])
-            . html_writer::end_tag('form');
-        if ($ticket->type === tickets::TYPE_GUIDECAP) {
-            $actions = html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)])
-                . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
-                . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
-                // A <textarea>, not <input type=text>: slice A (multi-line
-                // rich-ish resolutions, FORMAT_MOODLE storage).
-                // html_writer::tag() rather than empty_tag() - a textarea
-                // needs a closing tag.
-                . html_writer::tag('textarea', '', ['name' => 'resolution', 'rows' => 3, 'class' => 'form-control',
-                    'placeholder' => get_string('ticketresolutionhint', 'mod_selfselectadvanced')])
-                . ' '
-                . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-success btn-sm',
-                    'formaction' => (new moodle_url($baseurl, ['action' => 'grant']))->out(false),
-                    'value' => get_string('guidecapgrant', 'mod_selfselectadvanced', (int) $ticket->requested)])
-                . ' '
-                . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-warning btn-sm',
-                    'formaction' => (new moodle_url($baseurl, ['action' => 'decline']))->out(false),
-                    'value' => get_string('ticketdecline', 'mod_selfselectadvanced')])
-                . ' '
-                . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-secondary btn-sm',
-                    'formaction' => (new moodle_url($baseurl, ['action' => 'release']))->out(false),
-                    'value' => get_string('ticketrelease', 'mod_selfselectadvanced')])
-                . html_writer::end_tag('form');
-        } else if ($ticket->groupid) {
-            // Group-typed tickets only: a guidereduce ticket is about
-            // the GUIDE and carries no group, and a link to
-            // group.php?g= (nothing) would be a broken control.
-            $actions .= html_writer::link(
-                new moodle_url('/mod/selfselectadvanced/group.php', ['id' => $cm->id, 'g' => $ticket->groupid]),
-                get_string('view'),
-                ['class' => 'btn btn-secondary btn-sm mt-1']
-            );
-        }
-    } else if ($isclaimed && $canmanage) {
-        // Somebody else is holding this one. A manager can put it back
-        // in the queue: without this door, a claim by a coordinator who
-        // has since left the course would sit there for ever, and the
-        // team could never file that kind of request again because the
-        // live ticket blocks duplicates.
-        $actions = html_writer::start_tag('form', ['method' => 'post',
-            'action' => new moodle_url($baseurl, ['action' => 'release'])])
-            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
-            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ticket', 'value' => $ticket->id])
-            . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-outline-secondary btn-sm',
-                'value' => get_string('ticketforcerelease', 'mod_selfselectadvanced')])
-            . html_writer::end_tag('form');
+        // Every OTHER row (open, claimed/needsinfo by someone else with
+        // no force-release on offer, or closed/withdrawn) still links to
+        // its thread (deliverable 2: "each row links to its thread
+        // page") - closed tickets are history worth reading, not a dead
+        // end.
+        $actions .= html_writer::link($threadurl, get_string('ticketthreadview', 'mod_selfselectadvanced'), [
+            'class' => 'btn btn-outline-secondary btn-sm ms-1',
+        ]);
     }
 
     if ($ticket->type === tickets::TYPE_GUIDECAP) {
@@ -447,7 +413,7 @@ foreach ($queue as $ticket) {
         $statuscell,
         $actions,
     ]);
-    if ($isclaimed && !$mine) {
+    if ($isworked && !$mine) {
         $row->attributes['class'] = 'dimmed_text';
     }
     $table->data[] = $row;

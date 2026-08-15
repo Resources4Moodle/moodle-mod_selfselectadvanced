@@ -221,6 +221,7 @@ if ($tab === 'waiting') {
             get_string('status'),
             get_string('guidecapoutcome', 'mod_selfselectadvanced'),
             get_string('date'),
+            get_string('actions'),
         ];
         foreach ($mine as $ticket) {
             $table->data[] = [
@@ -229,6 +230,14 @@ if ($tab === 'waiting') {
                 get_string('ticketstatus' . $ticket->status, 'mod_selfselectadvanced'),
                 s(shorten_text(trim(html_to_text((string) ($ticket->resolution ?? ''))), 120)),
                 userdate((int) $ticket->timecreated, get_string('strftimedatetimeshort')),
+                // Slice B2 (deliverable 2): every row links to its
+                // thread - the conversation (the eventual grant/decline
+                // note, any needs-info question) lives there now.
+                html_writer::link(
+                    new moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticket->id]),
+                    get_string('ticketthreadview', 'mod_selfselectadvanced'),
+                    ['class' => 'btn btn-outline-secondary btn-sm']
+                ),
             ];
         }
         echo html_writer::table($table);

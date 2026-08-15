@@ -2691,5 +2691,67 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081402, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081500) {
+        // 1.20.42: every ticket now carries a HISTORY TRAIL, and a
+        // ticket can enter a NEEDS-INFO state while the handler asks
+        // the requester a question and waits for the answer (maintainer
+        // decisions of 2026-08-15). Until now a ticket's row held only
+        // its CURRENT state - who claimed it, who resolved it, one
+        // resolution note - and everything that happened on the way
+        // there was discarded the moment the next thing happened. A
+        // requester told "being handled" had no way to learn who by or
+        // when, and a handler who needed more information had no way to
+        // ask without either resolving the ticket (losing the queue
+        // slot) or declining it (losing the request). This table is the
+        // append-only record that both problems needed: one row per
+        // action - filed, claimed, released, needsinfo, inforeply,
+        // resolved, declined or withdrawn - so a requester can be shown
+        // the STATE CHANGES and staff can be shown the FULL TRAIL,
+        // exactly as decision 2 requires, from the same rows.
+        $table = new xmldb_table('selfselectadvanced_ticketlog');
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE);
+            $table->add_field('ticketid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+            $table->add_field('actorid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+            $table->add_field('action', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL);
+            $table->add_field('note', XMLDB_TYPE_TEXT);
+            $table->add_field('noteformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
+            $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_key('fk_ticketid', XMLDB_KEY_FOREIGN, ['ticketid'], 'selfselectadvanced_ticket', ['id']);
+            $table->add_key('fk_actorid', XMLDB_KEY_FOREIGN, ['actorid'], 'user', ['id']);
+            // No further indexes: fk_ticketid and fk_actorid already
+            // index their own columns (the digestq table's lesson,
+            // 2026072430), and the trail is always read by ticketid in
+            // timecreated/id order, which the primary key already walks
+            // for one ticket's handful of rows without needing a
+            // composite.
+            $dbman->create_table($table);
+        }
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            'Upgraded to 1.20.42 (2026081500). Tickets now keep a history trail, and can enter a '
+                . 'needs-info state.',
+            'A ticket row held only its current state, so everything that happened on the way there '
+                . '- who claimed it and when, a released claim, a question asked and answered - was '
+                . 'overwritten by whatever happened next. The new selfselectadvanced_ticketlog table '
+                . 'keeps one row per action instead, oldest first, so a requester can be shown what '
+                . 'changed and staff can be shown who did it. Alongside it, a claimed ticket can now '
+                . 'move to a needs-info state: the handler asks a question, the ticket waits for the '
+                . 'requester rather than sitting claimed with nothing to show for it, and the same '
+                . 'claimant gets it back the moment the requester answers. Needs-info counts as LIVE '
+                . 'everywhere open and claimed already did - the one-ticket-per-group-and-type guard, '
+                . 'the guidecap/guidereduce one-request-per-guide guard, and the auto-resolve-on-'
+                . 'unfreeze candidate list - so a ticket cannot be filed twice just because the first '
+                . 'one is waiting on an answer. No existing ticket needs migrating: every ticket in '
+                . 'flight is open, claimed, resolved, declined or withdrawn today, none of them '
+                . 'needs-info, and this step writes no ticket row at all - only the new table.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081500, 'selfselectadvanced');
+    }
+
     return true;
 }

@@ -21,16 +21,34 @@ behind — the same reasoning `version.php` itself records beside
 `supported = [502, 502]`. `requires = 2026042001` is the **5.2.1** serial —
 5.2.0 is `2026042000` — so the floor is 5.2.1, not every 5.2 site.
 
-The PHP 8.4 floor is asserted at runtime on install and on upgrade
-(`db/install.php`, `db/upgrade.php`), because Moodle's `version.php` format
-has no field for a PHP minimum. **Stated precisely:** those are the plugin's
-own hooks, and `xmldb_selfselectadvanced_install()` is a POST-install hook —
-core creates the `db/install.xml` schema before calling it. So on a site below
-the floor the install is refused, but not before the tables are made. Earlier
-wording here claimed the refusal came "before anything is created"; that was
-wrong (external audit FCA-001, 2026-08-13). Expressing the floor as a real
-environment requirement, which core evaluates before installing anything, is
-owed.
+The PHP 8.4 floor is expressed as a plugin environment requirement —
+[`environment.xml`](environment.xml), `<PLUGIN name="mod_selfselectadvanced">`
+with a `<PHP version="8.4.0" level="required" />` child — which is the
+mechanism Moodle's own environment checker actually reads before install or
+upgrade touches this plugin's schema: `core_component::get_plugin_list_with_file()`
+discovers the file, and `environment_check()` (`lib/environmentlib.php`)
+evaluates it as part of `check_moodle_environment()`, which `admin/index.php`
+calls on its install/upgrade screens strictly before `upgrade_noncore()`
+creates or migrates any plugin's tables — adding a new plugin on disk changes
+`core_component::get_all_versions_hash()`, which is exactly what routes an
+existing 5.2 site through that screen the next time an administrator visits
+it. `db/install.php` and `db/upgrade.php` keep their own PHP-version
+assertions as a **backstop**, not the primary gate: they are the plugin's own
+hooks, and `xmldb_selfselectadvanced_install()` in particular is a
+POST-install hook that core calls after the `db/install.xml` schema already
+exists, so on any path that reached it the tables were already made.
+
+Earlier wording here claimed the refusal came "before anything is created";
+that was wrong for the hook alone (external audit FCA-001, 2026-08-13) — it
+is true now that `environment.xml` is the thing core reads first. **What was
+verified on this tree, and what wasn't:** running Moodle 5.2.1+'s environment
+checker on this codebase confirms `mod_selfselectadvanced/environment.xml`
+is discovered and its PHP requirement evaluated — `environment_check()`
+reports `part=php level=required status=OK needed=8.4.0 current=8.4.22` on
+the PHP 8.4 host this project runs on. No PHP-below-8.4 Moodle installation
+exists anywhere in this project's development or CI environment, so the
+refusal itself — an administrator actually being stopped on such a host —
+has not been run and is not claimed here.
 
 ## Features
 

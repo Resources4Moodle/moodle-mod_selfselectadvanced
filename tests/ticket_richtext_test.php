@@ -77,6 +77,20 @@ use mod_selfselectadvanced\local\tickets;
  *    text to before this slice, regardless of what the textarea widget
  *    let the user type.
  *
+ * UPDATED, SLICE B2 (2026-08-15): tickets.php's own two FORMAT_MOODLE
+ * call sites (grant_guidecap()/close()) are GONE from that file, not
+ * reverted - the forms that fed them (resolve, decline, the guidecap
+ * grant, request-info) moved to the ticket's own thread (ticket.php),
+ * which now holds FOUR FORMAT_MOODLE call sites of its own
+ * (request_info(), grant_guidecap(), the shared close() resolve/decline
+ * call, provide_info()). tickets.php keeps exactly ONE format constant -
+ * FORMAT_PLAIN, on the bare one-click force-release action, which sends
+ * no user text at all (close() only stores resolution/resolutionformat
+ * for the resolved/declined outcomes). The render contract - tickets.php
+ * still shows a closed ticket's resolution via format_text(), not s() -
+ * is unchanged and re-pinned below; ticket.php gets its own source pin
+ * for the forms that now write that text.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -274,12 +288,20 @@ final class ticket_richtext_test extends \advanced_testcase {
      * end-to-end coverage this cannot: tests/behat/tickets.feature,
      * guide_tickets.feature, guidequeue.feature, myrequests.feature.
      *
-     * MUTATION CAUGHT (run 2026-08-15): written and run against the
-     * unfixed tree, every assertion below failed - group.php:808 still
-     * read PARAM_TEXT, and group.php:815, guidequeue.php:68,
+     * MUTATION CAUGHT (run 2026-08-15, slice A): written and run against
+     * the unfixed tree, every assertion below failed - group.php:808
+     * still read PARAM_TEXT, and group.php:815, guidequeue.php:68,
      * guidequeue.php:90, tickets.php:73 and tickets.php:94 all still
      * passed FORMAT_PLAIN; tickets.php:214 still rendered the resolution
      * with s(), not format_text(). Green only after the edits landed.
+     *
+     * RE-PINNED, SLICE B2 (2026-08-15): the group.php and guidequeue.php
+     * arms are untouched by B2 and still hold. The tickets.php arm is
+     * rewritten for the new file - it keeps exactly one format constant
+     * (FORMAT_PLAIN, on the bare force-release action, which carries no
+     * user text) and still renders a closed ticket's resolution via
+     * format_text(). A new ticket.php arm pins the four call sites the
+     * queue's forms moved to.
      */
     public function test_the_five_call_sites_read_raw_and_pass_format_moodle(): void {
         $root = realpath(__DIR__ . '/..');
@@ -319,22 +341,52 @@ final class ticket_richtext_test extends \advanced_testcase {
             'guidequeue.php: no call site should still hardcode FORMAT_PLAIN'
         );
 
+        // B2: the queue keeps ONE format constant - FORMAT_PLAIN, on the
+        // bare force-release action (no textarea feeds it: close() only
+        // stores resolution/resolutionformat for the resolved/declined
+        // outcomes, never for a release). Resolve, decline and the
+        // guidecap grant moved to ticket.php, taking their two
+        // FORMAT_MOODLE call sites with them.
         $tickets = self::normalised_executable_source($root . '/tickets.php');
         $this->assertSame(
-            2,
+            0,
             substr_count($tickets, 'FORMAT_MOODLE'),
-            'tickets.php: grant_guidecap() and close() must both pass FORMAT_MOODLE'
+            'tickets.php: the resolve/decline/grant forms moved to ticket.php, so no FORMAT_MOODLE call site should remain'
         );
-        $this->assertStringNotContainsString(
-            'FORMAT_PLAIN',
-            $tickets,
-            'tickets.php: no call site should still hardcode FORMAT_PLAIN'
+        $this->assertSame(
+            1,
+            substr_count($tickets, 'FORMAT_PLAIN'),
+            'tickets.php: exactly the bare force-release call site should hardcode FORMAT_PLAIN'
         );
         $this->assertStringContainsString(
             'format_text((string) $ticket->resolution, (int) $ticket->resolutionformat,',
             $tickets,
-            'tickets.php:214 must render the resolution through format_text(), not s()'
+            'tickets.php must still render a closed ticket\'s resolution through format_text(), not s()'
         );
+
+        // B2: ticket.php holds the four FORMAT_MOODLE call sites the
+        // queue's forms moved to - request_info(), grant_guidecap(), the
+        // shared close() resolve/decline call, and provide_info() - and
+        // none of the four textareas that feed them (question,
+        // resolution, declinereason, reply) may fall back to PARAM_TEXT.
+        $ticketpage = self::normalised_executable_source($root . '/ticket.php');
+        $this->assertSame(
+            4,
+            substr_count($ticketpage, 'FORMAT_MOODLE'),
+            'ticket.php: request_info(), grant_guidecap(), close() and provide_info() must all pass FORMAT_MOODLE'
+        );
+        $this->assertStringNotContainsString(
+            'PARAM_TEXT',
+            $ticketpage,
+            'ticket.php: every thread textarea must be read PARAM_RAW, never PARAM_TEXT'
+        );
+        foreach (['question', 'resolution', 'declinereason', 'reply'] as $field) {
+            $this->assertStringContainsString(
+                "optional_param('$field', '', PARAM_RAW)",
+                $ticketpage,
+                "ticket.php: the '$field' textarea must be read PARAM_RAW"
+            );
+        }
     }
 
     /**

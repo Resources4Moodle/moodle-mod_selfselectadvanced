@@ -139,6 +139,18 @@ class provider implements
             'status' => 'privacy:metadata:ticket:status',
             'requested' => 'privacy:metadata:ticket:requested',
         ], 'privacy:metadata:ticket');
+        // The history trail (decision 1, 2026-08-15): one row per action
+        // taken on a ticket, so the same personal data the ticket row
+        // itself already declares - who acted, and any prose they wrote -
+        // is declared again here rather than assumed to be covered by the
+        // table above.
+        $collection->add_database_table('selfselectadvanced_ticketlog', [
+            'ticketid' => 'privacy:metadata:ticketlog:ticketid',
+            'actorid' => 'privacy:metadata:ticketlog:actorid',
+            'action' => 'privacy:metadata:ticketlog:action',
+            'note' => 'privacy:metadata:ticketlog:note',
+            'timecreated' => 'privacy:metadata:ticketlog:timecreated',
+        ], 'privacy:metadata:ticketlog');
         $collection->add_database_table('selfselectadvanced_penalty', [
             'groupid' => 'privacy:metadata:penalty:groupid',
             'dayslate' => 'privacy:metadata:penalty:dayslate',
@@ -225,6 +237,10 @@ class provider implements
                          WHERE t.activityid = a.id
                            AND (t.requestedby = :userid12 OR t.claimedby = :userid13 OR t.resolvedby = :userid14))
                     OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_ticketlog} tl
+                          JOIN {selfselectadvanced_ticket} tlt ON tlt.id = tl.ticketid
+                         WHERE tlt.activityid = a.id AND tl.actorid = :userid24)
+                    OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_contact} ct
                          WHERE ct.activityid = a.id
                            AND (ct.guideid = :userid15 OR ct.sentby = :userid16))
@@ -278,6 +294,7 @@ class provider implements
             'userid15' => $userid, 'userid16' => $userid, 'userid17' => $userid,
             'userid18' => $userid, 'userid19' => $userid, 'userid20' => $userid,
             'userid21' => $userid, 'userid22' => $userid, 'userid23' => $userid,
+            'userid24' => $userid,
         ]);
 
         global $DB;
@@ -518,6 +535,19 @@ class provider implements
                FROM {selfselectadvanced_ticket} t
                JOIN {course_modules} cm ON cm.instance = t.activityid AND cm.id = :cmid
               WHERE t.resolvedby IS NOT NULL",
+            $params
+        );
+        // The history trail's own actor - a SEPARATE relation from the
+        // three above, not implied by them: a manage holder who force-
+        // released someone else's claimed ticket (close(), outcome=open,
+        // actor need not be the claimant) is recorded here and nowhere
+        // on the ticket row itself.
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT tl.actorid AS userid
+               FROM {selfselectadvanced_ticketlog} tl
+               JOIN {selfselectadvanced_ticket} t ON t.id = tl.ticketid
+               JOIN {course_modules} cm ON cm.instance = t.activityid AND cm.id = :cmid",
             $params
         );
         $userlist->add_from_sql(
@@ -917,6 +947,31 @@ class provider implements
                     AND (t.requestedby = :u1 OR t.claimedby = :u2 OR t.resolvedby = :u3)",
                 ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid, 'u3' => $userid]
             );
+            // The history trail, nested under the ticket export below
+            // rather than fetched separately (decision 1, 2026-08-15):
+            // whoever is entitled to see the TICKET above - because they
+            // filed it, claimed it or resolved it - is entitled to see
+            // how it was handled, so no separate actor filter is applied
+            // here. Grouped by ticketid in PHP rather than one query per
+            // ticket, on the same house rule notify_workers() states.
+            $ticketlogs = [];
+            if ($tickets) {
+                [$ticketidinsql, $ticketidparams] = $DB->get_in_or_equal(
+                    array_keys($tickets),
+                    SQL_PARAMS_NAMED,
+                    'tlt'
+                );
+                foreach (
+                    $DB->get_records_select(
+                        'selfselectadvanced_ticketlog',
+                        "ticketid $ticketidinsql",
+                        $ticketidparams,
+                        'ticketid, timecreated, id'
+                    ) as $logrow
+                ) {
+                    $ticketlogs[(int) $logrow->ticketid][] = $logrow;
+                }
+            }
             // Approaches this person sent or received (declared in the
             // metadata since 1.17, but never actually exported).
             $contacts = $DB->get_records_sql(
@@ -1105,6 +1160,20 @@ class provider implements
                             : null,
                         'timecreated' => transform::datetime($t->timecreated),
                         'timeresolved' => $t->timeresolved ? transform::datetime($t->timeresolved) : null,
+                        // The history trail, nested here rather than a
+                        // sibling export section: NO raw actor id, the
+                        // same "wasyou" shape 'moves' above uses for
+                        // stagedbyyou/wassubject - identifying a THIRD
+                        // party by id inside THIS person's export is
+                        // not this export's business.
+                        'trail' => array_values(array_map(static fn($l) => (object) [
+                            'action' => $l->action,
+                            'note' => $l->note !== null
+                                ? format_text($l->note, $l->noteformat, ['context' => $context])
+                                : null,
+                            'wasyou' => transform::yesno((int) $l->actorid === $userid),
+                            'timecreated' => transform::datetime($l->timecreated),
+                        ], $ticketlogs[(int) $t->id] ?? [])),
                     ], $tickets)),
                 ]
             );
@@ -1242,6 +1311,15 @@ class provider implements
         // full record of who was placed where, and by whom.
         $DB->delete_records('selfselectadvanced_agrun', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $cm->instance]);
+        // The trail first, while it can still be found by ticketid - a
+        // full context purge is unconditional, exactly like the ticket
+        // row deletion beside it, so nothing here is left to a cascade
+        // the database may or may not enforce.
+        $DB->delete_records_select(
+            'selfselectadvanced_ticketlog',
+            'ticketid IN (SELECT id FROM {selfselectadvanced_ticket} WHERE activityid = ?)',
+            [$cm->instance]
+        );
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_contact', ['activityid' => $cm->instance]);
         // NULL, not 0. The schema says leaderid names a real user, so writing
@@ -1552,6 +1630,19 @@ class provider implements
         // only handled a ticket, the row is the requester's record: the
         // handler is de-linked and their resolution prose scrubbed; a
         // half-worked claim is released back to the queue.
+        //
+        // The trail goes WITH the ticket, and has to be found before the
+        // ticket row it points at is deleted out from under it.
+        $ownticketids = $DB->get_fieldset_select(
+            'selfselectadvanced_ticket',
+            'id',
+            'activityid = ? AND requestedby = ?',
+            [$activityid, $userid]
+        );
+        if ($ownticketids) {
+            [$ownticketinsql, $ownticketparams] = $DB->get_in_or_equal($ownticketids, SQL_PARAMS_QM);
+            $DB->delete_records_select('selfselectadvanced_ticketlog', "ticketid $ownticketinsql", $ownticketparams);
+        }
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $activityid, 'requestedby' => $userid]);
         $DB->execute(
             "UPDATE {selfselectadvanced_ticket}
@@ -1570,6 +1661,21 @@ class provider implements
                 SET resolvedby = NULL, resolution = NULL
               WHERE activityid = :activityid AND resolvedby = :userid",
             ['activityid' => $activityid, 'userid' => $userid]
+        );
+        // The trail entries this person wrote as a HANDLER, on tickets
+        // that remain (their own filed tickets and trail were removed
+        // above): actorid cannot be nulled - it is NOT NULL by design,
+        // exactly like takenby/triggeredby/usermodified elsewhere in
+        // this method - so it is de-linked to the same 0 sentinel they
+        // use, and any content they authored (a needs-info question, a
+        // resolution note) is scrubbed alongside it, mirroring
+        // resolution's own scrub immediately above.
+        $DB->execute(
+            "UPDATE {selfselectadvanced_ticketlog}
+                SET actorid = 0, note = NULL
+              WHERE actorid = :userid
+                AND ticketid IN (SELECT id FROM {selfselectadvanced_ticket} WHERE activityid = :activityid)",
+            ['userid' => $userid, 'activityid' => $activityid]
         );
 
         // An approach a person sent is their own words, so it goes with

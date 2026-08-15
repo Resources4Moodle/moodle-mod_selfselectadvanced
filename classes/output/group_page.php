@@ -391,6 +391,20 @@ class group_page implements renderable, templatable {
             'groupid' => $this->group->id,
             'userid' => $this->userid,
         ]);
+        // THE ACCEPT GATE ITSELF (external audit INV-001, 1.20.37), not a
+        // transcription of mayrespond: this page used to compute
+        // showrespond from the :respond capability alone, so an invitee
+        // whose group filled, started winding up or left Forming after
+        // the invitation was sent still saw a live Accept button here -
+        // the landing page and the leader's own pending-invites panel
+        // below both already ask gatekeeper::can_accept() (decisions 60
+        // + 64), and this was the one screen that still told the
+        // invitee something the service would refuse under lock.
+        // CALLED, not transcribed, so this button and invitations::
+        // accept() cannot drift into disagreeing.
+        $ownacceptrefusal = ($ownrow && $ownrow->status === groups::STATUS_INVITED)
+            ? $this->api->gatekeeper()->can_accept($this->group, $ownrow)
+            : null;
         // The invite CONTROL asks the invite DOOR (external audit
         // MKT-03, 1.20.21): eligibility and the disabled reason both
         // come from gatekeeper::invite_door_refusal(), never from a
@@ -1208,7 +1222,29 @@ class group_page implements renderable, templatable {
             // all - while the sibling nomination question is exported ungated on
             // purpose, for exactly this reason.
             'hasinvitationhere' => (bool) ($ownrow && $ownrow->status === groups::STATUS_INVITED),
-            'showrespond' => $ownrow && $ownrow->status === groups::STATUS_INVITED && $mayrespond,
+            // INV-001: three flags rather than one, because CAPABILITY and the
+            // ACCEPT GATE are different questions with different audiences.
+            // 'candecline' is the :respond capability answer alone - cleanup
+            // (withdrawing from an offer the group has outgrown) must never be
+            // blocked by the same rule that blocks joining, so Decline is drawn
+            // whenever this is true, with no further question asked of it.
+            // 'showrespond' additionally requires can_accept() to return null -
+            // Accept is drawn ONLY then. 'acceptgateblocked' is the remaining
+            // case: capability present, invitation present, but the gate
+            // refuses - Decline still shows, Accept does not, and the reason
+            // the gate gave is exported beside it rather than discarded.
+            'candecline' => (bool) ($ownrow && $ownrow->status === groups::STATUS_INVITED && $mayrespond),
+            'showrespond' => $ownrow
+                && $ownrow->status === groups::STATUS_INVITED
+                && $mayrespond
+                && $ownacceptrefusal === null,
+            'acceptgateblocked' => $ownrow
+                && $ownrow->status === groups::STATUS_INVITED
+                && $mayrespond
+                && $ownacceptrefusal !== null,
+            'acceptblockedreason' => $ownacceptrefusal !== null
+                ? get_string('invitationcurrentlyblocked', 'mod_selfselectadvanced', $ownacceptrefusal->get_message())
+                : '',
             'respondblocked' => $ownrow && $ownrow->status === groups::STATUS_INVITED && !$mayrespond,
             'sesskey' => sesskey(),
             'actionurl' => (new \moodle_url('/mod/selfselectadvanced/group.php'))->out(false),

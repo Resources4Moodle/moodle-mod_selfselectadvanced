@@ -759,23 +759,38 @@ final class message_placeholder_contract_test extends \advanced_testcase {
     }
 
     /**
-     * A requester is linked to a page they can open; staff are linked
-     * to the queue.
+     * Every recipient is linked to the ticket's own thread - the page
+     * that admits BOTH the requester and staff (tickets::may_view_thread()),
+     * carries the whole conversation, and replaced the requester-vs-staff
+     * URL branch this test used to pin.
      *
      * The queue page requires manage or coordinate. Sending its URL to a
      * student is handing them a control that throws when operated, and
      * it is why a claimed request looked to the maintainer like a
-     * response that could not be viewed.
+     * response that could not be viewed - the ORIGINAL defect this test
+     * was written to catch (see the docblock history below).
      *
-     * MUTATION CAUGHT (run 2026-08-14): written against the unfixed
+     * MUTATION CAUGHT (run 2026-08-14): written against the pre-1.20.42
      * tree, this failed on the claim notification's contexturl -
      * `.../tickets.php?id=<cmid>` - matching what notification 106155
      * carried to the student who filed the dev site's only ticket.
+     *
+     * RE-PINNED, SLICE B2 (run 2026-08-15): notify() now sends every
+     * recipient - workers on filing, the requester on claim and on
+     * close - to the ticket's own thread (ticket.php?t=<ticketid>)
+     * rather than splitting between tickets.php and myrequests.php.
+     * Run against the B1 tree (this file's URLs still tickets.php /
+     * myrequests.php, ticket.php not yet written): every contexturl
+     * assertion below failed, most tellingly the worker one - it still
+     * expected tickets.php and got it, so the OLD assertion could not
+     * have distinguished "still splits by audience" from "moved to one
+     * door" on its own; the requester assertions failed outright since
+     * myrequests.php is not ticket.php. Green only after tickets::notify()
+     * and request_info()/provide_info() were repointed.
      */
     public function test_ticket_notifications_link_each_recipient_to_a_page_they_can_open(): void {
         $this->resetAfterTest();
         [$activity, $group, , $member, , $manager, $coordinator] = $this->setup_world();
-        $cmid = (int) $activity->cm()->id;
 
         $sink = $this->redirectMessages();
         $ticket = tickets::file(
@@ -787,18 +802,23 @@ final class message_placeholder_contract_test extends \advanced_testcase {
             (int) $member->id
         );
         $filed = $this->by_recipient($sink);
+        $threadurl = '/mod/selfselectadvanced/ticket.php?t=' . (int) $ticket->id;
 
-        // The people who work the queue are sent to the queue.
+        // The people who work the queue are sent to the thread - it
+        // admits them (tickets::may_view_thread() passes on queue
+        // authority) and carries the whole conversation, not just a
+        // one-line "new ticket" notice.
         foreach ([(int) $manager->id, (int) $coordinator->id] as $workerid) {
             $this->assertArrayHasKey($workerid, $filed, 'the queue workers are told of new work');
             $this->assertStringContainsString(
-                '/mod/selfselectadvanced/tickets.php?id=' . $cmid,
+                $threadurl,
                 $filed[$workerid][0]->contexturl,
-                'a worker is linked to the queue they can open'
+                'a worker is linked to the thread they can open'
             );
         }
 
-        // The requester is not, because the queue refuses them.
+        // The requester is linked to the SAME thread - not the queue,
+        // which still refuses them.
         $sink->clear();
         tickets::claim($activity, (int) $ticket->id, (int) $manager->id);
         $claimed = $this->by_recipient($sink);
@@ -811,9 +831,9 @@ final class message_placeholder_contract_test extends \advanced_testcase {
             'the requester was linked to a page that requires manage or coordinate'
         );
         $this->assertStringContainsString(
-            '/mod/selfselectadvanced/myrequests.php?id=' . $cmid,
+            $threadurl,
             $told->contexturl,
-            'the requester is linked to their own requests, which no capability gates'
+            'the requester is linked to the ticket thread, which their own access rule admits them to'
         );
 
         // And the same holds for the message that carries the outcome.
@@ -836,9 +856,14 @@ final class message_placeholder_contract_test extends \advanced_testcase {
             'the closing note linked the requester to a page that refuses them'
         );
         $this->assertStringContainsString(
+            $threadurl,
+            $outcome->contexturl,
+            'the closing note links straight to the thread, which now shows the resolution too'
+        );
+        $this->assertStringContainsString(
             'Spoken to, all settled',
             $outcome->fullmessage,
-            'the resolution travels in the body - that is the whole design'
+            'the resolution still travels in the body too - a message may be read with no browser session at hand'
         );
     }
 }

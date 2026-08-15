@@ -116,6 +116,8 @@ if (!$mine) {
             );
         }
 
+        $threadurl = new moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticket->id]);
+
         $actions = '';
         if ($ticket->status === tickets::STATUS_OPEN) {
             $actions = html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)])
@@ -126,6 +128,19 @@ if (!$mine) {
                 . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-outline-secondary btn-sm',
                     'value' => get_string('myrequestswithdraw', 'mod_selfselectadvanced')])
                 . html_writer::end_tag('form');
+        } else if ($ticket->status === tickets::STATUS_NEEDSINFO) {
+            // Slice B2 (deliverable 2): a requester who never opens the
+            // thread must still be led to the question waiting for them
+            // - the status label alone ("Waiting on the requester") does
+            // not say that the requester is THEM, still less what is
+            // being asked.
+            $statuscell .= html_writer::div(
+                get_string('ticketthreadneedsinfohint', 'mod_selfselectadvanced'),
+                'small text-warning-emphasis'
+            );
+            $actions = html_writer::link($threadurl, get_string('ticketthreadrespond', 'mod_selfselectadvanced'), [
+                'class' => 'btn btn-primary btn-sm',
+            ]);
         } else if ($ticket->status === tickets::STATUS_CLAIMED) {
             // Why no control here: once somebody has taken it up it is
             // their work in progress. Saying that is better than an
@@ -134,6 +149,14 @@ if (!$mine) {
                 get_string('myrequestsclaimedhint', 'mod_selfselectadvanced'),
                 'small text-muted'
             );
+        }
+        // Every row links to its thread (deliverable 2: "each row links
+        // to its thread" - kept alongside Withdraw and the needs-info
+        // respond link, not replaced by either).
+        if ($ticket->status !== tickets::STATUS_NEEDSINFO) {
+            $actions .= ' ' . html_writer::link($threadurl, get_string('ticketthreadview', 'mod_selfselectadvanced'), [
+                'class' => 'btn btn-outline-secondary btn-sm',
+            ]);
         }
 
         $table->data[] = [

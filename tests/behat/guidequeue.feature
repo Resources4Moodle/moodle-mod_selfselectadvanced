@@ -46,7 +46,10 @@ Feature: A guide's request queue and asking for a higher team limit
     Then I should see "Group limit"
     And I should see "asking for 5"
     When I press "Take up"
-    And I set the field with xpath "//textarea[@name='resolution']" to "Agreed for this term"
+    # Slice B2: the grant form moved to the ticket's own thread, reached
+    # from the claimed row's "Open thread" link exactly like resolve.
+    And I follow "Open thread"
+    And I set the field "Resolution note" to "Agreed for this term"
     And I press "Grant 5"
     Then I should see "Granted: the limit has been raised and the request closed."
 

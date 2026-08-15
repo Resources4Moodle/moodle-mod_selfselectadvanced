@@ -807,7 +807,7 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
     $tickettype = required_param('tickettype', PARAM_ALPHA);
     $reason = optional_param('reason', '', PARAM_RAW);
     try {
-        \mod_selfselectadvanced\local\tickets::file(
+        $filedticket = \mod_selfselectadvanced\local\tickets::file(
             $activity,
             $group,
             $tickettype,
@@ -815,9 +815,19 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
             FORMAT_MOODLE,
             (int) $USER->id
         );
+        // Slice B2 (deliverable 2): the confirmation LINKS to the new
+        // thread rather than sending the filer away to it - staying on
+        // this page is what lets a duplicate-ticket attempt (or a second
+        // real request) use the same filing form right after, exactly as
+        // it could before this slice. clean_text() (core's own
+        // notification renderer) allows a plain <a>, so the link is
+        // safe here without inventing a second delivery mechanism.
         redirect(
             $baseurl,
-            get_string('ticketfilednotice', 'mod_selfselectadvanced'),
+            get_string('ticketfilednotice', 'mod_selfselectadvanced') . ' ' . html_writer::link(
+                new moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $filedticket->id]),
+                get_string('ticketthreadopen', 'mod_selfselectadvanced')
+            ),
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );

@@ -83,6 +83,13 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
                 'ssaticket',
                 '/activity/selfselectadvanced/tickets/ticket'
             );
+            // Nested under its own ticket, so process_ssaticket() has
+            // already set the ssaticket mapping this row's ticketid
+            // needs by the time this path is reached.
+            $paths[] = new restore_path_element(
+                'ssaticketlog',
+                '/activity/selfselectadvanced/tickets/ticket/ticketlogs/ticketlog'
+            );
             $paths[] = new restore_path_element(
                 'ssacontact',
                 '/activity/selfselectadvanced/contacts/contact'
@@ -467,6 +474,43 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         }
         $newid = $DB->insert_record('selfselectadvanced_ticket', $data);
         $this->set_mapping('ssaticket', $oldid, $newid);
+    }
+
+    /**
+     * Restore one row of a ticket's history trail (decision 1,
+     * 2026-08-15). Both relations are REQUIRED - ticketid and actorid
+     * are NOT NULL, actorid names a real person and ticketid is
+     * meaningless pointing at nothing - so a row that cannot map either
+     * one is dropped outright, the same unmappable-provenance policy
+     * process_ssasnapshot() applies to takenby (external audit
+     * BAK-003): both those columns are NOT NULL too, and there is no
+     * null or zero either could degrade to without manufacturing an
+     * identifier nobody holds. This differs from process_ssaticket()'s
+     * OWN claimedby/resolvedby, which degrade to null individually
+     * because those two columns actually allow it.
+     *
+     * ticketid is mapped with get_mappingid() against the OLD id the
+     * archive carries, NOT get_new_parentid('ssaticket') - a ticket can
+     * be dropped by process_ssaticket() above, and this element is
+     * still visited when that happens (the XML parser walks every
+     * nested path regardless of what the ancestor's own processor did
+     * with its row), so get_new_parentid() would return whichever OTHER
+     * ticket most recently succeeded rather than "none". get_mappingid()
+     * answers the right question: was THIS ticket, by its own old id,
+     * ever mapped at all.
+     *
+     * @param array $data the row
+     */
+    protected function process_ssaticketlog($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $data->ticketid = $this->get_mappingid('ssaticket', $data->ticketid);
+        $data->actorid = $this->get_mappingid('user', $data->actorid);
+        if (!$data->ticketid || !$data->actorid) {
+            return;
+        }
+        $DB->insert_record('selfselectadvanced_ticketlog', $data);
     }
 
     /**

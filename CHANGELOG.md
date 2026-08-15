@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.20.42 — a ticket becomes a conversation with a memory (2026-08-15)
+
+> Serial `2026081500` / `1.20.42`. **Schema change: one new table**
+> (`selfselectadvanced_ticketlog`); no existing row is migrated or touched.
+> Maturity stays RC.
+
+**Every ticket now keeps an append-only history trail**, one row per action —
+filed, claimed, released, question asked, answered, resolved, declined,
+withdrawn — and each ticket has its own thread page (`ticket.php`), rendered
+in the forum's post shape the maintainer asked for. Staff see the full trail
+with names; the requester sees state changes only, with the actor anonymised
+("Somebody is handling this.") but the texts addressed to them — the question,
+the resolution — shown in full. The queues, `myrequests.php` and every ticket
+notification now lead to the thread; resolution moved off the queue onto the
+thread, the queue keeps "Take up" for triage, and the claimant keeps a
+Release button so a claim can always be handed back.
+
+**A claimed ticket can enter needs-info**: the handler asks a question, the
+ticket waits on the requester instead of sitting claimed with nothing to show,
+and the requester answers from their own thread (their list ranks needs-info
+tickets first — they are the ones waiting on them). Needs-info counts as LIVE
+everywhere open and claimed did, so waiting on an answer never permits a
+duplicate filing. Staff on a thread also see the requester's previous tickets,
+so a repeated request is visible before it is answered twice.
+
+**Every ticket action is a loggable fact.** Each transition fires a Moodle
+event carrying the actor, the ticket, the other party, and the ticketlog row
+id, so a log entry joins back to the exact stored text; the thread page fires
+a viewed event, so reads are on the record too. Backup carries the trail
+(with an explicit ticket mapping so a dropped ticket drops its trail), and
+privacy export/erasure follows the established ticket policy.
+
+**Two audit findings closed.** FCA-001: the PHP 8.4 floor is now declared in
+`environment.xml`, which Moodle evaluates before creating anything — making
+the README's "refused before anything is created" claim true; the install-hook
+check remains as a backstop only. INV-001: the group page now consults
+`gatekeeper::can_accept()` exactly as the landing page does — Accept renders
+only when accepting can succeed, the refusal reason is shown otherwise, and
+Decline stays available for cleanup regardless.
+
 ## 1.20.41 — ticket text grows up, and the queue can be triaged (2026-08-15)
 
 > Serial `2026081402` / `1.20.41`. **No schema change, no data change.**

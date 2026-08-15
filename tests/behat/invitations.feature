@@ -64,6 +64,47 @@ Feature: Invitation-only joining with reserved seats
     Then I should see "The invitation was withdrawn and its seat released."
     And I should see "1 of 3 seats filled, 0 invitation(s) pending"
 
+  # INV-001 (external audit of 1.20.37): the group page used to draw a
+  # live Accept button straight off the :respond capability, without
+  # ever asking gatekeeper::can_accept() - the same gate the landing
+  # page and the leader's own pending-invites panel both ask. Driving
+  # the roster past maxsize AFTER the invitation was issued - exactly
+  # the audit's scenario ("the group becomes full ... after the
+  # invite") - is the RED case: on the pre-fix tree this page still
+  # showed Sam a live Accept button here, and pressing it would have
+  # landed on the very refusal asserted below. Decline is pinned
+  # separately and must survive: withdrawing from an offer the group
+  # has outgrown is cleanup, not the join the gate refuses.
+  Scenario: The group page withdraws Accept, not Decline, once the group has outgrown the invitation
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
+    And I follow "Team Blue"
+    Then I should see "1 of 3 seats filled, 1 invitation(s) pending"
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    And I follow "Team Blue"
+    Then I should see "Accept" in the ".selfselectadvanced-respond" "css_element"
+    And I should see "Decline" in the ".selfselectadvanced-respond" "css_element"
+    # The roster changes after the invitation was sent - two more
+    # confirmed members arrive directly, taking confirmed-plus-invited
+    # past maxsize (3), which is what "the group becomes full" means to
+    # the gate (gatekeeper::can_accept()'s own seat re-check).
+    Given the following "users" exist:
+      | username | firstname | lastname | email                 |
+      | student4 | Vic       | Four     | student4@example.com  |
+      | student5 | Wes       | Five     | student5@example.com  |
+    And the following "course enrolments" exist:
+      | user     | course | role    |
+      | student4 | C1     | student |
+      | student5 | C1     | student |
+    And the following "mod_selfselectadvanced > members" exist:
+      | ssagroup  | user     | status    |
+      | Team Blue | student4 | confirmed |
+      | Team Blue | student5 | confirmed |
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
+    And I follow "Team Blue"
+    Then I should see "Decline" in the ".selfselectadvanced-respond" "css_element"
+    And I should not see "Accept" in the ".selfselectadvanced-respond" "css_element"
+    And I should see "No free seats: confirmed members and pending invitations hold every seat." in the ".selfselectadvanced-respond" "css_element"
+
   Scenario: Accepting one invitation auto-declines the others at the cap
     Given the following "mod_selfselectadvanced > groups" exist:
       | selfselectadvanced | name       | leader   |

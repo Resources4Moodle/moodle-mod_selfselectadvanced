@@ -52,10 +52,13 @@ Feature: A requester can see the request they made and what came back
     And I should see "Our leader has gone quiet"
     And I should see "Open"
     # The teacher works it and writes the note that used to reach the
-    # requester only by message.
+    # requester only by message. Slice B2: resolve moved to the ticket's
+    # own thread - follow the "Open thread" link the claimed row now
+    # carries instead of resolving inline on the queue.
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
     And I press "Take up"
-    And I set the field with xpath "//textarea[@name='resolution']" to "Spoken to the leader, all settled"
+    And I follow "Open thread"
+    And I set the field "Resolution note" to "Spoken to the leader, all settled"
     And I press "Resolve"
     Then I should see "Resolved"
     # And the requester can read it.

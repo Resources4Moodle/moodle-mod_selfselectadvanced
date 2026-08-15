@@ -151,6 +151,27 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'resolution', 'resolutionformat', 'timecreated', 'timemodified',
             'requested',
         ]);
+        // The history trail (decision 1, 2026-08-15) nests under its own
+        // ticket, not under the activity beside $tickets: a trail row is
+        // meaningless without the ticket it narrates.
+        //
+        // ticketid TRAVELS EXPLICITLY, unlike a member's groupid or a
+        // snapshot's groupid, which restore recovers from
+        // get_new_parentid() because a group row is NEVER dropped by
+        // process_ssagroup(). A ticket CAN be dropped by
+        // process_ssaticket() (unmappable requestedby, or an unmappable
+        // group for a team ticket) - restore still visits every
+        // ticketlog nested under a dropped ticket's XML element
+        // regardless, and get_new_parentid('ssaticket') would then
+        // return the STALE id of whichever OTHER ticket most recently
+        // succeeded, silently reparenting the trail row onto the wrong
+        // ticket. Carrying the real old id and mapping it with
+        // get_mappingid() is what lets restore tell "this ticket was
+        // dropped" apart from "some other ticket exists".
+        $ticketlogs = new backup_nested_element('ticketlogs');
+        $ticketlog = new backup_nested_element('ticketlog', ['id'], [
+            'ticketid', 'actorid', 'action', 'note', 'noteformat', 'timecreated',
+        ]);
 
         $activity->add_child($quotas);
         $quotas->add_child($quota);
@@ -181,6 +202,10 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $joinrequests->add_child($joinrequest);
         $activity->add_child($tickets);
         $tickets->add_child($ticket);
+        // Under its own ticket, not under the activity: a trail row
+        // means nothing without the ticket it narrates.
+        $ticket->add_child($ticketlogs);
+        $ticketlogs->add_child($ticketlog);
         // After the groups subtree, like tickets, so a restore already
         // holds the mapping their groupid needs.
         $activity->add_child($contacts);
@@ -209,6 +234,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
                 [backup::VAR_PARENTID]
             );
             $ticket->set_source_table('selfselectadvanced_ticket', ['activityid' => backup::VAR_PARENTID]);
+            $ticketlog->set_source_table('selfselectadvanced_ticketlog', ['ticketid' => backup::VAR_PARENTID]);
             $contact->set_source_table('selfselectadvanced_contact', ['activityid' => backup::VAR_PARENTID]);
         }
 
@@ -229,6 +255,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $ticket->annotate_ids('user', 'requestedby');
         $ticket->annotate_ids('user', 'claimedby');
         $ticket->annotate_ids('user', 'resolvedby');
+        $ticketlog->annotate_ids('user', 'actorid');
         $contact->annotate_ids('user', 'guideid');
         $contact->annotate_ids('user', 'sentby');
 

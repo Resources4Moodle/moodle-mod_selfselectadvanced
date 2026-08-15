@@ -55,8 +55,11 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     Then I should see "Being handled"
     And I should see "Tina Teach" in the ".selfselectadvanced-tickets" "css_element"
     And I should not see "Take up" in the ".selfselectadvanced-tickets" "css_element"
+    # Slice B2: resolve/decline moved to the ticket's own thread - the
+    # claimant follows their row's "Open thread" link to reach the forms.
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
-    And I set the field "Resolution note (required to resolve or decline)" to "Move staged and committed"
+    And I follow "Open thread"
+    And I set the field "Resolution note" to "Move staged and committed"
     And I press "Resolve"
     Then I should see "Ticket updated"
     And I should see "Resolved"
