@@ -114,8 +114,14 @@ if ($action === 'release' && data_submitted() && confirm_sesskey()) {
 
 if ($action === 'requestinfo' && data_submitted() && confirm_sesskey()) {
     $question = optional_param('question', '', PARAM_RAW);
+    $questiondraftid = optional_param('questionattachments', 0, PARAM_INT);
     try {
         tickets::request_info($activity, $t, $question, FORMAT_MOODLE, (int) $USER->id);
+        // The needs-info question just became a new ticketlog row - the
+        // same two-step sequence group.php's filing forms use for a
+        // ticket's own id, completed here now that the row's real id
+        // exists.
+        tickets::save_post_attachments($activity, $t, $questiondraftid);
         redirect(
             $baseurl,
             get_string('ticketthreadquestionsent', 'mod_selfselectadvanced'),
@@ -127,10 +133,50 @@ if ($action === 'requestinfo' && data_submitted() && confirm_sesskey()) {
     }
 }
 
+if ($action === 'refer' && data_submitted() && confirm_sesskey()) {
+    // The handling ladder's first rung (1.20.44): the claimant hands the
+    // ticket to another coordinator. required_param, not optional - a
+    // referral with no chosen target is not a referral.
+    $targetid = required_param('target', PARAM_INT);
+    $note = optional_param('note', '', PARAM_RAW);
+    try {
+        tickets::refer($activity, $t, $targetid, $note, FORMAT_MOODLE, (int) $USER->id);
+        redirect(
+            $baseurl,
+            get_string('ticketreferrednotice', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
+if ($action === 'escalate' && data_submitted() && confirm_sesskey()) {
+    // The handling ladder's second rung (1.20.44): raise the ticket to
+    // the editing-teacher/manager tier. Open to the claimant AND to any
+    // manage-level holder even when unclaimed - escalate() itself
+    // enforces exactly that pair, so this arm just calls it.
+    $note = optional_param('note', '', PARAM_RAW);
+    try {
+        tickets::escalate($activity, $t, $note, FORMAT_MOODLE, (int) $USER->id);
+        redirect(
+            $baseurl,
+            get_string('ticketescalatednotice', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
 if ($action === 'grant' && data_submitted() && confirm_sesskey()) {
     $note = optional_param('resolution', '', PARAM_RAW);
+    $resolutiondraftid = optional_param('resolutionattachments', 0, PARAM_INT);
     try {
         tickets::grant_guidecap($activity, $t, $note, FORMAT_MOODLE, (int) $USER->id);
+        tickets::save_post_attachments($activity, $t, $resolutiondraftid);
         redirect(
             $baseurl,
             get_string('guidecapgranted', 'mod_selfselectadvanced'),
@@ -150,9 +196,17 @@ if (in_array($action, ['resolve', 'decline'], true) && data_submitted() && confi
     $note = $action === 'resolve'
         ? optional_param('resolution', '', PARAM_RAW)
         : optional_param('declinereason', '', PARAM_RAW);
+    // Decline carries no filemanager at all (spec names exactly
+    // request-info/info-reply/resolve for the new attachment; a
+    // staff-internal-shaped short note stays text-only) - the draft id
+    // is read, and the save below runs, ONLY on the resolve arm.
+    $resolutiondraftid = $action === 'resolve' ? optional_param('resolutionattachments', 0, PARAM_INT) : 0;
     $outcome = $action === 'resolve' ? tickets::STATUS_RESOLVED : tickets::STATUS_DECLINED;
     try {
         tickets::close($activity, $t, $outcome, $note, FORMAT_MOODLE, (int) $USER->id);
+        if ($action === 'resolve') {
+            tickets::save_post_attachments($activity, $t, $resolutiondraftid);
+        }
         redirect(
             $baseurl,
             get_string('ticketclosednotice', 'mod_selfselectadvanced'),
@@ -166,8 +220,10 @@ if (in_array($action, ['resolve', 'decline'], true) && data_submitted() && confi
 
 if ($action === 'provideinfo' && data_submitted() && confirm_sesskey()) {
     $reply = optional_param('reply', '', PARAM_RAW);
+    $replydraftid = optional_param('replyattachments', 0, PARAM_INT);
     try {
         tickets::provide_info($activity, $t, $reply, FORMAT_MOODLE, (int) $USER->id);
+        tickets::save_post_attachments($activity, $t, $replydraftid);
         redirect(
             $baseurl,
             get_string('ticketthreadreplysentnotice', 'mod_selfselectadvanced'),

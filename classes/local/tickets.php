@@ -170,6 +170,44 @@ class tickets {
     public const ACTION_WITHDRAWN = 'withdrawn';
 
     /**
+     * @var string The claimant handed the ticket to another coordinator
+     *      (1.20.44, the handling ladder's "refer" rung): claimedby
+     *      changes, status does not, and the requester's own trail is
+     *      unaffected - "Somebody is handling this." stays true, so this
+     *      action is one of STAFF_INTERNAL_ACTIONS below and never
+     *      reaches tickets::trail($withactors = false).
+     */
+    public const ACTION_REFERRED = 'referred';
+
+    /**
+     * @var string A claimant or a manage-level holder raised the ticket
+     *      to the editing-teacher/manager tier (1.20.44, the handling
+     *      ladder's "escalate" rung). Like ACTION_REFERRED, this is
+     *      staff-internal ladder machinery: the requester's status badge
+     *      already reflects any resulting change (a released claim shows
+     *      as the ticket going back to Open), so the trail row itself is
+     *      never shown to them - see STAFF_INTERNAL_ACTIONS.
+     */
+    public const ACTION_ESCALATED = 'escalated';
+
+    /**
+     * @var string[] Trail actions that are ladder machinery between
+     *      staff, never narrated to the REQUESTER's anonymised view
+     *      (1.20.44). Part 2 of the same release calls a referral's or
+     *      an escalation's note "staff-internal" in so many words when it
+     *      excludes both from the ticketpost filearea; this is that same
+     *      call applied to the trail text itself. The requester still
+     *      sees every STATUS change that results (an escalation that
+     *      releases a coordinator's claim shows as the ticket badge
+     *      going back to "Open") - what is withheld is the narration of
+     *      WHY, and to whom.
+     */
+    public const STAFF_INTERNAL_ACTIONS = [
+        self::ACTION_REFERRED,
+        self::ACTION_ESCALATED,
+    ];
+
+    /**
      * File a ticket.
      *
      * Who may file what: the group's assigned guide files either type;
@@ -1394,6 +1432,21 @@ class tickets {
                     $fresh->claimedby ? fullname(\core_user::get_user((int) $fresh->claimedby)) : $fresh->status
                 );
             }
+            // 1.20.44: while escalated, only a manage-level holder may
+            // take the ticket up - a mere :coordinate holder is refused
+            // here, in the service, no matter what the UI happens to
+            // offer (the queue and the thread both hide the control too,
+            // but this is the door that actually matters). Judged on the
+            // ROW READ INSIDE THE LOCK, like every other gate in this
+            // method: an escalation landing between the pre-lock checks
+            // above and this line must decide the question, not a stale
+            // copy that read as merely open.
+            if (
+                (int) $fresh->escalated === 1
+                && !has_capability('mod/selfselectadvanced:manage', $activity->context(), $userid)
+            ) {
+                throw new workflow_refusal('refusalticketescalated', 'mod_selfselectadvanced');
+            }
 
             $updated = $DB->execute(
                 "UPDATE {selfselectadvanced_ticket}
@@ -1447,6 +1500,382 @@ class tickets {
         self::notify($activity, (int) $claimed->requestedby, 'msgticketclaimedsubject', 'msgticketclaimedbody', $claimed, $group);
 
         return $claimed;
+    }
+
+    /**
+     * Refer a ticket to another coordinator (1.20.44, the handling
+     * ladder's first rung, maintainer intent: "a group coordinator can
+     * request another group coordinator to respond").
+     *
+     * Authority mirrors request_info() exactly (same spec instruction):
+     * this is a question of RECORD OWNERSHIP - the ticket's own current
+     * claimant, whoever that is right now - so there is no separate
+     * queue-authority re-ask before the lock; the claim already proved
+     * that once. The TARGET is a different question, asked fresh on the
+     * row read inside the lock: they must hold queue authority (manage
+     * or coordinate) and pass the same conflict-of-interest rule a
+     * claimant needs (require_uninvolved(), or the groupless self-check
+     * claim() uses for a team-limit request). While the ticket is
+     * escalated the target must ALSO hold manage-level authority -
+     * without this a refer would be a back door around the very door
+     * escalate() and claim() both enforce, simply by moving claimedby
+     * directly rather than going through claim().
+     *
+     * Effect: claimedby moves to the target, status is UNCHANGED (D-105:
+     * human authority does not narrow just because it changed hands),
+     * a ticketlog ACTION_REFERRED row records the note, a ticket_referred
+     * event fires (relateduserid = target) and the target alone is
+     * notified. The requester's own trail is unaffected -
+     * ACTION_REFERRED is one of STAFF_INTERNAL_ACTIONS, so
+     * tickets::trail($withactors = false) never returns this row and
+     * "Somebody is handling this." stays true for them, exactly as it
+     * read before the referral.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the claimed or needs-info ticket
+     * @param int $targetid the coordinator being referred to
+     * @param string $note why, for the target
+     * @param int $noteformat text format of the note
+     * @param int $actorid the current claimant
+     * @return stdClass the updated ticket
+     * @throws \moodle_exception when refused
+     */
+    public static function refer(
+        activity $activity,
+        int $ticketid,
+        int $targetid,
+        string $note,
+        int $noteformat,
+        int $actorid
+    ): stdClass {
+        global $DB;
+
+        if (trim(html_to_text($note)) === '') {
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
+        }
+
+        $context = $activity->context();
+        $lock = locks::acquire('ticket:' . $ticketid);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticketid], '*', MUST_EXIST);
+            if ((int) $fresh->activityid !== $activity->id()) {
+                throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
+            }
+            if (!in_array($fresh->status, [self::STATUS_CLAIMED, self::STATUS_NEEDSINFO], true)) {
+                throw new workflow_refusal('refusalticketnotclaimed', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->claimedby !== $actorid) {
+                throw new workflow_refusal(
+                    'refusalticketnotclaimant',
+                    'mod_selfselectadvanced',
+                    '',
+                    fullname(\core_user::get_user((int) $fresh->claimedby))
+                );
+            }
+            if ($targetid === $actorid) {
+                throw new workflow_refusal('refusalticketrefertargetself', 'mod_selfselectadvanced');
+            }
+
+            // The target's authority, re-asked fresh on THIS row: a
+            // second capability check, a second involvement check - a
+            // stale render must never be trusted for who is about to
+            // become the claimant. A plain has_capability() check rather
+            // than require_queue_authority($activity, $targetid): that
+            // helper throws core's required_capability_exception worded
+            // around the CURRENT user ("you need the capability..."),
+            // which would misname the problem here - it is the TARGET,
+            // not the actor submitting this form, whose authority is in
+            // question.
+            if (
+                !has_capability('mod/selfselectadvanced:manage', $context, $targetid)
+                && !has_capability('mod/selfselectadvanced:coordinate', $context, $targetid)
+            ) {
+                throw new workflow_refusal('refusalticketrefertargetauthority', 'mod_selfselectadvanced');
+            }
+            if (
+                (int) $fresh->escalated === 1
+                && !has_capability('mod/selfselectadvanced:manage', $context, $targetid)
+            ) {
+                throw new workflow_refusal('refusalticketescalated', 'mod_selfselectadvanced');
+            }
+            $group = self::group_of($activity, $fresh);
+            if ($group !== null) {
+                self::require_uninvolved($activity, $group, $targetid);
+            } else if ((int) $fresh->requestedby === $targetid) {
+                throw new workflow_refusal('refusalcoiself', 'mod_selfselectadvanced');
+            }
+
+            $fresh->claimedby = $targetid;
+            $fresh->timeclaimed = time();
+            $fresh->timemodified = time();
+            $DB->update_record('selfselectadvanced_ticket', $fresh);
+
+            $ticketlogid = self::log($ticketid, $actorid, self::ACTION_REFERRED, $note, $noteformat);
+
+            // Payload built INSIDE the critical section, dispatched
+            // after the commit AND the release below (docs/architecture.md,
+            // "Events under a lock" - binding for new code; store::save()
+            // is the worked example).
+            $event = \mod_selfselectadvanced\event\ticket_referred::create([
+                'objectid' => $ticketid,
+                'context' => $context,
+                'relateduserid' => $targetid,
+                'other' => [
+                    'type' => $fresh->type,
+                    'action' => self::ACTION_REFERRED,
+                    'groupid' => (int) ($fresh->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                ],
+            ]);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
+        } finally {
+            $lock->release();
+        }
+
+        $event->trigger();
+
+        $groupname = self::subject_name($activity, $fresh);
+        notifier::send(
+            $activity,
+            'tickets',
+            $targetid,
+            'msgticketreferredsubject',
+            'msgticketreferredbody',
+            (object) [
+                'group' => $groupname,
+                'type' => get_string('tickettype' . $fresh->type, 'mod_selfselectadvanced'),
+                'note' => trim(html_to_text($note)),
+            ],
+            new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticketid]),
+            $groupname
+        );
+
+        return $fresh;
+    }
+
+    /**
+     * The bounded, server-built list of coordinators a ticket may be
+     * referred to (spec: "do NOT introduce an autocomplete" - the
+     * transport-contract debt T-18 left behind is not to be copied).
+     * Every id this returns is exactly what refer() itself would accept
+     * as $targetid for THIS ticket and THIS actor right now - built from
+     * the identical predicates (require_queue_authority's pair, the
+     * escalated-ticket manage-only narrowing, require_uninvolved()/the
+     * groupless self-check) so the offered control and the service can
+     * never disagree. A stale render (someone joins the team, or loses
+     * the capability, between page load and submit) is still caught by
+     * refer()'s own re-check inside its lock - this is the UI's list,
+     * not a second source of truth.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $ticket the ticket row
+     * @param int $actorid the claimant who would be referring it (excluded)
+     * @return array<int, string> userid => full name, sorted by name
+     */
+    public static function eligible_referral_targets(activity $activity, stdClass $ticket, int $actorid): array {
+        $context = $activity->context();
+        $namefields = \core_user\fields::for_name()->get_sql('', false, '', '', true)->selects;
+
+        $candidates = [];
+        foreach (['mod/selfselectadvanced:manage', 'mod/selfselectadvanced:coordinate'] as $capability) {
+            foreach (get_users_by_capability($context, $capability, 'u.id' . $namefields) as $user) {
+                $candidates[(int) $user->id] = $user;
+            }
+        }
+        unset($candidates[$actorid]);
+
+        $escalated = (int) ($ticket->escalated ?? 0) === 1;
+        $group = self::group_of($activity, $ticket);
+
+        $eligible = [];
+        foreach ($candidates as $id => $user) {
+            if ($escalated && !has_capability('mod/selfselectadvanced:manage', $context, $id)) {
+                continue;
+            }
+            if ($group !== null) {
+                if (self::involvement($activity, $group, $id) !== null) {
+                    continue;
+                }
+            } else if ((int) $ticket->requestedby === $id) {
+                continue;
+            }
+            $eligible[$id] = fullname($user);
+        }
+        asort($eligible);
+
+        return $eligible;
+    }
+
+    /**
+     * Escalate a ticket to the editing-teacher/manager tier (1.20.44,
+     * the handling ladder's second rung, maintainer intent: "raise it to
+     * someone above them"). No down-ladder: D-107 (de-escalation) is
+     * still open, and this method builds exactly what the spec asks for
+     * and nothing past it.
+     *
+     * Authority: the CLAIMANT, or ANY manage-level holder - even on a
+     * ticket nobody has claimed yet ("even when unclaimed"). Mirrors the
+     * naming split require_queue_authority() already uses (:coordinate
+     * vs :manage) rather than inventing a third name for the same pair.
+     * A manage holder's authority here is not confined to unclaimed
+     * tickets: they may escalate one already claimed by somebody else
+     * too, which is the same "human authority does not narrow" reading
+     * D-105 states for close()'s force-release arm.
+     *
+     * Effect: escalated is set; if the ticket is currently claimed by
+     * someone who does NOT hold manage-level authority (a mere
+     * coordinator), that claim is RELEASED - status back to open,
+     * claimedby/timeclaimed cleared - so someone above can pick it up.
+     * A claim already held by a manage-level holder is left exactly as
+     * it is: they already qualify to keep handling an escalated ticket,
+     * and bouncing their own claim would serve nobody. One ticketlog
+     * ACTION_ESCALATED row represents the whole transition, the same way
+     * close() logs one row for a combined status-and-claim change. The
+     * requester is not notified and their trail is unaffected -
+     * ACTION_ESCALATED is staff-internal (STAFF_INTERNAL_ACTIONS) - but
+     * their STATUS BADGE still reflects a resulting release, because
+     * that read comes from the ticket row itself, not from the trail.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the live (open, claimed or needs-info) ticket
+     * @param string $note why, for the record
+     * @param int $noteformat text format of the note
+     * @param int $actorid the claimant, or a manage-level holder
+     * @return stdClass the updated ticket
+     * @throws \moodle_exception when refused
+     */
+    public static function escalate(
+        activity $activity,
+        int $ticketid,
+        string $note,
+        int $noteformat,
+        int $actorid
+    ): stdClass {
+        global $DB;
+
+        if (trim(html_to_text($note)) === '') {
+            throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
+        }
+
+        $context = $activity->context();
+        $released = false;
+        $lock = locks::acquire('ticket:' . $ticketid);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticketid], '*', MUST_EXIST);
+            if ((int) $fresh->activityid !== $activity->id()) {
+                throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
+            }
+            if (!in_array($fresh->status, [self::STATUS_OPEN, self::STATUS_CLAIMED, self::STATUS_NEEDSINFO], true)) {
+                throw new workflow_refusal('refusalticketclosed', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->escalated === 1) {
+                throw new workflow_refusal('refusalticketalreadyescalated', 'mod_selfselectadvanced');
+            }
+            $ismanager = has_capability('mod/selfselectadvanced:manage', $context, $actorid);
+            if ((int) $fresh->claimedby !== $actorid && !$ismanager) {
+                throw new workflow_refusal('refusalticketescalateauthority', 'mod_selfselectadvanced');
+            }
+
+            $now = time();
+            $fresh->escalated = 1;
+            $fresh->timemodified = $now;
+            if ($fresh->claimedby && !has_capability('mod/selfselectadvanced:manage', $context, (int) $fresh->claimedby)) {
+                $fresh->status = self::STATUS_OPEN;
+                $fresh->claimedby = null;
+                $fresh->timeclaimed = null;
+                $released = true;
+            }
+            $DB->update_record('selfselectadvanced_ticket', $fresh);
+
+            $ticketlogid = self::log($ticketid, $actorid, self::ACTION_ESCALATED, $note, $noteformat);
+
+            $event = \mod_selfselectadvanced\event\ticket_escalated::create([
+                'objectid' => $ticketid,
+                'context' => $context,
+                'relateduserid' => (int) $fresh->requestedby,
+                'other' => [
+                    'type' => $fresh->type,
+                    'action' => self::ACTION_ESCALATED,
+                    'groupid' => (int) ($fresh->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                    'released' => $released ? 1 : 0,
+                ],
+            ]);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
+        } finally {
+            $lock->release();
+        }
+
+        $event->trigger();
+
+        // Requester unaffected (spec, verbatim): no notification to
+        // them here, matching their trail staying silent on this action
+        // too. Only the manage-level tier is fanned out to - the
+        // per-filing idiom notify_workers() uses, restricted to :manage,
+        // and the escalating actor (who may themselves hold :manage) is
+        // never told about their own action.
+        self::notify_manage_holders($activity, $fresh, $note, $actorid);
+
+        return $fresh;
+    }
+
+    /**
+     * Tell the manage-level tier a ticket needs them (1.20.44 escalate()
+     * only). The per-filing fan-out idiom notify_workers() uses, cut
+     * down to :manage alone - a mere :coordinate holder is exactly who
+     * this ticket was just taken away from, so they are not among the
+     * recipients either.
+     *
+     * Bypasses the shared notify() helper deliberately (the same reason
+     * request_info()/provide_info() call notifier::send() directly
+     * instead of it): notify()'s payload shape is fixed to
+     * {group, type, status, resolution}, and this message needs to carry
+     * the escalation NOTE, which is not any of those.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $ticket the escalated ticket
+     * @param string $note why, from the escalating actor
+     * @param int $actorid the escalating actor, never notified about their own action
+     */
+    private static function notify_manage_holders(activity $activity, stdClass $ticket, string $note, int $actorid): void {
+        $recipients = [];
+        foreach (get_users_by_capability($activity->context(), 'mod/selfselectadvanced:manage', 'u.id') as $worker) {
+            $recipients[(int) $worker->id] = true;
+        }
+        unset($recipients[$actorid]);
+        if (!$recipients) {
+            return;
+        }
+
+        $groupname = self::subject_name($activity, $ticket);
+        $a = (object) [
+            'group' => $groupname,
+            'type' => get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced'),
+            'note' => trim(html_to_text($note)),
+        ];
+        $url = new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticket->id]);
+        foreach (array_keys($recipients) as $workerid) {
+            notifier::send(
+                $activity,
+                'tickets',
+                $workerid,
+                'msgticketescalatedsubject',
+                'msgticketescalatedbody',
+                $a,
+                $url,
+                $groupname
+            );
+        }
     }
 
     /**
@@ -1949,6 +2378,134 @@ class tickets {
             || has_capability('mod/selfselectadvanced:coordinate', $context, $userid);
     }
 
+    /** @var string The opening request's attachments (itemid = ticket id). */
+    public const FILEAREA_REQUEST = 'ticketrequest';
+
+    /** @var string A thread post's attachments (itemid = ticketlog row id). */
+    public const FILEAREA_POST = 'ticketpost';
+
+    /**
+     * The filemanager options every ticket attachment field shares
+     * (spec: "maxfiles 5, site default maxbytes").
+     *
+     * @return array
+     */
+    public static function file_options(): array {
+        return [
+            'maxfiles' => 5,
+            'subdirs' => 0,
+        ];
+    }
+
+    /**
+     * Save a submitted draft area into the MOST RECENT ticketpost row
+     * (1.20.44 part 2): the second half of the two-step sequence
+     * request_info()/provide_info()/close()'s resolve outcome/
+     * grant_guidecap() all follow from their page - the log row those
+     * calls just wrote does not exist until they return, so the draft
+     * area a form prepared before the request cannot be keyed on it in
+     * advance (the exact reason group.php's own filing forms mint a
+     * fresh draft and save it only once the real id exists).
+     *
+     * "Most recent" is safe here specifically because the caller is a
+     * single HTTP request: it just wrote exactly one new trail row a
+     * moment ago (under the service call's own lock) and is now the
+     * only actor that could possibly be racing to add another.
+     *
+     * A zero draftitemid (no filemanager submission at all, or nothing
+     * chosen) is a deliberate no-op - there is nothing to save, and
+     * asking the file API to act on a non-existent draft area would be
+     * make-work at best.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the ticket just acted on
+     * @param int $draftitemid the submitted draft area, or 0 for none
+     */
+    public static function save_post_attachments(activity $activity, int $ticketid, int $draftitemid): void {
+        if ($draftitemid <= 0) {
+            return;
+        }
+        $trail = self::trail($activity, $ticketid, true);
+        if (!$trail) {
+            return;
+        }
+        $last = end($trail);
+        file_save_draft_area_files(
+            $draftitemid,
+            $activity->context()->id,
+            'mod_selfselectadvanced',
+            self::FILEAREA_POST,
+            (int) $last->id,
+            self::file_options()
+        );
+    }
+
+    /**
+     * THE ONE access rule for both ticket file areas (1.20.44 part 2) -
+     * lib.php's pluginfile callback calls this and nothing else, so
+     * there is exactly one implementation of "who may download this" to
+     * ever drift out of step with the thread page that offers the link.
+     *
+     * ticketrequest is exactly ticket.php's own door
+     * (may_view_thread(): the requester, or queue authority). ticketpost
+     * narrows that further for a NON-staff viewer (the requester, and
+     * only the requester - may_view_thread() admits nobody else without
+     * queue authority) to whatever that specific trail row's content is
+     * visible under: STAFF_INTERNAL_ACTIONS (referred, escalated) are
+     * never visible to them, on the thread OR here - a requester who
+     * somehow knew a staff-internal log id could not fetch its file by
+     * guessing the URL either. A queue-authority holder (isstaff) always
+     * sees every ticketpost file, exactly as they see every trail row.
+     *
+     * @param activity $activity the activity
+     * @param string $filearea self::FILEAREA_REQUEST or self::FILEAREA_POST
+     * @param int $itemid the ticket id (request) or ticketlog row id (post)
+     * @param int $userid the viewer
+     * @return bool
+     */
+    public static function may_access_ticket_file(activity $activity, string $filearea, int $itemid, int $userid): bool {
+        global $DB;
+
+        if ($filearea === self::FILEAREA_REQUEST) {
+            try {
+                $ticket = self::get($activity, $itemid);
+            } catch (\moodle_exception $e) {
+                return false;
+            }
+
+            return self::may_view_thread($activity, $ticket, $userid);
+        }
+
+        if ($filearea === self::FILEAREA_POST) {
+            $logrow = $DB->get_record('selfselectadvanced_ticketlog', ['id' => $itemid]);
+            if (!$logrow) {
+                return false;
+            }
+            try {
+                $ticket = self::get($activity, (int) $logrow->ticketid);
+            } catch (\moodle_exception $e) {
+                return false;
+            }
+            if (!self::may_view_thread($activity, $ticket, $userid)) {
+                return false;
+            }
+            $context = $activity->context();
+            $isstaff = has_capability('mod/selfselectadvanced:manage', $context, $userid)
+                || has_capability('mod/selfselectadvanced:coordinate', $context, $userid);
+            if ($isstaff) {
+                return true;
+            }
+
+            // The pure requester: never a staff-internal action's note,
+            // and by construction that note is the only thing a
+            // staff-internal row could ever have attached, since neither
+            // refer() nor escalate() ever offers a filemanager.
+            return !in_array($logrow->action, self::STAFF_INTERNAL_ACTIONS, true);
+        }
+
+        throw new \coding_exception('Unknown ticket file area ' . $filearea);
+    }
+
     /**
      * The conflict-of-interest guard (strategy 1.16 D): an actor whose
      * authority is coordinate-only is refused on any group where they
@@ -2182,12 +2739,25 @@ class tickets {
         self::get($activity, $ticketid);
 
         if (!$withactors) {
+            // 1.20.44: STAFF_INTERNAL_ACTIONS (referred, escalated) never
+            // reach the anonymised requester view - the query excludes
+            // them outright rather than fetching and filtering, the same
+            // "never selected" discipline requester_contact_map()'s email
+            // rule and search_guides()'s address column already keep
+            // (docs/architecture.md A14): a row this branch never
+            // returns cannot be printed by a later edit either.
+            [$hidesql, $hideparams] = $DB->get_in_or_equal(
+                self::STAFF_INTERNAL_ACTIONS,
+                SQL_PARAMS_NAMED,
+                'hide',
+                false
+            );
             return $DB->get_records_sql(
                 "SELECT l.id, l.action, l.note, l.noteformat, l.timecreated
                    FROM {selfselectadvanced_ticketlog} l
-                  WHERE l.ticketid = :ticketid
+                  WHERE l.ticketid = :ticketid AND l.action $hidesql
                ORDER BY l.timecreated, l.id",
-                ['ticketid' => $ticketid]
+                array_merge(['ticketid' => $ticketid], $hideparams)
             );
         }
 
@@ -2408,7 +2978,9 @@ class tickets {
                FROM {selfselectadvanced_ticket} t
           LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
               WHERE t.activityid = :activityid" . $mine . $typesql . $statussql . "
-           ORDER BY CASE t.status
+           ORDER BY CASE WHEN t.status IN ('open','claimed','needsinfo') THEN 0 ELSE 1 END,
+                    CASE WHEN t.status IN ('open','claimed','needsinfo') AND t.escalated = 1 THEN 0 ELSE 1 END,
+                    CASE t.status
                         WHEN 'open' THEN 0
                         WHEN 'claimed' THEN 1
                         WHEN 'needsinfo' THEN 2

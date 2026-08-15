@@ -31,8 +31,12 @@ Feature: The guide request set completed - reduction, date extension, penalty wa
       | ssa1               | Team Firm | student1 | guide1 | firm  |
 
   Scenario: The assigned guide asks for a date extension and the queue carries it
+    # 1.20.44 part 2: the filing form is a moodleform now
+    # (classes/form/ticketfile_form.php), and its textarea is located by
+    # its own label - "ticketreason-dates" was the hand-rolled id this
+    # slice's conversion replaced.
     When I am on the "Lab groups > Team Firm" "mod_selfselectadvanced > group" page logged in as guide1
-    And I set the field "ticketreason-dates" to "One more week for the demo build"
+    And I set the field "Request a date-window extension from the managers" to "One more week for the demo build"
     And I click on "File request" "button" in the "//form[.//input[@value='dates']]" "xpath_element"
     Then I should see "Your request has been queued for the managers and coordinators."
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
@@ -41,7 +45,7 @@ Feature: The guide request set completed - reduction, date extension, penalty wa
 
   Scenario: The assigned guide asks for a penalty waiver and the queue carries it
     When I am on the "Lab groups > Team Firm" "mod_selfselectadvanced > group" page logged in as guide1
-    And I set the field "ticketreason-penalty" to "The delay was ours, not theirs"
+    And I set the field "Request a penalty waiver from the managers" to "The delay was ours, not theirs"
     And I click on "File request" "button" in the "//form[.//input[@value='penalty']]" "xpath_element"
     Then I should see "Your request has been queued for the managers and coordinators."
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1

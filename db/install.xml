@@ -486,6 +486,7 @@
         <FIELD NAME="resolutionformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
         <FIELD NAME="requested" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="The number asked for, on a guidecap request; null on every other type"/>
         <FIELD NAME="disclaimerack" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1.20.43: 1 when the requester acknowledged the activity's ticket disclaimer at file() time; stays 0 when no disclaimer was set"/>
+        <FIELD NAME="escalated" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1.20.44: 1 once a claimant or a manage-level holder has raised this ticket to editing teachers/managers; only they may then claim, request-info, resolve or decline it. No down-ladder (D-107 open, no de-escalation)."/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
       </FIELDS>

@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.20.44 — the ladder up, and papers attached to the case (2026-08-15)
+
+> Serial `2026081502` / `1.20.44`. **Schema change: one new column**
+> (`escalated` on the ticket table); no existing row is migrated.
+> Maturity stays RC.
+
+**A coordinator who cannot answer can now hand the ticket on.** *Refer* passes
+the claim to a chosen eligible coordinator with a required note; the target is
+notified, and the requester's own view changes not at all — "somebody is
+handling this" stays exactly as true as it was. *Escalate* raises the ticket
+to the editing teachers and managers: the claim is released, the queue shows
+the escalated badge first, and while escalated only manage-level staff can
+take it up or close it — including as referral targets, so referral cannot be
+used to walk around the escalation gate. Humans keep their full close
+authority (decision D-105): the ladder is the normal flow, not a cage. There
+is no down-ladder (D-107 pending; adding one later is cheap).
+
+**Tickets can carry files.** The student filing forms and the thread's
+request-info / info-reply / resolve forms take attachments through Moodle's
+own File API — forum's exact pattern, drafts and all. Serving is where the
+care went: one shared access rule decides every fetch — requester or queue
+authority, and a post's file only when that post's content is visible to that
+viewer under the trail rules, so a file on a staff-internal referral note is
+as invisible to the requester as the note itself. Attachments ride backup and
+restore with their tickets, and privacy export/erasure follows the
+established ticket policy: a requester's purge deletes their files, a
+handler's de-link deletes nothing that is not theirs.
+
 ## 1.20.43 — who may ask, who is responsible, and what they agree to first (2026-08-15)
 
 > Serial `2026081501` / `1.20.43`. **Schema change: seven new columns**

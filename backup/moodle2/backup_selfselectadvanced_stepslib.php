@@ -154,7 +154,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'groupid', 'type', 'status', 'requestedby', 'request', 'requestformat',
             'claimedby', 'timeclaimed', 'resolvedby', 'timeresolved',
             'resolution', 'resolutionformat', 'timecreated', 'timemodified',
-            'requested', 'disclaimerack',
+            'requested', 'disclaimerack', 'escalated',
         ]);
         // The history trail (decision 1, 2026-08-15) nests under its own
         // ticket, not under the activity beside $tickets: a trail row is
@@ -266,6 +266,13 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
 
         // Proposal documents travel with their group (itemid = group id).
         $group->annotate_files('mod_selfselectadvanced', 'proposal', 'id');
+        // 1.20.44 part 2: a ticket's opening request may carry
+        // attachments (itemid = ticket id), and so may a needs-info
+        // question, an info-reply or a resolution note (itemid = the
+        // ticketlog row itself) - never a referral or an escalation
+        // note, which offer no filemanager to begin with.
+        $ticket->annotate_files('mod_selfselectadvanced', 'ticketrequest', 'id');
+        $ticketlog->annotate_files('mod_selfselectadvanced', 'ticketpost', 'id');
         // Files embedded in the activity description. Restore already
         // asks for these; without this annotation they never enter the
         // backup file pool, so a duplicated or imported activity keeps

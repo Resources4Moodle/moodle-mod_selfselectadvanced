@@ -473,7 +473,13 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
             $data->timeclaimed = null;
         }
         $newid = $DB->insert_record('selfselectadvanced_ticket', $data);
-        $this->set_mapping('ssaticket', $oldid, $newid);
+        // RESTOREFILES=TRUE (1.20.44 part 2), not optional here: the
+        // opening request's attachments are stored with the ticket id
+        // as their itemid, and core only links a backed-up file back to
+        // its new item when the mapping that created that item was
+        // recorded as owning files - the same discipline process_ssagroup()
+        // documents above for 'ssagroup'/proposal.
+        $this->set_mapping('ssaticket', $oldid, $newid, true);
     }
 
     /**
@@ -505,12 +511,20 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         global $DB;
 
         $data = (object) $data;
+        $oldid = $data->id;
         $data->ticketid = $this->get_mappingid('ssaticket', $data->ticketid);
         $data->actorid = $this->get_mappingid('user', $data->actorid);
         if (!$data->ticketid || !$data->actorid) {
             return;
         }
-        $DB->insert_record('selfselectadvanced_ticketlog', $data);
+        $newid = $DB->insert_record('selfselectadvanced_ticketlog', $data);
+        // 1.20.44 part 2: a needs-info question, an info-reply or a
+        // resolution note may carry attachments keyed on THIS row's own
+        // id (referred/escalated rows never do - no filemanager was
+        // ever offered on those two forms) - restorefiles=true so
+        // add_related_files('ticketpost', 'ssaticketlog') in
+        // after_execute() below can find them.
+        $this->set_mapping('ssaticketlog', $oldid, $newid, true);
     }
 
     /**
@@ -542,5 +556,8 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
     protected function after_execute() {
         $this->add_related_files('mod_selfselectadvanced', 'proposal', 'ssagroup');
         $this->add_related_files('mod_selfselectadvanced', 'intro', null);
+        // 1.20.44 part 2.
+        $this->add_related_files('mod_selfselectadvanced', 'ticketrequest', 'ssaticket');
+        $this->add_related_files('mod_selfselectadvanced', 'ticketpost', 'ssaticketlog');
     }
 }

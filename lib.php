@@ -639,9 +639,9 @@ function selfselectadvanced_refusal_notice(\Throwable $e): string {
 }
 
 /**
- * Serve files from the proposal filearea (itemid = plugin group id).
+ * Serve files from the proposal, ticketrequest or ticketpost fileareas.
  *
- * WHO may read it is not decided here. It is
+ * WHO may read a proposal is not decided here. It is
  * teamaccess::may_read_proposal(), the one policy the pages that render
  * the link also call, because until 1.20.1 this function carried its
  * own transcription of it and the copies had drifted: an assigned guide
@@ -650,6 +650,10 @@ function selfselectadvanced_refusal_notice(\Throwable $e): string {
  * reviewer was refused the file the review page had just embedded
  * (audit A-05). A file server is the last gate a direct URL meets, so
  * it must ask the same question as the screen that offered the URL.
+ *
+ * The two ticket fileareas (1.20.44 part 2) follow the identical
+ * discipline, through tickets::may_access_ticket_file() - the ONE
+ * shared implementation of the access rule, never transcribed here.
  *
  * @param stdClass $course the course
  * @param stdClass $cm the course module
@@ -671,23 +675,44 @@ function selfselectadvanced_pluginfile(
 ): bool {
     global $DB, $USER;
 
-    if ($context->contextlevel !== CONTEXT_MODULE || $filearea !== 'proposal') {
+    $knownareas = [
+        'proposal',
+        \mod_selfselectadvanced\local\tickets::FILEAREA_REQUEST,
+        \mod_selfselectadvanced\local\tickets::FILEAREA_POST,
+    ];
+    if ($context->contextlevel !== CONTEXT_MODULE || !in_array($filearea, $knownareas, true)) {
         return false;
     }
     require_login($course, false, $cm);
-    $groupid = (int) array_shift($args);
-    $group = $DB->get_record('selfselectadvanced_group', ['id' => $groupid], '*', MUST_EXIST);
-    if ((int) $group->activityid !== (int) $cm->instance) {
-        return false;
+    $itemid = (int) array_shift($args);
+
+    if ($filearea === 'proposal') {
+        $group = $DB->get_record('selfselectadvanced_group', ['id' => $itemid], '*', MUST_EXIST);
+        if ((int) $group->activityid !== (int) $cm->instance) {
+            return false;
+        }
+        $activity = \mod_selfselectadvanced\activity::from_cmid((int) $cm->id);
+        if (!\mod_selfselectadvanced\local\teamaccess::may_read_proposal($activity, $group, (int) $USER->id)) {
+            return false;
+        }
+    } else {
+        $activity = \mod_selfselectadvanced\activity::from_cmid((int) $cm->id);
+        if (
+            !\mod_selfselectadvanced\local\tickets::may_access_ticket_file(
+                $activity,
+                $filearea,
+                $itemid,
+                (int) $USER->id
+            )
+        ) {
+            return false;
+        }
     }
-    $activity = \mod_selfselectadvanced\activity::from_cmid((int) $cm->id);
-    if (!\mod_selfselectadvanced\local\teamaccess::may_read_proposal($activity, $group, (int) $USER->id)) {
-        return false;
-    }
+
     $fs = get_file_storage();
     $filename = array_pop($args);
     $filepath = '/' . ($args ? implode('/', $args) . '/' : '');
-    $file = $fs->get_file($context->id, 'mod_selfselectadvanced', 'proposal', $groupid, $filepath, $filename);
+    $file = $fs->get_file($context->id, 'mod_selfselectadvanced', $filearea, $itemid, $filepath, $filename);
     if (!$file || $file->is_directory()) {
         return false;
     }

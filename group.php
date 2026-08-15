@@ -805,7 +805,14 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
     // File a queue ticket (strategy 1.16 B); the service enforces who
     // may file which type on which state.
     $tickettype = required_param('tickettype', PARAM_ALPHA);
-    $reason = optional_param('reason', '', PARAM_RAW);
+    // 1.20.44 part 2: the filing form is now a moodleform per type
+    // (classes/form/ticketfile_form.php), rendered further down this
+    // page - its 'reason' and 'attachments' fields carry the ticket
+    // type as a suffix (reason_$tickettype, attachments_$tickettype)
+    // because MoodleQuickForm derives DOM ids from element names alone,
+    // and up to six of these forms render on this page at once.
+    $reason = optional_param('reason_' . $tickettype, '', PARAM_RAW);
+    $draftitemid = optional_param('attachments_' . $tickettype, 0, PARAM_INT);
     // Deliverable D: the hidden field the filing form above carries -
     // the server-side gate is tickets::file()/file_help() itself, which
     // throws unless the activity's disclaimer (if any) was acknowledged.
@@ -833,6 +840,19 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
                 (int) $USER->id,
                 $ticketdisclaimerack
             );
+        // The attachment, saved from the draft area the just-rendered
+        // form prepared, into the now-known real ticket id - the same
+        // two-step sequence core forum uses for a brand new post's
+        // attachments (the target itemid does not exist until the
+        // content row itself has been written).
+        file_save_draft_area_files(
+            $draftitemid,
+            $context->id,
+            'mod_selfselectadvanced',
+            \mod_selfselectadvanced\local\tickets::FILEAREA_REQUEST,
+            (int) $filedticket->id,
+            \mod_selfselectadvanced\local\tickets::file_options()
+        );
         // Slice B2 (deliverable 2): the confirmation LINKS to the new
         // thread rather than sending the filer away to it - staying on
         // this page is what lets a duplicate-ticket attempt (or a second
@@ -1643,32 +1663,40 @@ if ($requestable && $ticketdisclaimertext !== '' && !$ticketack) {
         'get'
     );
 } else {
+    // 1.20.44 part 2: a real moodleform per type, purely to get
+    // file_save_draft_area_files() draft-area handling for the new
+    // optional attachment (classes/form/ticketfile_form.php's own
+    // docblock explains the per-type field-name qualification this
+    // loop's multiple simultaneous instances need). The request/note
+    // text and duplicate-guard behaviour are otherwise unchanged.
+    $ticketfileoptions = \mod_selfselectadvanced\local\tickets::file_options();
     foreach ($requestable as $tickettype) {
-        $ticketforms .= html_writer::start_tag('form', ['method' => 'post', 'class' => 'mb-2',
-            'action' => (new moodle_url($baseurl, ['action' => 'ticket']))->out(false)])
-            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()])
-            . html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'tickettype', 'value' => $tickettype])
-            . html_writer::empty_tag(
-                'input',
-                ['type' => 'hidden', 'name' => 'disclaimerack', 'value' => $ticketack ? 1 : 0]
-            )
-            . html_writer::label(
-                get_string('ticketfile' . $tickettype, 'mod_selfselectadvanced'),
-                'ticketreason-' . $tickettype
-            )
-            . ' '
-            // A <textarea>, not an <input type=text>: slice A (multi-line
-            // rich-ish requests, FORMAT_MOODLE storage) needs somewhere for
-            // more than one line to go. html_writer::tag() is used rather
-            // than empty_tag() because a textarea needs its own closing tag
-            // - an empty_tag() self-close would draw a placeholder-less box.
-            . html_writer::tag('textarea', '', ['name' => 'reason', 'rows' => 3, 'class' => 'form-control',
-                'id' => 'ticketreason-' . $tickettype,
-                'placeholder' => get_string('ticketreasonhint', 'mod_selfselectadvanced')])
-            . ' '
-            . html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-secondary btn-sm',
-                'value' => get_string('ticketfilebutton', 'mod_selfselectadvanced')])
-            . html_writer::end_tag('form');
+        $ticketform = new \mod_selfselectadvanced\form\ticketfile_form(
+            (new moodle_url($baseurl, ['action' => 'ticket']))->out(false),
+            [
+                'tickettype' => $tickettype,
+                'disclaimerack' => $ticketack ? 1 : 0,
+                'fileoptions' => $ticketfileoptions,
+            ]
+        );
+        // A brand new ticket has no id yet to key a draft area on, so a
+        // fresh one is minted (itemid null) exactly as core forum mints
+        // one for a new discussion's attachments - the same two-step
+        // sequence the 'ticket' action above completes once the real
+        // ticket id exists.
+        $ticketdraftid = 0;
+        file_prepare_draft_area(
+            $ticketdraftid,
+            $context->id,
+            'mod_selfselectadvanced',
+            \mod_selfselectadvanced\local\tickets::FILEAREA_REQUEST,
+            null,
+            $ticketfileoptions
+        );
+        $ticketform->set_data([
+            \mod_selfselectadvanced\form\ticketfile_form::attachments_field($tickettype) => $ticketdraftid,
+        ]);
+        $ticketforms .= $ticketform->render();
     }
 }
 if ($ticketforms !== '') {

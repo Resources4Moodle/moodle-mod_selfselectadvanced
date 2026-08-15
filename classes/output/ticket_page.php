@@ -128,10 +128,22 @@ class ticket_page implements renderable, templatable {
             'subject' => $subject,
             'statuslabel' => get_string('ticketstatus' . $ticket->status, 'mod_selfselectadvanced'),
             'statusclass' => $this->status_badge_class($ticket->status),
+            // 1.20.44: the escalated badge sits beside the status badge -
+            // escalated is independent of status (an escalated ticket can
+            // be open, claimed or needsinfo) so it is never folded into
+            // statuslabel/statusclass above.
+            'escalated' => (int) ($ticket->escalated ?? 0) === 1,
+            'escalatebadgelabel' => get_string('ticketescalatebadge', 'mod_selfselectadvanced'),
             'raisedtime' => userdate((int) $ticket->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
             'requesterlabel' => $requesterlabel,
             'contactline' => $contactline,
             'openingpost' => format_text((string) $ticket->request, (int) $ticket->requestformat, ['context' => $context]),
+            // 1.20.44 part 2: the opening request's own attachments -
+            // safe to show unconditionally here (no per-row visibility
+            // question the way a trail entry's files have): reaching
+            // this page at all already proved may_view_thread(), the
+            // exact door ticketrequest files are served through.
+            'openingfiles' => $this->export_files(tickets::FILEAREA_REQUEST, (int) $ticket->id),
             'entries' => $entries,
             'hasentries' => !empty($entries),
             'actionurl' => (new \moodle_url('/mod/selfselectadvanced/ticket.php'))->out(false),
@@ -141,6 +153,7 @@ class ticket_page implements renderable, templatable {
             'backlabel' => get_string('back'),
         ];
         $data += (array) $this->export_actionbox($isclaimant);
+        $data += (array) $this->export_ladder($isclaimant);
         $data += (array) $this->export_history();
 
         return (object) $data;
@@ -189,6 +202,16 @@ class ticket_page implements renderable, templatable {
                 : get_string('threadactoranon', 'mod_selfselectadvanced');
         }
 
+        // 1.20.44 part 2: files on THIS row - safe unconditionally for
+        // the same reason the opening post's are (export_for_template()
+        // above): $row only ever reaches here because tickets::trail()
+        // already decided this viewer may read it (the staff-internal
+        // exclusion for the anonymised branch is the SAME test
+        // may_access_ticket_file() applies to the file itself), so no
+        // second capability check is needed to decide whether to show a
+        // link - only whether there is one to show.
+        $files = $this->export_files(tickets::FILEAREA_POST, (int) $row->id);
+
         return (object) [
             'actiontext' => get_string('threadentry' . $row->action, 'mod_selfselectadvanced', $actorlabel),
             'hasnote' => $row->note !== null && trim((string) $row->note) !== '',
@@ -196,7 +219,40 @@ class ticket_page implements renderable, templatable {
                 ? format_text((string) $row->note, (int) $row->noteformat, ['context' => $context])
                 : '',
             'time' => userdate((int) $row->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
+            'files' => $files,
+            'hasfiles' => !empty($files),
         ];
+    }
+
+    /**
+     * The downloadable files in one ticket filearea/itemid, as
+     * {filename, url} pairs the template can list.
+     *
+     * @param string $filearea tickets::FILEAREA_*
+     * @param int $itemid the ticket id or ticketlog row id
+     * @return stdClass[]
+     */
+    private function export_files(string $filearea, int $itemid): array {
+        $context = $this->activity->context();
+        $files = get_file_storage()->get_area_files($context->id, 'mod_selfselectadvanced', $filearea, $itemid, 'filename', false);
+
+        $out = [];
+        foreach ($files as $file) {
+            $url = \moodle_url::make_pluginfile_url(
+                $context->id,
+                'mod_selfselectadvanced',
+                $filearea,
+                $itemid,
+                $file->get_filepath(),
+                $file->get_filename()
+            );
+            $out[] = (object) [
+                'filename' => $file->get_filename(),
+                'url' => $url->out(false),
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -216,18 +272,33 @@ class ticket_page implements renderable, templatable {
             'takeupreason' => '',
             'showclaimantforms' => false,
             'showrequestinfo' => false,
+            'requestinfoformhtml' => '',
             'showrelease' => false,
             'isguidecap' => $ticket->type === tickets::TYPE_GUIDECAP,
             'guidecaprequested' => (int) ($ticket->requested ?? 0),
+            'resolveformhtml' => '',
             'showclaimedbyline' => false,
             'claimedbyline' => '',
             'showprovideinfo' => false,
+            'provideinfoformhtml' => '',
             'showwithdraw' => false,
         ];
 
         if ($this->isstaff && $ticket->status === tickets::STATUS_OPEN) {
             $box->showtakeup = true;
-            if ($this->group !== null) {
+            // 1.20.44: while escalated, Take up is not a coordinator's -
+            // hidden here (disabled with the reason), enforced for real
+            // in tickets::claim() regardless of what this page renders.
+            // Checked BEFORE the conflict-of-interest arms below: an
+            // escalated ticket is refused for this reason even to a
+            // coordinator who would otherwise be perfectly uninvolved.
+            if (
+                (int) $ticket->escalated === 1
+                && !has_capability('mod/selfselectadvanced:manage', $this->activity->context(), $this->viewerid)
+            ) {
+                $box->takeupdisabled = true;
+                $box->takeupreason = get_string('refusalticketescalated', 'mod_selfselectadvanced');
+            } else if ($this->group !== null) {
                 try {
                     tickets::require_uninvolved($this->activity, $this->group, $this->viewerid);
                 } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
@@ -243,6 +314,24 @@ class ticket_page implements renderable, templatable {
         if ($isclaimant && in_array($ticket->status, [tickets::STATUS_CLAIMED, tickets::STATUS_NEEDSINFO], true)) {
             $box->showclaimantforms = true;
             $box->showrequestinfo = $ticket->status === tickets::STATUS_CLAIMED;
+            if ($box->showrequestinfo) {
+                $box->requestinfoformhtml = $this->render_ticketpost_form(
+                    'question',
+                    'requestinfo',
+                    get_string('ticketthreadquestionlabel', 'mod_selfselectadvanced'),
+                    get_string('ticketthreadasksend', 'mod_selfselectadvanced'),
+                    true
+                );
+            }
+            $box->resolveformhtml = $this->render_ticketpost_form(
+                'resolution',
+                $box->isguidecap ? 'grant' : 'resolve',
+                get_string('ticketthreadresolutionlabel', 'mod_selfselectadvanced'),
+                $box->isguidecap
+                    ? get_string('guidecapgrant', 'mod_selfselectadvanced', $box->guidecaprequested)
+                    : get_string('ticketresolve', 'mod_selfselectadvanced'),
+                false
+            );
             // Restored per orchestrator review (2026-08-15): the
             // claimant's hand-back-to-the-queue affordance, alongside
             // the three note-carrying forms rather than replacing any of
@@ -267,9 +356,132 @@ class ticket_page implements renderable, templatable {
 
         if ($this->isrequester && $ticket->status === tickets::STATUS_NEEDSINFO) {
             $box->showprovideinfo = true;
+            $box->provideinfoformhtml = $this->render_ticketpost_form(
+                'reply',
+                'provideinfo',
+                get_string('ticketthreadreplylabel', 'mod_selfselectadvanced'),
+                get_string('ticketthreadreplysend', 'mod_selfselectadvanced'),
+                true
+            );
         }
         if ($this->isrequester && $ticket->status === tickets::STATUS_OPEN) {
             $box->showwithdraw = true;
+        }
+
+        return $box;
+    }
+
+    /**
+     * One of the thread's three text-plus-optional-attachment forms
+     * (1.20.44 part 2: request-info, provide-info, resolve/grant),
+     * rendered to an HTML string - classes/form/ticketpost_form.php,
+     * purely to get file_save_draft_area_files() draft-area handling
+     * for the new optional attachment (spec: "do not hand-roll draft
+     * handling"). Decline is NOT one of these three (spec names exactly
+     * request-info/info-reply/resolve) and stays the hand-rolled
+     * textarea it already was, drawn directly by the template.
+     *
+     * The target log row does not exist yet - a question, a reply or a
+     * resolution is exactly what THIS submission is about to create -
+     * so a fresh draft area is minted (itemid null) here at render
+     * time, the same "new post" pattern group.php's own filing forms
+     * use, and ticket.php's matching POST action completes the second
+     * step once the real ticketlog row exists.
+     *
+     * @param string $field the element name: question, reply or resolution
+     * @param string $actionname ticket.php's action= value for this form
+     * @param string $label the textarea's label
+     * @param string $buttonlabel the submit button's label
+     * @param bool $required whether the text field is required
+     * @return string rendered form HTML
+     */
+    private function render_ticketpost_form(
+        string $field,
+        string $actionname,
+        string $label,
+        string $buttonlabel,
+        bool $required
+    ): string {
+        $context = $this->activity->context();
+        $fileoptions = tickets::file_options();
+        $form = new \mod_selfselectadvanced\form\ticketpost_form(
+            (new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => (int) $this->ticket->id]))->out(false),
+            [
+                'ticketid' => (int) $this->ticket->id,
+                'action' => $actionname,
+                'field' => $field,
+                'label' => $label,
+                'buttonlabel' => $buttonlabel,
+                'required' => $required,
+                'fileoptions' => $fileoptions,
+            ]
+        );
+        $draftid = 0;
+        file_prepare_draft_area($draftid, $context->id, 'mod_selfselectadvanced', tickets::FILEAREA_POST, null, $fileoptions);
+        $form->set_data([$field . 'attachments' => $draftid]);
+
+        return $form->render();
+    }
+
+    /**
+     * The handling-ladder controls (1.20.44): refer to another
+     * coordinator, escalate to the editing-teacher/manager tier.
+     *
+     * UI HIDES WHAT THE SERVICE FORBIDS, not the other way round - every
+     * flag here asks the identical predicate tickets::refer()/escalate()
+     * enforce, so an offered control can never be one the service would
+     * only go on to refuse. A stale render between page load and submit
+     * is still caught by the service's own re-check inside its lock.
+     *
+     * @param bool $isclaimant whether the viewer is THIS ticket's claimant
+     * @return stdClass
+     */
+    private function export_ladder(bool $isclaimant): stdClass {
+        $ticket = $this->ticket;
+        $context = $this->activity->context();
+
+        $box = (object) [
+            'showescalate' => false,
+            'escalatenotelabel' => get_string('ticketescalatenotelabel', 'mod_selfselectadvanced'),
+            'showrefer' => false,
+            'showreferempty' => false,
+            'refertargets' => [],
+        ];
+
+        if (!$this->isstaff) {
+            return $box;
+        }
+
+        // Escalate: the CLAIMANT, or any MANAGE-LEVEL holder even when
+        // the ticket is unclaimed or claimed by somebody else (spec:
+        // "even when unclaimed" - not confined to it). Never offered
+        // twice over, and never for a ticket already escalated (D-107:
+        // no down-ladder, so there is nothing further this control could
+        // do to one).
+        $ismanager = has_capability('mod/selfselectadvanced:manage', $context, $this->viewerid);
+        $islive = in_array(
+            $ticket->status,
+            [tickets::STATUS_OPEN, tickets::STATUS_CLAIMED, tickets::STATUS_NEEDSINFO],
+            true
+        );
+        if ($islive && (int) $ticket->escalated !== 1 && ($isclaimant || $ismanager)) {
+            $box->showescalate = true;
+        }
+
+        // Refer: the claimant only, on a claimed or needs-info ticket -
+        // the SELECT is built from tickets::eligible_referral_targets(),
+        // the same predicates refer() itself re-checks, so the two
+        // cannot disagree about who is offered.
+        if ($isclaimant && in_array($ticket->status, [tickets::STATUS_CLAIMED, tickets::STATUS_NEEDSINFO], true)) {
+            $targets = tickets::eligible_referral_targets($this->activity, $ticket, $this->viewerid);
+            if ($targets) {
+                $box->showrefer = true;
+                foreach ($targets as $id => $name) {
+                    $box->refertargets[] = (object) ['id' => $id, 'name' => $name];
+                }
+            } else {
+                $box->showreferempty = true;
+            }
         }
 
         return $box;

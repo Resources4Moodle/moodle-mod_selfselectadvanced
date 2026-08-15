@@ -1185,6 +1185,36 @@ class provider implements
                     ], $tickets)),
                 ]
             );
+            // 1.20.44: attachments travel alongside each ticket/trail
+            // entry just exported above (core export_area_files
+            // pattern) - one call per itemid this person is entitled to
+            // see the surrounding text of, exactly the set the export
+            // above already iterated. STAFF_INTERNAL_ACTIONS rows are
+            // skipped explicitly rather than trusted to carry no files
+            // by construction: no filemanager was ever offered on
+            // refer()/escalate()'s two forms, but a file dropped into
+            // that itemid by another route (a stray upload, a bug
+            // elsewhere) must still never be handed to a subject-access
+            // export just because nothing legitimate put it there.
+            foreach ($tickets as $exportedticket) {
+                writer::with_context($context)->export_area_files(
+                    [get_string('pluginname', 'mod_selfselectadvanced'), get_string('tickets', 'mod_selfselectadvanced')],
+                    'mod_selfselectadvanced',
+                    'ticketrequest',
+                    (int) $exportedticket->id
+                );
+                foreach ($ticketlogs[(int) $exportedticket->id] ?? [] as $exportedlog) {
+                    if (in_array($exportedlog->action, \mod_selfselectadvanced\local\tickets::STAFF_INTERNAL_ACTIONS, true)) {
+                        continue;
+                    }
+                    writer::with_context($context)->export_area_files(
+                        [get_string('pluginname', 'mod_selfselectadvanced'), get_string('tickets', 'mod_selfselectadvanced')],
+                        'mod_selfselectadvanced',
+                        'ticketpost',
+                        (int) $exportedlog->id
+                    );
+                }
+            }
         }
     }
 
@@ -1328,6 +1358,13 @@ class provider implements
             'ticketid IN (SELECT id FROM {selfselectadvanced_ticket} WHERE activityid = ?)',
             [$cm->instance]
         );
+        // 1.20.44: both ticket file areas, wholesale - a full context
+        // purge is unconditional, and every itemid they could ever carry
+        // (ticket ids, ticketlog ids) belongs to THIS context alone, so
+        // there is no itemid to enumerate: the whole filearea goes.
+        $fs = $fs ?? get_file_storage();
+        $fs->delete_area_files($context->id, 'mod_selfselectadvanced', 'ticketrequest');
+        $fs->delete_area_files($context->id, 'mod_selfselectadvanced', 'ticketpost');
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_contact', ['activityid' => $cm->instance]);
         // NULL, not 0. The schema says leaderid names a real user, so writing
@@ -1641,6 +1678,17 @@ class provider implements
         //
         // The trail goes WITH the ticket, and has to be found before the
         // ticket row it points at is deleted out from under it.
+        //
+        // 1.20.44: the two ticket file areas follow the SAME policy as
+        // the text they travel beside - a requester purge deletes files
+        // (ticketrequest with the ticket, ticketpost with the trail rows
+        // under it), a handler de-link scrubs only the trail rows THIS
+        // person authored (needs-info questions, resolutions) and their
+        // files with them, never a ticket or its opening attachment that
+        // belongs to somebody else's request.
+        [, $cmticket] = get_course_and_cm_from_instance($activityid, 'selfselectadvanced');
+        $ticketcontextid = \context_module::instance($cmticket->id)->id;
+        $fs = $fs ?? get_file_storage();
         $ownticketids = $DB->get_fieldset_select(
             'selfselectadvanced_ticket',
             'id',
@@ -1649,7 +1697,19 @@ class provider implements
         );
         if ($ownticketids) {
             [$ownticketinsql, $ownticketparams] = $DB->get_in_or_equal($ownticketids, SQL_PARAMS_QM);
+            $ownlogids = $DB->get_fieldset_select(
+                'selfselectadvanced_ticketlog',
+                'id',
+                "ticketid $ownticketinsql",
+                $ownticketparams
+            );
             $DB->delete_records_select('selfselectadvanced_ticketlog', "ticketid $ownticketinsql", $ownticketparams);
+            foreach ($ownlogids as $ownlogid) {
+                $fs->delete_area_files($ticketcontextid, 'mod_selfselectadvanced', 'ticketpost', (int) $ownlogid);
+            }
+            foreach ($ownticketids as $ownticketid) {
+                $fs->delete_area_files($ticketcontextid, 'mod_selfselectadvanced', 'ticketrequest', (int) $ownticketid);
+            }
         }
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $activityid, 'requestedby' => $userid]);
         $DB->execute(
@@ -1675,9 +1735,18 @@ class provider implements
         // above): actorid cannot be nulled - it is NOT NULL by design,
         // exactly like takenby/triggeredby/usermodified elsewhere in
         // this method - so it is de-linked to the same 0 sentinel they
-        // use, and any content they authored (a needs-info question, a
+        // use, and the note text they authored (a needs-info question, a
         // resolution note) is scrubbed alongside it, mirroring
         // resolution's own scrub immediately above.
+        //
+        // The FILE, if that same trail row carries one, is deliberately
+        // NOT deleted here (spec, verbatim: "handler de-link does not"
+        // delete files) - only a REQUESTER purge deletes ticket files,
+        // exactly like $ownlogids above; this is the ticket-attachment
+        // reading of the same asymmetry the resolution-text scrub two
+        // statements up already draws between "their content" (nulled)
+        // and "the requester's ticket" (never touched by a handler's
+        // own erasure).
         $DB->execute(
             "UPDATE {selfselectadvanced_ticketlog}
                 SET actorid = 0, note = NULL

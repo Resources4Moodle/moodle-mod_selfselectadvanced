@@ -91,6 +91,14 @@ use mod_selfselectadvanced\local\tickets;
  * is unchanged and re-pinned below; ticket.php gets its own source pin
  * for the forms that now write that text.
  *
+ * UPDATED, 1.20.44 (the handling ladder): ticket.php gains TWO more
+ * FORMAT_MOODLE call sites of its own - refer()'s and escalate()'s note
+ * textarea, both read as the 'note' field - bringing the page's own
+ * total from four to SIX. Neither is a resolution-shaped field (the
+ * three-way close() dispatch doesn't touch them), so they are counted
+ * separately below rather than folded into the loop over
+ * question/resolution/declinereason/reply.
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -313,8 +321,13 @@ final class ticket_richtext_test extends \advanced_testcase {
         // inflate the counts below. Same idiom as
         // contactprivacy_matrix_test.php::normalised_executable_source().
         $group = self::normalised_executable_source($root . '/group.php');
+        // 1.20.44 part 2: the field name gained a per-type suffix
+        // (classes/form/ticketfile_form.php's docblock explains why -
+        // up to six of these forms render on one page, and
+        // MoodleQuickForm derives DOM ids from element names alone) -
+        // still PARAM_RAW, never PARAM_TEXT.
         $this->assertStringContainsString(
-            "\$reason = optional_param('reason', '', PARAM_RAW);",
+            "\$reason = optional_param('reason_' . \$tickettype, '', PARAM_RAW);",
             $group,
             'group.php: the ticket-filing reason must be read PARAM_RAW, not PARAM_TEXT'
         );
@@ -364,29 +377,40 @@ final class ticket_richtext_test extends \advanced_testcase {
             'tickets.php must still render a closed ticket\'s resolution through format_text(), not s()'
         );
 
-        // B2: ticket.php holds the four FORMAT_MOODLE call sites the
-        // queue's forms moved to - request_info(), grant_guidecap(), the
-        // shared close() resolve/decline call, and provide_info() - and
-        // none of the four textareas that feed them (question,
-        // resolution, declinereason, reply) may fall back to PARAM_TEXT.
+        // B2 + 1.20.44: ticket.php holds SIX FORMAT_MOODLE call sites -
+        // request_info(), grant_guidecap(), the shared close()
+        // resolve/decline call, provide_info(), and (1.20.44) refer()
+        // and escalate() - and none of the textareas that feed any of
+        // them (question, resolution, declinereason, reply, note) may
+        // fall back to PARAM_TEXT.
         $ticketpage = self::normalised_executable_source($root . '/ticket.php');
         $this->assertSame(
-            4,
+            6,
             substr_count($ticketpage, 'FORMAT_MOODLE'),
-            'ticket.php: request_info(), grant_guidecap(), close() and provide_info() must all pass FORMAT_MOODLE'
+            'ticket.php: request_info(), grant_guidecap(), close(), provide_info(), refer() and escalate() '
+                . 'must all pass FORMAT_MOODLE'
         );
         $this->assertStringNotContainsString(
             'PARAM_TEXT',
             $ticketpage,
             'ticket.php: every thread textarea must be read PARAM_RAW, never PARAM_TEXT'
         );
-        foreach (['question', 'resolution', 'declinereason', 'reply'] as $field) {
+        foreach (['question', 'resolution', 'declinereason', 'reply', 'note'] as $field) {
             $this->assertStringContainsString(
                 "optional_param('$field', '', PARAM_RAW)",
                 $ticketpage,
                 "ticket.php: the '$field' textarea must be read PARAM_RAW"
             );
         }
+        // 1.20.44: refer()'s two-argument shape - the 'note' field feeds
+        // BOTH refer() and escalate() (same variable name, two call
+        // sites), so this counts them separately rather than trusting
+        // the loop above (which only proves "at least one" per field).
+        $this->assertSame(
+            2,
+            substr_count($ticketpage, "optional_param('note', '', PARAM_RAW)"),
+            'ticket.php: refer() and escalate() must each read their own note field as PARAM_RAW'
+        );
     }
 
     /**

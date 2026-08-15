@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081501;
+    private const CURRENT = 2026081502;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026081500;
+    private const PREVIOUS = 2026081501;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.43';
+    private const RELEASE = '1.20.44';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -414,13 +414,12 @@ final class versionbump_test extends \advanced_testcase {
         // claim, because the step has just guaranteed their existence, but it
         // has to be declared separately so nobody can quietly move a table
         // between the two categories.
-        // EMPTY for 2026081501. The 1.20.43 step only ADDS COLUMNS through
-        // xmldb declarations (six on the activity table, disclaimerack on
-        // the ticket table) - no DML, no FK reftable named in add_key()
-        // method form, nothing the touched-scan can see. The 2026081500
-        // entry (ticketlog FK reftable) was removed when its step stopped
-        // being the current one, which is the register's whole purpose: a
-        // one-off licence must not become a standing one by inheritance.
+        // EMPTY for 2026081502. The 1.20.44 step only ADDS one column
+        // (escalated on the ticket table) through an xmldb declaration -
+        // no DML, no FK reftable in add_key() method form, nothing the
+        // touched-scan can see. The 2026081501 entry was already empty
+        // and is gone, which is the register's whole purpose: a one-off
+        // licence must not become a standing one by inheritance.
         $exempt = [];
         $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
         $allowed = array_key_exists(self::CURRENT, $exempt)

@@ -2855,5 +2855,40 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081501, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081502) {
+        // 1.20.44 part 1: the handling ladder. A claimant refers a ticket
+        // to another coordinator (claimedby moves, status unchanged), or
+        // anyone with queue authority escalates it to the editing-teacher/
+        // manager tier - the two roles the forum never gave a Group
+        // Coordinator queue. No schema change beyond one column: escalated
+        // defaults to 0, so every ticket in flight today reads exactly as
+        // it did before this step, and no existing row needs migrating.
+        $tickettable = new xmldb_table('selfselectadvanced_ticket');
+        $field = new xmldb_field('escalated', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0', 'disclaimerack');
+        if (!$dbman->field_exists($tickettable, $field)) {
+            $dbman->add_field($tickettable, $field);
+        }
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // SAME GOTCHA the 2026081501 step's comment pins: info is
+            // varchar(255) and upgrade_log() SWALLOWS an overlong insert's
+            // exception on PostgreSQL - keep this line short, prose below.
+            'Upgraded to 1.20.44 (2026081502). The handling ladder: refer to another '
+                . 'coordinator, escalate to staff.',
+            'One new column on the ticket table (escalated) defaults to 0 for every existing '
+                . 'ticket, which is correct - none of them were ever referred or escalated before '
+                . 'this release. A claimant may now refer a claimed or needs-info ticket to another '
+                . 'queue-authority holder who is not involved with the team, and anyone with queue '
+                . 'authority may escalate a live ticket to the editing-teacher/manager tier - '
+                . 'releasing a mere coordinator\'s claim so someone above picks it up, and closing '
+                . 'the Take-up door on it to coordinators from that point on. There is no down-'
+                . 'ladder: de-escalation is out of scope pending a maintainer decision (D-107).'
+        );
+
+        upgrade_mod_savepoint(true, 2026081502, 'selfselectadvanced');
+    }
+
     return true;
 }

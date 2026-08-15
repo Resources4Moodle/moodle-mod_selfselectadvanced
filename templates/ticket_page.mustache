@@ -28,11 +28,14 @@
         "subject": "Team Alpha",
         "statuslabel": "Being handled",
         "statusclass": "bg-info text-dark",
+        "escalated": false,
+        "escalatebadgelabel": "Escalated",
         "raisedtime": "1 Aug, 09:00",
         "requesterlabel": "Gina Guide",
         "contactline": null,
         "openingpost": "<p>Need a specialist.</p>",
-        "entries": [{"actiontext": "Tina Teach took this up.", "hasnote": false, "note": "", "time": "1 Aug, 09:05"}],
+        "openingfiles": [{"filename": "notes.pdf", "url": "https://example.com/pluginfile.php/1/mod_selfselectadvanced/ticketrequest/5/notes.pdf"}],
+        "entries": [{"actiontext": "Tina Teach took this up.", "hasnote": false, "note": "", "time": "1 Aug, 09:05", "hasfiles": false, "files": []}],
         "hasentries": true,
         "actionurl": "https://example.com/mod/selfselectadvanced/ticket.php",
         "sesskey": "abc",
@@ -44,13 +47,21 @@
         "takeupreason": "",
         "showclaimantforms": false,
         "showrequestinfo": false,
+        "requestinfoformhtml": "",
         "showrelease": false,
         "isguidecap": false,
         "guidecaprequested": 0,
+        "resolveformhtml": "",
         "showclaimedbyline": false,
         "claimedbyline": "",
         "showprovideinfo": false,
+        "provideinfoformhtml": "",
         "showwithdraw": false,
+        "showescalate": true,
+        "escalatenotelabel": "Why does this need to go to an editing teacher or manager?",
+        "showrefer": true,
+        "showreferempty": false,
+        "refertargets": [{"id": 7, "name": "Cora Coordinator"}],
         "showhistory": false,
         "history": []
     }
@@ -61,7 +72,10 @@
             <h3 class="mb-0">{{typelabel}}</h3>
             <span class="text-muted small">{{subject}}</span>
         </div>
-        <span class="badge {{statusclass}}">{{statuslabel}}</span>
+        <span>
+            <span class="badge {{statusclass}}">{{statuslabel}}</span>
+            {{#escalated}}<span class="badge bg-danger ms-1">{{escalatebadgelabel}}</span>{{/escalated}}
+        </span>
     </div>
 
     {{! The opening post: author column + content column, forum-shaped. }}
@@ -72,7 +86,14 @@
                 {{#contactline}}<div class="small">{{contactline}}</div>{{/contactline}}
                 <div class="small">{{raisedtime}}</div>
             </div>
-            <div class="selfselectadvanced-threadcontent flex-grow-1">{{{openingpost}}}</div>
+            <div class="selfselectadvanced-threadcontent flex-grow-1">
+                {{{openingpost}}}
+                {{#openingfiles}}
+                    <div class="selfselectadvanced-threadattachment small">
+                        <a href="{{url}}">{{filename}}</a>
+                    </div>
+                {{/openingfiles}}
+            </div>
         </div>
     </div>
 
@@ -86,6 +107,13 @@
                     <div class="selfselectadvanced-threadcontent flex-grow-1">
                         <div>{{actiontext}}</div>
                         {{#hasnote}}<div class="mt-1">{{{note}}}</div>{{/hasnote}}
+                        {{#hasfiles}}
+                            {{#files}}
+                                <div class="selfselectadvanced-threadattachment small mt-1">
+                                    <a href="{{url}}">{{filename}}</a>
+                                </div>
+                            {{/files}}
+                        {{/hasfiles}}
                     </div>
                 </div>
             </div>
@@ -112,44 +140,15 @@
         {{/showtakeup}}
 
         {{#showclaimantforms}}
+            {{! 1.20.44 part 2: request-info and resolve/grant are now rendered
+                moodleforms (classes/form/ticketpost_form.php) for draft-area
+                attachment handling - the PHP-rendered HTML is passed through
+                verbatim, unescaped. }}
             {{#showrequestinfo}}
-                <form method="post" action="{{actionurl}}" class="mb-3">
-                    <input type="hidden" name="t" value="{{ticketid}}">
-                    <input type="hidden" name="action" value="requestinfo">
-                    <input type="hidden" name="sesskey" value="{{sesskey}}">
-                    <div class="mb-2">
-                        <label for="selfselectadvanced-threadquestion-{{ticketid}}">
-                            {{#str}} ticketthreadquestionlabel, mod_selfselectadvanced {{/str}}
-                        </label>
-                        <textarea id="selfselectadvanced-threadquestion-{{ticketid}}" name="question" rows="3"
-                            class="form-control"></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-secondary">
-                        {{#str}} ticketthreadasksend, mod_selfselectadvanced {{/str}}
-                    </button>
-                </form>
+                {{{requestinfoformhtml}}}
             {{/showrequestinfo}}
 
-            <form method="post" action="{{actionurl}}" class="mb-3">
-                <input type="hidden" name="t" value="{{ticketid}}">
-                <input type="hidden" name="action" value="{{#isguidecap}}grant{{/isguidecap}}{{^isguidecap}}resolve{{/isguidecap}}">
-                <input type="hidden" name="sesskey" value="{{sesskey}}">
-                <div class="mb-2">
-                    <label for="selfselectadvanced-threadresolution-{{ticketid}}">
-                        {{#str}} ticketthreadresolutionlabel, mod_selfselectadvanced {{/str}}
-                    </label>
-                    <textarea id="selfselectadvanced-threadresolution-{{ticketid}}" name="resolution" rows="3"
-                        class="form-control"></textarea>
-                </div>
-                <button type="submit" class="btn btn-success">
-                    {{#isguidecap}}
-                        {{#str}} guidecapgrant, mod_selfselectadvanced, {{guidecaprequested}} {{/str}}
-                    {{/isguidecap}}
-                    {{^isguidecap}}
-                        {{#str}} ticketresolve, mod_selfselectadvanced {{/str}}
-                    {{/isguidecap}}
-                </button>
-            </form>
+            {{{resolveformhtml}}}
 
             <form method="post" action="{{actionurl}}">
                 <input type="hidden" name="t" value="{{ticketid}}">
@@ -187,22 +186,60 @@
             <p class="text-muted mb-0">{{claimedbyline}}</p>
         {{/showclaimedbyline}}
 
-        {{#showprovideinfo}}
-            <form method="post" action="{{actionurl}}">
+        {{! The handling ladder (1.20.44): refer to another coordinator, escalate to staff. }}
+        {{#showrefer}}
+            <form method="post" action="{{actionurl}}" class="mb-3 selfselectadvanced-ticketrefer">
                 <input type="hidden" name="t" value="{{ticketid}}">
-                <input type="hidden" name="action" value="provideinfo">
+                <input type="hidden" name="action" value="refer">
                 <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <h5>{{#str}} ticketreferheading, mod_selfselectadvanced {{/str}}</h5>
                 <div class="mb-2">
-                    <label for="selfselectadvanced-threadreply-{{ticketid}}">
-                        {{#str}} ticketthreadreplylabel, mod_selfselectadvanced {{/str}}
+                    <label for="selfselectadvanced-threadrefertarget-{{ticketid}}">
+                        {{#str}} ticketrefertargetlabel, mod_selfselectadvanced {{/str}}
                     </label>
-                    <textarea id="selfselectadvanced-threadreply-{{ticketid}}" name="reply" rows="3"
-                        class="form-control"></textarea>
+                    <select id="selfselectadvanced-threadrefertarget-{{ticketid}}" name="target" class="form-select">
+                        {{#refertargets}}
+                            <option value="{{id}}">{{name}}</option>
+                        {{/refertargets}}
+                    </select>
                 </div>
-                <button type="submit" class="btn btn-primary">
-                    {{#str}} ticketthreadreplysend, mod_selfselectadvanced {{/str}}
+                <div class="mb-2">
+                    <label for="selfselectadvanced-threadrefernote-{{ticketid}}">
+                        {{#str}} ticketrefernotelabel, mod_selfselectadvanced {{/str}}
+                    </label>
+                    <textarea id="selfselectadvanced-threadrefernote-{{ticketid}}" name="note" rows="3"
+                        class="form-control" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-secondary">
+                    {{#str}} ticketrefersend, mod_selfselectadvanced {{/str}}
                 </button>
             </form>
+        {{/showrefer}}
+        {{#showreferempty}}
+            <p class="text-muted small">{{#str}} ticketrefertargetempty, mod_selfselectadvanced {{/str}}</p>
+        {{/showreferempty}}
+
+        {{#showescalate}}
+            <form method="post" action="{{actionurl}}" class="mb-3 selfselectadvanced-ticketescalate">
+                <input type="hidden" name="t" value="{{ticketid}}">
+                <input type="hidden" name="action" value="escalate">
+                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <div class="mb-2">
+                    <label for="selfselectadvanced-threadescalatenote-{{ticketid}}">
+                        {{escalatenotelabel}}
+                    </label>
+                    <textarea id="selfselectadvanced-threadescalatenote-{{ticketid}}" name="note" rows="3"
+                        class="form-control" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-outline-danger">
+                    {{#str}} ticketescalate, mod_selfselectadvanced {{/str}}
+                </button>
+            </form>
+        {{/showescalate}}
+
+        {{! 1.20.44 part 2: rendered moodleform, same reason as request-info/resolve above. }}
+        {{#showprovideinfo}}
+            {{{provideinfoformhtml}}}
         {{/showprovideinfo}}
 
         {{#showwithdraw}}

@@ -61,10 +61,30 @@ $PAGE->set_heading(format_string($course->fullname));
 $group = tickets::my_group_for_help($activity, (int) $USER->id);
 
 if ($action === 'filehelp' && data_submitted() && confirm_sesskey()) {
-    $reason = optional_param('reason', '', PARAM_RAW);
+    // 1.20.44 part 2: same type-qualified field names ticketfile_form
+    // always uses (classes/form/ticketfile_form.php's docblock), even
+    // though this page only ever renders the one 'help' instance.
+    $reason = optional_param(
+        \mod_selfselectadvanced\form\ticketfile_form::reason_field(tickets::TYPE_HELP),
+        '',
+        PARAM_RAW
+    );
+    $draftitemid = optional_param(
+        \mod_selfselectadvanced\form\ticketfile_form::attachments_field(tickets::TYPE_HELP),
+        0,
+        PARAM_INT
+    );
     $ack = (bool) optional_param('disclaimerack', 0, PARAM_BOOL);
     try {
         $filedticket = tickets::file_help($activity, $group, $reason, FORMAT_MOODLE, (int) $USER->id, $ack);
+        file_save_draft_area_files(
+            $draftitemid,
+            $context->id,
+            'mod_selfselectadvanced',
+            tickets::FILEAREA_REQUEST,
+            (int) $filedticket->id,
+            tickets::file_options()
+        );
         redirect(
             $viewurl,
             get_string('ticketfilednotice', 'mod_selfselectadvanced') . ' ' . html_writer::link(
@@ -115,34 +135,34 @@ if ($refusal !== null) {
         );
     } else {
         echo html_writer::tag('p', get_string('tickethelpintro', 'mod_selfselectadvanced'));
-        echo html_writer::start_tag('form', [
-            'method' => 'post',
-            'action' => $baseurl->out(false),
-            'class' => 'selfselectadvanced-tickethelpform',
-        ]);
-        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
-        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'filehelp']);
-        echo html_writer::empty_tag(
-            'input',
-            ['type' => 'hidden', 'name' => 'disclaimerack', 'value' => $ticketack ? 1 : 0]
+        // 1.20.44 part 2: a real moodleform, purely for
+        // file_save_draft_area_files() draft-area handling on the new
+        // optional attachment (classes/form/ticketfile_form.php).
+        $ticketfileoptions = tickets::file_options();
+        $ticketform = new \mod_selfselectadvanced\form\ticketfile_form(
+            (new moodle_url($baseurl, ['action' => 'filehelp']))->out(false),
+            [
+                'tickettype' => tickets::TYPE_HELP,
+                'disclaimerack' => $ticketack ? 1 : 0,
+                'fileoptions' => $ticketfileoptions,
+            ]
         );
-        echo html_writer::label(
-            get_string('ticketfilehelp', 'mod_selfselectadvanced'),
-            'ssa-tickethelpreason'
+        // A brand new ticket has no id yet, so a fresh draft area is
+        // minted (itemid null) - the two-step sequence the 'filehelp'
+        // action above completes once the real ticket id exists.
+        $ticketdraftid = 0;
+        file_prepare_draft_area(
+            $ticketdraftid,
+            $context->id,
+            'mod_selfselectadvanced',
+            tickets::FILEAREA_REQUEST,
+            null,
+            $ticketfileoptions
         );
-        echo html_writer::tag('textarea', '', [
-            'name' => 'reason',
-            'id' => 'ssa-tickethelpreason',
-            'rows' => 4,
-            'class' => 'form-control',
-            'placeholder' => get_string('ticketreasonhint', 'mod_selfselectadvanced'),
+        $ticketform->set_data([
+            \mod_selfselectadvanced\form\ticketfile_form::attachments_field(tickets::TYPE_HELP) => $ticketdraftid,
         ]);
-        echo html_writer::empty_tag('input', [
-            'type' => 'submit',
-            'class' => 'btn btn-primary mt-2',
-            'value' => get_string('ticketfilebutton', 'mod_selfselectadvanced'),
-        ]);
-        echo html_writer::end_tag('form');
+        $ticketform->display();
     }
 }
 echo html_writer::link($viewurl, get_string('back'), ['class' => 'btn btn-secondary ms-2 mt-2']);

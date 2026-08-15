@@ -296,6 +296,15 @@ foreach ($queue as $ticket) {
     if ($isworked) {
         $statuscell .= ' — ' . ($usernames[(int) $ticket->claimedby] ?? $ticket->claimedby);
     }
+    // 1.20.44: the escalated badge - independent of status, so it is
+    // appended rather than folded into the status label above (an
+    // escalated ticket can be open, claimed or needsinfo).
+    if ((int) $ticket->escalated === 1) {
+        $statuscell .= ' ' . html_writer::span(
+            get_string('ticketescalatebadge', 'mod_selfselectadvanced'),
+            'badge bg-danger'
+        );
+    }
     if (
         in_array($ticket->status, [tickets::STATUS_RESOLVED, tickets::STATUS_DECLINED], true)
         && trim((string) $ticket->resolution) !== ''
@@ -331,8 +340,18 @@ foreach ($queue as $ticket) {
             // outcome was the COI refusal. require_uninvolved() embodies
             // decision 65 - :manage holders pass at once, involvement
             // refuses the rest.
+            // 1.20.44: while escalated, Take up is not a coordinator's -
+            // checked first, ahead of the conflict-of-interest arm below,
+            // exactly as ticket_page.php's export_actionbox() orders the
+            // same two checks. Enforced for real in tickets::claim();
+            // this is only the UI hiding what the service would refuse.
             $claimrefusal = '';
-            if ((int) $ticket->groupid) {
+            if (
+                (int) $ticket->escalated === 1
+                && !$canmanage
+            ) {
+                $claimrefusal = get_string('refusalticketescalated', 'mod_selfselectadvanced');
+            } else if ((int) $ticket->groupid) {
                 $tgroup = $DB->get_record('selfselectadvanced_group', ['id' => (int) $ticket->groupid]);
                 if ($tgroup) {
                     try {
