@@ -2903,8 +2903,17 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
             $table->add_field('questionformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
             $table->add_field('answer', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
             $table->add_field('answerformat', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
-            $table->add_field('tickettype', XMLDB_TYPE_CHAR, '128', null, XMLDB_NOTNULL, null, '');
-            $table->add_field('keywords', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, '');
+            // NO DEFAULT on these two CHAR NOT NULL columns, deliberately.
+            // XMLDB refuses '' as a CHAR NOT NULL default: it emits a
+            // DEBUG_DEVELOPER message, silently coerces the default to
+            // none, and moodle-plugin-ci fails the whole INSTALL step on
+            // any debugging output - which is how the 1.20.45 tip went red
+            // on GitHub while the local gate, whose sites reach this table
+            // by UPGRADE rather than by fresh install, stayed green. Every
+            // writer of these columns supplies a value (kb::normalise_draft),
+            // so no default is needed.
+            $table->add_field('tickettype', XMLDB_TYPE_CHAR, '128', null, XMLDB_NOTNULL);
+            $table->add_field('keywords', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL);
             $table->add_field('published', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1');
             $table->add_field('sourceticketid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
             $table->add_field('usercreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);

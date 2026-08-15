@@ -525,8 +525,8 @@
         <FIELD NAME="questionformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
         <FIELD NAME="answer" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="The public answer, staff-edited - never auto-copied verbatim from the source ticket's resolution"/>
         <FIELD NAME="answerformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
-        <FIELD NAME="tickettype" TYPE="char" LENGTH="128" NOTNULL="true" DEFAULT="" SEQUENCE="false" COMMENT="'' = general (no specific ticket type); otherwise a value tickets::known_types() recognises"/>
-        <FIELD NAME="keywords" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT="" SEQUENCE="false" COMMENT="Comma-separated, stored lowercase - deflect()/search() match against this and the title"/>
+        <FIELD NAME="tickettype" TYPE="char" LENGTH="128" NOTNULL="true" SEQUENCE="false" COMMENT="'' = general (no specific ticket type); otherwise a value tickets::known_types() recognises"/>
+        <FIELD NAME="keywords" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Comma-separated, stored lowercase - deflect()/search() match against this and the title"/>
         <FIELD NAME="published" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
         <FIELD NAME="sourceticketid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 = authored directly. INTERNAL PROVENANCE ONLY - never in export_entry()'s output, and the ticketlog note it produces carries no public link back."/>
         <FIELD NAME="usercreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
