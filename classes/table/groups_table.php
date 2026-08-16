@@ -90,6 +90,16 @@ class groups_table extends \table_sql {
         $this->define_headers($headers);
         $this->define_baseurl($baseurl);
         $this->sortable(true, 'name');
+        // The leadername and guidename cells are DISPLAY columns built by col_leadername()/
+        // col_guidename() from several aliased name-format fields (leaderfirstname,
+        // leaderlastname, ...) - there is no single SQL column called "leadername" or
+        // "guidename" to sort by. Offering them as sortable let a viewer's click send
+        // `ORDER BY leadername`, which both engines refuse outright (PostgreSQL:
+        // "column \"leadername\" does not exist") and crashed the whole listing.
+        // Excluded the same way size and actions already are below - a computed
+        // column is not a sort key.
+        $this->no_sorting('leadername');
+        $this->no_sorting('guidename');
         $this->no_sorting('size');
         $this->no_sorting('actions');
         $this->is_downloadable(true);

@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.20.49 — sorting by Leader or Guide no longer takes the page down (2026-08-16)
+
+> Serial `2026081602` / `1.20.49`. **No schema change.** Maturity stays RC.
+
+**Clicking the Leader or Guide column header errored the whole listing.**
+Both columns are assembled in PHP from several aliased name fields, so no
+database column of that name exists — but the table offered them as sort
+keys, and a click sent `ORDER BY leadername`, which both engines refuse:
+*"column leadername does not exist"*. They are now excluded from sorting
+exactly as Size and Actions already were.
+
+**The fault predates the paginated listing.** The management page has
+offered the same two broken sort links since the table was written, so
+anyone who clicked them there met the same error; 1.20.47 simply put the
+table in front of more people. Found by writing the scale tests below rather
+than by a user hitting it.
+
+**And the listing is now covered at scale.** New PHPUnit and Behat suites
+build twenty-plus groups across all four lifecycle states — reached through
+real transitions, never by writing a state column — and prove that paging
+happens in the database with no overlap and nothing missing between pages,
+that sorting is stable when run twice, that each state filter includes and
+excludes exactly the right groups, that a group name is a working link, and
+that a coordinator reaches the listing while being offered no action they
+cannot perform.
+
 ## 1.20.48 — an order somebody reads is not the database's to choose (2026-08-16)
 
 > Serial `2026081601` / `1.20.48`. **No schema change.** Maturity stays RC.

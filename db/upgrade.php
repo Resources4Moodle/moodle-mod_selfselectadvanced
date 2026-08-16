@@ -3024,5 +3024,28 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081601, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081602) {
+        // 1.20.49: sorting the groups listing by Leader or Guide no longer
+        // crashes it. NO SCHEMA - the step exists so the savepoint tip can
+        // equal version.php and so an upgraded site's log says what arrived.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.49 (2026081602). Sorting the groups listing by Leader or Guide no longer errors.',
+            'The Leader and Guide columns are assembled in PHP out of several aliased name fields, '
+                . 'so no column of that name exists in the database - but the table offered them as '
+                . 'sort keys anyway, and a click sent an ORDER BY that both engines refuse, taking '
+                . 'the whole listing down with a database error. They are now excluded from sorting '
+                . 'exactly as the Size and Actions columns already were. The fault predates the '
+                . 'paginated landing-page listing: the management page has offered the same two '
+                . 'broken sort links since the table was written, so anyone who clicked them there '
+                . 'saw the same error.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081602, 'selfselectadvanced');
+    }
+
     return true;
 }
