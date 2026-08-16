@@ -610,6 +610,7 @@ final class contactprivacy_matrix_test extends \advanced_testcase {
             'ledger.php',
             'manage.php',
             'roster.php',
+            'view.php',
         ];
         sort($expected);
         $this->assertSame(
@@ -687,6 +688,29 @@ final class contactprivacy_matrix_test extends \advanced_testcase {
             '$exportrow[] = $member->mobile',
             $eoi,
             'the mobile value shown on screen must never be copied into the EOI download row'
+        );
+
+        // 1.20.47: view.php joined manage.php in offering this download - the
+        // SAME groups_table, unchanged query, now reachable by every
+        // :viewall holder (not only :manage) - which includes Group
+        // Coordinators, because coordinatorrole::capabilities() grants
+        // :viewall. Widening WHO can pull this file is fine only because
+        // WHAT it contains has never carried a contact value: the leader/
+        // guide columns come from \core_user\fields::get_name_fields()
+        // (name components only), and the query joins no source of an
+        // address or a number at all. Pinned on the shared production file
+        // rather than on manage.php/view.php individually, because that is
+        // the one place both download paths actually get their columns from.
+        $groupstable = self::normalised_executable_source($root . '/classes/table/groups_table.php');
+        $this->assertStringNotContainsString(
+            'email',
+            $groupstable,
+            'the shared groups table download must not acquire an address'
+        );
+        $this->assertStringNotContainsString(
+            'mobile',
+            $groupstable,
+            'the shared groups table download must not acquire a mobile value'
         );
     }
 

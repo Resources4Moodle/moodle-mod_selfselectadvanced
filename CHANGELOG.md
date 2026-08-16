@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.20.47 — a thousand groups behave like a thousand groups (2026-08-16)
+
+> Serial `2026081600` / `1.20.47`. **No schema change.** Maturity stays RC.
+
+**The landing page's "All groups" listing is now the real table.** It was a
+hand-rolled panel capped at twenty rows with no sorting, no filter and no
+paging — fine for a demo course, useless for a live one. It now renders the
+same `table_sql` the management page has always used: paged in the database
+so a thousand groups cost what four do, sortable on its column headers,
+filterable by state, with the per-page control and export the management page
+offers.
+
+**And it reaches the people who need it.** The old panel offered a route to
+the full list to managers only, so a staff member who could see every group
+but could not manage them — a group coordinator, for one — was shown twenty
+rows and no way to the rest, on a page whose only onward link would have
+refused them. The listing is now gated on the capability that means "may see
+all groups", which coordinators already hold, and a test builds a real
+coordinator to prove it rather than asserting it. Nothing is offered to a
+viewer who could not act on it: the per-row controls ask the same permission
+gates they always did.
+
+**Also:** decision 83's control-state convention list gains the accept-gate
+pair added in 1.20.42, so the gate check that reads that list now covers it.
+
+**And a non-deterministic order, caught by the gate rather than by a user.**
+`get_groups_of_user()` ordered by creation time with no tiebreaker, so two
+groups made in the same second could come back either way round — and the
+join page names a student's groups in that order in a sentence they read.
+It failed on PostgreSQL and passed on MariaDB in the same run, which is the
+signature of a tie left to the engine. The query now breaks the tie on id.
+
 ## 1.20.46 — a machine may help, and may not decide (2026-08-15)
 
 > Serial `2026081504` / `1.20.46`. **No schema change**: a new capability, a

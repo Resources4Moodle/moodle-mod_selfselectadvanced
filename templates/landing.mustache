@@ -21,7 +21,6 @@
 
     Context variables required for this template:
     * isstudent - whether to show the student area
-    * isstaff - whether to show the all-groups area
     * privacystatement - the per-activity privacy notice, worded from the
       CURRENT contact-privacy setting; always present (decisions 91/93)
     * privacynumbernote - where to correct the number itself (decision 92)
@@ -73,14 +72,7 @@
         ],
         "hasmyinvitations": false,
         "myinvitations": [],
-        "mayrespond": true,
-        "isstaff": false,
-        "hasallgroups": false,
-        "allgroups": [],
-        "allgroupstruncated": false,
-        "canseeallgroups": true,
-        "allgroupsshowingtext": "",
-        "manageallurl": "https://example.com/mod/selfselectadvanced/manage.php?id=1"
+        "mayrespond": true
     }
 }}
 <div class="selfselectadvanced-landing">
@@ -248,45 +240,10 @@
 {{#haskbentries}}
     <p><a href="{{kburl}}" class="btn btn-outline-secondary">{{#str}} kblinklabel, mod_selfselectadvanced {{/str}}</a></p>
 {{/haskbentries}}
-
-{{#isstaff}}
-    <h3>{{#str}} allgroups, mod_selfselectadvanced {{/str}}</h3>
-    {{#hasallgroups}}
-        <div class="table-responsive">
-            <table class="table generaltable selfselectadvanced-allgroups">
-                <thead>
-                    <tr>
-                        <th scope="col">{{#str}} groupname, mod_selfselectadvanced {{/str}}</th>
-                        <th scope="col">{{#str}} pluginid, mod_selfselectadvanced {{/str}}</th>
-                        <th scope="col">{{#str}} worktitle, mod_selfselectadvanced {{/str}}</th>
-                        <th scope="col">{{#str}} state, mod_selfselectadvanced {{/str}}</th>
-                        <th scope="col">{{#str}} size, mod_selfselectadvanced {{/str}}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {{#allgroups}}
-                        <tr>
-                            <td><a href="{{url}}">{{name}}</a></td>
-                            <td>{{pluginuid}}</td>
-                            <td>{{title}}</td>
-                            <td>{{statelabel}}</td>
-                            <td>{{seatsummary}}</td>
-                        </tr>
-                    {{/allgroups}}
-                </tbody>
-            </table>
-        </div>
-        {{#allgroupstruncated}}
-            <p class="text-muted">
-                {{allgroupsshowingtext}}
-                {{#canseeallgroups}}
-                    <a href="{{manageallurl}}">{{#str}} allgroupsseeall, mod_selfselectadvanced {{/str}}</a>
-                {{/canseeallgroups}}
-            </p>
-        {{/allgroupstruncated}}
-    {{/hasallgroups}}
-    {{^hasallgroups}}
-        <p class="text-muted">{{#str}} nogroupsyet, mod_selfselectadvanced {{/str}}</p>
-    {{/hasallgroups}}
-{{/isstaff}}
 </div>
+{{! The staff "All groups" listing (1.20.47) is rendered by view.php itself, }}
+{{! directly after this template, using the same groups_table manage.php's  }}
+{{! Teams tab drives - native paging, sorting and a state filter. It is not }}
+{{! part of this template because a table_sql needs to run its own query   }}
+{{! and (for a download) take over the whole response before this page's   }}
+{{! header is even sent; it stayed the LAST thing on the page either way.  }}

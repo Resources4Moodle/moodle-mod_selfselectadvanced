@@ -160,13 +160,30 @@ class groups_table extends \table_sql {
     }
 
     /**
-     * Group name.
+     * Group name, linked through to the group page - the same navigation
+     * affordance the landing page's old hand-rolled panel offered (1.20.47
+     * regression, found by the full gate: staff lost the ability to click a
+     * group name to open it once this table replaced that panel). A
+     * download must never carry HTML, so the link is dropped there and the
+     * plain formatted name is exported instead - the same rule col_actions()
+     * already follows by being omitted from the download columns entirely.
      *
      * @param \stdClass $row table row
      * @return string
      */
     public function col_name($row) {
-        return format_string($row->name);
+        $name = format_string($row->name);
+        if ($this->is_downloading()) {
+            return $name;
+        }
+
+        return \html_writer::link(
+            new \moodle_url('/mod/selfselectadvanced/group.php', [
+                'id' => $this->activity->cm()->id,
+                'g' => $row->id,
+            ]),
+            $name
+        );
     }
 
     /**

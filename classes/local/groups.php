@@ -326,13 +326,21 @@ class groups {
     public static function get_groups_of_user(activity $activity, int $userid): array {
         global $DB;
 
+        // THE id IS A TIEBREAKER, NOT DECORATION. Two groups made in the same
+        // second - routine in a Behat run, and possible for real when a
+        // coordinator creates several at once - tie on timecreated, and a tie
+        // leaves the order to the engine. The 1.20.47 gate caught PostgreSQL
+        // returning one order and MariaDB the other for the same data, and
+        // joinrequest.php renders that order into a sentence a STUDENT reads
+        // ('You are in these groups at the moment: ...'), so the order is not
+        // cosmetic and must be deterministic.
         $sql = "SELECT g.*
                   FROM {selfselectadvanced_group} g
                   JOIN {selfselectadvanced_member} m ON m.groupid = g.id
                  WHERE g.activityid = :activityid
                    AND m.userid = :userid
                    AND m.status = :status
-              ORDER BY g.timecreated ASC";
+              ORDER BY g.timecreated ASC, g.id ASC";
 
         return $DB->get_records_sql($sql, [
             'activityid' => $activity->id(),

@@ -174,6 +174,12 @@ final class control_state_test extends \advanced_testcase {
             'showjoinpanel' => 'joinblockedreason',
             'showrespond' => 'respondblocked',
             'tabsuccession' => 'successionempty',
+            // INV-001 (1.20.42): the accept/decline split's STATE-blocked
+            // half. Capability present, invitation present, but
+            // can_accept() refused - Accept is disabled and carries the
+            // gate's own sentence beside it, the same shape as every
+            // other pair here.
+            'acceptgateblocked' => 'acceptblockedreason',
         ];
         foreach ($pairs as $flag => $reason) {
             $this->assertStringContainsString(
@@ -188,6 +194,24 @@ final class control_state_test extends \advanced_testcase {
                     . 'sees an absence rather than an explanation (decision 83)'
             );
         }
+
+        // The 'candecline' flag is INV-001's third flag and is deliberately
+        // NOT in $pairs above. It is a CAPABILITY-only answer - group_page.php's
+        // own comment: "Decline is drawn whenever this is true, with no
+        // further question asked of it" - and this file's first test,
+        // test_a_missing_capability_hides_the_control(), already states
+        // the convention for that case: a missing capability hides the
+        // control and "nothing is said about it", so no reason key exists
+        // or should exist beside it. Pairing it with a borrowed reason
+        // (acceptblockedreason explains why ACCEPT is blocked, not why
+        // Decline would be) would misstate what the flag->reason
+        // convention promises, so what is pinned here is only that the
+        // flag itself is still exported.
+        $this->assertStringContainsString(
+            "'candecline' =>",
+            $exporter,
+            'the candecline surface has gone; this test needs revisiting, not deleting'
+        );
 
         // The landing page's invitation row is the ninth surface and lives in
         // its own template: the prompt must survive a prohibited :respond.

@@ -2974,5 +2974,32 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081504, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081600) {
+        // 1.20.47: the landing page's "All groups" listing is the real
+        // table. NO SCHEMA - this step exists so the savepoint tip can
+        // equal version.php and so an upgraded site's log says what
+        // arrived. The listing itself is a rendering change: the
+        // hand-rolled 20-row panel is replaced by the same table_sql
+        // manage.php has always used, so it pages in the database,
+        // sorts on its column headers and carries the state filter.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() SWALLOWS an
+            // overlong insert on PostgreSQL - keep this short, prose below.
+            'Upgraded to 1.20.47 (2026081600). All groups now pages, sorts and filters natively.',
+            'The landing page listed at most twenty groups in a plain table with no paging, no '
+                . 'sorting and no filter, and offered a route to the full list only to managers - '
+                . 'so a staff member who could see all groups but could not manage them had no way '
+                . 'to reach the rest at all. It now renders the same table the management page '
+                . 'uses, for everyone holding viewall (which includes group coordinators): paged '
+                . 'in the database, sortable by column, filterable by state, and exportable. '
+                . 'Nothing is offered to a viewer who could not act on it - the per-row controls '
+                . 'ask the same permission gates they always did.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081600, 'selfselectadvanced');
+    }
+
     return true;
 }
