@@ -202,7 +202,8 @@ if ($tab === 'waiting') {
             'cap' => tickets::TYPE_GUIDECAP,
             'reduce' => tickets::TYPE_GUIDEREDUCE,
         ],
-        'timecreated DESC'
+        // The id breaks the tie, newest first - staff read this queue in order.
+        'timecreated DESC, id DESC'
     );
     $live = null;
     foreach ($mine as $ticket) {

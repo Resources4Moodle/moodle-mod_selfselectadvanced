@@ -133,7 +133,7 @@ if ($groupid > 0) {
                        FROM {selfselectadvanced_eoi} e
                        JOIN {user} u ON u.id = e.guideid
                       WHERE e.groupid = :groupid AND e.status = :pending
-                   ORDER BY e.timecreated ASC",
+                   ORDER BY e.timecreated ASC, e.id ASC",
                     ['groupid' => $group->id, 'pending' => \mod_selfselectadvanced\local\eoi::STATUS_PENDING]
                 );
                 foreach ($peerrows as $peerrow) {

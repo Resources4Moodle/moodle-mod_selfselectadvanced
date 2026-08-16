@@ -1092,7 +1092,8 @@ class joinrequests {
                 'targetgroupid' => $groupid,
                 'status' => self::STATUS_REQUESTED,
             ],
-            'timecreated ASC'
+            // The id breaks the tie - a leader answers these in the order shown.
+            'timecreated ASC, id ASC'
         );
     }
 
@@ -1110,7 +1111,8 @@ class joinrequests {
             'selfselectadvanced_move',
             'activityid = :activityid AND userid = :userid AND reason IS NOT NULL',
             ['activityid' => $activity->id(), 'userid' => $userid],
-            'timecreated DESC'
+            // The id breaks the tie, newest first, so "the last reason" is one row.
+            'timecreated DESC, id DESC'
         );
     }
 

@@ -203,7 +203,7 @@ class landing implements renderable, templatable {
                      WHERE g.activityid = :activityid
                        AND m.userid = :userid
                        AND m.status = :status
-                  ORDER BY m.timecreated ASC";
+                  ORDER BY m.timecreated ASC, m.id ASC";
             $data->myinvitations = [];
             foreach (
                 $DB->get_records_sql($sql, [

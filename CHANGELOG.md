@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.20.48 — an order somebody reads is not the database's to choose (2026-08-16)
+
+> Serial `2026081601` / `1.20.48`. **No schema change.** Maturity stays RC.
+
+**Eleven queries ordered rows by creation time with no tiebreaker.** Two rows
+written in the same second tie, and a tie leaves the order to the engine —
+which chose differently on PostgreSQL and MariaDB for the same data, in the
+same gate run. Several of those orders are read by people: a student sees
+the groups they belong to named in one, a leader answers join requests in
+another, staff read the guide queue in a third, and a privacy export is
+written in a fourth. Every one now breaks the tie on the row id.
+
+Found because the 1.20.47 gate failed a single scenario on one engine and
+passed it on the other — an asymmetry that was traced rather than retried,
+since a re-run would have gone green and left the defect in. A test now
+reads the source and fails on any `timecreated` ordering without an id
+tiebreaker, so the twelfth cannot be written quietly.
+
 ## 1.20.47 — a thousand groups behave like a thousand groups (2026-08-16)
 
 > Serial `2026081600` / `1.20.47`. **No schema change.** Maturity stays RC.

@@ -285,7 +285,7 @@ class eoilist_table extends \table_sql {
                JOIN {selfselectadvanced_group} g ON g.id = e.groupid
                JOIN {user} u ON u.id = g.leaderid
               WHERE $where
-           ORDER BY e.timecreated ASC",
+           ORDER BY e.timecreated ASC, e.id ASC",
             $params
         );
 

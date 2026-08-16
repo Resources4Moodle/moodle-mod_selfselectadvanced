@@ -3001,5 +3001,28 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081600, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081601) {
+        // 1.20.48: every timecreated ordering breaks its tie on id. NO
+        // SCHEMA - the step exists so the savepoint tip can equal
+        // version.php and so an upgraded site's log says what arrived.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.48 (2026081601). Orderings that a person reads are now deterministic.',
+            'Eleven queries ordered rows by creation time with no tiebreaker, so two rows written '
+                . 'in the same second could come back either way round and the database was free to '
+                . 'choose - which it did differently on PostgreSQL and MariaDB for the same data. '
+                . 'Several of those orders are read by people: a student sees the groups they belong '
+                . 'to named in one, a leader answers join requests in another, staff read the guide '
+                . 'queue in a third, and a privacy export is written in a fourth. Every one now '
+                . 'breaks the tie on the row id, and a test reads the source to keep the twelfth '
+                . 'from being written. No behaviour changes where the order was already unique.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081601, 'selfselectadvanced');
+    }
+
     return true;
 }

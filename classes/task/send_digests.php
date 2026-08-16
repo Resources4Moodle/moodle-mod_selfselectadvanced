@@ -198,7 +198,8 @@ class send_digests extends \core\task\scheduled_task {
             $rows = $DB->get_records(
                 'selfselectadvanced_digestq',
                 ['userid' => $userid],
-                'timecreated ASC',
+                // The id breaks the tie: this batch reads the oldest rows and then deletes them.
+                'timecreated ASC, id ASC',
                 '*',
                 0,
                 $itembatch

@@ -960,7 +960,8 @@ class provider implements
             $digestqueue = $DB->get_records('selfselectadvanced_digestq', [
                 'activityid' => $cm->instance,
                 'userid' => $userid,
-            ], 'timecreated ASC');
+            // The id breaks the tie - an export must be reproducible.
+            ], 'timecreated ASC, id ASC');
             // QUEUED NOTIFICATIONS THAT REFERENCE THEM but are addressed to
             // somebody else. Deliberately NOT the payload: that text is
             // another recipient's message and can name third parties, so the
@@ -975,7 +976,7 @@ class provider implements
                    JOIN {selfselectadvanced_digestq} dq ON dq.id = dqs.digestid
               LEFT JOIN {selfselectadvanced_group} g ON g.id = dq.groupid
                   WHERE dq.activityid = :activityid AND dqs.userid = :userid AND dq.userid <> :recipient
-               ORDER BY dq.timecreated ASC",
+               ORDER BY dq.timecreated ASC, dq.id ASC",
                 ['activityid' => $cm->instance, 'userid' => $userid, 'recipient' => $userid]
             );
             $eois = $DB->get_records_sql(

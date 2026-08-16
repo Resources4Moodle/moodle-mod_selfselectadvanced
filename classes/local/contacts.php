@@ -332,7 +332,7 @@ class contacts {
         return $DB->get_records('selfselectadvanced_contact', [
             'activityid' => $activity->id(),
             'groupid' => $groupid,
-        ], 'timecreated ASC');
+        ], 'timecreated ASC, id ASC');
     }
 
     /**
@@ -349,7 +349,7 @@ class contacts {
             'activityid' => $activity->id(),
             'guideid' => $guideid,
             'status' => self::STATUS_SENT,
-        ], 'timecreated ASC');
+        ], 'timecreated ASC, id ASC');
     }
 
     /**
