@@ -519,8 +519,10 @@ final class fit_test extends \advanced_testcase {
         // still fails if the shortfall-diff body is restored, because a Male
         // candidate cannot be in the Female seat under any seating.
         //
-        // OWED: a new fixture that re-seats an incumbent under the current
-        // tie-break, to restore the divergence half of this guard.
+        // OWED, paid below by
+        // test_a_second_incumbent_is_re_seated_by_a_stronger_specialist(): a
+        // new fixture that re-seats an incumbent under the current tie-break,
+        // to restore the divergence half of this guard.
         $template = slots::get_all($activity);
         $attrs = manager::get_for_users([(int) $m1->id, (int) $m2->id, (int) $f1->id, (int) $candidate->id]);
         $roster = [(int) $m1->id, (int) $m2->id, (int) $f1->id];
@@ -540,6 +542,149 @@ final class fit_test extends \advanced_testcase {
             0,
             $shortfall($before, 2),
             'the Female incumbent is seated in the Female seat from the start now, so nothing re-seats'
+        );
+    }
+
+    /**
+     * The divergence case owed above: a shape that genuinely re-seats an
+     * incumbent under the CURRENT most-constrained-first rule (ledger
+     * decision 101), where the shape above stops doing that.
+     *
+     * The plan is two seats: one wants 2 members who share any ONE
+     * department (a generic "pair" seat, satisfiable by any department so
+     * long as both agree); the other wants 2 members with sub-department AI
+     * specifically. Seated: a Math/AI member and a Computer/AI member -
+     * different departments, so the generic seat cannot use them together,
+     * but both share sub-department AI, which is the more constrained seat
+     * on a supply tie (a named value beats "any shared value"). Both are
+     * seated in the AI seat; the generic seat sits empty, since a single
+     * leftover person would only "share" a department with themselves.
+     *
+     * The candidate is a SECOND Computer/AI member. Filling the AI seat to
+     * its capacity of two now has a genuine choice: keep the two incumbents
+     * where they are and leave the candidate unseated, or seat the two
+     * Computer/AI members (who actually share a department, so the generic
+     * seat can also use whichever one of them is left over) and move the
+     * Math incumbent into the generic seat, where she sits alone. The
+     * second option fills three seats where the first fills only two, so it
+     * is what the exact search finds - and it MOVES the Math incumbent, who
+     * has held the AI seat since before the candidate existed, into the
+     * seat that needed nobody in particular.
+     *
+     * PROOF IT BITES, measured 2026-08-17 on a copy with the constraint
+     * ordering in allocator::build_ranks() inverted (restoring the pre-1.20
+     * least-constrained-first tie-break): this test fails, and earlier than
+     * the re-seat assertions below even get to run. With two members the
+     * generic department seat and the AI seat tie on supply exactly as they
+     * do today, but the inverted ordering now prefers the GENERIC seat on
+     * that tie, so it is filled first - and it can only take ONE of the two
+     * (Math, Computer do not share a department), leaving the AI seat's own
+     * two AI-holders split one-and-one instead of both seated together.
+     * `test_a_second_incumbent...` asserts the STARTING seating (both
+     * incumbents in the AI seat, the generic seat empty) fails first:
+     * "fixture: the department seat starts empty / Failed asserting that 1
+     * is identical to 0." Adding the candidate then fills the generic seat
+     * to capacity with the two Computer members and leaves the AI seat at
+     * one instead of two - a seating that fills the same three seats as the
+     * current engine but never lets the AI seat's own specialists fill it,
+     * which is exactly the shape of defect decision 101 exists to prevent.
+     */
+    public function test_a_second_incumbent_is_re_seated_by_a_stronger_specialist(): void {
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('mod_selfselectadvanced');
+        $course = $generator->create_course();
+        $instance = $generator->create_module('selfselectadvanced', [
+            'course' => $course->id,
+            'minsize' => 1,
+            'maxsize' => 5,
+            'maxlead' => 1,
+            'maxmembership' => 1,
+        ]);
+        $activity = activity::from_instance((int) $instance->id);
+
+        $make = function (string $department) use ($generator, $course): \stdClass {
+            $user = $generator->create_user();
+            $generator->enrol_user($user->id, $course->id, 'student');
+            manager::set((int) $user->id, ['department' => $department, 'subdepartment' => 'AI'], 2);
+
+            return $user;
+        };
+        $math = $make('Math');
+        $computer1 = $make('Computer');
+        $candidate = $make('Computer');
+
+        // Slot numbers assigned in creation order: 1 (department pair), 2 (AI).
+        slots::create($activity, (object) [
+            'mincount' => 2, 'dimension' => 'department', 'matchtype' => 'value', 'allowoverlap' => 0,
+        ], (int) get_admin()->id);
+        $ai = slots::create($activity, (object) [
+            'mincount' => 2, 'dimension' => 'subdepartment', 'matchtype' => 'value',
+            'value' => 'AI', 'allowoverlap' => 0,
+        ], (int) get_admin()->id);
+
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => (int) $math->id,
+            'name' => 'Specialists',
+        ]);
+        $plugingen->create_member([
+            'groupid' => $group->id,
+            'userid' => (int) $computer1->id,
+            'status' => groups::STATUS_CONFIRMED,
+        ]);
+        $group = groups::get($activity, (int) $group->id);
+
+        $template = slots::get_all($activity);
+        $attrs = manager::get_for_users([(int) $math->id, (int) $computer1->id, (int) $candidate->id]);
+        $roster = [(int) $math->id, (int) $computer1->id];
+
+        // Fixture check (N > 0): both incumbents actually got seated, and
+        // both landed in the AI seat, before the candidate is considered.
+        $before = slots::evaluate_from_data($template, $roster, $attrs);
+        $this->assertSame(2, $before->totalfilled, 'fixture: both incumbents must start seated');
+        $this->assertSame(0, $before->slots[0]->filled, 'fixture: the department seat starts empty');
+        $this->assertSame(2, $before->slots[1]->filled, 'fixture: both incumbents start in the AI seat');
+        $this->assertSame(
+            1,
+            $before->assignment[(int) $math->id],
+            'fixture: the Math incumbent starts in the AI seat (index 1)'
+        );
+
+        // The picker's own answer: the candidate is named into the AI seat.
+        $row = fit::for_groups($activity, [$group], (int) $candidate->id)[(int) $group->id];
+        $this->assertTrue($row->fits);
+        $this->assertSame(
+            (int) $ai->slotno,
+            $row->seatno,
+            'The candidate takes the AI seat alongside the other Computer/AI member'
+        );
+        $this->assertStringContainsStringIgnoringCase('ai', (string) $row->seat);
+
+        // The gate's own answer must be the same answer.
+        $single = fit::for_person($activity, $group, (int) $candidate->id);
+        $this->assertSame($row->seatno, $single->seatno, 'Picker and gate must not disagree');
+        $this->assertSame($row->seat, $single->seat);
+
+        // The re-seat itself: the Math incumbent's own assignment moves.
+        $after = slots::evaluate_from_data($template, array_merge($roster, [(int) $candidate->id]), $attrs);
+        $this->assertSame(3, $after->totalfilled, 'the candidate must raise the fill');
+        $this->assertSame(1, $after->slots[0]->filled, 'the department seat now carries the displaced incumbent');
+        $this->assertSame(2, $after->slots[1]->filled, 'the AI seat stays at its capacity of two');
+        $this->assertSame(
+            0,
+            $after->assignment[(int) $math->id],
+            'the Math incumbent is RE-SEATED out of the AI seat into the department seat'
+        );
+        $this->assertSame(
+            1,
+            $after->assignment[(int) $computer1->id],
+            'the Computer incumbent already in the AI seat stays put'
+        );
+        $this->assertSame(
+            1,
+            $after->assignment[(int) $candidate->id],
+            'the candidate takes the AI seat the Math incumbent vacated'
         );
     }
 }

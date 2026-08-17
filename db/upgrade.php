@@ -3070,5 +3070,26 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081700, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081701) {
+        // 1.20.51: the seating algorithm can no longer be reverted in
+        // silence. NO SCHEMA and no behaviour change - a test fixture and
+        // a corrected docblock. The step exists so the savepoint tip can
+        // equal version.php.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.51 (2026081701). The seat-allocation tie-break is now pinned by a test.',
+            'No behaviour changes. Until now the entire pre-1.20 seating algorithm could be restored '
+                . 'and the whole suite stayed green, so decision 101 - place each member in the most '
+                . 'constrained seat they can fill, so the specialist seat gets the specialist - was '
+                . 'recorded but not protected. A fixture now fails if that tie-break is inverted. A '
+                . 'docblock that still described the old least-restrictive rule is corrected.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081701, 'selfselectadvanced');
+    }
+
     return true;
 }

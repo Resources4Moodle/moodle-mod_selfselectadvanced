@@ -1113,9 +1113,12 @@ class fit {
      * there so a future change to the engine's shape degrades to "no
      * seat named" rather than to a warning.
      *
-     * Which seat that is follows the engine's least-restrictive
-     * placement rule, so a candidate who could complete either of two
-     * seats is shown in the roomier one.
+     * Which seat that is follows the engine's MOST-CONSTRAINED
+     * placement rule (decision 101, 2026-08-13, which reversed the
+     * least-constrained tie-break this comment used to describe), so a
+     * candidate who could complete either of two seats is shown in the
+     * one fewer people could fill - the specialist seat gets the
+     * specialist, and the shortfall lands where anybody can help.
      *
      * The roster-plus-candidate half can be handed in: the composition
      * gate that runs immediately before this in for_groups() has

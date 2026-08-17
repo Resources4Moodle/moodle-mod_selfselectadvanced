@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.20.51 — the seating rule can no longer be reverted in silence (2026-08-17)
+
+> Serial `2026081701` / `1.20.51`. **No schema change, no behaviour change.**
+> Maturity stays RC.
+
+**Decision 101 was recorded but not protected.** It rules that seat
+allocation places each member in the *most* constrained seat they can fill,
+so where two arrangements seat the same number of people the specialist seat
+gets the specialist and the shortfall lands where anybody can help. Until
+now the entire pre-1.20 algorithm could be restored — the tie-break inverted
+— and the whole suite stayed green. A fixture now fails when it is.
+
+The companion gap turned out to be already closed: the allocator's
+input-size fallback *is* pinned, and replacing the fallback with a throw
+does make an existing test fail. That was verified by mutation rather than
+taken from the record, and the stale note saying otherwise is retired.
+
+**And a docblock that lied.** `fit.php` still told readers that seat naming
+"follows the engine's least-restrictive placement rule" — the rule decision
+101 reversed on 2026-08-13. It now describes what the code actually does.
+
 ## 1.20.50 — events leave the critical section (2026-08-17)
 
 > Serial `2026081700` / `1.20.50`. **No schema change.** Maturity stays RC.
