@@ -18,6 +18,7 @@ namespace mod_selfselectadvanced\local\autogroup;
 
 use mod_selfselectadvanced\activity;
 use mod_selfselectadvanced\local\attributes\manager;
+use mod_selfselectadvanced\local\eventqueue;
 use mod_selfselectadvanced\local\groups;
 use mod_selfselectadvanced\local\locks;
 use mod_selfselectadvanced\local\override\resolver;
@@ -268,6 +269,7 @@ class engine {
         $seed = $seed ?? random_int(1, mt_getrandmax());
         $resolver = new resolver($activity);
 
+        $events = new eventqueue();
         $lock = locks::acquire('activity:' . $activity->id());
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -382,7 +384,10 @@ class engine {
                         'timecreated' => $now,
                         'timemodified' => $now,
                     ]);
-                    $cascaded = $invitationservice->cascade_at_cap((int) $userid, (int) $group->id);
+                    // The queue threads through so the cascade's
+                    // invitation_declined events join this method's own
+                    // queue instead of firing under its lock (CONC-001).
+                    $cascaded = $invitationservice->cascade_at_cap((int) $userid, (int) $group->id, $events);
                     if ($cascaded) {
                         $cascadedbyuser[(int) $userid] = $cascaded;
                     }
@@ -430,7 +435,8 @@ class engine {
             ];
             $agrun->id = $DB->insert_record('selfselectadvanced_agrun', $agrun);
 
-            \mod_selfselectadvanced\event\autogroup_run::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\autogroup_run::create([
                 'objectid' => $agrun->id,
                 'context' => $activity->context(),
                 'other' => [
@@ -438,12 +444,14 @@ class engine {
                     'placed' => $placed,
                     'unplaced' => (int) $agrun->unplaced,
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         // Every placed student is told where they landed; managers get
         // the run summary. Sends happen after the COMMIT (messages are

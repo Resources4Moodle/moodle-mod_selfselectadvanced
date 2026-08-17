@@ -193,6 +193,7 @@ class eoi {
         // and the capacity ceiling are PER GUIDE, so two simultaneous
         // picks of different teams must serialise on the guide, while
         // the listing state is per group. Same ordering in respond().
+        $events = new eventqueue();
         $guidelock = locks::acquire('eoiguide:' . $guideid);
         $lock = locks::acquire('group:' . $groupid);
         try {
@@ -269,15 +270,17 @@ class eoi {
                 'status' => self::STATUS_PENDING,
             ]);
 
-            \mod_selfselectadvanced\event\eoi_created::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\eoi_created::create([
                 'objectid' => $id,
                 'context' => $activity->context(),
                 'relateduserid' => $guideid,
                 'other' => ['groupid' => $groupid, 'pluginuid' => $group->pluginuid],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // Five refusals - not-listed, duplicate, the per-guide open
             // cap, the per-group waitlist cap and the gatekeeper's
             // verdict (:guide, then the capacity ceiling) - are all
@@ -306,6 +309,8 @@ class eoi {
             $lock->release();
             $guidelock->release();
         }
+
+        $events->flush();
 
         // Sends happen only after the commit; messages cannot roll back.
         notifier::send(
@@ -339,6 +344,7 @@ class eoi {
         global $DB;
 
         $row = self::get($activity, $eoiid);
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $row->groupid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -350,10 +356,11 @@ class eoi {
             if ((int) $row->guideid !== $guideid || $row->status !== self::STATUS_PENDING) {
                 throw new workflow_refusal('refusaleoinotpending', 'mod_selfselectadvanced');
             }
-            self::transition($activity, $row, self::STATUS_WITHDRAWN, $guideid);
+            self::transition($activity, $row, self::STATUS_WITHDRAWN, $guideid, $events);
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The revalidation inside the lock throws
             // refusaleoinotpending from inside the transaction whenever
             // the leader decided this interest first - exactly the race
@@ -365,6 +372,8 @@ class eoi {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         $group = groups::get($activity, (int) $row->groupid);
         notifier::send(
@@ -468,6 +477,7 @@ class eoi {
 
         $row = self::get($activity, $eoiid);
         $declined = [];
+        $events = new eventqueue();
 
         // Same ordering as express(): guide before group.
         $guidelock = locks::acquire('eoiguide:' . $row->guideid);
@@ -538,7 +548,7 @@ class eoi {
                 }
                 $DB->set_field('selfselectadvanced_group', 'guideid', $row->guideid, ['id' => $group->id]);
                 $DB->set_field('selfselectadvanced_group', 'timemodified', time(), ['id' => $group->id]);
-                self::transition($activity, $row, self::STATUS_ACCEPTED, $actorid);
+                self::transition($activity, $row, self::STATUS_ACCEPTED, $actorid, $events);
 
                 // Every other pending interest is declined in the same
                 // transaction; the notifications go out after commit.
@@ -547,15 +557,16 @@ class eoi {
                     'status' => self::STATUS_PENDING,
                 ]);
                 foreach ($others as $other) {
-                    self::transition($activity, $other, self::STATUS_REJECTED, $actorid);
+                    self::transition($activity, $other, self::STATUS_REJECTED, $actorid, $events);
                     $declined[] = (int) $other->guideid;
                 }
             } else {
-                self::transition($activity, $row, self::STATUS_REJECTED, $actorid);
+                self::transition($activity, $row, self::STATUS_REJECTED, $actorid, $events);
             }
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // Everything this method refuses - not-pending, not-leader,
             // the self-accept guard, require_uninvolved(), not-listed
             // and the gatekeeper's verdict on the guide being installed
@@ -570,6 +581,8 @@ class eoi {
             $lock->release();
             $guidelock->release();
         }
+
+        $events->flush();
 
         $a = (object) [
             'group' => format_string($group->name),
@@ -628,6 +641,7 @@ class eoi {
     public static function stepout(activity $activity, int $groupid, int $guideid): void {
         global $DB;
 
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $groupid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -647,11 +661,12 @@ class eoi {
                 'status' => self::STATUS_ACCEPTED,
             ]);
             foreach ($accepted as $row) {
-                self::transition($activity, $row, self::STATUS_WITHDRAWN, $guideid);
+                self::transition($activity, $row, self::STATUS_WITHDRAWN, $guideid, $events);
             }
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The refusaleoinotassigned guard is judged on the row read INSIDE
             // the lock and throws from inside the transaction.
             // Unconditional - see express().
@@ -662,6 +677,8 @@ class eoi {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         notifier::send(
             $activity,
@@ -724,17 +741,23 @@ class eoi {
             // Recheck under the group lock: a leader may have accepted
             // this interest between the sweep's select and now, and an
             // expiry must never overwrite a decision.
+            $events = new eventqueue();
             $lock = locks::acquire('group:' . $row->groupid);
             try {
                 $fresh = self::get($activity, (int) $row->id);
                 if ($fresh->status !== self::STATUS_PENDING) {
                     continue;
                 }
-                self::transition($activity, $fresh, self::STATUS_EXPIRED, 0);
+                self::transition($activity, $fresh, self::STATUS_EXPIRED, 0, $events);
                 $expired[] = $fresh;
             } finally {
                 $lock->release();
             }
+            // Flushed per row, right after THIS row's own lock release -
+            // never batched across the sweep, which would hold every
+            // earlier row's event unfired while later rows are still
+            // being processed.
+            $events->flush();
         }
         foreach ($expired as $row) {
             $name = isset($groupnames[(int) $row->groupid])
@@ -970,8 +993,19 @@ class eoi {
      * @param stdClass $row the interest row
      * @param string $status the new status
      * @param int $actorid who caused it, 0 for the system
+     * @param eventqueue $events the caller's queue: every caller runs
+     *        this from inside its own group: lock (and usually its own
+     *        transaction too), so the event is queued here rather than
+     *        triggered, and the caller flushes after ITS OWN commit and
+     *        lock release (CONC-001)
      */
-    private static function transition(activity $activity, stdClass $row, string $status, int $actorid): void {
+    private static function transition(
+        activity $activity,
+        stdClass $row,
+        string $status,
+        int $actorid,
+        eventqueue $events
+    ): void {
         global $DB;
 
         $DB->update_record('selfselectadvanced_eoi', (object) [
@@ -988,7 +1022,7 @@ class eoi {
         if ($actorid > 0) {
             $data['userid'] = $actorid;
         }
-        \mod_selfselectadvanced\event\eoi_updated::create($data)->trigger();
+        $events->push(\mod_selfselectadvanced\event\eoi_updated::create($data));
     }
 
     /**

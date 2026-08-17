@@ -173,6 +173,7 @@ class succession {
         }
 
         // L3 lead counts span groups: activity lock first (audit item 6).
+        $events = new eventqueue();
         $activitylock = locks::acquire('activity:' . $this->activity->id());
         $lock = locks::acquire('group:' . $group->id);
         try {
@@ -218,7 +219,11 @@ class succession {
                 $DB->update_record('selfselectadvanced_member', $old);
             }
 
-            \mod_selfselectadvanced\event\leadership_transferred::create([
+            // Queued, not triggered here: CONC-001 requirement 2. See
+            // appoint_vacant_leader() below for the same event fired the
+            // same way - this is the reference shape that method
+            // already followed.
+            $events->push(\mod_selfselectadvanced\event\leadership_transferred::create([
                 'objectid' => $fresh->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => $userid,
@@ -227,7 +232,7 @@ class succession {
                     'pluginuid' => $fresh->pluginuid,
                     'type' => $type,
                 ],
-            ])->trigger();
+            ]));
 
             // A step-out removes the outgoing leader from the roster,
             // so the mirror has to follow. The gatekeeper limits this
@@ -238,6 +243,7 @@ class succession {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The can_confirm_succession() gate and the MUST_EXIST read of the
             // outgoing leader's member row both throw from inside the
             // transaction. Unconditional - see nominate().
@@ -249,6 +255,8 @@ class succession {
             $lock->release();
             $activitylock->release();
         }
+
+        $events->flush();
 
         freeze::sync_core_group($this->activity, (int) $fresh->id, $userid);
 

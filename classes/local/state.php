@@ -113,6 +113,7 @@ final class state {
         if ($pretarget) {
             $resources[] = 'eoiguide:' . $pretarget;
         }
+        $events = new eventqueue();
         $handles = locks::acquire_all($resources);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -148,12 +149,15 @@ final class state {
             $fresh->timemodified = $now;
             $DB->update_record('selfselectadvanced_group', $fresh);
 
-            \mod_selfselectadvanced\event\group_submitted::create([
+            // Payload built INSIDE the critical section, queued and
+            // dispatched after the commit AND the release below
+            // (CONC-001, requirement 2).
+            $events->push(\mod_selfselectadvanced\event\group_submitted::create([
                 'objectid' => $fresh->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => $fresh->guideid,
                 'other' => ['pluginuid' => $fresh->pluginuid],
-            ])->trigger();
+            ]));
 
             // Reset via the preferences API, not raw deletes - a
             // direct table delete leaves each guide's preference
@@ -167,6 +171,7 @@ final class state {
             freeze::request_sync($this->activity, $fresh);
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // Every refusal above throws from INSIDE the transaction,
             // so without this a refused submit left a dangling
             // delegated transaction (T-02 step 4.5).
@@ -197,6 +202,8 @@ final class state {
             // the guide (rank 7), which is what release_all() does.
             locks::release_all($handles);
         }
+
+        $events->flush();
 
         $url = $this->review_url((int) $fresh->id);
         $a = (object) [
@@ -311,6 +318,7 @@ final class state {
         // notifier::send() consults to know it is inside a lock - never
         // came back down. Order is unchanged, eoiguide (rank 7) then
         // group (rank 8), so check_order() is satisfied as before.
+        $events = new eventqueue();
         $handles = locks::acquire_all([
             'eoiguide:' . $guideid,
             'group:' . (int) $group->id,
@@ -355,7 +363,8 @@ final class state {
             $DB->update_record('selfselectadvanced_group', $fresh);
 
             if ($oldguide && $oldguide !== (int) $guideid) {
-                \mod_selfselectadvanced\event\guide_reassigned::create([
+                // Queued, not triggered here: CONC-001 requirement 2.
+                $events->push(\mod_selfselectadvanced\event\guide_reassigned::create([
                     'objectid' => $fresh->id,
                     'context' => $this->activity->context(),
                     'relateduserid' => $guideid,
@@ -364,7 +373,7 @@ final class state {
                         'fromguideid' => $oldguide,
                         'via' => 'reassign',
                     ],
-                ])->trigger();
+                ]));
             }
 
             // Reset via the preferences API, not raw deletes - a
@@ -379,6 +388,7 @@ final class state {
             freeze::request_sync($this->activity, $fresh);
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The state and capacity refusals above throw from INSIDE
             // the transaction (T-02 step 4.5). Unconditional since 1.20
             // wave 3D - see submit() for why the $outermost gate was
@@ -391,6 +401,8 @@ final class state {
             // Reverse acquisition order: group, then guide.
             locks::release_all($handles);
         }
+
+        $events->flush();
 
         // Outside every lock and transaction (requirement 2): one sync
         // swaps the old guide out of the course group and the new one in.
@@ -474,6 +486,7 @@ final class state {
             throw new \moodle_exception('errcommentrequired', 'mod_selfselectadvanced');
         }
 
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -516,7 +529,8 @@ final class state {
             $fresh->timemodified = $now;
             $DB->update_record('selfselectadvanced_group', $fresh);
 
-            \mod_selfselectadvanced\event\group_returned::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\group_returned::create([
                 'objectid' => $fresh->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => (int) $fresh->leaderid,
@@ -525,7 +539,7 @@ final class state {
                     'comment' => trim($comment),
                     'commentformat' => $commentformat,
                 ],
-            ])->trigger();
+            ]));
 
             // Reset via the preferences API, not raw deletes - a
             // direct table delete leaves each guide's preference
@@ -539,6 +553,7 @@ final class state {
             freeze::request_sync($this->activity, $fresh);
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The can_return() refusal throws from INSIDE the
             // transaction (T-02 step 4.5). Unconditional since 1.20
             // wave 3D - see submit().
@@ -549,6 +564,8 @@ final class state {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         // THE MIRROR GOES BACK WITH THE APPROVAL (1.20.36). A returned team is
         // forming again: it is not approved, not locked, and under no setting
@@ -678,6 +695,7 @@ final class state {
         // locks::held_count() permanently non-zero for the rest of the
         // process, which is the question notifier::send() asks to
         // decide whether it is inside a lock (T-02).
+        $events = new eventqueue();
         $handles = locks::acquire_all(
             $auto
                 ? ['override:group:' . (int) $group->id, 'group:' . (int) $group->id]
@@ -700,13 +718,22 @@ final class state {
                     );
                 }
                 if ($plan->relief !== []) {
+                    // The queue threads through: save() is nested under
+                    // THIS method's own override:group:{id} lock
+                    // (acquired above via acquire_all(), $callerholdslock
+                    // true), so its event cannot fire from inside save()
+                    // itself - it has no lock-free moment of its own -
+                    // and is queued here to fire alongside
+                    // group_approved after THIS method's own release
+                    // (CONC-001, requirement 2; T-04's handshake).
                     $relief = override\store::save(
                         $this->activity,
                         'group',
                         (int) $fresh->id,
                         $plan->relief,
                         $actorid,
-                        true
+                        true,
+                        $events
                     );
                     if ($relief->status !== 'active') {
                         // A pre-existing guarded reduction keeps the
@@ -750,15 +777,19 @@ final class state {
             $DB->update_record('selfselectadvanced_group', $fresh);
             freeze::request_sync($this->activity, $fresh);
 
-            \mod_selfselectadvanced\event\group_approved::create([
+            // Queued after the (possible) relief event above, preserving
+            // their original order; both fire after this method's own
+            // commit AND lock release (CONC-001, requirement 2).
+            $events->push(\mod_selfselectadvanced\event\group_approved::create([
                 'objectid' => $fresh->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => (int) $fresh->leaderid,
                 'other' => ['pluginuid' => $fresh->pluginuid, 'auto' => $auto ? 1 : 0],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // Refusals are thrown from INSIDE the transaction by design.
             // Without this the transaction stayed open for the rest of
             // the request: in a cron sweep every LATER approval popped
@@ -791,6 +822,8 @@ final class state {
             // override row (rank 5).
             locks::release_all($handles);
         }
+
+        $events->flush();
 
         // Spec 11: the approval writes the group's ledger row (explicit
         // zero for on-time groups). upsert_for_group() takes the group

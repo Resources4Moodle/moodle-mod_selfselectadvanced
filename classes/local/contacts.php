@@ -87,6 +87,7 @@ class contacts {
             throw new workflow_refusal('refusalnotaguide', 'mod_selfselectadvanced');
         }
 
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -137,15 +138,17 @@ class contacts {
             ];
             $contact->id = $DB->insert_record('selfselectadvanced_contact', $contact);
 
-            \mod_selfselectadvanced\event\contact_sent::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\contact_sent::create([
                 'objectid' => $contact->id,
                 'context' => $activity->context(),
                 'relateduserid' => $guideid,
                 'other' => ['pluginuid' => $group->pluginuid],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // UNCONDITIONAL since 1.20 wave 3E. The `$outermost &&`
             // rider that stood here was read from
             // $DB->is_transaction_started() before the lock, which
@@ -166,6 +169,8 @@ class contacts {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         // Outside the lock: mail must never hold one.
         self::notify($activity, $guideid, 'msgcontactsentsubject', 'msgcontactsentbody', $contact, $group);

@@ -302,12 +302,20 @@ final class disband_test extends \advanced_testcase {
         $this->assertFalse($disb['bypassed'], 'not without the deliberate override');
 
         // The deliberate staff override pierces it - always honoured.
+        // save_for_new_move() is a LOCK-HOLDER'S entry point: it passes
+        // callerholdslock=true, so since CONC-001 it requires the caller's
+        // event queue and refuses without one. A test calling it directly
+        // has to behave like the real caller - build a queue, hand it over,
+        // and fire it once the write is done.
+        $events = new \mod_selfselectadvanced\local\eventqueue();
         \mod_selfselectadvanced\local\override\store::save_for_new_move(
             $activity,
             (int) $staged->id,
             'DISB',
-            (int) $staff->id
+            (int) $staff->id,
+            $events
         );
+        $events->flush();
         $api->gatekeeper()->resolver()->invalidate();
         $pierced = $api->moves()->validate_set([(int) $staged->id]);
         $this->assertTrue((bool) $pierced->valid, 'the written staff decision is honoured');

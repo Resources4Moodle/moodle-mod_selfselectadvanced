@@ -153,6 +153,7 @@ class handover {
     public function accept(int $groupid, int $actorid): void {
         global $DB;
 
+        $events = new eventqueue();
         $guidelock = locks::acquire('eoiguide:' . $actorid);
         $lock = locks::acquire('group:' . $groupid);
         try {
@@ -179,7 +180,8 @@ class handover {
                 'timemodified' => time(),
             ]);
 
-            \mod_selfselectadvanced\event\guide_reassigned::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\guide_reassigned::create([
                 'objectid' => $group->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => $actorid,
@@ -188,7 +190,7 @@ class handover {
                     'fromguideid' => $oldguide,
                     'via' => 'handover',
                 ],
-            ])->trigger();
+            ]));
 
             // The mirror carries the guide (decision 7), and this path
             // is reachable while FROZEN. $group was read before the
@@ -200,6 +202,7 @@ class handover {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The nominee, state and capacity refusals all throw from
             // inside the transaction - a handover cancelled between the
             // guide's page load and the click is the ordinary race.
@@ -212,6 +215,8 @@ class handover {
             $lock->release();
             $guidelock->release();
         }
+
+        $events->flush();
 
         // One sync swaps the old guide out and the new guide in: the
         // old guide is in neither the confirmed set nor guideid, so

@@ -211,6 +211,7 @@ class api {
         // rare duplicate name for a real collision over seats. The
         // residue is a cosmetic duplicate, recorded rather than
         // papered over.
+        $events = new eventqueue();
         $lock = locks::acquire('activity:' . $this->activity->id());
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -279,7 +280,9 @@ class api {
             // it reaches the leader's cap, any other pending invitations
             // of theirs must cascade the same as an accept would (audit:
             // non-accept paths were leaving rivals pending forever).
-            $cascaded = $this->invitations()->cascade_at_cap($leaderid);
+            // $events threads through so the cascade's invitation_declined
+            // events join this method's own queue (CONC-001).
+            $cascaded = $this->invitations()->cascade_at_cap($leaderid, 0, $events);
 
             $other = ['pluginuid' => $group->pluginuid, 'name' => $group->name];
             if ($staff) {
@@ -289,15 +292,16 @@ class api {
                 // group_created::validate_data() requires only pluginuid.
                 $other['createdbystaff'] = true;
             }
-            $event = \mod_selfselectadvanced\event\group_created::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\group_created::create([
                 'objectid' => $group->id,
                 'context' => $this->activity->context(),
                 'other' => $other,
-            ]);
-            $event->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The three re-checks under the lock - the leader's
             // capacity, can_create_group() and name_taken() - all throw
             // from INSIDE the transaction, and groupedit.php catches
@@ -314,6 +318,8 @@ class api {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         $this->invitations()->notify_cascaded($cascaded, $leaderid);
 
@@ -483,6 +489,7 @@ class api {
             throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
         }
 
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -553,15 +560,16 @@ class api {
             $DB->delete_records('selfselectadvanced_member', ['groupid' => $fresh->id]);
             $DB->delete_records('selfselectadvanced_group', ['id' => $fresh->id]);
 
-            $event = \mod_selfselectadvanced\event\group_deleted::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\group_deleted::create([
                 'objectid' => $fresh->id,
                 'context' => $this->activity->context(),
                 'other' => ['pluginuid' => $fresh->pluginuid, 'name' => $fresh->name],
-            ]);
-            $event->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The can_delete_group() gate is re-asked on the row read INSIDE the
             // lock, so a team submitted between the page load and the
             // click is refused from inside the transaction; group.php
@@ -575,6 +583,8 @@ class api {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         // THE MIRROR GOES WITH THE TEAM (1.20.36, maintainer ruling
         // 2026-08-12: the plugin removes what it added). This path used not to
@@ -649,6 +659,7 @@ class api {
             throw new \moodle_exception('errcommentrequired', 'mod_selfselectadvanced');
         }
 
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -683,14 +694,16 @@ class api {
             $fresh->timemodified = $now;
             $DB->update_record('selfselectadvanced_group', $fresh);
 
-            \mod_selfselectadvanced\event\disband_requested::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\disband_requested::create([
                 'objectid' => $fresh->id,
                 'context' => $this->activity->context(),
                 'other' => ['pluginuid' => $fresh->pluginuid],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
@@ -698,6 +711,8 @@ class api {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         // Mail never travels under a lock. The broadcast IS the
         // protocol: each member reads the leader's own words and holds
@@ -735,6 +750,7 @@ class api {
 
         authority::require_lead($this->activity, $userid);
 
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -760,14 +776,16 @@ class api {
             $fresh->timemodified = time();
             $DB->update_record('selfselectadvanced_group', $fresh);
 
-            \mod_selfselectadvanced\event\disband_cancelled::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\disband_cancelled::create([
                 'objectid' => $fresh->id,
                 'context' => $this->activity->context(),
                 'other' => ['pluginuid' => $fresh->pluginuid],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             if (isset($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
@@ -775,6 +793,8 @@ class api {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         foreach ($memberids as $memberid) {
             notifier::send(

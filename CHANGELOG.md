@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.20.50 — events leave the critical section (2026-08-17)
+
+> Serial `2026081700` / `1.20.50`. **No schema change.** Maturity stays RC.
+
+**Thirty-six event dispatches fired while the plugin still held a lock or an
+open transaction** (audit finding CONC-001). Every observer any other plugin
+registers therefore ran inside our critical section — lengthening the lock,
+and coupling unrelated code to it. Each now builds its event while
+protected, holds it, and fires only after the transaction commits and the
+lock is released. Observers see the same events, carrying the same data, in
+the same order — only later.
+
+A small queue object carries them, and **says so through developer debugging
+if a caller ever forgets to fire or discard it**. That safety net earned
+itself during development: it caught a real path in the approval code where
+a refusal after a write would have left an event unfired.
+
+Thirty-one dispatches already followed this shape and were left alone;
+fourteen fire under neither a lock nor a transaction. Two are deliberately
+untouched and recorded: one is Moodle core's own event, which must stay
+inside the lock that prevents a double-mint, and one already refuses to fire
+while a lock is held.
+
 ## 1.20.49 — sorting by Leader or Guide no longer takes the page down (2026-08-16)
 
 > Serial `2026081602` / `1.20.49`. **No schema change.** Maturity stays RC.

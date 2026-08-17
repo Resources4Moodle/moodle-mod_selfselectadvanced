@@ -3047,5 +3047,28 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081602, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081700) {
+        // 1.20.50: events leave the critical section (CONC-001). NO SCHEMA -
+        // the step exists so the savepoint tip can equal version.php and so
+        // an upgraded site's log says what arrived.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.50 (2026081700). Events now fire after the lock and the transaction, not inside them.',
+            'Thirty-six event dispatches ran while this plugin still held a lock or an open '
+                . 'transaction, so any observer registered by any other plugin executed inside our '
+                . 'critical section - lengthening the lock and coupling unrelated code to it. Each '
+                . 'now builds its event while protected, holds it, and fires only after the '
+                . 'transaction commits and the lock is released, so observers see the same events '
+                . 'with the same data in the same order, only later. A queue object carries them, '
+                . 'and reports itself through developer debugging if a caller ever forgets to fire '
+                . 'or discard it - which caught a real forgotten path during development.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081700, 'selfselectadvanced');
+    }
+
     return true;
 }

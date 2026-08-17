@@ -624,6 +624,16 @@ class joinrequests {
         $deferred = [];
         $deferredsync = [];
         $deferredoverrides = [];
+        // The same hand-back pattern as $deferredoverrides, generalised
+        // through eventqueue: join_decided (do_decline()/do_accept()),
+        // move_committed and leadership_transferred (commit_set(), via
+        // do_accept()) and the move-scope override_created/updated
+        // (save_for_new_move(), via do_accept()) are all built while
+        // this method's own joinrequest:{id} lock - and, on the accept
+        // path, the move engine's own nested locks and transaction -
+        // are still open, so none of them may fire until every one of
+        // those has released (CONC-001, requirement 2).
+        $events = new eventqueue();
         $lock = locks::acquire('joinrequest:' . $requestid);
         try {
             $request = self::get($activity, $requestid);
@@ -643,13 +653,20 @@ class joinrequests {
                     $deferred,
                     $deferredsync,
                     $deferredoverrides,
+                    $events,
                     $bypass,
                     $acceptconfirmed
                 )
-                : self::do_decline($activity, $request, $note, $actorid);
+                : self::do_decline($activity, $request, $note, $actorid, $events);
         } finally {
             $lock->release();
         }
+
+        // Queued events fire first, immediately after the release,
+        // preserving their original chronological position relative to
+        // the override_updated/move_rules_overridden events below, which
+        // already fired after this same release before this change.
+        $events->flush();
 
         // Cleared blockers activate parked overrides at once (item 19).
         // AFTER the release, never inside it: recheck_pending() fires
@@ -726,13 +743,18 @@ class joinrequests {
      * @param stdClass $request the request row, read under the lock
      * @param string $note what the decider said
      * @param int $actorid who decided
+     * @param eventqueue $events respond()'s queue: join_decided is
+     *        pushed here rather than triggered, because this method
+     *        runs nested under respond()'s own joinrequest:{id} lock
+     *        and has no lock-free moment of its own (CONC-001)
      * @return stdClass the decided request
      */
     private static function do_decline(
         activity $activity,
         stdClass $request,
         string $note,
-        int $actorid
+        int $actorid,
+        eventqueue $events
     ): stdClass {
         global $DB;
 
@@ -745,14 +767,15 @@ class joinrequests {
                 'usermodified' => $actorid,
                 'timemodified' => time(),
             ]);
-            \mod_selfselectadvanced\event\join_decided::create([
+            $events->push(\mod_selfselectadvanced\event\join_decided::create([
                 'objectid' => (int) $request->id,
                 'context' => $activity->context(),
                 'relateduserid' => (int) $request->userid,
                 'other' => ['accepted' => false],
-            ])->trigger();
+            ]));
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             self::rollback($transaction ?? null, $e);
         }
 
@@ -780,6 +803,14 @@ class joinrequests {
      * @param array $deferredoverrides collects the move engine's
      *        move_rules_overridden payloads, fired by respond() after
      *        ITS lock release
+     * @param eventqueue $events respond()'s queue: join_decided, plus
+     *        whatever move_committed/leadership_transferred and
+     *        move-scope override_created/updated this call produces
+     *        through commit_set() and save_for_new_move(), are pushed
+     *        here rather than triggered - this method runs nested under
+     *        respond()'s own joinrequest:{id} lock and opens further
+     *        locks/transaction of its own, so none of it has a
+     *        lock-free moment to fire from (CONC-001)
      * @param string[] $bypass composition rule codes the decider is
      *        overriding (decision 6)
      * @param bool $acceptconfirmed true when the decider confirmed the
@@ -796,6 +827,7 @@ class joinrequests {
         array &$deferred,
         array &$deferredsync,
         array &$deferredoverrides,
+        eventqueue $events,
         array $bypass = [],
         bool $acceptconfirmed = false
     ): stdClass {
@@ -957,7 +989,8 @@ class joinrequests {
                     $activity,
                     (int) $staged->id,
                     implode(',', $bypass),
-                    $actorid
+                    $actorid,
+                    $events
                 );
                 // The resolver caches every override row on its first
                 // read, and stage() has already resolved this move's
@@ -997,7 +1030,8 @@ class joinrequests {
                 $deferred,
                 $deferredsync,
                 $overridereason,
-                $deferredoverrides
+                $deferredoverrides,
+                $events
             );
 
             $DB->update_record('selfselectadvanced_move', (object) [
@@ -1007,15 +1041,24 @@ class joinrequests {
                 'usermodified' => $actorid,
                 'timemodified' => time(),
             ]);
-            \mod_selfselectadvanced\event\join_decided::create([
+            // Queued after commit_set()'s move_committed/
+            // leadership_transferred, preserving their original relative
+            // order; all three fire only after respond()'s own release
+            // (CONC-001, requirement 2).
+            $events->push(\mod_selfselectadvanced\event\join_decided::create([
                 'objectid' => (int) $request->id,
                 'context' => $activity->context(),
                 'relateduserid' => (int) $request->userid,
                 'other' => ['accepted' => true],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            // The store::save_for_new_move() call above may already have
+            // pushed the move-scope override event into $events before
+            // validate_set() (also above) refused the staged move -
+            // discard it, the write it describes is being rolled back.
+            $events->discard();
             self::rollback($transaction ?? null, $e);
         } finally {
             locks::release_all($locks);

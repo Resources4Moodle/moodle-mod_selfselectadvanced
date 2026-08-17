@@ -774,6 +774,13 @@ class moves {
      *        move_rules_overridden payloads are appended to it instead
      *        of being triggered, so the caller fires them after ITS
      *        commit and lock release (the join-accept path)
+     * @param \mod_selfselectadvanced\local\eventqueue|null $deferredevents
+     *        the same hand-back pattern as $deferrednotifications, for
+     *        move_committed and leadership_transferred (CONC-001,
+     *        requirement 2): when supplied, both are queued into it
+     *        instead of firing, so the caller flushes after ITS OWN
+     *        commit and lock release; when null, this call owns them
+     *        and flushes locally after its own release
      * @return int number of committed moves
      * @throws \moodle_exception when the joint validation refuses, when
      *         more than self::MAX_COMMIT ids are selected, or when a
@@ -786,9 +793,16 @@ class moves {
         ?array &$deferrednotifications = null,
         ?array &$deferredsyncgroupids = null,
         string $overridereason = '',
-        ?array &$deferredoverrideevents = null
+        ?array &$deferredoverrideevents = null,
+        ?eventqueue $deferredevents = null
     ): int {
         global $DB;
+
+        // Owned locally when no caller supplied one, exactly like
+        // $deferrednotifications/$deferredsyncgroupids/
+        // $deferredoverrideevents above - the same hand-back pattern,
+        // generalised through the one shared queue class (CONC-001).
+        $events = $deferredevents ?? new eventqueue();
 
         // Bounded before anything is read: the commit holds the
         // activity lock plus one per touched group, so the size of the
@@ -949,7 +963,14 @@ class moves {
                     $update->responsenote = trim($overridereason);
                 }
                 $DB->update_record('selfselectadvanced_move', $update);
-                \mod_selfselectadvanced\event\move_committed::create([
+                // Queued, not triggered here: CONC-001 requirement 2 -
+                // this event used to be one of three grandfathered
+                // exceptions ("their only consumers are core
+                // logstores"), which is a claim about today's observers,
+                // not a guarantee against a future one; nothing about
+                // its data requires firing inside the transaction, so it
+                // follows the same rule as every other event here now.
+                $events->push(\mod_selfselectadvanced\event\move_committed::create([
                     'objectid' => $moveid,
                     'context' => $this->activity->context(),
                     'relateduserid' => (int) $move->userid,
@@ -961,7 +982,7 @@ class moves {
                         // commit (D6-6a).
                         'bypassedrules' => $bypassedbymove[$moveid] ?? [],
                     ],
-                ])->trigger();
+                ]));
 
                 if (isset($bypassedbymove[$moveid])) {
                     // Collected, never triggered here: a new event must
@@ -996,7 +1017,9 @@ class moves {
             // trail as succession, or the manager path is invisible to
             // anyone asking who led a group when.
             foreach ($leaderchanges as $change) {
-                \mod_selfselectadvanced\event\leadership_transferred::create([
+                // Queued after move_committed above, preserving the
+                // original relative order (CONC-001, requirement 2).
+                $events->push(\mod_selfselectadvanced\event\leadership_transferred::create([
                     'objectid' => $change->groupid,
                     'context' => $this->activity->context(),
                     'relateduserid' => $change->to,
@@ -1005,16 +1028,19 @@ class moves {
                         'pluginuid' => groups::get($this->activity, $change->groupid)->pluginuid,
                         'type' => $change->type,
                     ],
-                ])->trigger();
+                ]));
             }
 
             // A move can exhaust the moved user's membership capacity:
             // their rival pending invitations auto-decline here exactly
-            // as they do on an invitation accept.
+            // as they do on an invitation accept. $events threads through
+            // so the cascade's invitation_declined events join this
+            // method's own queue (CONC-001), preserving their original
+            // position after move_committed/leadership_transferred.
             $invitations = new invitations($this->activity, $this->gatekeeper);
             $cascaded = [];
             foreach (array_unique(array_map(static fn($m) => (int) $m->userid, $moves)) as $moveduser) {
-                $rows = $invitations->cascade_at_cap($moveduser);
+                $rows = $invitations->cascade_at_cap($moveduser, 0, $events);
                 if ($rows) {
                     $cascaded[$moveduser] = $rows;
                 }
@@ -1022,6 +1048,7 @@ class moves {
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // Not tidying: validate_set's errmovesetinvalid throws from
             // INSIDE this transaction, so an invalid set used to leave
             // a dangling delegated transaction.
@@ -1059,6 +1086,15 @@ class moves {
             throw $e;
         } finally {
             locks::release_all($locks);
+        }
+
+        if ($deferredevents === null) {
+            // Nobody supplied a queue: this call owns move_committed and
+            // leadership_transferred and fires them now, after its own
+            // commit and lock release. On the nested join-accept path
+            // ($deferredevents supplied) the caller flushes instead,
+            // after ITS OWN release - see joinrequests::respond().
+            $events->flush();
         }
 
         // Post-commit: the promoted source successors (they gained a

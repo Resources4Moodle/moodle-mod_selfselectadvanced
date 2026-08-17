@@ -282,6 +282,7 @@ class tickets {
         }
         self::require_disclaimer_ack($activity, $disclaimerack);
 
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -407,7 +408,8 @@ class tickets {
             // has to exist first.
             $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
 
-            \mod_selfselectadvanced\event\ticket_filed::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_filed::create([
                 'objectid' => $ticket->id,
                 'context' => $activity->context(),
                 'other' => [
@@ -418,7 +420,7 @@ class tickets {
                     'ticketlogid' => $ticketlogid,
                     'disclaimerack' => $disclaimerack ? 1 : 0,
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -426,6 +428,8 @@ class tickets {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         self::notify_workers($activity, $ticket, $group);
         // Decision 71: the current leader is told, always. The ruling is
@@ -513,6 +517,7 @@ class tickets {
 
         // Serialised on the guide, not on a team: two requests from the
         // same guide race each other and nothing else.
+        $events = new eventqueue();
         $lock = locks::acquire('guidecap:' . $userid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -555,7 +560,8 @@ class tickets {
 
             $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
 
-            \mod_selfselectadvanced\event\ticket_filed::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_filed::create([
                 'objectid' => $ticket->id,
                 'context' => $activity->context(),
                 'other' => [
@@ -566,7 +572,7 @@ class tickets {
                     'ticketlogid' => $ticketlogid,
                     'disclaimerack' => 0,
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -574,6 +580,8 @@ class tickets {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         self::notify_workers($activity, $ticket, null);
 
@@ -628,6 +636,7 @@ class tickets {
         // Serialised on the guide, and the duplicate guard spans BOTH
         // capacity types: an open raise and an open reduction would be
         // two contradictory instructions in one queue.
+        $events = new eventqueue();
         $lock = locks::acquire('guidecap:' . $userid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -667,7 +676,8 @@ class tickets {
 
             $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
 
-            \mod_selfselectadvanced\event\ticket_filed::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_filed::create([
                 'objectid' => $ticket->id,
                 'context' => $activity->context(),
                 'other' => [
@@ -678,7 +688,7 @@ class tickets {
                     'ticketlogid' => $ticketlogid,
                     'disclaimerack' => 0,
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -686,6 +696,8 @@ class tickets {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         self::notify_workers($activity, $ticket, null);
 
@@ -896,6 +908,7 @@ class tickets {
         // duplicate guard below still needs to be race-safe against a
         // second submission from the same person.
         $lockkey = $group !== null ? ('group:' . $group->id) : ('helpticketraiser:' . $userid);
+        $events = new eventqueue();
         $lock = locks::acquire($lockkey);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -943,7 +956,8 @@ class tickets {
 
             $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
 
-            \mod_selfselectadvanced\event\ticket_filed::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_filed::create([
                 'objectid' => $ticket->id,
                 'context' => $activity->context(),
                 'other' => [
@@ -954,7 +968,7 @@ class tickets {
                     'ticketlogid' => $ticketlogid,
                     'disclaimerack' => $disclaimerack ? 1 : 0,
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -962,6 +976,8 @@ class tickets {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         self::notify_workers($activity, $ticket, $group);
 
@@ -1321,6 +1337,7 @@ class tickets {
     public static function withdraw(activity $activity, int $ticketid, int $userid): stdClass {
         global $DB;
 
+        $events = new eventqueue();
         $lock = locks::acquire('ticket:' . $ticketid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -1346,7 +1363,8 @@ class tickets {
             // ticket (never claimed - see the status guard above), so
             // there is no claimant yet to name as the other party, and
             // the actor IS the requester already named by userid.
-            \mod_selfselectadvanced\event\ticket_closed::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_closed::create([
                 'objectid' => $ticketid,
                 'context' => $activity->context(),
                 'other' => [
@@ -1356,7 +1374,7 @@ class tickets {
                     'groupid' => (int) ($fresh->groupid ?? 0),
                     'ticketlogid' => $ticketlogid,
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -1364,6 +1382,8 @@ class tickets {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         return $fresh;
     }
@@ -1447,6 +1467,7 @@ class tickets {
             throw new workflow_refusal('refusalcoiself', 'mod_selfselectadvanced');
         }
 
+        $events = new eventqueue();
         $lock = locks::acquire('ticket:' . $ticketid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -1505,7 +1526,8 @@ class tickets {
 
             $ticketlogid = self::log($ticketid, $userid, self::ACTION_CLAIMED, null, FORMAT_PLAIN);
 
-            \mod_selfselectadvanced\event\ticket_claimed::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_claimed::create([
                 'objectid' => $ticketid,
                 'context' => $activity->context(),
                 'relateduserid' => (int) $claimed->requestedby,
@@ -1516,7 +1538,7 @@ class tickets {
                     'groupid' => (int) ($claimed->groupid ?? 0),
                     'ticketlogid' => $ticketlogid,
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -1524,6 +1546,8 @@ class tickets {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         self::notify($activity, (int) $claimed->requestedby, 'msgticketclaimedsubject', 'msgticketclaimedbody', $claimed, $group);
 
@@ -1961,6 +1985,7 @@ class tickets {
         // must still hold :coordinate.
         self::require_queue_authority($activity, $userid);
 
+        $events = new eventqueue();
         $lock = locks::acquire('ticket:' . $ticketid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -2023,7 +2048,8 @@ class tickets {
             // reaches (resolved, declined, a claimant's own release, or
             // a manager's force-release) is a STAFF action about this
             // person's request.
-            \mod_selfselectadvanced\event\ticket_closed::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_closed::create([
                 'objectid' => $ticketid,
                 'context' => $activity->context(),
                 'relateduserid' => (int) $fresh->requestedby,
@@ -2034,7 +2060,7 @@ class tickets {
                     'groupid' => (int) ($fresh->groupid ?? 0),
                     'ticketlogid' => $ticketlogid,
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -2042,6 +2068,8 @@ class tickets {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         if ($outcome !== self::STATUS_OPEN) {
             self::notify(
@@ -2108,6 +2136,7 @@ class tickets {
         // authority re-ask before the lock - the claim itself already
         // proved that once, and nothing here grants a NEW authority a
         // stale read could get wrong.
+        $events = new eventqueue();
         $lock = locks::acquire('ticket:' . $ticketid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -2134,7 +2163,8 @@ class tickets {
 
             $ticketlogid = self::log($ticketid, $actorid, self::ACTION_NEEDSINFO, $question, $questionformat);
 
-            \mod_selfselectadvanced\event\ticket_info_requested::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_info_requested::create([
                 'objectid' => $ticketid,
                 'context' => $activity->context(),
                 'relateduserid' => (int) $fresh->requestedby,
@@ -2144,7 +2174,7 @@ class tickets {
                     'groupid' => (int) ($fresh->groupid ?? 0),
                     'ticketlogid' => $ticketlogid,
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -2152,6 +2182,8 @@ class tickets {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         // The requester, always - there is no staff-vs-requester branch
         // to copy here the way notify() has one, because this message
@@ -2212,6 +2244,7 @@ class tickets {
             throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
 
+        $events = new eventqueue();
         $lock = locks::acquire('ticket:' . $ticketid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -2233,7 +2266,8 @@ class tickets {
 
             $ticketlogid = self::log($ticketid, $userid, self::ACTION_INFOREPLY, $reply, $replyformat);
 
-            \mod_selfselectadvanced\event\ticket_info_provided::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_info_provided::create([
                 'objectid' => $ticketid,
                 'context' => $activity->context(),
                 'relateduserid' => (int) $fresh->claimedby,
@@ -2243,7 +2277,7 @@ class tickets {
                     'groupid' => (int) ($fresh->groupid ?? 0),
                     'ticketlogid' => $ticketlogid,
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -2251,6 +2285,8 @@ class tickets {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         // The claimant, always - the mirror of request_info()'s single
         // fixed recipient above. B2 (deliverable 3): the reply is ON

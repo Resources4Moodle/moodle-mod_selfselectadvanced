@@ -81,6 +81,7 @@ class invitations {
             throw new workflow_refusal($refusal->stringkey, 'mod_selfselectadvanced', '', $refusal->a);
         }
 
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -117,15 +118,17 @@ class invitations {
                 $member->id = $DB->insert_record('selfselectadvanced_member', $member);
             }
 
-            \mod_selfselectadvanced\event\invitation_sent::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\invitation_sent::create([
                 'objectid' => $member->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => $inviteeid,
                 'other' => ['groupid' => (int) $fresh->id, 'pluginuid' => $fresh->pluginuid],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The can_invite() gate is re-asked on the row read INSIDE the lock,
             // so a rival invitation that filled the last seat between
             // the two asks is refused from inside the transaction -
@@ -142,6 +145,8 @@ class invitations {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         $expirydays = (int) $this->activity->settings()->inviteexpiry;
         $expirynote = '';
@@ -196,6 +201,7 @@ class invitations {
 
         // L4 counts across ALL groups; the group lock alone cannot
         // serialise two accepts into different groups (audit item 6).
+        $events = new eventqueue();
         $activitylock = locks::acquire('activity:' . $this->activity->id());
         $lock = locks::acquire('group:' . $group->id);
         try {
@@ -217,19 +223,23 @@ class invitations {
             $member->timemodified = $now;
             $DB->update_record('selfselectadvanced_member', $member);
 
-            \mod_selfselectadvanced\event\invitation_accepted::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\invitation_accepted::create([
                 'objectid' => $member->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => $userid,
                 'other' => ['groupid' => (int) $fresh->id, 'pluginuid' => $fresh->pluginuid],
-            ])->trigger();
+            ]));
 
             // Acceptance cascade (4A.4): at the cap, every other pending
-            // invitation is auto-declined in this same transaction.
-            $cascaded = $this->cascade_at_cap($userid, (int) $fresh->id);
+            // invitation is auto-declined in this same transaction. Its
+            // invitation_declined events join the same queue, preserving
+            // their original position (right after invitation_accepted).
+            $cascaded = $this->cascade_at_cap($userid, (int) $fresh->id, $events);
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // Two throws live inside this transaction: the MUST_EXIST
             // member read (the invitation can be withdrawn between the
             // page load and the click) and the can_accept() refusal.
@@ -242,6 +252,8 @@ class invitations {
             $lock->release();
             $activitylock->release();
         }
+
+        $events->flush();
 
         // Notifications after commit: inviter, and each cascaded leader.
         notifier::send(
@@ -291,6 +303,7 @@ class invitations {
         // invitee for anything.
         authority::require_respond($this->activity, $userid);
 
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -310,15 +323,17 @@ class invitations {
             $member->timemodified = $now;
             $DB->update_record('selfselectadvanced_member', $member);
 
-            \mod_selfselectadvanced\event\invitation_declined::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\invitation_declined::create([
                 'objectid' => $member->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => $userid,
                 'other' => ['groupid' => (int) $fresh->id, 'pluginuid' => $fresh->pluginuid, 'reason' => 'declined'],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The MUST_EXIST member read and the refusalnotinvited
             // guard both throw from inside the transaction.
             // Unconditional - see send().
@@ -329,6 +344,8 @@ class invitations {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         notifier::send(
             $this->activity,
@@ -404,6 +421,7 @@ class invitations {
         // A leader action, so the leader authority (A-02).
         authority::require_lead($this->activity, $actorid);
 
+        $events = new eventqueue();
         $lock = locks::acquire('group:' . $group->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -423,15 +441,17 @@ class invitations {
             $member->timemodified = $now;
             $DB->update_record('selfselectadvanced_member', $member);
 
-            \mod_selfselectadvanced\event\invitation_withdrawn::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\invitation_withdrawn::create([
                 'objectid' => $member->id,
                 'context' => $this->activity->context(),
                 'relateduserid' => (int) $member->userid,
                 'other' => ['groupid' => (int) $fresh->id, 'pluginuid' => $fresh->pluginuid],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // The MUST_EXIST member read and the can_withdraw()
             // refusal both throw from inside the transaction - the
             // invitee accepting first is the ordinary race.
@@ -443,6 +463,8 @@ class invitations {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
 
         notifier::send(
             $this->activity,
@@ -492,6 +514,7 @@ class invitations {
 
         $count = 0;
         foreach ($due as $row) {
+            $events = new eventqueue();
             $lock = locks::acquire('group:' . $row->groupid);
             try {
                 $transaction = $DB->start_delegated_transaction();
@@ -506,16 +529,18 @@ class invitations {
                 $member->timemodified = $now;
                 $DB->update_record('selfselectadvanced_member', $member);
 
-                \mod_selfselectadvanced\event\invitation_expired::create([
+                // Queued, not triggered here: CONC-001 requirement 2.
+                $events->push(\mod_selfselectadvanced\event\invitation_expired::create([
                     'objectid' => $member->id,
                     'context' => $this->activity->context(),
                     'relateduserid' => (int) $member->userid,
                     'other' => ['groupid' => (int) $row->groupid, 'pluginuid' => $row->pluginuid],
-                ])->trigger();
+                ]));
 
                 $transaction->allow_commit();
                 $count++;
             } catch (\Throwable $e) {
+                $events->discard();
                 // The MUST_EXIST read inside the loop's transaction is
                 // the reachable throw: the member row can be deleted
                 // with its group between the batch query and the lock.
@@ -529,6 +554,10 @@ class invitations {
             } finally {
                 $lock->release();
             }
+
+            // Flushed per row, right after THIS row's own lock release -
+            // never batched across the sweep.
+            $events->flush();
 
             $a = (object) ['group' => format_string($row->groupname)];
             notifier::send(
@@ -569,15 +598,29 @@ class invitations {
      *
      * @param int $userid the user who may have just reached their cap
      * @param int $excludegroupid group to exempt from the decline sweep (e.g. the one just joined), 0 for none
+     * @param eventqueue|null $events every production caller already
+     *        holds its own lock/transaction when it reaches here, so its
+     *        queue is threaded through and the cascade's
+     *        invitation_declined events are pushed into it rather than
+     *        triggered (CONC-001); left null only for a standalone call
+     *        with no surrounding critical section (a direct test, say),
+     *        which then owns a local queue and flushes it here
      * @return stdClass[] cascaded rows (groupid, leaderid, name, memberid); empty when below cap
      */
-    public function cascade_at_cap(int $userid, int $excludegroupid = 0): array {
+    public function cascade_at_cap(int $userid, int $excludegroupid = 0, ?eventqueue $events = null): array {
         $cap = $this->gatekeeper->resolver()->effective_maxmembership($userid);
         if (groups::count_memberships($this->activity, $userid) < $cap->value) {
             return [];
         }
 
-        return $this->cascade($userid, $excludegroupid);
+        $owned = $events === null;
+        $events = $events ?? new eventqueue();
+        $result = $this->cascade($userid, $excludegroupid, $events);
+        if ($owned) {
+            $events->flush();
+        }
+
+        return $result;
     }
 
     /**
@@ -1022,9 +1065,10 @@ class invitations {
      *
      * @param int $userid the user who reached their cap
      * @param int $excludegroupid the group just accepted
+     * @param eventqueue $events the caller's queue (see cascade_at_cap())
      * @return stdClass[] cascaded rows (groupid, leaderid, name, memberid)
      */
-    private function cascade(int $userid, int $excludegroupid): array {
+    private function cascade(int $userid, int $excludegroupid, eventqueue $events): array {
         global $DB;
 
         $sql = "SELECT m.id AS memberid, m.groupid, g.pluginuid, g.name, g.leaderid
@@ -1049,7 +1093,8 @@ class invitations {
                 'timeresponded' => $now,
                 'timemodified' => $now,
             ]);
-            \mod_selfselectadvanced\event\invitation_declined::create([
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\invitation_declined::create([
                 'objectid' => $row->memberid,
                 'context' => $this->activity->context(),
                 'relateduserid' => $userid,
@@ -1058,7 +1103,7 @@ class invitations {
                     'pluginuid' => $row->pluginuid,
                     'reason' => 'membershipcap',
                 ],
-            ])->trigger();
+            ]));
         }
 
         return array_values($pending);

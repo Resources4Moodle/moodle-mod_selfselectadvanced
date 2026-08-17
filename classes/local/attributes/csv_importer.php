@@ -17,6 +17,7 @@
 namespace mod_selfselectadvanced\local\attributes;
 
 use csv_import_reader;
+use mod_selfselectadvanced\local\eventqueue;
 use stdClass;
 
 /**
@@ -329,7 +330,12 @@ class csv_importer {
         $reader->close();
 
         if ($commit) {
-            \mod_selfselectadvanced\event\attributes_imported::create([
+            // Materialised inside the open transaction, but queued
+            // rather than triggered here: CONC-001 requirement 2 - an
+            // observer must not run while $transaction is still
+            // uncommitted.
+            $events = new eventqueue();
+            $events->push(\mod_selfselectadvanced\event\attributes_imported::create([
                 'context' => \context_system::instance(),
                 'other' => [
                     'total' => $report->total,
@@ -338,8 +344,9 @@ class csv_importer {
                     'warnings' => count($report->warnings),
                     'rejected' => count($report->rejected),
                 ],
-            ])->trigger();
+            ]));
             $transaction->allow_commit();
+            $events->flush();
             manager::purge_value_cache();
         }
 

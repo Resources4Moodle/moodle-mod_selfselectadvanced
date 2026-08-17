@@ -120,7 +120,19 @@ class store {
      *        override:group:{id} before the group lock, because the
      *        relief write must happen inside the transition's
      *        transaction and locks are not re-entrant)
+     * @param \mod_selfselectadvanced\local\eventqueue|null $events when
+     *        the caller already holds a lock or transaction of its own
+     *        (always true together with $callerholdslock), the event is
+     *        pushed here instead of firing, so the caller flushes it
+     *        after ITS OWN commit and lock release (CONC-001) - MANDATORY
+     *        whenever $callerholdslock is true, because then this
+     *        method has no lock-free moment of its own to fire from.
+     *        Optional on the top-level path: supply one to have the
+     *        caller flush it, or leave null to let this call fire it
+     *        immediately after its own release, as before.
      * @return stdClass the stored row
+     * @throws \coding_exception when $callerholdslock is true and
+     *         $events is not supplied
      */
     public static function save(
         activity $activity,
@@ -128,9 +140,22 @@ class store {
         int $targetid,
         array $values,
         int $actorid,
-        bool $callerholdslock = false
+        bool $callerholdslock = false,
+        ?\mod_selfselectadvanced\local\eventqueue $events = null
     ): stdClass {
         global $DB;
+
+        if ($callerholdslock && $events === null) {
+            // Requirement 2 made structural rather than remembered,
+            // exactly as penalty\ledger::upsert_for_group() already does
+            // for $callerserialises: a caller holding its own lock
+            // cannot let this method dispatch, because the event would
+            // then fire under that lock or transaction - precisely the
+            // defect CONC-001 reports.
+            throw new \coding_exception(
+                'override\\store::save(): a caller holding its own lock must supply an eventqueue'
+            );
+        }
 
         if (!isset(self::FIELDS[$scope])) {
             throw new \coding_exception('Unknown override scope: ' . $scope);
@@ -283,7 +308,12 @@ class store {
             }
         }
 
-        $eventclass::create($eventdata)->trigger();
+        $event = $eventclass::create($eventdata);
+        if ($events !== null) {
+            $events->push($event);
+        } else {
+            $event->trigger();
+        }
 
         return $record;
     }
@@ -686,6 +716,7 @@ class store {
             $actorid
         );
 
+        $events = new \mod_selfselectadvanced\local\eventqueue();
         $lock = locks::acquire('override:' . $existing->scope . ':' . $targetid);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -704,7 +735,13 @@ class store {
             }
             $targetid = (int) ($record->userid ?? 0)
                 ?: ((int) ($record->groupid ?? 0) ?: (int) ($record->moveid ?? 0));
-            \mod_selfselectadvanced\event\override_deleted::create([
+            // Payload built INSIDE the critical section, queued and
+            // dispatched after the commit AND the release below
+            // (CONC-001, requirement 2) - this row's own delete() call
+            // is never nested under another caller's lock (moves::cancel()
+            // calls it deliberately OUTSIDE its own lock; see the comment
+            // there), so this is always the top-level owner of $events.
+            $events->push(\mod_selfselectadvanced\event\override_deleted::create([
                 'objectid' => $record->id,
                 'context' => $activity->context(),
                 'relateduserid' => self::related_userid($record->scope, $targetid),
@@ -714,10 +751,11 @@ class store {
                     'oldvalues' => $old,
                     'newvalues' => [],
                 ],
-            ])->trigger();
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
+            $events->discard();
             // Unconditional; see save() for why the $outermost gate was
             // both engine-dependent and wrong when nested.
             if (isset($transaction) && !$transaction->is_disposed()) {
@@ -727,6 +765,8 @@ class store {
         } finally {
             $lock->release();
         }
+
+        $events->flush();
     }
 
     /**
@@ -753,15 +793,19 @@ class store {
      * @param int $moveid the move row minted in the caller's transaction
      * @param string $rules comma-separated rule codes to bypass
      * @param int $actorid the acting user
+     * @param \mod_selfselectadvanced\local\eventqueue $events the
+     *        caller's queue (mandatory - see save()'s $callerholdslock,
+     *        which this always passes as true)
      * @return stdClass the stored row
      */
     public static function save_for_new_move(
         activity $activity,
         int $moveid,
         string $rules,
-        int $actorid
+        int $actorid,
+        \mod_selfselectadvanced\local\eventqueue $events
     ): stdClass {
-        return self::save($activity, 'move', $moveid, ['rulesbypassed' => $rules], $actorid, true);
+        return self::save($activity, 'move', $moveid, ['rulesbypassed' => $rules], $actorid, true, $events);
     }
 
     /**
