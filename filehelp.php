@@ -64,11 +64,17 @@ if ($action === 'filehelp' && data_submitted() && confirm_sesskey()) {
     // 1.20.44 part 2: same type-qualified field names ticketfile_form
     // always uses (classes/form/ticketfile_form.php's docblock), even
     // though this page only ever renders the one 'help' instance.
-    $reason = optional_param(
+    // 1.20.52: 'reason' is now an editor element, so it POSTs an ARRAY
+    // (['text' => ..., 'format' => ...]) rather than a scalar -
+    // optional_param_array() reads it, and the stored format is
+    // whatever the editor actually returned, never a hardcoded constant.
+    $reasoneditor = optional_param_array(
         \mod_selfselectadvanced\form\ticketfile_form::reason_field(tickets::TYPE_HELP),
-        '',
+        [],
         PARAM_RAW
     );
+    $reason = (string) ($reasoneditor['text'] ?? '');
+    $reasonformat = (int) ($reasoneditor['format'] ?? FORMAT_MOODLE);
     $draftitemid = optional_param(
         \mod_selfselectadvanced\form\ticketfile_form::attachments_field(tickets::TYPE_HELP),
         0,
@@ -76,7 +82,7 @@ if ($action === 'filehelp' && data_submitted() && confirm_sesskey()) {
     );
     $ack = (bool) optional_param('disclaimerack', 0, PARAM_BOOL);
     try {
-        $filedticket = tickets::file_help($activity, $group, $reason, FORMAT_MOODLE, (int) $USER->id, $ack);
+        $filedticket = tickets::file_help($activity, $group, $reason, $reasonformat, (int) $USER->id, $ack);
         file_save_draft_area_files(
             $draftitemid,
             $context->id,

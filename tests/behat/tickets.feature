@@ -41,7 +41,7 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
     And I follow "Groups I guide"
     And I click on "Group page" "link" in the "Team Blue" "table_row"
-    And I set the field "Why is this change needed?" to "Swap in a data specialist"
+    And I set the field "Request a composition change from the managers" to "Swap in a data specialist"
     And I press "File request"
     Then I should see "Your request has been queued for the managers and coordinators."
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
@@ -69,9 +69,9 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
     And I follow "Groups I guide"
     And I click on "Group page" "link" in the "Team Blue" "table_row"
-    And I set the field "Why is this change needed?" to "Swap in a data specialist"
+    And I set the field "Request a composition change from the managers" to "Swap in a data specialist"
     And I press "File request"
-    And I set the field "Why is this change needed?" to "Asking twice"
+    And I set the field "Request a composition change from the managers" to "Asking twice"
     And I press "File request"
     Then I should see "ticket of this kind already exists"
 
@@ -84,7 +84,7 @@ Feature: The sequential ticket queue for composition changes and unfreezes
       | ssa1               | Team Own | student1 | coord1 | frozen | ##yesterday## |
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Own"
-    And I set the field "Why is this change needed?" to "Our member has left the course"
+    And I set the field "Request an unfreeze from the managers" to "Our member has left the course"
     And I press "File request"
     Then I should see "Your request has been queued for the managers and coordinators."
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as coord1
@@ -100,7 +100,7 @@ Feature: The sequential ticket queue for composition changes and unfreezes
       | ssa1               | Team Mine | student1 | coord1 | firm  | ##yesterday## |
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as coord1
     And I follow "Team Mine"
-    And I set the field "Why is this change needed?" to "One member never turns up"
+    And I set the field "Request a composition change from the managers" to "One member never turns up"
     And I press "File request"
     Then I should see "Your request has been queued for the managers and coordinators."
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page
@@ -133,7 +133,7 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
     And I follow "Groups I guide"
     And I click on "Group page" "link" in the "Team Blue" "table_row"
-    And I set the field "Why is this change needed?" to "Swap in a data specialist"
+    And I set the field "Request a composition change from the managers" to "Swap in a data specialist"
     And I press "File request"
     Then I should see "Your request has been queued for the managers and coordinators."
     When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
@@ -165,7 +165,7 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     Then I should see "frozen into a course group"
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     And I follow "Team Blue"
-    And I set the field "Why is this change needed?" to "Our member left the course"
+    And I set the field "Request an unfreeze from the managers" to "Our member left the course"
     And I press "File request"
     Then I should see "Your request has been queued for the managers and coordinators."
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as teacher1

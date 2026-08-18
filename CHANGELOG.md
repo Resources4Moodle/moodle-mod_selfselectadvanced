@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.20.52 — the ticket box is an editor, and the two channels say which is which (2026-08-18)
+
+> Serial `2026081800` / `1.20.52`. **No schema change.** Maturity stays RC.
+
+**Ticket text is now a rich-text editor.** It was a plain textarea, so a
+student could not emphasise a word or make a list in a request somebody has
+to read and act on. 1.20.41 refused an editor for a stated reason — the
+forms were hand-rolled — and 1.20.44 removed that reason by converting them
+to moodleforms for attachments, so this is what was left. **The format the
+editor returns is what gets stored**: requests written before this release
+keep the format they were written in and render exactly as they did.
+
+Images cannot be embedded *inside* the text, deliberately: that needs its own
+draft area, file serving, backup and privacy handling — the cost 1.20.41
+declined — and attachments already sit beside the box for anything a person
+needs to send.
+
+**And the two help channels no longer look identical.** They rendered one
+above the other with the same hint, "Why is this change needed?", which is
+also simply wrong for a channel that need not be about a change. Each now
+explains itself: *leadership help* is about who leads the group, and only a
+confirmed member may raise it — a leader wanting to hand over uses Leadership
+succession; the *general channel* takes anything else and needs no group at
+all. Both still reach the same coordinator queue.
+
 ## 1.20.51 — the seating rule can no longer be reverted in silence (2026-08-17)
 
 > Serial `2026081701` / `1.20.51`. **No schema change, no behaviour change.**

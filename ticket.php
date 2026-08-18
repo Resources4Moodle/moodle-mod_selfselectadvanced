@@ -113,10 +113,16 @@ if ($action === 'release' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'requestinfo' && data_submitted() && confirm_sesskey()) {
-    $question = optional_param('question', '', PARAM_RAW);
+    // 1.20.52: 'question' is now an editor element (ticketpost_form.php),
+    // so it POSTs an ARRAY (['text' => ..., 'format' => ...]) - read with
+    // optional_param_array(), and the stored format is whatever the
+    // editor actually returned, never a hardcoded constant.
+    $questioneditor = optional_param_array('question', [], PARAM_RAW);
+    $question = (string) ($questioneditor['text'] ?? '');
+    $questionformat = (int) ($questioneditor['format'] ?? FORMAT_MOODLE);
     $questiondraftid = optional_param('questionattachments', 0, PARAM_INT);
     try {
-        tickets::request_info($activity, $t, $question, FORMAT_MOODLE, (int) $USER->id);
+        tickets::request_info($activity, $t, $question, $questionformat, (int) $USER->id);
         // The needs-info question just became a new ticketlog row - the
         // same two-step sequence group.php's filing forms use for a
         // ticket's own id, completed here now that the row's real id
@@ -172,10 +178,16 @@ if ($action === 'escalate' && data_submitted() && confirm_sesskey()) {
 }
 
 if ($action === 'grant' && data_submitted() && confirm_sesskey()) {
-    $note = optional_param('resolution', '', PARAM_RAW);
+    // 1.20.52: the grant variant shares ticketpost_form.php's
+    // 'resolution' field with the genuine resolve arm below, so it is
+    // the same editor ARRAY - read with optional_param_array(), storing
+    // the format the editor actually returned.
+    $noteeditor = optional_param_array('resolution', [], PARAM_RAW);
+    $note = (string) ($noteeditor['text'] ?? '');
+    $noteformat = (int) ($noteeditor['format'] ?? FORMAT_MOODLE);
     $resolutiondraftid = optional_param('resolutionattachments', 0, PARAM_INT);
     try {
-        tickets::grant_guidecap($activity, $t, $note, FORMAT_MOODLE, (int) $USER->id);
+        tickets::grant_guidecap($activity, $t, $note, $noteformat, (int) $USER->id);
         tickets::save_post_attachments($activity, $t, $resolutiondraftid);
         redirect(
             $baseurl,
@@ -193,9 +205,20 @@ if (in_array($action, ['resolve', 'decline'], true) && data_submitted() && confi
     // textarea: the queue's old combined form is exactly what forced
     // both buttons to submit the same field, which is fine with one
     // shared form but not with two separate ones on the thread.
-    $note = $action === 'resolve'
-        ? optional_param('resolution', '', PARAM_RAW)
-        : optional_param('declinereason', '', PARAM_RAW);
+    // 1.20.52: 'resolution' (ticketpost_form.php) is now an editor
+    // element and POSTs an ARRAY, so its format is read from the
+    // submission. 'declinereason' stays the hand-rolled plain textarea
+    // it always was (spec: decline is out of scope for the editor
+    // conversion, and carries no filemanager either), so its format
+    // stays the hardcoded constant it already was.
+    if ($action === 'resolve') {
+        $noteeditor = optional_param_array('resolution', [], PARAM_RAW);
+        $note = (string) ($noteeditor['text'] ?? '');
+        $noteformat = (int) ($noteeditor['format'] ?? FORMAT_MOODLE);
+    } else {
+        $note = optional_param('declinereason', '', PARAM_RAW);
+        $noteformat = FORMAT_MOODLE;
+    }
     // Decline carries no filemanager at all (spec names exactly
     // request-info/info-reply/resolve for the new attachment; a
     // staff-internal-shaped short note stays text-only) - the draft id
@@ -207,7 +230,7 @@ if (in_array($action, ['resolve', 'decline'], true) && data_submitted() && confi
     $publishfaq = $action === 'resolve' && (bool) optional_param('publishfaq', 0, PARAM_BOOL);
     $outcome = $action === 'resolve' ? tickets::STATUS_RESOLVED : tickets::STATUS_DECLINED;
     try {
-        tickets::close($activity, $t, $outcome, $note, FORMAT_MOODLE, (int) $USER->id);
+        tickets::close($activity, $t, $outcome, $note, $noteformat, (int) $USER->id);
         if ($action === 'resolve') {
             tickets::save_post_attachments($activity, $t, $resolutiondraftid);
         }
@@ -232,10 +255,15 @@ if (in_array($action, ['resolve', 'decline'], true) && data_submitted() && confi
 }
 
 if ($action === 'provideinfo' && data_submitted() && confirm_sesskey()) {
-    $reply = optional_param('reply', '', PARAM_RAW);
+    // 1.20.52: 'reply' is now an editor element (ticketpost_form.php),
+    // so it POSTs an ARRAY - read with optional_param_array(), storing
+    // the format the editor actually returned.
+    $replyeditor = optional_param_array('reply', [], PARAM_RAW);
+    $reply = (string) ($replyeditor['text'] ?? '');
+    $replyformat = (int) ($replyeditor['format'] ?? FORMAT_MOODLE);
     $replydraftid = optional_param('replyattachments', 0, PARAM_INT);
     try {
-        tickets::provide_info($activity, $t, $reply, FORMAT_MOODLE, (int) $USER->id);
+        tickets::provide_info($activity, $t, $reply, $replyformat, (int) $USER->id);
         tickets::save_post_attachments($activity, $t, $replydraftid);
         redirect(
             $baseurl,

@@ -99,6 +99,21 @@ use mod_selfselectadvanced\local\tickets;
  * separately below rather than folded into the loop over
  * question/resolution/declinereason/reply.
  *
+ * UPDATED, 1.20.52 (a real editor): ticketfile_form.php's 'reason' and
+ * ticketpost_form.php's question/reply/resolution fields became editor
+ * elements, which POST an ARRAY (['text' => ..., 'format' => ...]), not
+ * a scalar. group.php, filehelp.php and ticket.php now read that array
+ * with optional_param_array() and pass the FORMAT THE EDITOR RETURNED
+ * on to the service layer, rather than the FORMAT_MOODLE literal every
+ * one of those call sites used to hardcode - the pin below is rewritten
+ * to match, and a new test proves a row already stored at FORMAT_MOODLE
+ * or FORMAT_PLAIN (every ticket filed before this slice) still renders
+ * exactly as it did before. Untouched by this slice, and so still
+ * pinned exactly as before: guidequeue.php and tickets.php (neither
+ * uses either converted form), and ticket.php's refer()/escalate()
+ * (hand-rolled textarea in the template, spec: out of scope) and the
+ * decline arm's declinereason (same reason).
+ *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -283,6 +298,106 @@ final class ticket_richtext_test extends \advanced_testcase {
     }
 
     /**
+     * 1.20.52 binding constraint 3: EXISTING ROWS MUST STILL RENDER. A
+     * ticket already sitting in the database at FORMAT_MOODLE (every
+     * ticket filed since 1.20.41) or FORMAT_PLAIN (every ticket filed
+     * before that) keeps its stored format and must display unchanged
+     * now that the reason/resolution fields are editor elements. The two
+     * rows here are inserted DIRECTLY, never through tickets::file()
+     * (which this slice does not touch and always stores whatever
+     * format it is given) - the point under test is what a row already
+     * on disk does, not what a fresh filing produces.
+     *
+     * This drives the actual render path ticket.php's GET arm uses -
+     * ticket_page::export_for_template()'s 'openingpost' - rather than a
+     * bare format_text() call in isolation, so a mistake INSIDE that
+     * class (for instance rendering every opening post at a hardcoded
+     * format regardless of what the row says) is what this test would
+     * catch.
+     *
+     * RED-FIRST (run 2026-08-18): with classes/output/ticket_page.php's
+     * 'openingpost' line temporarily mutated to
+     * format_text((string) $ticket->request, FORMAT_HTML, ['context' => $context])
+     * - a hardcoded format standing in for "every opening post now
+     * renders as if freshly typed into the editor", exactly the mistake
+     * this constraint forbids - the test failed on its very first
+     * iteration (the FORMAT_MOODLE row) with:
+     * "Failed asserting that 'line1\nline2 <b>bold</b>' contains '<br'."
+     * FORMAT_HTML never runs text_to_html()/nl2br() the way FORMAT_MOODLE
+     * does, so the newline survived raw instead of becoming a line break -
+     * proof the mutation was caught, even though the FORMAT_PLAIN
+     * escaping half of the proof never got the chance to run in the same
+     * pass. Reverting the mutation (restoring the
+     * (int) $ticket->requestformat read) turned the test green again with
+     * no other change - see the report for the actual PHPUnit output of
+     * both runs.
+     */
+    public function test_pre_existing_older_format_rows_still_render_unchanged(): void {
+        global $DB, $PAGE;
+
+        $this->resetAfterTest();
+        [$activity, $group, , $member] = $this->setup_world();
+        $text = "line1\nline2 <b>bold</b>";
+        $now = time();
+        $base = [
+            'activityid' => $activity->id(),
+            'groupid' => (int) $group->id,
+            'type' => tickets::TYPE_COMPCHANGE,
+            'status' => tickets::STATUS_OPEN,
+            'requestedby' => (int) $member->id,
+            'request' => $text,
+            'disclaimerack' => 0,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ];
+        $moodleticketid = $DB->insert_record(
+            'selfselectadvanced_ticket',
+            (object) (['requestformat' => FORMAT_MOODLE] + $base)
+        );
+        $plainticketid = $DB->insert_record(
+            'selfselectadvanced_ticket',
+            (object) (['requestformat' => FORMAT_PLAIN] + $base)
+        );
+
+        $output = $PAGE->get_renderer('core');
+        foreach ([[$moodleticketid, true], [$plainticketid, false]] as [$ticketid, $expecttag]) {
+            $ticket = tickets::get($activity, $ticketid);
+            $page = new \mod_selfselectadvanced\output\ticket_page(
+                $activity,
+                $ticket,
+                $group,
+                (int) $member->id,
+                true,
+                false
+            );
+            $exported = $page->export_for_template($output);
+            if ($expecttag) {
+                $this->assertStringContainsString(
+                    '<b>bold</b>',
+                    $exported->openingpost,
+                    'a pre-existing FORMAT_MOODLE row must still keep the safe tag unescaped, unaffected by the editor conversion'
+                );
+            } else {
+                $this->assertStringNotContainsString(
+                    '<b>bold</b>',
+                    $exported->openingpost,
+                    'a pre-existing FORMAT_PLAIN row must still have the tag escaped, exactly as before this slice'
+                );
+                $this->assertStringContainsString(
+                    '&lt;b&gt;',
+                    $exported->openingpost,
+                    'escaped, not dropped - FORMAT_PLAIN rendering is unchanged by the editor conversion'
+                );
+            }
+            $this->assertStringContainsString(
+                '<br',
+                $exported->openingpost,
+                'both formats still nl2br the newline, unchanged by the editor conversion'
+            );
+        }
+    }
+
+    /**
      * A source pin on the five call sites this slice edits (group.php:815,
      * guidequeue.php:68 and :90, tickets.php:73 and :94), the three
      * PARAM_TEXT reads this slice widens to PARAM_RAW (group.php:808,
@@ -310,8 +425,37 @@ final class ticket_richtext_test extends \advanced_testcase {
      * user text) and still renders a closed ticket's resolution via
      * format_text(). A new ticket.php arm pins the four call sites the
      * queue's forms moved to.
+     *
+     * RE-PINNED, 1.20.52 (a real editor): group.php's reason field and
+     * ticket.php's question/resolution/reply fields are no longer read
+     * as a scalar - the editor element posts an ARRAY, so this pin now
+     * requires optional_param_array() and a variable format (whatever
+     * the editor returned), NOT the FORMAT_MOODLE literal a revert to
+     * the old textarea would quietly restore. filehelp.php - never
+     * pinned before this slice despite being a listed consumer - and
+     * both form classes' addElement('editor', ..., ['maxfiles' => 0])
+     * shape are pinned here too. guidequeue.php and tickets.php use
+     * neither converted form and are untouched. ticket.php's
+     * refer()/escalate() note and the decline arm's declinereason stay
+     * hand-rolled textareas (spec: out of scope) and so keep their
+     * scalar optional_param()/hardcoded FORMAT_MOODLE shape exactly as
+     * pinned before.
+     *
+     * RED-FIRST for the array-read shape (run 2026-08-18): group.php,
+     * filehelp.php and ticket.php were temporarily reverted to their OLD
+     * scalar reads/hardcoded FORMAT_MOODLE (forms left converted to
+     * 'editor') and this rewritten test run in isolation - it failed
+     * immediately on the FIRST assertion below ("group.php: the
+     * ticket-filing reason must be read as the array an editor element
+     * posts"), which is as far as PHPUnit gets before a test method
+     * stops at its first failed assertion; the old
+     * optional_param('reason_' . $tickettype, ...) literal was still
+     * present, the new optional_param_array(...) literal was not.
+     * Reverting the revert (restoring the real consumer edits) turned
+     * the test green again with no other change - see the report for
+     * the actual command output of both runs.
      */
-    public function test_the_five_call_sites_read_raw_and_pass_format_moodle(): void {
+    public function test_the_call_sites_read_editor_arrays_and_store_the_returned_format(): void {
         $root = realpath(__DIR__ . '/..');
         $this->assertNotFalse($root);
 
@@ -324,17 +468,69 @@ final class ticket_richtext_test extends \advanced_testcase {
         // 1.20.44 part 2: the field name gained a per-type suffix
         // (classes/form/ticketfile_form.php's docblock explains why -
         // up to six of these forms render on one page, and
-        // MoodleQuickForm derives DOM ids from element names alone) -
-        // still PARAM_RAW, never PARAM_TEXT.
+        // MoodleQuickForm derives DOM ids from element names alone).
+        // 1.20.52: the element itself is now an editor, so the value
+        // POSTed is an ARRAY - optional_param_array(), never the old
+        // scalar optional_param() - and the format passed on to
+        // file()/file_help() is the variable the array unpacked into,
+        // never a hardcoded constant.
         $this->assertStringContainsString(
-            "\$reason = optional_param('reason_' . \$tickettype, '', PARAM_RAW);",
+            "\$reasoneditor = optional_param_array('reason_' . \$tickettype, [], PARAM_RAW);",
             $group,
-            'group.php: the ticket-filing reason must be read PARAM_RAW, not PARAM_TEXT'
+            'group.php: the ticket-filing reason must be read as the array an editor element posts'
+        );
+        $this->assertStringNotContainsString(
+            "optional_param('reason_' . \$tickettype",
+            $group,
+            'group.php: the old scalar read of reason_$tickettype must be gone, not left alongside the array read'
         );
         $this->assertStringContainsString(
-            'tickets::file( $activity, $group, $tickettype, $reason, FORMAT_MOODLE,',
+            'tickets::file( $activity, $group, $tickettype, $reason, $reasonformat,',
             $group,
-            'group.php: file() must be called with FORMAT_MOODLE, not the hardcoded FORMAT_PLAIN'
+            'group.php: file() must be called with the format the editor returned, never a hardcoded constant'
+        );
+        $this->assertStringContainsString(
+            'tickets::file_help( $activity, $group, $reason, $reasonformat,',
+            $group,
+            'group.php: file_help() must be called with the format the editor returned, never a hardcoded constant'
+        );
+        $this->assertSame(
+            1,
+            substr_count($group, "?? FORMAT_MOODLE)"),
+            'group.php: FORMAT_MOODLE may only appear as the ??-fallback default, never a hardcoded call-site argument'
+        );
+
+        $filehelp = self::normalised_executable_source($root . '/filehelp.php');
+        $this->assertStringContainsString(
+            'optional_param_array( \mod_selfselectadvanced\form\ticketfile_form::reason_field(tickets::TYPE_HELP),',
+            $filehelp,
+            'filehelp.php: the reason field must be read as the array an editor element posts'
+        );
+        $this->assertStringContainsString(
+            'tickets::file_help($activity, $group, $reason, $reasonformat,',
+            $filehelp,
+            'filehelp.php: file_help() must be called with the format the editor returned, never a hardcoded constant'
+        );
+        $this->assertSame(
+            1,
+            substr_count($filehelp, "?? FORMAT_MOODLE)"),
+            'filehelp.php: FORMAT_MOODLE may only appear as the ??-fallback default, never a hardcoded call-site argument'
+        );
+
+        // Binding constraint 1: both converted forms pass maxfiles => 0,
+        // with the decision recorded in a comment (checked separately,
+        // by grep, further down) rather than left implicit.
+        $ticketfileform = self::normalised_executable_source($root . '/classes/form/ticketfile_form.php');
+        $this->assertStringContainsString(
+            "\$mform->addElement('editor', \$reasonfield, \$reasonlabel, null, ['maxfiles' => 0]);",
+            $ticketfileform,
+            "ticketfile_form.php: 'reason' must be a real editor with maxfiles explicitly 0"
+        );
+        $ticketpostform = self::normalised_executable_source($root . '/classes/form/ticketpost_form.php');
+        $this->assertStringContainsString(
+            "\$mform->addElement('editor', \$field, \$this->_customdata['label'], null, ['maxfiles' => 0]);",
+            $ticketpostform,
+            "ticketpost_form.php: question/reply/resolution must be a real editor with maxfiles explicitly 0"
         );
 
         $guidequeue = self::normalised_executable_source($root . '/guidequeue.php');
@@ -377,39 +573,106 @@ final class ticket_richtext_test extends \advanced_testcase {
             'tickets.php must still render a closed ticket\'s resolution through format_text(), not s()'
         );
 
-        // B2 + 1.20.44: ticket.php holds SIX FORMAT_MOODLE call sites -
-        // request_info(), grant_guidecap(), the shared close()
-        // resolve/decline call, provide_info(), and (1.20.44) refer()
-        // and escalate() - and none of the textareas that feed any of
-        // them (question, resolution, declinereason, reply, note) may
-        // fall back to PARAM_TEXT.
+        // 1.20.52: ticket.php's question/resolution/reply fields are now
+        // editor elements (ticketpost_form.php) and POST an ARRAY -
+        // 'resolution' feeds BOTH the grant arm and the resolve arm
+        // (ticket_page.php's own render_ticketpost_form() reuses the one
+        // field name for both), so its array-read line appears TWICE.
+        // declinereason and note (refer/escalate) are UNCHANGED - still
+        // the hand-rolled textareas the spec named out of scope - so
+        // they keep the old scalar optional_param()/FORMAT_MOODLE shape
+        // exactly as pinned before 1.20.52.
         $ticketpage = self::normalised_executable_source($root . '/ticket.php');
-        $this->assertSame(
-            6,
-            substr_count($ticketpage, 'FORMAT_MOODLE'),
-            'ticket.php: request_info(), grant_guidecap(), close(), provide_info(), refer() and escalate() '
-                . 'must all pass FORMAT_MOODLE'
-        );
         $this->assertStringNotContainsString(
             'PARAM_TEXT',
             $ticketpage,
             'ticket.php: every thread textarea must be read PARAM_RAW, never PARAM_TEXT'
         );
-        foreach (['question', 'resolution', 'declinereason', 'reply', 'note'] as $field) {
+        foreach (['question', 'reply'] as $field) {
             $this->assertStringContainsString(
+                '$' . $field . "editor = optional_param_array('$field', [], PARAM_RAW);",
+                $ticketpage,
+                "ticket.php: the '$field' field must be read as the array an editor element posts"
+            );
+            $this->assertStringNotContainsString(
                 "optional_param('$field', '', PARAM_RAW)",
                 $ticketpage,
-                "ticket.php: the '$field' textarea must be read PARAM_RAW"
+                "ticket.php: the '$field' field must not still be read as a scalar"
             );
         }
-        // 1.20.44: refer()'s two-argument shape - the 'note' field feeds
-        // BOTH refer() and escalate() (same variable name, two call
-        // sites), so this counts them separately rather than trusting
-        // the loop above (which only proves "at least one" per field).
+        $this->assertSame(
+            2,
+            substr_count($ticketpage, "\$noteeditor = optional_param_array('resolution', [], PARAM_RAW);"),
+            "ticket.php: 'resolution' feeds both the grant arm and the resolve arm, each reading the editor's array"
+        );
+        $this->assertStringNotContainsString(
+            "optional_param('resolution', '', PARAM_RAW)",
+            $ticketpage,
+            "ticket.php: 'resolution' must not still be read as a scalar anywhere"
+        );
+        // Declinereason: unchanged, still the hand-rolled textarea and
+        // still a scalar PARAM_RAW read.
+        $this->assertStringContainsString(
+            "optional_param('declinereason', '', PARAM_RAW)",
+            $ticketpage,
+            "ticket.php: 'declinereason' stays a scalar PARAM_RAW read - it is out of scope for the editor conversion"
+        );
+        $this->assertStringContainsString(
+            '$noteformat = FORMAT_MOODLE;',
+            $ticketpage,
+            "ticket.php: decline's format stays the hardcoded constant it always was"
+        );
+        // Note (refer/escalate): unchanged, still the hand-rolled
+        // textarea and still a scalar PARAM_RAW read, twice over (1.20.44
+        // gave refer() and escalate() each their own note field).
         $this->assertSame(
             2,
             substr_count($ticketpage, "optional_param('note', '', PARAM_RAW)"),
-            'ticket.php: refer() and escalate() must each read their own note field as PARAM_RAW'
+            'ticket.php: refer() and escalate() must each still read their own note field as a scalar PARAM_RAW'
+        );
+        $this->assertStringContainsString(
+            'tickets::refer($activity, $t, $targetid, $note, FORMAT_MOODLE,',
+            $ticketpage,
+            'ticket.php: refer() stays hardcoded FORMAT_MOODLE - out of scope for the editor conversion'
+        );
+        $this->assertStringContainsString(
+            'tickets::escalate($activity, $t, $note, FORMAT_MOODLE,',
+            $ticketpage,
+            'ticket.php: escalate() stays hardcoded FORMAT_MOODLE - out of scope for the editor conversion'
+        );
+        // The four call sites whose format now comes from the editor:
+        // request_info(), grant_guidecap(), the resolve arm of close(),
+        // provide_info() - each must pass its OWN derived-format
+        // variable, never a hardcoded constant.
+        $this->assertStringContainsString(
+            'tickets::request_info($activity, $t, $question, $questionformat,',
+            $ticketpage,
+            'ticket.php: request_info() must be called with the format the editor returned'
+        );
+        $this->assertStringContainsString(
+            'tickets::grant_guidecap($activity, $t, $note, $noteformat,',
+            $ticketpage,
+            'ticket.php: grant_guidecap() must be called with the format the editor returned'
+        );
+        $this->assertStringContainsString(
+            'tickets::close($activity, $t, $outcome, $note, $noteformat,',
+            $ticketpage,
+            'ticket.php: close() must be called with the resolve arm\'s derived format, never a hardcoded constant'
+        );
+        $this->assertStringContainsString(
+            'tickets::provide_info($activity, $t, $reply, $replyformat,',
+            $ticketpage,
+            'ticket.php: provide_info() must be called with the format the editor returned'
+        );
+        // FORMAT_MOODLE may still appear, but ONLY in the four places
+        // that are genuinely unaffected by this slice (refer, escalate,
+        // decline's hardcoded constant) or as a ??-fallback default on
+        // the four converted fields (question, resolution x2, reply) -
+        // never as a hardcoded call-site argument on a converted field.
+        $this->assertSame(
+            7,
+            substr_count($ticketpage, 'FORMAT_MOODLE'),
+            'ticket.php: refer(1) + escalate(1) + decline(1) + four ??-fallback defaults(4) = 7, no more, no less'
         );
     }
 

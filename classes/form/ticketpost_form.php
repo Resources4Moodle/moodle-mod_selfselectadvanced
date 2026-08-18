@@ -60,12 +60,16 @@ class ticketpost_form extends \moodleform {
         $mform->addElement('hidden', 'action', $this->_customdata['action']);
         $mform->setType('action', PARAM_ALPHA);
 
-        $mform->addElement(
-            'textarea',
-            $field,
-            $this->_customdata['label'],
-            ['rows' => 3]
-        );
+        // 1.20.52: a real editor, not a textarea, for the same reason and
+        // with the same maxfiles => 0 decision ticketfile_form.php's own
+        // comment explains - embedded images would need their own draft
+        // area, pluginfile route, backup and privacy plumbing, the exact
+        // cost 1.20.41 declined, and the filemanager below already
+        // covers anything a person needs to attach. Posts an ARRAY
+        // (['text' => ..., 'format' => ...]); ticket.php's own consumers
+        // store the format the editor returns rather than a hardcoded
+        // constant.
+        $mform->addElement('editor', $field, $this->_customdata['label'], null, ['maxfiles' => 0]);
         $mform->setType($field, PARAM_RAW);
         if (!empty($this->_customdata['required'])) {
             $mform->addRule($field, get_string('required'), 'required', null, 'client');

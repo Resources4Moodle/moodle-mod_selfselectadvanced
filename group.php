@@ -811,7 +811,13 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
     // type as a suffix (reason_$tickettype, attachments_$tickettype)
     // because MoodleQuickForm derives DOM ids from element names alone,
     // and up to six of these forms render on this page at once.
-    $reason = optional_param('reason_' . $tickettype, '', PARAM_RAW);
+    // 1.20.52: 'reason' is now an editor element, so it POSTs an ARRAY
+    // (['text' => ..., 'format' => ...]) rather than a scalar -
+    // optional_param_array() reads it, and the stored format is
+    // whatever the editor actually returned, never a hardcoded constant.
+    $reasoneditor = optional_param_array('reason_' . $tickettype, [], PARAM_RAW);
+    $reason = (string) ($reasoneditor['text'] ?? '');
+    $reasonformat = (int) ($reasoneditor['format'] ?? FORMAT_MOODLE);
     $draftitemid = optional_param('attachments_' . $tickettype, 0, PARAM_INT);
     // Deliverable D: the hidden field the filing form above carries -
     // the server-side gate is tickets::file()/file_help() itself, which
@@ -827,7 +833,7 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
                 $activity,
                 $group,
                 $reason,
-                FORMAT_MOODLE,
+                $reasonformat,
                 (int) $USER->id,
                 $ticketdisclaimerack
             )
@@ -836,7 +842,7 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
                 $group,
                 $tickettype,
                 $reason,
-                FORMAT_MOODLE,
+                $reasonformat,
                 (int) $USER->id,
                 $ticketdisclaimerack
             );

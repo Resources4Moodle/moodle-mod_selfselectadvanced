@@ -155,3 +155,42 @@ Feature: The ticket becomes a forum-style thread
     Then I should see "Automated Assistant (automated)"
     And I should see "Checking on this now."
     And I should not see "Assistant One"
+
+  @javascript
+  Scenario: A student files a ticket with formatted text and it renders formatted on the thread
+    # 1.20.52: the reason field is a real editor now, not a plain
+    # textarea - this proves a safe inline tag typed into it survives
+    # all the way to the rendered thread, the round trip
+    # ticket_richtext_test.php proves at the unit level (service and
+    # render layers) for what PHPUnit cannot drive end to end.
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
+    And I set the field "Ask for leadership help (say what the group needs):" to "Our leader is <strong>unreachable</strong> this week"
+    And I press "File request"
+    Then I should see "Your request has been queued for the managers and coordinators."
+
+    When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
+    # Nobody has claimed it yet, so the row's link is "View thread", not
+    # "Open thread" (tickets.php: only $mine - the viewer's own claim -
+    # gets "Open thread") - viewing is all this scenario needs.
+    And I follow "View thread"
+    Then I should see "unreachable"
+    And "strong" "css_element" should exist in the ".selfselectadvanced-threadcontent" "css_element"
+
+  @javascript
+  Scenario: The leadership-help and general-help ticket boxes tell themselves apart
+    # The maintainer's own complaint, from the live site: two ticket
+    # boxes rendered one above the other with the IDENTICAL placeholder
+    # "Why is this change needed?" and nothing said which to use.
+    # 1.20.52 gives each type its own one-line help instead - asserted
+    # here on the help TEXT itself (student2 is eligible for both
+    # leaderchange, as a confirmed member who is not the leader, and
+    # help, on Team Blue as set up by this feature's Background), not
+    # merely on the labels, which already differed before this slice.
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
+    Then I should see "Ask for leadership help (say what the group needs):"
+    And I should see "Ask the managers and coordinators for help"
+    And I should not see "Why is this change needed?"
+    And I click on "Help with Ask for leadership help (say what the group needs):" "icon"
+    Then I should see "about who leads the group"
+    And I click on "Help with Ask the managers and coordinators for help" "icon"
+    Then I should see "does not fit"

@@ -3091,5 +3091,30 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081701, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081800) {
+        // 1.20.52: the ticket box is an editor, and the two channels say
+        // which is which. NO SCHEMA - the format columns already existed
+        // and are now filled by the editor rather than by a constant.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.52 (2026081800). Ticket text is a rich-text editor; the two help channels are distinguishable.',
+            'The ticket boxes were plain textareas, so a person could not emphasise a word or make '
+                . 'a list in a request somebody has to read and act on. They are now Moodle editors, '
+                . 'and the format the editor returns is what gets stored - existing requests keep '
+                . 'the format they were written in and render exactly as before. Images cannot be '
+                . 'embedded in the text on purpose: that needs its own draft area, file serving, '
+                . 'backup and privacy handling, and attachments already sit beside the box. '
+                . 'Separately, two channels used to render one above the other with the same hint '
+                . 'and nothing to tell them apart. Each now explains itself: leadership help is '
+                . 'about who leads the group and only a member may raise it, while the general '
+                . 'channel takes anything else and needs no group at all.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081800, 'selfselectadvanced');
+    }
+
     return true;
 }

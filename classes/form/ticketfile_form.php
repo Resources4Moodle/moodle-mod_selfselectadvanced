@@ -16,6 +16,8 @@
 
 namespace mod_selfselectadvanced\form;
 
+use mod_selfselectadvanced\local\tickets;
+
 defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->libdir . '/formslib.php');
@@ -83,14 +85,35 @@ class ticketfile_form extends \moodleform {
         $mform->setType('disclaimerack', PARAM_BOOL);
 
         $reasonlabel = get_string('ticketfile' . $tickettype, 'mod_selfselectadvanced');
-        $mform->addElement(
-            'textarea',
-            $reasonfield,
-            $reasonlabel,
-            ['rows' => 4, 'placeholder' => get_string('ticketreasonhint', 'mod_selfselectadvanced')]
-        );
+        // 1.20.52: a real editor, not a textarea. maxfiles is explicitly 0 -
+        // embedded images would need their own draft area, pluginfile
+        // route, backup and privacy plumbing, the exact cost 1.20.41
+        // declined, and the filemanager below already covers anything a
+        // person needs to attach. The element posts an ARRAY
+        // (['text' => ..., 'format' => ...]), not a scalar, so every
+        // reader of $reasonfield (group.php, filehelp.php) stores the
+        // format the editor actually returns rather than a hardcoded
+        // constant.
+        $mform->addElement('editor', $reasonfield, $reasonlabel, null, ['maxfiles' => 0]);
         $mform->setType($reasonfield, PARAM_RAW);
         $mform->addRule($reasonfield, get_string('required'), 'required', null, 'client');
+        // 1.20.52: the shared placeholder that used to sit under every
+        // type ("Why is this change needed?") is gone - core's own
+        // editor_textarea template never prints a placeholder attribute
+        // at all, and it was the reason a student could not tell the
+        // leadership-help box from the general-help box apart on
+        // group.php, where both can render at once. Each type now gets
+        // its own one-line help through the plugin's existing
+        // addHelpButton idiom instead: leaderchange and help get a
+        // dedicated string apiece, and the remaining four types (still
+        // genuinely about "why is this change needed") keep the shared
+        // ticketreasonhint identifier.
+        $helpidentifier = match ($tickettype) {
+            tickets::TYPE_LEADERCHANGE => 'ticketfileleaderchange',
+            tickets::TYPE_HELP => 'ticketfilehelp',
+            default => 'ticketreasonhint',
+        };
+        $mform->addHelpButton($reasonfield, $helpidentifier, 'mod_selfselectadvanced');
 
         // Qualified by type, the same reason the reason/attachments
         // FIELD NAMES are (this class's own docblock): up to six of
