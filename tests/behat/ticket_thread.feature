@@ -76,7 +76,22 @@ Feature: The ticket becomes a forum-style thread
     And I press "Send reply"
     Then I should see "Your reply was sent."
 
-    # Staff resolves from the thread.
+    # Staff resolves from the thread - and the queue itself already says
+    # the ball is back in the claimant's court (1.20.53 deliverable C),
+    # derived from the trail's own inforeply row, before the thread is
+    # even opened.
+    When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
+    Then I should see "Waiting on you"
+
+    # ...but only the CLAIMANT is told "you". Another coordinator holds
+    # queue authority and sees the same row, and the first draft told
+    # them "Waiting on you" about a ticket they had never touched,
+    # cannot comment on and cannot take up - while their own landing
+    # page said they owed nothing. They are told what HAPPENED instead.
+    When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as coord1
+    Then I should see "The requester has replied"
+    And I should not see "Waiting on you"
+
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
     And I follow "Open thread"
     Then I should see "Yes, no answer in three days."
@@ -175,6 +190,25 @@ Feature: The ticket becomes a forum-style thread
     And I follow "View thread"
     Then I should see "unreachable"
     And "strong" "css_element" should exist in the ".selfselectadvanced-threadcontent" "css_element"
+
+  Scenario: The landing page highlights a reply the requester still owes
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
+    And I set the field "Ask for leadership help (say what the group needs):" to "Our leader has gone quiet"
+    And I press "File request"
+    And I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
+    And I press "Take up"
+    And I follow "Open thread"
+    And I set the field "Question for the requester" to "Has anyone tried reaching them directly?"
+    And I press "Send the question"
+
+    # The landing page, not myrequests.php - the requester must not have
+    # to already know to open their request list to learn a reply is owed.
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student2
+    Then I should see "1 request(s) need your reply" in the ".selfselectadvanced-myrequestspanel" "css_element"
+    When I click on "My requests (1)" "link" in the ".selfselectadvanced-myrequestspanel" "css_element"
+    Then I should see "Waiting on the requester"
+    And I follow "Respond"
+    Then I should see "Has anyone tried reaching them directly?"
 
   @javascript
   Scenario: The leadership-help and general-help ticket boxes tell themselves apart

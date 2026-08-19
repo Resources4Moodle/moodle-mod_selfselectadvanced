@@ -30,6 +30,14 @@
       their own decision window before anything else on the page
     * guidepanel - the guide_panel context (null when not a guide)
     * showjoinlink - whether the viewer may open joinrequest.php at all
+    * hasqueueauthority - whether the viewer passes tickets::has_queue_authority()
+    * directticketsurl - the direct route to tickets.php (1.20.53)
+    * ticketswaitingline / tickethandlingline - "N ticket(s) waiting" / "You are handling N"
+    * highlightticketswaiting - whether the waiting figure is highlighted (> 0)
+    * hastickethandlingneedingreply / tickethandlingneedingreplyline - the
+      subset of "handling" whose last trail row is the requester's own reply
+    * hasmyrequests / myrequestslabel - "My requests (N)"
+    * hasmyrequestsneedsinfo / myrequestsneedsinfoline - "N need your reply"
 
     Example context (json):
     {
@@ -39,6 +47,17 @@
         "studentapproachnotice": "",
         "iscoordinator": false,
         "ticketsurl": "https://example.com/mod/selfselectadvanced/coordinator.php?id=1",
+        "hasqueueauthority": true,
+        "directticketsurl": "https://example.com/mod/selfselectadvanced/tickets.php?id=1",
+        "highlightticketswaiting": true,
+        "ticketswaitingline": "3 ticket(s) waiting",
+        "tickethandlingline": "You are handling 2",
+        "hastickethandlingneedingreply": true,
+        "tickethandlingneedingreplyline": "1 waiting on your reply",
+        "hasmyrequests": true,
+        "myrequestslabel": "My requests (2)",
+        "hasmyrequestsneedsinfo": true,
+        "myrequestsneedsinfoline": "1 need your reply",
         "showtickethelp": true,
         "tickethelpurl": "https://example.com/mod/selfselectadvanced/filehelp.php?id=1",
         "haskbentries": true,
@@ -231,8 +250,45 @@
 {{#iscoordinator}}
     <p><a href="{{ticketsurl}}" class="btn btn-outline-primary">{{#str}} coordinatordashboard, mod_selfselectadvanced {{/str}}</a></p>
 {{/iscoordinator}}
+{{! 1.20.53 deliverable B: a direct route to the queue, ADDED beside the  }}
+{{! dashboard buttons above rather than replacing them. Highlighted only }}
+{{! while something is actually waiting, unclaimed.                     }}
+{{#hasqueueauthority}}
+    <div class="selfselectadvanced-ticketqueuepanel mb-3">
+        {{#highlightticketswaiting}}
+            <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap">
+                <span>{{ticketswaitingline}}</span>
+                <a href="{{directticketsurl}}" class="btn btn-warning btn-sm">
+                    {{#str}} tickets, mod_selfselectadvanced {{/str}}
+                </a>
+            </div>
+        {{/highlightticketswaiting}}
+        {{^highlightticketswaiting}}
+            <p><a href="{{directticketsurl}}" class="btn btn-outline-primary">{{ticketswaitingline}}</a></p>
+        {{/highlightticketswaiting}}
+        <p class="small text-muted">
+            {{tickethandlingline}}
+            {{#hastickethandlingneedingreply}}
+                <span class="badge bg-warning text-dark ms-1">{{tickethandlingneedingreplyline}}</span>
+            {{/hastickethandlingneedingreply}}
+        </p>
+    </div>
+{{/hasqueueauthority}}
+{{! 1.20.53 deliverable B: the panel now states the position ("My       }}
+{{! requests (N)") rather than an unlabelled route, and a needsinfo row }}
+{{! is highlighted instead of waiting to be discovered on the page.     }}
 {{#hasmyrequests}}
-    <p><a href="{{myrequestsurl}}" class="btn btn-outline-secondary">{{#str}} myrequests, mod_selfselectadvanced {{/str}}</a></p>
+    <div class="selfselectadvanced-myrequestspanel mb-3">
+        {{#hasmyrequestsneedsinfo}}
+            <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap">
+                <span>{{myrequestsneedsinfoline}}</span>
+                <a href="{{myrequestsurl}}" class="btn btn-warning btn-sm">{{myrequestslabel}}</a>
+            </div>
+        {{/hasmyrequestsneedsinfo}}
+        {{^hasmyrequestsneedsinfo}}
+            <p><a href="{{myrequestsurl}}" class="btn btn-outline-secondary">{{myrequestslabel}}</a></p>
+        {{/hasmyrequestsneedsinfo}}
+    </div>
 {{/hasmyrequests}}
 {{#showtickethelp}}
     <p><a href="{{tickethelpurl}}" class="btn btn-outline-secondary">{{#str}} ticketfilehelp, mod_selfselectadvanced {{/str}}</a></p>

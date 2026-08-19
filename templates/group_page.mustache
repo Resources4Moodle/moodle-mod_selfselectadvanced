@@ -24,9 +24,26 @@
     * name - group name
     * statelabel - localised state
     * sesskey - session key for the action forms
+    * hasgroupticketrows / groupticketrows - the group's own live requests
+      (1.20.53 deliverable A): who sees which is tickets::group_live()'s own
+      authority (requester sees their own; queue authority sees them all;
+      nobody else sees anything - the section itself draws only when there
+      is a row). Each row: typelabel, statuslabel, raised, threadurl,
+      needsyourreply (viewer is the requester and the status is needsinfo)
 
     Example context (json):
     {
+        "hasgroupticketrows": true,
+        "groupticketrows": [
+            {
+                "id": 4,
+                "typelabel": "Composition change",
+                "statuslabel": "Waiting on the requester",
+                "raised": "Wednesday, 22 July, 9:00 AM",
+                "threadurl": "https://example.com/mod/selfselectadvanced/ticket.php?t=4",
+                "needsyourreply": true
+            }
+        ],
         "pluginuid": "SSA-C101-0001",
         "name": "Team Alpha",
         "title": "Pendulum study",
@@ -198,6 +215,45 @@
             {{/showdisbandcancel}}
         </div>
     {{/disbandlive}}
+
+    {{! 1.20.53 deliverable A: the group's own live requests - the sharpest }}
+    {{! gap the maintainer named. Drawn only when there is a row; who sees }}
+    {{! which is decided entirely by the exporter's own authority call.   }}
+    {{#hasgroupticketrows}}
+        <div class="selfselectadvanced-groupliverequests card mb-3">
+            <div class="card-body">
+                <h4 class="h6 card-title mb-2">{{#str}} groupticketsheading, mod_selfselectadvanced {{/str}}</h4>
+                <ul class="list-group list-group-flush">
+                    {{#groupticketrows}}
+                        <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap">
+                            <span>
+                                {{! The type label is plain text here, not a link: this }}
+                                {{! plugin already uses several type names (Unfreeze,    }}
+                                {{! Escalate...) as ACTION button labels elsewhere on    }}
+                                {{! this very page, and "I follow" (a person clicking)   }}
+                                {{! takes the first match - so the one link this row     }}
+                                {{! offers carries its own unambiguous label instead.    }}
+                                <strong>{{typelabel}}</strong>
+                                <span class="badge bg-info text-dark ms-2">{{statuslabel}}</span>
+                                <span class="d-block small text-muted">{{raised}}</span>
+                            </span>
+                            <span class="text-end">
+                                {{#needsyourreply}}
+                                    <a href="{{threadurl}}"
+                                        class="btn btn-warning btn-sm selfselectadvanced-ticket-replyneeded">
+                                        {{#str}} ticketneedsyourreply, mod_selfselectadvanced {{/str}}
+                                    </a>
+                                {{/needsyourreply}}
+                                <a href="{{threadurl}}" class="btn btn-outline-secondary btn-sm ms-1">
+                                    {{#str}} ticketthreadview, mod_selfselectadvanced {{/str}}
+                                </a>
+                            </span>
+                        </li>
+                    {{/groupticketrows}}
+                </ul>
+            </div>
+        </div>
+    {{/hasgroupticketrows}}
 
     {{#eoiassigned}}
         <div class="alert alert-success selfselectadvanced-eoiassigned">

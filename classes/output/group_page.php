@@ -984,7 +984,47 @@ class group_page implements renderable, templatable {
         $tabsubmit = $this->submitform !== null && $maylead;
         $activetab = $tabinvite ? 'invite' : ($tabsuccession ? 'succession' : 'submit');
 
+        // 1.20.53 deliverable A: the group's own live requests. The
+        // maintainer's report named this the sharpest gap - a student
+        // files a ticket FROM this very page, and the page never
+        // mentions it again once the one-time filing notice has
+        // scrolled away. Who sees which is the EXISTING authority, not
+        // a new one: tickets::group_live() itself enforces "the
+        // requester sees their own; queue authority sees the group's
+        // whole live set; everybody else sees nothing" - this exporter
+        // only asks the one boolean and draws what comes back.
+        $hasqueueauthority = \mod_selfselectadvanced\local\tickets::has_queue_authority($activity, $this->userid);
+        $groupticketrows = [];
+        foreach (
+            \mod_selfselectadvanced\local\tickets::group_live(
+                $activity,
+                (int) $this->group->id,
+                $this->userid,
+                $hasqueueauthority
+            ) as $groupticket
+        ) {
+            $isrequester = (int) $groupticket->requestedby === $this->userid;
+            $groupticketrows[] = (object) [
+                'id' => (int) $groupticket->id,
+                'typelabel' => get_string('tickettype' . $groupticket->type, 'mod_selfselectadvanced'),
+                'statuslabel' => get_string('ticketstatus' . $groupticket->status, 'mod_selfselectadvanced'),
+                'raised' => userdate((int) $groupticket->timecreated, get_string('strftimedatetimeshort')),
+                'threadurl' => (new \moodle_url('/mod/selfselectadvanced/ticket.php', [
+                    't' => (int) $groupticket->id,
+                ]))->out(false),
+                // Deliverable A: "when the viewer is the requester and
+                // the status is needs-info - a clearly marked 'Your
+                // reply is needed' control". A staff viewer sees the
+                // same row with the status label alone; this is never
+                // shown for anybody but the requester themselves.
+                'needsyourreply' => $isrequester
+                    && $groupticket->status === \mod_selfselectadvanced\local\tickets::STATUS_NEEDSINFO,
+            ];
+        }
+
         return (object) [
+            'groupticketrows' => $groupticketrows,
+            'hasgroupticketrows' => !empty($groupticketrows),
             'showleadertabs' => $tabinvite || $tabsuccession || $tabsubmit,
             'tabinvite' => $tabinvite,
             'tabsuccession' => $tabsuccession,

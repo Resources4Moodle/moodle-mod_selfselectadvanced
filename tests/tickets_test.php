@@ -872,4 +872,262 @@ final class tickets_test extends \advanced_testcase {
         // with nothing, in both producers (decision 65).
         $this->assertSame([], tickets::involved_group_ids($activity, (int) $manager->id));
     }
+
+    // ------------------------------------------------------------------
+    // 1.20.53: ticket-visibility deliverables A-C.
+
+    /**
+     * The group page's own live-requests query (deliverable A) applies
+     * the EXISTING authority and nothing wider: the requester sees their
+     * own row, staff (queue authority) sees every live row for the
+     * group, and an uninvolved outsider with no queue authority sees
+     * nothing at all - proven against a group that genuinely HAS two
+     * live rows, so an empty result can only mean the filter worked, not
+     * that there was nothing to find.
+     *
+     * A resolved ticket is closed, not live, and must drop out of the
+     * staff view the moment it closes.
+     */
+    public function test_group_live_scopes_by_requester_or_staff(): void {
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        [$activity, $group, $leader, $member, $guide, $manager] = $this->setup_world();
+
+        $this->redirectMessages();
+        $compchange = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Need a different mix',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        $leaderchange = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_LEADERCHANGE,
+            'Our leader has gone quiet',
+            FORMAT_PLAIN,
+            (int) $member->id
+        );
+
+        // Staff (queue authority) sees BOTH live rows - the multi-row proof.
+        $staffview = tickets::group_live($activity, (int) $group->id, (int) $manager->id, true);
+        $this->assertCount(2, $staffview, 'a queue-authority viewer must see every live row for the group');
+        $staffids = array_map(static fn($t) => (int) $t->id, $staffview);
+        $this->assertContains((int) $compchange->id, $staffids);
+        $this->assertContains((int) $leaderchange->id, $staffids);
+
+        // The guide, a non-staff requester, sees only their own row.
+        $guideview = tickets::group_live($activity, (int) $group->id, (int) $guide->id, false);
+        $this->assertCount(1, $guideview, 'a non-staff requester sees only their own row');
+        $this->assertSame((int) $compchange->id, (int) reset($guideview)->id);
+
+        // The member, a different non-staff requester, sees only theirs.
+        $memberview = tickets::group_live($activity, (int) $group->id, (int) $member->id, false);
+        $this->assertCount(1, $memberview);
+        $this->assertSame((int) $leaderchange->id, (int) reset($memberview)->id);
+
+        // The leader is party to neither ticket and holds no queue
+        // authority: they see NOTHING, even though the group genuinely
+        // has two live rows right now - absence proven, not assumed.
+        $leaderview = tickets::group_live($activity, (int) $group->id, (int) $leader->id, false);
+        $this->assertSame([], $leaderview, 'an uninvolved, non-staff viewer must see nothing');
+
+        // LIVE MEANS OPEN, CLAIMED **OR** NEEDSINFO, and the first draft
+        // of this test proved only the first of the three: every fixture
+        // row was open, so reducing the status list in group_live() to
+        // `IN (:open)` left the whole suite green while the group page
+        // dropped a request the moment staff took it up - the exact
+        // complaint 1.20.53 exists to answer. So the row is walked
+        // through its live statuses here and must survive each one.
+        tickets::claim($activity, (int) $leaderchange->id, (int) $manager->id);
+        $whileclaimed = tickets::group_live($activity, (int) $group->id, (int) $member->id, false);
+        $this->assertCount(1, $whileclaimed, 'a CLAIMED request is still live and must stay on the group page');
+        $this->assertSame((int) $leaderchange->id, (int) reset($whileclaimed)->id);
+
+        tickets::request_info(
+            $activity,
+            (int) $leaderchange->id,
+            'Since when has it been quiet?',
+            FORMAT_PLAIN,
+            (int) $manager->id
+        );
+        $whileneedsinfo = tickets::group_live($activity, (int) $group->id, (int) $member->id, false);
+        $this->assertCount(1, $whileneedsinfo, 'a NEEDSINFO request is still live and must stay on the group page');
+        $this->assertSame(
+            tickets::STATUS_NEEDSINFO,
+            reset($whileneedsinfo)->status,
+            'the needsinfo status must reach the caller - the group page gates its reply control on it'
+        );
+        // And staff still see both rows while one of them is mid-question.
+        $this->assertCount(
+            2,
+            tickets::group_live($activity, (int) $group->id, (int) $manager->id, true),
+            'a queue-authority viewer sees the open row and the needsinfo row alike'
+        );
+
+        // Closing one drops it out of the staff view: "live" means open,
+        // claimed or needsinfo, never resolved.
+        tickets::claim($activity, (int) $compchange->id, (int) $manager->id);
+        tickets::close(
+            $activity,
+            (int) $compchange->id,
+            tickets::STATUS_RESOLVED,
+            'Handled',
+            FORMAT_PLAIN,
+            (int) $manager->id
+        );
+        $afterclose = tickets::group_live($activity, (int) $group->id, (int) $manager->id, true);
+        $this->assertCount(1, $afterclose, 'a resolved ticket is not live and must drop out');
+        // The survivor is the NEEDSINFO row - still live, still listed.
+        $this->assertSame((int) $leaderchange->id, (int) reset($afterclose)->id);
+        $this->assertSame(tickets::STATUS_NEEDSINFO, reset($afterclose)->status);
+    }
+
+    /**
+     * has_queue_authority() is require_queue_authority()'s own boolean
+     * twin, over the SAME two capabilities: a manage holder, a
+     * coordinate-only holder, and somebody with neither - exercised
+     * against both functions so they cannot silently disagree.
+     */
+    public function test_has_queue_authority_matches_require_queue_authority(): void {
+        $this->resetAfterTest();
+        [$activity, , $leader, , , $manager, $coordinator] = $this->setup_world();
+
+        $this->assertTrue(tickets::has_queue_authority($activity, (int) $manager->id));
+        $this->assertTrue(tickets::has_queue_authority($activity, (int) $coordinator->id));
+        $this->assertFalse(tickets::has_queue_authority($activity, (int) $leader->id));
+
+        // The require_ half must never refuse where the twin says yes...
+        tickets::require_queue_authority($activity, (int) $manager->id);
+        tickets::require_queue_authority($activity, (int) $coordinator->id);
+        // ...and must always refuse where it says no.
+        try {
+            tickets::require_queue_authority($activity, (int) $leader->id);
+            $this->fail('a viewer with neither capability was admitted to the queue');
+        } catch (\required_capability_exception $e) {
+            $this->assertSame(get_capability_string('mod/selfselectadvanced:coordinate'), $e->a);
+        }
+    }
+
+    /**
+     * handling_count() and handling_awaiting_reply_count() (deliverables
+     * B and C): the claimant's own live count, and the narrower subset
+     * where the requester's reply has put the ball back in the
+     * claimant's court - built from a claimant holding TWO live tickets
+     * so neither figure could pass by counting everything or nothing.
+     */
+    public function test_handling_counts_and_awaiting_reply(): void {
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        [$activity, $group, , $member, $guide, $manager] = $this->setup_world();
+
+        $this->redirectMessages();
+        $plain = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Need a different mix',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        $answered = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_LEADERCHANGE,
+            'Our leader has gone quiet',
+            FORMAT_PLAIN,
+            (int) $member->id
+        );
+
+        tickets::claim($activity, (int) $plain->id, (int) $manager->id);
+        tickets::claim($activity, (int) $answered->id, (int) $manager->id);
+        tickets::request_info(
+            $activity,
+            (int) $answered->id,
+            'Have you tried reaching them?',
+            FORMAT_PLAIN,
+            (int) $manager->id
+        );
+        tickets::provide_info($activity, (int) $answered->id, 'Yes, nothing.', FORMAT_PLAIN, (int) $member->id);
+
+        // Both live tickets are claimed by the manager - the multi-row proof.
+        $this->assertSame(2, tickets::handling_count($activity, (int) $manager->id));
+        // Only the one the requester replied to is "waiting on the
+        // claimant" - the plain claimed ticket must NOT be counted.
+        $this->assertSame(1, tickets::handling_awaiting_reply_count($activity, (int) $manager->id));
+
+        $awaitingids = tickets::awaiting_claimant_ids($activity, [(int) $plain->id, (int) $answered->id]);
+        $this->assertSame([(int) $answered->id], $awaitingids, 'the plain claimed ticket must not appear');
+
+        // A different claimant, who holds nothing, reads zero - absence
+        // proven against a fixture that genuinely has live tickets.
+        $this->assertSame(0, tickets::handling_count($activity, (int) $guide->id));
+        $this->assertSame(0, tickets::handling_awaiting_reply_count($activity, (int) $guide->id));
+
+        // THE WORD "LAST" IS THE WHOLE DELIVERABLE, and the first draft
+        // of this test never exercised it: the only ticket carrying an
+        // inforeply row had it as the final row, so replacing
+        // last_log_join()'s MAX(id) sub-select with a plain join on
+        // ticketid returned exactly the same answer. Under that
+        // regression the signal never clears - every ticket that ever
+        // went through one question stays flagged for ever, which turns
+        // the release's one attention marker into noise. So the claimant
+        // now speaks last, and the flag must go out.
+        tickets::comment(
+            $activity,
+            (int) $answered->id,
+            'Thanks - I will speak to the leader today.',
+            FORMAT_PLAIN,
+            (int) $manager->id
+        );
+        $this->assertSame(
+            2,
+            tickets::handling_count($activity, (int) $manager->id),
+            'commenting does not release the ticket - it is still being handled'
+        );
+        $this->assertSame(
+            0,
+            tickets::handling_awaiting_reply_count($activity, (int) $manager->id),
+            'the claimant spoke last, so the ball is no longer in their court'
+        );
+        $this->assertSame(
+            [],
+            tickets::awaiting_claimant_ids($activity, [(int) $plain->id, (int) $answered->id]),
+            'the bulk form must agree with the count once the claimant has replied'
+        );
+    }
+
+    /**
+     * mine_needsinfo_count() (deliverable B): the requester's own
+     * needsinfo figure, proven against a requester who holds TWO
+     * tickets - one needsinfo, one plain open - so the count could not
+     * pass by merely counting every row that requester has filed.
+     */
+    public function test_mine_needsinfo_count(): void {
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        [$activity, $group, , $member, $guide, $manager] = $this->setup_world();
+
+        $this->redirectMessages();
+        $waiting = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_LEADERCHANGE,
+            'Our leader has gone quiet',
+            FORMAT_PLAIN,
+            (int) $member->id
+        );
+        tickets::claim($activity, (int) $waiting->id, (int) $manager->id);
+        tickets::request_info($activity, (int) $waiting->id, 'Since when?', FORMAT_PLAIN, (int) $manager->id);
+        // A second, unrelated live ticket from the SAME requester - open,
+        // not needsinfo - so the count has more than one row to tell apart.
+        tickets::file_help($activity, $group, 'A separate question entirely', FORMAT_PLAIN, (int) $member->id);
+
+        $this->assertSame(1, tickets::mine_needsinfo_count($activity, (int) $member->id));
+
+        // A different requester with no tickets at all reads zero.
+        $this->assertSame(0, tickets::mine_needsinfo_count($activity, (int) $guide->id));
+    }
 }

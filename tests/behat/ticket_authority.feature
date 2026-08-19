@@ -93,3 +93,34 @@ Feature: The 1.20.43 settings release - who may raise, responsible mode, and the
     Then I should not see "Ask the managers and coordinators for help"
     When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
     Then I should not see "Ask the managers and coordinators for help"
+
+  Scenario: The group page's live requests are visible only to the requester and to staff
+    Given the following "activities" exist:
+      | activity           | course | name       | idnumber | minsize | maxsize | maxlead | maxmembership |
+      | selfselectadvanced | C1     | Lab groups | ssa1     | 1       | 4       | 1       | 2             |
+    And the following "mod_selfselectadvanced > groups" exist:
+      | selfselectadvanced | name      | leader   | guide  | state | timeapproved  |
+      | ssa1                | Team Blue | student1 | guide1 | firm  | ##yesterday## |
+    And the following "mod_selfselectadvanced > members" exist:
+      | ssagroup  | user     | status    |
+      | Team Blue | student2 | confirmed |
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
+    And I set the field "Ask for leadership help (say what the group needs):" to "Our leader has gone quiet"
+    And I press "File request"
+
+    # The requester sees their own row.
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
+    Then I should see "This group's requests"
+    And I should see "Leadership help"
+
+    # The leader is party to neither this ticket nor to queue authority,
+    # so they see nothing of it - even though the group genuinely has a
+    # live request right now (proven above).
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student1
+    Then I should not see "This group's requests"
+    And I should not see "Leadership help"
+
+    # Staff (an editing teacher, holding :manage) sees the whole live set.
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as teacher1
+    Then I should see "This group's requests"
+    And I should see "Leadership help"

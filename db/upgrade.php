@@ -3116,5 +3116,32 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081800, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026081900) {
+        // 1.20.53: a ticket is findable again after it is filed. NO SCHEMA -
+        // every count and flag here is derived from the ticket rows and the
+        // trail that already exist.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.53 (2026081900). Tickets are reachable from the group page, '
+                . 'and the landing page says what needs a reply.',
+            'A request was reachable only through the one-time notice shown as it was filed: the '
+                . 'group page it was filed from never mentioned it again, and nothing anywhere said '
+                . 'that a ticket wanted somebody\'s attention. The group page now lists that '
+                . 'group\'s live requests - the requester sees their own, queue authority sees them '
+                . 'all, and nobody else sees a section at all - and the landing page states the '
+                . 'position instead of offering an unlabelled button: how many requests are yours '
+                . 'and how many need your reply, and for staff a direct route to the queue carrying '
+                . 'what is waiting and what they are handling. A ticket still claimed whose last '
+                . 'trail entry is the requester\'s own reply is marked as waiting on its claimant, '
+                . 'derived from the trail rather than from any new column. There is deliberately no '
+                . 'read/unread tracking: that needs per-user state this release did not buy.'
+        );
+
+        upgrade_mod_savepoint(true, 2026081900, 'selfselectadvanced');
+    }
+
     return true;
 }

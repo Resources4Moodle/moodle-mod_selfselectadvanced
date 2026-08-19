@@ -2525,6 +2525,25 @@ class tickets {
     }
 
     /**
+     * The boolean twin of require_queue_authority(), for a page (or an
+     * exporter, which cannot throw mid-render) deciding whether to OFFER
+     * a direct route to the queue rather than refusing one (1.20.53
+     * deliverable B: "give staff a direct route rather than a dashboard
+     * detour"). Exactly the same two capabilities, in the same order, so
+     * this and require_queue_authority() can never answer differently.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the actor
+     * @return bool
+     */
+    public static function has_queue_authority(activity $activity, int $userid): bool {
+        $context = $activity->context();
+
+        return has_capability('mod/selfselectadvanced:manage', $context, $userid)
+            || has_capability('mod/selfselectadvanced:coordinate', $context, $userid);
+    }
+
+    /**
      * Whether this viewer may open a ticket's thread (ticket.php, slice
      * B2): the ticket's own requester, OR anyone who passes
      * require_queue_authority() (manage or coordinate). A group LEADER
@@ -3289,6 +3308,69 @@ class tickets {
     }
 
     /**
+     * The group's own live requests (1.20.53 deliverable A): what the
+     * GROUP PAGE itself forgot the moment the filing notice scrolled
+     * away - a student filed from this very page and it never mentioned
+     * the ticket again, which the maintainer called the sharpest gap in
+     * the report.
+     *
+     * Who sees which is the EXISTING authority, never a new one: the
+     * requester sees their own rows, always; anyone who passes
+     * require_queue_authority() sees the group's whole live set;
+     * everybody else sees nothing, which this returns as an empty array
+     * rather than refusing - the page draws no section at all for them,
+     * the same "no empty heading" rule this deliverable itself states.
+     *
+     * LIVE means open, claimed or needsinfo - the same trio file()'s own
+     * duplicate guard treats as one live ticket per (group, type) - so a
+     * resolved, declined or withdrawn row never appears here; that
+     * history stays on myrequests.php and the queue for whoever already
+     * has authority to read it.
+     *
+     * @param activity $activity the activity
+     * @param int $groupid the group
+     * @param int $viewerid the viewer
+     * @param bool $isstaff whether the viewer passes
+     *        require_queue_authority(); CALLED by the caller and passed
+     *        in, not re-derived here, so a page that already asked the
+     *        question once never asks it twice
+     * @return stdClass[] ticket rows, needsinfo first then open then
+     *         claimed, newest first within each
+     */
+    public static function group_live(activity $activity, int $groupid, int $viewerid, bool $isstaff): array {
+        global $DB;
+
+        $params = [
+            'activityid' => $activity->id(),
+            'groupid' => $groupid,
+            'open' => self::STATUS_OPEN,
+            'claimed' => self::STATUS_CLAIMED,
+            'needsinfo' => self::STATUS_NEEDSINFO,
+        ];
+        $viewersql = '';
+        if (!$isstaff) {
+            $viewersql = ' AND t.requestedby = :viewerid';
+            $params['viewerid'] = $viewerid;
+        }
+
+        return $DB->get_records_sql(
+            "SELECT t.*
+               FROM {selfselectadvanced_ticket} t
+              WHERE t.activityid = :activityid AND t.groupid = :groupid
+                    AND t.status IN (:open, :claimed, :needsinfo)" . $viewersql . "
+           ORDER BY CASE t.status
+                        WHEN 'needsinfo' THEN 0
+                        WHEN 'open' THEN 1
+                        WHEN 'claimed' THEN 2
+                        ELSE 3
+                    END,
+                    t.timecreated DESC,
+                    t.id DESC",
+            $params
+        );
+    }
+
+    /**
      * Every OTHER ticket one requester has filed in this activity, newest
      * first - the maintainer's repeated-request blocker (B2, deliverable
      * 1): a staff member deciding a live ticket can see whether this
@@ -3360,6 +3442,27 @@ class tickets {
         return $DB->count_records('selfselectadvanced_ticket', [
             'activityid' => $activity->id(),
             'requestedby' => $userid,
+        ]);
+    }
+
+    /**
+     * How many of one person's tickets are in needsinfo - waiting on
+     * THEIR reply, not merely on the queue (1.20.53 deliverable B): the
+     * landing page's highlighted "N need your reply" line, so a
+     * requester who never opens myrequests.php still learns a question
+     * is waiting for them.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the requester
+     * @return int
+     */
+    public static function mine_needsinfo_count(activity $activity, int $userid): int {
+        global $DB;
+
+        return $DB->count_records('selfselectadvanced_ticket', [
+            'activityid' => $activity->id(),
+            'requestedby' => $userid,
+            'status' => self::STATUS_NEEDSINFO,
         ]);
     }
 
@@ -3444,6 +3547,136 @@ class tickets {
               WHERE t.activityid = :activityid AND t.status = :open" . $mine . $typesql . $statussql,
             $params
         );
+    }
+
+    /**
+     * How many tickets this person is CURRENTLY the claimant of
+     * (1.20.53 deliverable B): the landing page's direct route states
+     * this beside the queue's own waiting count, so a coordinator or
+     * manager reads their whole position - what is waiting, and what is
+     * theirs - without a dashboard detour.
+     *
+     * CLAIMED and NEEDSINFO both count, the same LIVENESS pairing
+     * decision 2 established everywhere else in this class: the
+     * claimant does not stop being the claimant while a question sits
+     * with the requester, so tickets.php's own $isworked/$mine test and
+     * this count must never disagree about which tickets are "theirs".
+     *
+     * @param activity $activity the activity
+     * @param int $userid the claimant
+     * @return int
+     */
+    public static function handling_count(activity $activity, int $userid): int {
+        global $DB;
+
+        [$statussql, $statusparams] = $DB->get_in_or_equal(
+            [self::STATUS_CLAIMED, self::STATUS_NEEDSINFO],
+            SQL_PARAMS_NAMED,
+            'st'
+        );
+
+        return $DB->count_records_select(
+            'selfselectadvanced_ticket',
+            "activityid = :activityid AND claimedby = :userid AND status $statussql",
+            array_merge(['activityid' => $activity->id(), 'userid' => $userid], $statusparams)
+        );
+    }
+
+    /**
+     * The JOIN every "what did the trail last say" query in this class
+     * shares: the single most recent {selfselectadvanced_ticketlog} row
+     * for the ticket aliased $ticketalias, by id.
+     *
+     * MAX(id) agrees with trail()'s own tie-break order (timecreated,
+     * then id) because ids only ever increase - this only ever needs the
+     * LAST row, never the whole ordered trail trail() builds, so it
+     * stays its own small query rather than a trail() call per ticket,
+     * exactly the query-per-row shape this file avoids everywhere else.
+     *
+     * @param string $ticketalias the ticket table's alias in the caller's FROM clause
+     * @return string
+     */
+    private static function last_log_join(string $ticketalias): string {
+        return "JOIN {selfselectadvanced_ticketlog} l ON l.id = (
+                    SELECT MAX(l2.id) FROM {selfselectadvanced_ticketlog} l2
+                     WHERE l2.ticketid = $ticketalias.id
+                )";
+    }
+
+    /**
+     * How many tickets this claimant is handling where the ball is
+     * actually back in THEIR court (1.20.53 deliverable C): still
+     * claimed, but the last trail row is the requester's own inforeply -
+     * they answered the question and nobody has acted since.
+     *
+     * Derived from the trail, never a new column: trail() already exists
+     * for reading one ticket's history; this asks the identical question
+     * in bulk, across a claimant's whole handling list, with one SQL
+     * statement rather than a fetch-and-filter (coordinator.php's own
+     * comment on count_open() is the rule this follows: only the number
+     * is wanted, so only the number is fetched).
+     *
+     * NO READ/UNREAD TRACKING. This is not "has the claimant looked at
+     * the reply" - this plugin has no per-user read state and this
+     * release is not buying one - it is "did the requester speak last on
+     * a ticket that is still claimed", which the trail already records.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the claimant
+     * @return int
+     */
+    public static function handling_awaiting_reply_count(activity $activity, int $userid): int {
+        global $DB;
+
+        return $DB->count_records_sql(
+            "SELECT COUNT(1)
+               FROM {selfselectadvanced_ticket} t
+               " . self::last_log_join('t') . "
+              WHERE t.activityid = :activityid AND t.claimedby = :userid
+                    AND t.status = :claimed AND l.action = :inforeply",
+            [
+                'activityid' => $activity->id(),
+                'userid' => $userid,
+                'claimed' => self::STATUS_CLAIMED,
+                'inforeply' => self::ACTION_INFOREPLY,
+            ]
+        );
+    }
+
+    /**
+     * The bulk form of handling_awaiting_reply_count()'s own condition,
+     * for a PAGE marking rows rather than counting them (1.20.53
+     * deliverable C: "must say so ... in the staff queue"): which of
+     * these ticket ids are claimed with the requester's inforeply as the
+     * last trail row, in one query for the whole page rather than one
+     * trail() call per row.
+     *
+     * @param activity $activity the activity
+     * @param int[] $ticketids candidate ticket ids
+     * @return int[] the subset that is awaiting its claimant, as ids
+     */
+    public static function awaiting_claimant_ids(activity $activity, array $ticketids): array {
+        global $DB;
+
+        $ticketids = array_values(array_unique(array_map('intval', $ticketids)));
+        if (!$ticketids) {
+            return [];
+        }
+        [$insql, $params] = $DB->get_in_or_equal($ticketids, SQL_PARAMS_NAMED, 'tid');
+        $params['activityid'] = $activity->id();
+        $params['claimed'] = self::STATUS_CLAIMED;
+        $params['inforeply'] = self::ACTION_INFOREPLY;
+
+        $rows = $DB->get_records_sql(
+            "SELECT t.id
+               FROM {selfselectadvanced_ticket} t
+               " . self::last_log_join('t') . "
+              WHERE t.id $insql AND t.activityid = :activityid
+                    AND t.status = :claimed AND l.action = :inforeply",
+            $params
+        );
+
+        return array_map('intval', array_keys($rows));
     }
 
     /**

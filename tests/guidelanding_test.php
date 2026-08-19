@@ -611,6 +611,45 @@ final class guidelanding_test extends \advanced_testcase {
     }
 
     /**
+     * 1.20.53 deliverable B, the "guide" bullet: a guide's own filed
+     * tickets reach them through the SAME "My requests" panel every
+     * other requester gets - hasmyrequests is drawn unconditionally on
+     * the landing page, not only inside the student area, so bullet 1
+     * ("requester with any ticket") already covers a guide without a
+     * second mechanism built inside the guide panel itself (spec:
+     * "nothing more").
+     */
+    public function test_the_guide_sees_their_own_requests_through_the_shared_panel(): void {
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+
+        $this->redirectMessages();
+        // Team A is PENDING_GUIDE, which TYPE_DATES admits (guide,
+        // pending_guide/firm/frozen) - filed by the same guide this
+        // whole fixture is built around.
+        \mod_selfselectadvanced\local\tickets::file(
+            $this->activity,
+            $this->teama,
+            \mod_selfselectadvanced\local\tickets::TYPE_DATES,
+            'Need two more days',
+            FORMAT_PLAIN,
+            (int) $this->guide->id
+        );
+
+        $data = $this->landing((int) $this->guide->id);
+        $this->assertTrue($data->hasmyrequests, 'the guide filed a ticket, so the shared panel must offer it');
+        $this->assertSame(
+            get_string('myrequestscount', 'mod_selfselectadvanced', 1),
+            $data->myrequestslabel
+        );
+
+        // A guide who filed nothing gets no panel - the button follows
+        // the row, not the role, exactly as it does for a student.
+        $otherdata = $this->landing((int) $this->otherguide->id);
+        $this->assertFalse($otherdata->hasmyrequests);
+    }
+
+    /**
      * Prohibit a capability for a role at the activity context.
      *
      * @param string $capability the capability

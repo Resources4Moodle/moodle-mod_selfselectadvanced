@@ -341,4 +341,171 @@ final class myrequests_test extends \advanced_testcase {
         ))->export_for_template($output);
         $this->assertFalse($others->hasmyrequests);
     }
+
+    /**
+     * 1.20.53 deliverable B: the "My requests" panel now STATES THE
+     * POSITION ("My requests (N)") and highlights a needsinfo row - built
+     * from a requester with TWO live tickets, one needsinfo and one
+     * plain open, so the two counts could not pass by being equal to
+     * each other or to the row total.
+     */
+    public function test_the_landing_panel_states_the_requesters_position_and_highlights_needsinfo(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        [$activity, $group, , $member, , $manager] = $this->setup_world();
+        $PAGE->set_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]);
+        $output = $PAGE->get_renderer('core');
+
+        $this->redirectMessages();
+        $waiting = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_LEADERCHANGE,
+            'Our leader has gone quiet',
+            FORMAT_PLAIN,
+            (int) $member->id
+        );
+        tickets::claim($activity, (int) $waiting->id, (int) $manager->id);
+        tickets::request_info($activity, (int) $waiting->id, 'Since when?', FORMAT_PLAIN, (int) $manager->id);
+        // A second, unrelated live ticket from the same requester - open,
+        // not needsinfo - so the fixture genuinely has more than one row.
+        tickets::file_help($activity, $group, 'A separate question entirely', FORMAT_PLAIN, (int) $member->id);
+
+        $data = (new \mod_selfselectadvanced\output\landing(
+            new \mod_selfselectadvanced\local\api($activity),
+            (int) $member->id
+        ))->export_for_template($output);
+
+        $this->assertTrue($data->hasmyrequests);
+        $this->assertSame(2, $data->myrequestcount, 'both live tickets must be counted');
+        $this->assertSame(
+            get_string('myrequestscount', 'mod_selfselectadvanced', 2),
+            $data->myrequestslabel
+        );
+        $this->assertTrue($data->hasmyrequestsneedsinfo);
+        $this->assertSame(1, $data->myrequestsneedsinfocount, 'only the needsinfo ticket, not both');
+        $this->assertSame(
+            get_string('myrequestsneedsreply', 'mod_selfselectadvanced', 1),
+            $data->myrequestsneedsinfoline
+        );
+
+        // A requester with nothing outstanding gets no highlight, even
+        // though they DO have a live ticket - proving the highlight is
+        // conditioned on needsinfo, not merely on hasmyrequests.
+        tickets::provide_info($activity, (int) $waiting->id, 'Since Tuesday.', FORMAT_PLAIN, (int) $member->id);
+        $answered = (new \mod_selfselectadvanced\output\landing(
+            new \mod_selfselectadvanced\local\api($activity),
+            (int) $member->id
+        ))->export_for_template($output);
+        $this->assertTrue($answered->hasmyrequests);
+        $this->assertFalse($answered->hasmyrequestsneedsinfo, 'the requester already replied - nothing to highlight');
+    }
+
+    /**
+     * 1.20.53 deliverable B: a queue-authority viewer gets a DIRECT route
+     * carrying the number waiting (open, unclaimed) and the number they
+     * are handling (claimed by them); deliverable C folds in how many of
+     * those are actually waiting on THIS claimant's next move. Built
+     * from two live tickets on two different requesters so neither
+     * figure could pass by counting the same row twice or by coincidence
+     * with the total.
+     */
+    public function test_the_landing_panel_gives_queue_authority_a_direct_route_with_counts(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        [$activity, $group, $leader, $member, $guide, $manager, $coordinator] = $this->setup_world();
+        $PAGE->set_url('/mod/selfselectadvanced/view.php', ['id' => $activity->cm()->id]);
+        $output = $PAGE->get_renderer('core');
+
+        $this->redirectMessages();
+        // Stays open and unclaimed - the "waiting" figure.
+        tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Need a different mix',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        // Claimed by the coordinator, then answered - "handling", and
+        // within it, "waiting on your reply".
+        $handled = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_LEADERCHANGE,
+            'Our leader has gone quiet',
+            FORMAT_PLAIN,
+            (int) $member->id
+        );
+        tickets::claim($activity, (int) $handled->id, (int) $coordinator->id);
+        tickets::request_info($activity, (int) $handled->id, 'Since when?', FORMAT_PLAIN, (int) $coordinator->id);
+        tickets::provide_info($activity, (int) $handled->id, 'Since Tuesday.', FORMAT_PLAIN, (int) $member->id);
+        // A SECOND ticket the coordinator holds and NOBODY has replied
+        // to. Without it "handling" and "waiting on your reply" were
+        // both 1 for the only viewer where either was non-zero, so
+        // wiring the second figure to handling_count() - a one-word slip
+        // between two adjacent calls in the exporter - passed every
+        // assertion while telling a coordinator to go hunting for
+        // replies that do not exist. Two must not be able to read as
+        // one.
+        $alsohandled = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_DATES,
+            'We need the deadline moved',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        tickets::claim($activity, (int) $alsohandled->id, (int) $coordinator->id);
+
+        $coorddata = (new \mod_selfselectadvanced\output\landing(
+            new \mod_selfselectadvanced\local\api($activity),
+            (int) $coordinator->id
+        ))->export_for_template($output);
+        $this->assertTrue($coorddata->hasqueueauthority);
+        $this->assertStringContainsString('tickets.php', $coorddata->directticketsurl);
+        $this->assertSame(1, $coorddata->ticketswaitingcount);
+        $this->assertTrue($coorddata->highlightticketswaiting);
+        // TWO handled, ONE of them awaiting this claimant's reply: the
+        // two figures must be numerically different, or neither is
+        // proven to come from its own query.
+        $this->assertSame(2, $coorddata->tickethandlingcount);
+        $this->assertTrue($coorddata->hastickethandlingneedingreply);
+        $this->assertSame(1, $coorddata->tickethandlingneedingreplycount);
+        $this->assertNotSame(
+            $coorddata->tickethandlingcount,
+            $coorddata->tickethandlingneedingreplycount,
+            'the two landing figures must be distinguishable, or a mis-wiring between them is invisible'
+        );
+        $this->assertSame(
+            get_string('tickethandlingneedsreply', 'mod_selfselectadvanced', 1),
+            $coorddata->tickethandlingneedingreplyline
+        );
+
+        // The manager also holds queue authority but claimed nothing:
+        // the SAME waiting figure (it is a fact about the queue), a
+        // DIFFERENT (zero) handling figure - counts are per-viewer, not
+        // shared state.
+        $managerdata = (new \mod_selfselectadvanced\output\landing(
+            new \mod_selfselectadvanced\local\api($activity),
+            (int) $manager->id
+        ))->export_for_template($output);
+        $this->assertTrue($managerdata->hasqueueauthority);
+        $this->assertSame(1, $managerdata->ticketswaitingcount);
+        $this->assertSame(0, $managerdata->tickethandlingcount);
+        $this->assertFalse($managerdata->hastickethandlingneedingreply);
+
+        // A plain student holds no queue authority at all: the panel is
+        // absent entirely, proven against a fixture that genuinely has
+        // live tickets waiting.
+        $leaderdata = (new \mod_selfselectadvanced\output\landing(
+            new \mod_selfselectadvanced\local\api($activity),
+            (int) $leader->id
+        ))->export_for_template($output);
+        $this->assertFalse($leaderdata->hasqueueauthority);
+    }
 }

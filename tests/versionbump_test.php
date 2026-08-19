@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026081800;
+    private const CURRENT = 2026081900;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026081701;
+    private const PREVIOUS = 2026081800;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.52';
+    private const RELEASE = '1.20.53';
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -414,10 +414,12 @@ final class versionbump_test extends \advanced_testcase {
         // claim, because the step has just guaranteed their existence, but it
         // has to be declared separately so nobody can quietly move a table
         // between the two categories.
-        // EMPTY for 2026081800. The 1.20.52 step touches no schema at
-        // all - it carries an upgrade_log() marker and its savepoint so
-        // the tip can equal version.php. The 2026081701 entry was empty
-        // and is gone: a one-off licence must not become a standing one.
+        // EMPTY for 2026081900. The 1.20.53 step touches no schema at
+        // all - every count and flag the release adds is derived from the
+        // ticket rows and the trail that already exist, so the step carries
+        // an upgrade_log() marker and its savepoint and nothing else. The
+        // 2026081800 entry was empty and is gone: a one-off licence must
+        // not become a standing one.
         $exempt = [];
         $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
         $allowed = array_key_exists(self::CURRENT, $exempt)

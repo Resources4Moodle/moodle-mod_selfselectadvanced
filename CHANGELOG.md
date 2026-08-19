@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.20.53 — a filed ticket stays findable, and says when it wants you (2026-08-19)
+
+> Serial `2026081900` / `1.20.53`. **No schema change.** Maturity stays RC.
+
+**A request used to vanish the moment its filing notice scrolled away.** The
+one-time "your request has been queued" notice carried the only link to it;
+the group page it was filed from never mentioned it again, and reaching a
+ticket afterwards meant knowing that "My requests" — an unlabelled button far
+down the landing page — was where it had gone, or, for staff, three clicks
+through the coordinator dashboard with no count until the third.
+
+**The group page now lists that group's live requests.** Who sees which is
+the authority that already governs tickets, called rather than reinvented:
+the requester sees their own rows, whoever passes the queue check sees the
+group's whole live set, and everybody else sees no section at all — not an
+empty heading. Each row carries its type, its state, when it was raised and
+one plainly-labelled link into the thread.
+
+**The landing page states the position instead of offering a route.** A
+requester reads "My requests (N)", with a highlighted "N need your reply"
+when a question is actually waiting on them. Staff get a direct link to the
+queue carrying what is waiting and what they are handling — beside the
+dashboard buttons, not instead of them.
+
+**And "the requester has replied" is now visible without opening the
+ticket.** A ticket still claimed whose last trail entry is the requester's
+own reply is badged in the queue and counted on the landing page, derived
+from the trail this plugin already keeps, in one query per page rather than
+one per row. The badge is shown to every member of staff who can read the
+queue but is **worded for whoever is reading it**: its claimant is told
+*Waiting on you*, and anybody else is told *The requester has replied* -
+they are entitled to know the state of a ticket they can see, but not to be
+told they owe something on a ticket they have never touched.
+
+There is deliberately **no read/unread tracking**. Genuine "new since you
+last looked" needs per-user state and a schema change; this release buys
+"action required", which the stored trail can already answer.
+
 ## 1.20.52 — the ticket box is an editor, and the two channels say which is which (2026-08-18)
 
 > Serial `2026081800` / `1.20.52`. **No schema change.** Maturity stays RC.

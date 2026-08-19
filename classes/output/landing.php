@@ -306,13 +306,69 @@ class landing implements renderable, templatable {
             && has_capability('mod/selfselectadvanced:coordinate', $context, $this->userid, false);
         $data->ticketsurl = (new \moodle_url('/mod/selfselectadvanced/coordinator.php', ['id' => $cmid]))->out(false);
 
+        // 1.20.53 deliverable B: a DIRECT route to the queue, ADDED
+        // beside the dashboard buttons above rather than replacing them
+        // - the maintainer's report named the dashboard detour itself as
+        // part of the problem ("landing -> Coordinator dashboard ->
+        // Tickets card -> queue. Three clicks, no count until the
+        // third"). tickets::has_queue_authority() is the exact predicate
+        // tickets.php's own door and require_queue_authority() already
+        // enforce, CALLED rather than transcribed.
+        $data->hasqueueauthority = tickets::has_queue_authority($activity, $this->userid);
+        $data->directticketsurl = (new \moodle_url('/mod/selfselectadvanced/tickets.php', ['id' => $cmid]))->out(false);
+        if ($data->hasqueueauthority) {
+            // Open and unclaimed - the SAME count coordinator.php's own
+            // dashboard card already shows, called here rather than
+            // reimplemented, so a ticket this viewer filed themselves is
+            // excluded from "waiting" for the identical conflict-of-
+            // interest reason it is excluded from that card.
+            $waiting = tickets::count_open($activity, $this->userid);
+            $handling = tickets::handling_count($activity, $this->userid);
+            $data->ticketswaitingcount = $waiting;
+            $data->tickethandlingcount = $handling;
+            $data->ticketswaitingline = get_string('ticketqueuewaitingcount', 'mod_selfselectadvanced', $waiting);
+            $data->tickethandlingline = get_string('tickethandlingcount', 'mod_selfselectadvanced', $handling);
+            // Highlight ONLY the waiting figure, and only while it is
+            // positive (spec: "Highlight only when the number waiting is
+            // > 0").
+            $data->highlightticketswaiting = $waiting > 0;
+            // Deliverable C's other half: of the tickets this viewer is
+            // handling, how many have the requester's own inforeply as
+            // the last trail row - still claimed, but the ball is back
+            // in the claimant's court. Derived from the trail; no new
+            // column.
+            $needingreply = tickets::handling_awaiting_reply_count($activity, $this->userid);
+            $data->tickethandlingneedingreplycount = $needingreply;
+            $data->hastickethandlingneedingreply = $needingreply > 0;
+            $data->tickethandlingneedingreplyline = get_string(
+                'tickethandlingneedsreply',
+                'mod_selfselectadvanced',
+                $needingreply
+            );
+        }
+
         // The way in to your own requests. Drawn only for somebody who
         // has actually filed one: myrequests.php admits everybody, so an
         // always-on button would put a link to an empty page on every
         // student's landing page. The condition is a COUNT, not a fetch
         // - this runs for every viewer of the activity.
-        $data->hasmyrequests = tickets::mine_count($activity, $this->userid) > 0;
+        $mycount = tickets::mine_count($activity, $this->userid);
+        $data->hasmyrequests = $mycount > 0;
+        $data->myrequestcount = $mycount;
         $data->myrequestsurl = (new \moodle_url('/mod/selfselectadvanced/myrequests.php', ['id' => $cmid]))->out(false);
+        if ($data->hasmyrequests) {
+            // 1.20.53 deliverable B: the button now STATES THE POSITION
+            // ("My requests (N)") instead of the old unlabelled route,
+            // and a needsinfo row is highlighted rather than left for
+            // the requester to discover by opening the page. Derived
+            // from mine_needsinfo_count() - a count, never a fetch of
+            // mine() just to number it.
+            $data->myrequestslabel = get_string('myrequestscount', 'mod_selfselectadvanced', $mycount);
+            $needsreply = tickets::mine_needsinfo_count($activity, $this->userid);
+            $data->myrequestsneedsinfocount = $needsreply;
+            $data->hasmyrequestsneedsinfo = $needsreply > 0;
+            $data->myrequestsneedsinfoline = get_string('myrequestsneedsreply', 'mod_selfselectadvanced', $needsreply);
+        }
 
         // 1.20.43 deliverable B: an entry point for the general help
         // type that does NOT require a group page - "any eligible user"

@@ -81,15 +81,57 @@ final class ordering_determinism_test extends \advanced_testcase {
 
         foreach ($this->production_files() as $path) {
             $lines = file($path);
+            $count = count($lines);
             foreach ($lines as $number => $line) {
-                // The two shapes an ordering takes in this codebase.
-                $issql = (bool) preg_match('/ORDER BY[^"\']*timecreated\s+(ASC|DESC)/i', $line);
-                $isarg = (bool) preg_match('/[\'"]timecreated\s+(ASC|DESC)[\'"]/i', $line);
-                if (!$issql && !$isarg) {
+                // Prose is not an ordering. A docblock that happens to say
+                // "keyed by group id, timecreated ASC" describes one; it does
+                // not perform one, and flagging it would be a false alarm.
+                $trimmed = ltrim($line);
+                if (
+                    $trimmed === ''
+                    || str_starts_with($trimmed, '*')
+                    || str_starts_with($trimmed, '//')
+                    || str_starts_with($trimmed, '/*')
+                ) {
+                    continue;
+                }
+                // THE TRIGGER IS THE ORDERING ITSELF, wherever it sits.
+                //
+                // The first version of this scan demanded ORDER BY, or a
+                // quote, on the SAME LINE - which a multi-line SQL string
+                // never satisfies. A review of 1.20.53 found two orderings
+                // hiding in exactly that blind spot, including one the
+                // release had just added: group_live() puts
+                // `t.timecreated DESC,` on its own continuation line, so the
+                // scan never examined it and its id tiebreaker could have
+                // been deleted without a single test going red. A checker
+                // that cannot see the code it is meant to guard is worse
+                // than no checker, because it reports a number.
+                if (!preg_match('/\btimecreated\s+(ASC|DESC)/i', $line)) {
                     continue;
                 }
                 $examined++;
-                if (preg_match('/\bid\s+(ASC|DESC)/i', $line)) {
+
+                // Judge the ORDERING CLAUSE, not the line: back to its
+                // ORDER BY, and forward to whatever closes the statement.
+                // A tiebreaker on a later line of the same clause counts;
+                // one belonging to the NEXT statement must not.
+                $start = $number;
+                for ($i = $number; $i >= 0 && $i > $number - 12; $i--) {
+                    if (preg_match('/ORDER BY/i', $lines[$i])) {
+                        $start = $i;
+                        break;
+                    }
+                }
+                $end = $number;
+                for ($i = $number; $i < $count && $i < $number + 12; $i++) {
+                    $end = $i;
+                    if (preg_match('/;|["\']\s*[,)]/', $lines[$i])) {
+                        break;
+                    }
+                }
+                $clause = implode('', array_slice($lines, $start, $end - $start + 1));
+                if (preg_match('/\bid\s+(ASC|DESC)/i', $clause)) {
                     continue;
                 }
                 $offenders[] = str_replace(realpath(__DIR__ . '/..') . '/', '', $path)

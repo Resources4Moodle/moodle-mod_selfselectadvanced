@@ -175,3 +175,34 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     Then I should see "unfrozen and restored"
     When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page
     Then I should see "Resolved automatically"
+
+  Scenario: A student returns to the group page and finds the ticket
+    # RED-FIRST (the maintainer's sharpest named gap): "The Open ticket is
+    # available immediately after a ticket is submitted. But, subsequent
+    # to that, no link to the ticket is available." Filing from the group
+    # page used to leave no trace on it at all once the one-time filing
+    # notice had scrolled away.
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as guide1
+    And I set the field "Request a composition change from the managers" to "Swap in a data specialist"
+    And I press "File request"
+    Then I should see "Your request has been queued for the managers and coordinators."
+
+    # A fresh visit to the SAME group page, not the one-time flash notice.
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as guide1
+    Then I should see "This group's requests"
+    And I should see "Composition change" in the ".selfselectadvanced-groupliverequests" "css_element"
+    And I should see "Open" in the ".selfselectadvanced-groupliverequests" "css_element"
+    When I follow "View thread"
+    Then I should see "Swap in a data specialist"
+
+  Scenario: A coordinator sees the waiting count on the landing page and reaches the queue in one click
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as guide1
+    And I set the field "Request a composition change from the managers" to "Swap in a data specialist"
+    And I press "File request"
+    Then I should see "Your request has been queued for the managers and coordinators."
+
+    When I am on the "Lab groups" "selfselectadvanced activity" page logged in as coord1
+    Then I should see "1 ticket(s) waiting" in the ".selfselectadvanced-ticketqueuepanel" "css_element"
+    When I click on "Ticket queue" "link" in the ".selfselectadvanced-ticketqueuepanel" "css_element"
+    Then I should see "Composition change"
+    And I should see "Swap in a data specialist"

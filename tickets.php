@@ -281,6 +281,12 @@ $requesterline = static function (int $requesterid, bool $mine) use ($requesterc
     return $line;
 };
 
+// 1.20.53 deliverable C: which of this page's rows are claimed with the
+// requester's own inforeply as the last trail row - waiting on the
+// claimant, not merely "being handled". One bulk query for the whole
+// page, never a trail() call per row.
+$awaitingclaimantids = tickets::awaiting_claimant_ids($activity, array_keys($queue));
+
 $position = tickets::open_before($activity, (int) $USER->id, $page * $perpage, $typefilter, $statusfilter);
 foreach ($queue as $ticket) {
     $isopen = $ticket->status === tickets::STATUS_OPEN;
@@ -303,6 +309,32 @@ foreach ($queue as $ticket) {
         $statuscell .= ' ' . html_writer::span(
             get_string('ticketescalatebadge', 'mod_selfselectadvanced'),
             'badge bg-danger'
+        );
+    }
+    // 1.20.53 deliverable C: "must say so in the staff queue". The badge
+    // is drawn for EVERY staff viewer, like the escalated badge above -
+    // any of them is entitled to see that a claimed ticket is actually
+    // waiting on its claimant's next move - but it is WORDED for the
+    // person reading it.
+    //
+    // The first draft used the second-person string for everybody. A
+    // coordinator was then told "Waiting on you" about a ticket somebody
+    // else held, which they cannot comment on (comment() refuses a
+    // non-claimant) and cannot take up (no Take up control is drawn for
+    // a claimed ticket), while their own landing page said they owed
+    // nothing - handling_awaiting_reply_count() does filter on
+    // claimedby. Two surfaces of one release contradicting each other
+    // about the same ticket is worse than no badge at all.
+    if (
+        $ticket->status === tickets::STATUS_CLAIMED
+        && in_array((int) $ticket->id, $awaitingclaimantids, true)
+    ) {
+        $statuscell .= ' ' . html_writer::span(
+            get_string(
+                $mine ? 'ticketawaitingclaimant' : 'ticketawaitingclaimantother',
+                'mod_selfselectadvanced'
+            ),
+            'badge bg-warning text-dark'
         );
     }
     if (
