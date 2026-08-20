@@ -116,9 +116,21 @@ class ticket_page implements renderable, templatable {
         }
 
         $entries = [];
+        // 1.20.54 deliverable A: $lastrow is the LAST element of this
+        // SAME loop - the trail this page has already fetched - so
+        // whose_move_line() below can ask "is the last row the
+        // requester's inforeply" without a second query and without
+        // calling awaiting_claimant_ids() for a single ticket (spec
+        // design point 1). It is deliberately the raw trail() row, not
+        // the export_entry() result: only ->action is read from it, and
+        // that field is present on BOTH the staff and the anonymised
+        // branches of trail() alike, so this never needs $withactors to
+        // be true to work.
+        $lastrow = null;
         $withactors = $this->isstaff;
         foreach (tickets::trail($this->activity, (int) $ticket->id, $withactors) as $row) {
             $entries[] = $this->export_entry($row, $withactors, $requesterlabel);
+            $lastrow = $row;
         }
 
         $data = [
@@ -134,6 +146,9 @@ class ticket_page implements renderable, templatable {
             // statuslabel/statusclass above.
             'escalated' => (int) ($ticket->escalated ?? 0) === 1,
             'escalatebadgelabel' => get_string('ticketescalatebadge', 'mod_selfselectadvanced'),
+            // 1.20.54 deliverable A: "one plain line of where this
+            // stands, naming whose move it is" - see whose_move_line().
+            'wholine' => $this->whose_move_line($lastrow, $isclaimant),
             'raisedtime' => userdate((int) $ticket->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
             'requesterlabel' => $requesterlabel,
             'contactline' => $contactline,
@@ -155,8 +170,90 @@ class ticket_page implements renderable, templatable {
         $data += (array) $this->export_actionbox($isclaimant);
         $data += (array) $this->export_ladder($isclaimant);
         $data += (array) $this->export_history();
+        // 1.20.54 deliverable C: whether ANY of the "hand this off" group's
+        // three independent controls (release/refer/escalate) is showing,
+        // purely to decide whether the group's OWN heading renders - it
+        // governs no control's visibility itself, which stays exactly the
+        // predicate it already was (showrelease/showrefer/showreferempty/
+        // showescalate, set in export_actionbox()/export_ladder() above,
+        // untouched).
+        $data['showhandoff'] = $data['showrelease'] || $data['showrefer'] || $data['showreferempty'] || $data['showescalate'];
 
         return (object) $data;
+    }
+
+    /**
+     * "One plain line of where this stands, naming whose move it is"
+     * (1.20.54 deliverable A). $lastrow is the trail's own last element,
+     * handed in by export_for_template()'s loop - never a second query.
+     *
+     * Every branch here reuses an EXISTING string wherever the exact
+     * wording already exists elsewhere on this page or on myrequests.php
+     * (ticketstatusclaimed, ticketstatusneedsinfo, ticketthreadneedsinfohint,
+     * ticketawaitingclaimant, ticketawaitingclaimantother), so the thread
+     * never contradicts a surface that already says the same thing.
+     *
+     * @param stdClass|null $lastrow the trail's last row (only ->action
+     *        is read - present on both trail() branches), or null for a
+     *        ticket somehow logged with no rows at all
+     * @param bool $isclaimant whether the viewer is THIS ticket's claimant
+     * @return string
+     */
+    private function whose_move_line(?stdClass $lastrow, bool $isclaimant): string {
+        $ticket = $this->ticket;
+        $closedat = userdate((int) $ticket->timemodified, get_string('strftimedatetimeshort', 'langconfig'));
+
+        return match ($ticket->status) {
+            tickets::STATUS_OPEN => get_string('ticketwhosemoveopen', 'mod_selfselectadvanced'),
+            tickets::STATUS_CLAIMED => $this->whose_move_claimed_line($lastrow, $isclaimant),
+            // Needsinfo: staff read "waiting on the requester" (the exact
+            // badge wording); the requester reads that THEIR OWN reply is
+            // what is needed - the same string myrequests.php already
+            // shows for this status, so the two surfaces never disagree.
+            tickets::STATUS_NEEDSINFO => get_string(
+                $this->isstaff ? 'ticketstatusneedsinfo' : 'ticketthreadneedsinfohint',
+                'mod_selfselectadvanced'
+            ),
+            tickets::STATUS_RESOLVED => get_string('ticketwhosemoveresolved', 'mod_selfselectadvanced', $closedat),
+            tickets::STATUS_DECLINED => get_string('ticketwhosemovedeclined', 'mod_selfselectadvanced', $closedat),
+            tickets::STATUS_WITHDRAWN => get_string('ticketwhosemovewithdrawn', 'mod_selfselectadvanced', $closedat),
+            default => get_string('ticketstatus' . $ticket->status, 'mod_selfselectadvanced'),
+        };
+    }
+
+    /**
+     * The CLAIMED status's own whose-move text (spec bullets 2-3).
+     *
+     * "The requester spoke last" is the EXACT 1.20.53 derivation reused,
+     * not reinvented: still claimed, and the last
+     * {selfselectadvanced_ticketlog} row is ACTION_INFOREPLY - the same
+     * test handling_awaiting_reply_count()/awaiting_claimant_ids() run
+     * in bulk over the raw table, asked here instead of $lastrow, the
+     * trail this page already fetched for this one ticket.
+     *
+     * @param stdClass|null $lastrow the trail's last row, or null
+     * @param bool $isclaimant whether the viewer is THIS ticket's claimant
+     * @return string
+     */
+    private function whose_move_claimed_line(?stdClass $lastrow, bool $isclaimant): string {
+        $awaitingstaff = $lastrow !== null && $lastrow->action === tickets::ACTION_INFOREPLY;
+        if (!$awaitingstaff) {
+            // Claimed otherwise, being handled (spec, verbatim): the same
+            // text the status badge already carries for this status.
+            return get_string('ticketstatusclaimed', 'mod_selfselectadvanced');
+        }
+        if ($isclaimant) {
+            return get_string('ticketawaitingclaimant', 'mod_selfselectadvanced');
+        }
+        if ($this->isstaff) {
+            return get_string('ticketawaitingclaimantother', 'mod_selfselectadvanced');
+        }
+
+        // The requester, who just replied: told the reply landed and it
+        // is now waiting on whoever holds this - never named (the
+        // cardinal rule), and never the second-person "Waiting on you"
+        // wording, which belongs to the claimant alone.
+        return get_string('ticketwhosemovereplysent', 'mod_selfselectadvanced');
     }
 
     /**
@@ -262,6 +359,11 @@ class ticket_page implements renderable, templatable {
 
         return (object) [
             'actiontext' => get_string('threadentry' . $row->action, 'mod_selfselectadvanced', $actorlabel),
+            // 1.20.54 deliverable B: surfaced as its OWN field, rather
+            // than leaving it reachable only by parsing actiontext's
+            // sentence - the template puts this in a post's author
+            // column, exactly like the opening post's own requesterlabel.
+            'actorlabel' => $actorlabel,
             'hasnote' => $row->note !== null && trim((string) $row->note) !== '',
             'note' => $row->note !== null
                 ? format_text((string) $row->note, (int) $row->noteformat, ['context' => $context])
@@ -394,24 +496,40 @@ class ticket_page implements renderable, templatable {
             // rather than singled out"), so the button appears in both
             // states; nothing here widens what the service accepts.
             $box->showrelease = true;
-        } else if (
-            $this->isstaff && !$isclaimant
-            && in_array($ticket->status, [tickets::STATUS_CLAIMED, tickets::STATUS_NEEDSINFO], true)
-        ) {
+        } else if (!$isclaimant && in_array($ticket->status, [tickets::STATUS_CLAIMED, tickets::STATUS_NEEDSINFO], true)) {
+            // 1.20.54 deliverable A: extended from "staff who are not the
+            // claimant" to EVERY non-claimant viewer able to reach this
+            // page - the requester used to be told nothing here at all
+            // (this whole branch required $this->isstaff, which is
+            // always false for them). The anonymisation gate is
+            // $this->isstaff, exactly like export_entry()'s own
+            // $withactors above - never $this->isrequester - so a viewer
+            // who happens to hold staff capability on their OWN filed
+            // ticket (isrequester and isstaff both true) reads the named
+            // line here too, consistent with the fact $withactors already
+            // shows them every trail actor by name on the very same page.
             $box->showclaimedbyline = true;
-            $claimant = $ticket->claimedby ? \core_user::get_user((int) $ticket->claimedby) : null;
-            // 1.20.46: the same substitution export_entry() applies to a
-            // trail post - a claimant holding :api reads under the
-            // configured assistant name here too, never their real
-            // Moodle identity.
-            $box->claimedbyline = get_string(
-                'ticketthreadclaimedby',
-                'mod_selfselectadvanced',
-                $this->staff_display_name(
-                    (int) $ticket->claimedby,
-                    $claimant ? fullname($claimant) : (string) $ticket->claimedby
-                )
-            );
+            if ($this->isstaff) {
+                $claimant = $ticket->claimedby ? \core_user::get_user((int) $ticket->claimedby) : null;
+                // 1.20.46: the same substitution export_entry() applies to
+                // a trail post - a claimant holding :api reads under the
+                // configured assistant name here too, never their real
+                // Moodle identity.
+                $box->claimedbyline = get_string(
+                    'ticketthreadclaimedby',
+                    'mod_selfselectadvanced',
+                    $this->staff_display_name(
+                        (int) $ticket->claimedby,
+                        $claimant ? fullname($claimant) : (string) $ticket->claimedby
+                    )
+                );
+            } else {
+                // Anonymised: the cardinal rule. Reuses
+                // myrequestsclaimedhint's own string verbatim - the
+                // requester is never named the claimant, and never even
+                // hinted a specific person, capability or automation.
+                $box->claimedbyline = get_string('myrequestsclaimedhint', 'mod_selfselectadvanced');
+            }
         }
 
         if ($this->isrequester && $ticket->status === tickets::STATUS_NEEDSINFO) {

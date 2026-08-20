@@ -3143,5 +3143,32 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026081900, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026082000) {
+        // 1.20.54: the ticket page says where the request stands and the
+        // thread reads as a conversation. NO SCHEMA - whose move it is
+        // comes from the trail rows the page already fetches.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.54 (2026082000). The ticket page states whose move it is; a message no longer looks like an event.',
+            'The status was a bare badge with no label and nothing to say whose move it was, and the '
+                . 'requester - the one viewer with most reason to want to know - was never told that '
+                . 'anybody was handling their request at all. The head of the thread now carries a '
+                . 'labelled status, a plain line of where the request stands, and, for a viewer who is '
+                . 'not the claimant, who holds it: named for staff, and for the requester the same '
+                . 'anonymous wording their own request list already uses. In the thread itself a trail '
+                . 'row that carries a note is now a post, with its author beside the timestamp exactly '
+                . 'as the opening request has always been, while a row without one is a compact event '
+                . 'line - a state change and a message were previously the same object on screen. The '
+                . 'staff controls are grouped under headings that say what each group does. Nothing '
+                . 'about who may see or do what changed: every control keeps the predicate it had, and '
+                . 'the trail keeps its anonymised branch and its staff-internal exclusion.'
+        );
+
+        upgrade_mod_savepoint(true, 2026082000, 'selfselectadvanced');
+    }
+
     return true;
 }

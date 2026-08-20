@@ -637,4 +637,403 @@ final class ticket_thread_test extends \advanced_testcase {
             'ticket.php must fire ticket_viewed on its view path'
         );
     }
+
+    /**
+     * (7) THE WHOSE-MOVE LINE, "claimed, and the last trail row is the
+     * requester's inforeply" (1.20.54 deliverable A, bullet 2). This is
+     * the SAME viewer-dependent wording tickets.php's queue already
+     * carries (1.20.53: "Waiting on you" to the claimant, the
+     * third-person form to any other staff) - now also on the thread
+     * itself, plus the requester's own version, which is new: the
+     * requester never saw ANY whose-move text before this release.
+     *
+     * REUSES the 1.20.53 derivation from the trail this page has
+     * ALREADY FETCHED (export_for_template()'s own loop) - never a
+     * second query, never awaiting_claimant_ids() asked for a single
+     * ticket. See ticket_page::whose_move_claimed_line()'s own docblock.
+     *
+     * RED-FIRST (captured 2026-08-20, PHPUnit run on m5pg against the
+     * tree at 7bf9da5, before 'wholine' existed on the exported object
+     * at all): see this file's release report for the exact quoted
+     * failure - all three assertions below failed with "Undefined
+     * property" warnings (--fail-on-warning) because export_for_template()
+     * returned no 'wholine' key whatsoever.
+     */
+    public function test_whose_move_line_claimed_awaiting_reply_by_role(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, $manager, $coordinator] = $this->setup_world();
+
+        $ticket = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Need a specialist',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        tickets::claim($activity, (int) $ticket->id, (int) $manager->id);
+        tickets::request_info($activity, (int) $ticket->id, 'Which subject?', FORMAT_PLAIN, (int) $manager->id);
+        tickets::provide_info($activity, (int) $ticket->id, 'Statistics.', FORMAT_PLAIN, (int) $guide->id);
+
+        $fresh = tickets::get($activity, (int) $ticket->id);
+        $output = $PAGE->get_renderer('core');
+
+        // The claimant view renders the resolve/decline forms
+        // (showclaimantforms), which go through
+        // render_ticketpost_form() -> file_prepare_draft_area() - real
+        // Moodle machinery that needs $USER to be a genuine, existing
+        // user for its own draft-area user context, exactly like
+        // test_event_payload_bar()'s setUser() calls above provide the
+        // same fiction require_login() gives a real request for free.
+        // set_url() is the matching fiction for $PAGE - ticket.php calls
+        // it before ever rendering (PAGE->set_url($baseurl) at the top
+        // of the file), and the editor element's own tiny_autosave
+        // plugin reads $PAGE->url while rendering, which is exactly what
+        // this test is now the first in this class to actually do.
+        $this->setUser($manager);
+        $PAGE->set_url(new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => (int) $fresh->id]));
+
+        // The claimant: told it is their move.
+        $page = new \mod_selfselectadvanced\output\ticket_page($activity, $fresh, $group, (int) $manager->id, false, true);
+        $this->assertSame(
+            get_string('ticketawaitingclaimant', 'mod_selfselectadvanced'),
+            $page->export_for_template($output)->wholine,
+            'the claimant must be told it is their move'
+        );
+
+        // A different coordinator, holding queue authority but not this
+        // claim: told what happened, never "waiting on you" about a
+        // ticket they cannot comment on and cannot take up.
+        $page = new \mod_selfselectadvanced\output\ticket_page($activity, $fresh, $group, (int) $coordinator->id, false, true);
+        $this->assertSame(
+            get_string('ticketawaitingclaimantother', 'mod_selfselectadvanced'),
+            $page->export_for_template($output)->wholine,
+            'a non-claimant coordinator must be told what happened, not told it is their move'
+        );
+
+        // The requester, who just replied: told the reply landed, and
+        // that it is now waiting on whoever is handling this - never
+        // named, and never the second-person "Waiting on you" wording,
+        // which is the claimant's alone.
+        $page = new \mod_selfselectadvanced\output\ticket_page($activity, $fresh, $group, (int) $guide->id, true, false);
+        $this->assertSame(
+            get_string('ticketwhosemovereplysent', 'mod_selfselectadvanced'),
+            $page->export_for_template($output)->wholine,
+            'the requester must be told their reply landed and it is now waiting on whoever holds this'
+        );
+    }
+
+    /**
+     * (8) THE WHOSE-MOVE LINE across every OTHER status (1.20.54
+     * deliverable A, bullets 1, 3-4): open ("nobody has picked this up
+     * yet", identical for every viewer), needsinfo (staff read "waiting
+     * on the requester"; the requester reads that THEIR OWN reply is
+     * needed - reusing myrequests.php's own ticketthreadneedsinfohint
+     * string verbatim so the two surfaces never disagree), and
+     * resolved/declined/withdrawn ("closed, and when").
+     */
+    public function test_whose_move_line_every_other_status(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, $manager] = $this->setup_world();
+        $output = $PAGE->get_renderer('core');
+        $dateformat = get_string('strftimedatetimeshort', 'langconfig');
+        // See the claimant-view comment in the previous test - the
+        // NEEDSINFO arm below renders the claimant's resolve/decline
+        // forms, which need a genuine current user and a $PAGE url.
+        $this->setUser($manager);
+        $PAGE->set_url(new \moodle_url('/mod/selfselectadvanced/ticket.php'));
+
+        // OPEN. Re-fetched via tickets::get() rather than used as
+        // returned from file() - the same MUST_EXIST full row every
+        // other call site in this class works from (file()'s own return
+        // value carries only the columns it explicitly set, not
+        // claimedby/escalated/etc., which a real request never sees
+        // because ticket.php always loads through tickets::get() first).
+        $open = tickets::file($activity, $group, tickets::TYPE_COMPCHANGE, 'Ask 1', FORMAT_PLAIN, (int) $guide->id);
+        $open = tickets::get($activity, (int) $open->id);
+        $page = new \mod_selfselectadvanced\output\ticket_page($activity, $open, $group, (int) $manager->id, false, true);
+        $this->assertSame(
+            get_string('ticketwhosemoveopen', 'mod_selfselectadvanced'),
+            $page->export_for_template($output)->wholine
+        );
+
+        // NEEDSINFO, both audiences on the SAME ticket.
+        tickets::claim($activity, (int) $open->id, (int) $manager->id);
+        tickets::request_info($activity, (int) $open->id, 'Which subject?', FORMAT_PLAIN, (int) $manager->id);
+        $needsinfo = tickets::get($activity, (int) $open->id);
+        $staffpage = new \mod_selfselectadvanced\output\ticket_page($activity, $needsinfo, $group, (int) $manager->id, false, true);
+        $this->assertSame(
+            get_string('ticketstatusneedsinfo', 'mod_selfselectadvanced'),
+            $staffpage->export_for_template($output)->wholine
+        );
+        $reqpage = new \mod_selfselectadvanced\output\ticket_page($activity, $needsinfo, $group, (int) $guide->id, true, false);
+        $this->assertSame(
+            get_string('ticketthreadneedsinfohint', 'mod_selfselectadvanced'),
+            $reqpage->export_for_template($output)->wholine,
+            'the requester must read that THEIR OWN reply is needed, the same string myrequests.php already shows'
+        );
+
+        // RESOLVED.
+        tickets::provide_info($activity, (int) $open->id, 'Statistics.', FORMAT_PLAIN, (int) $guide->id);
+        $resolved = tickets::close($activity, (int) $open->id, tickets::STATUS_RESOLVED, 'Done.', FORMAT_PLAIN, (int) $manager->id);
+        $page = new \mod_selfselectadvanced\output\ticket_page($activity, $resolved, $group, (int) $manager->id, false, true);
+        $this->assertSame(
+            get_string('ticketwhosemoveresolved', 'mod_selfselectadvanced', userdate((int) $resolved->timemodified, $dateformat)),
+            $page->export_for_template($output)->wholine
+        );
+
+        // DECLINED - a fresh ticket type on the same group (compchange is
+        // already live-then-closed above; dates is still free).
+        $declined = tickets::file($activity, $group, tickets::TYPE_DATES, 'Ask 2', FORMAT_PLAIN, (int) $guide->id);
+        tickets::claim($activity, (int) $declined->id, (int) $manager->id);
+        $declined = tickets::close(
+            $activity,
+            (int) $declined->id,
+            tickets::STATUS_DECLINED,
+            'No.',
+            FORMAT_PLAIN,
+            (int) $manager->id
+        );
+        $page = new \mod_selfselectadvanced\output\ticket_page($activity, $declined, $group, (int) $manager->id, false, true);
+        $this->assertSame(
+            get_string('ticketwhosemovedeclined', 'mod_selfselectadvanced', userdate((int) $declined->timemodified, $dateformat)),
+            $page->export_for_template($output)->wholine
+        );
+
+        // WITHDRAWN.
+        $withdrawn = tickets::file($activity, $group, tickets::TYPE_PENALTY, 'Ask 3', FORMAT_PLAIN, (int) $guide->id);
+        tickets::withdraw($activity, (int) $withdrawn->id, (int) $guide->id);
+        $withdrawn = tickets::get($activity, (int) $withdrawn->id);
+        $page = new \mod_selfselectadvanced\output\ticket_page($activity, $withdrawn, $group, (int) $guide->id, true, false);
+        $this->assertSame(
+            get_string('ticketwhosemovewithdrawn', 'mod_selfselectadvanced', userdate((int) $withdrawn->timemodified, $dateformat)),
+            $page->export_for_template($output)->wholine
+        );
+    }
+
+    /**
+     * (9) THE REQUESTER'S HANDLED-BY LINE (1.20.54 deliverable A's last
+     * bullet): showclaimedbyline used to fire only for staff who were
+     * not the claimant - "the requester ... is the one viewer told
+     * nothing". Extended here to the requester too, anonymised - the
+     * SAME string myrequests.php already shows for a claimed row
+     * (myrequestsclaimedhint), never the claimant's name. The
+     * non-claimant staff line and the claimant's own silence are pinned
+     * unchanged alongside it, so a fix that widened the predicate too
+     * far (e.g. naming the claimant to the requester too) would be
+     * caught here as surely as one that widened it not at all.
+     */
+    public function test_requester_gets_the_anonymised_handled_by_line(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, $manager, $coordinator] = $this->setup_world();
+
+        $ticket = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Need a specialist',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        tickets::claim($activity, (int) $ticket->id, (int) $manager->id);
+        $fresh = tickets::get($activity, (int) $ticket->id);
+        $output = $PAGE->get_renderer('core');
+
+        // The requester: extended, anonymised.
+        $reqpage = new \mod_selfselectadvanced\output\ticket_page($activity, $fresh, $group, (int) $guide->id, true, false);
+        $reqexported = $reqpage->export_for_template($output);
+        $this->assertTrue($reqexported->showclaimedbyline, 'the requester must now be told somebody is handling it');
+        $this->assertSame(get_string('myrequestsclaimedhint', 'mod_selfselectadvanced'), $reqexported->claimedbyline);
+        $this->assertStringNotContainsString((string) fullname($manager), $reqexported->claimedbyline);
+
+        // Unchanged: a non-claimant coordinator still gets the NAMED line.
+        $staffpage = new \mod_selfselectadvanced\output\ticket_page($activity, $fresh, $group, (int) $coordinator->id, false, true);
+        $staffexported = $staffpage->export_for_template($output);
+        $this->assertTrue($staffexported->showclaimedbyline);
+        $this->assertSame(
+            get_string('ticketthreadclaimedby', 'mod_selfselectadvanced', fullname($manager)),
+            $staffexported->claimedbyline
+        );
+
+        // Unchanged: the claimant themself still gets nothing here - they
+        // already hold it, and telling them so would be pointless. This
+        // view renders the resolve/decline forms (showclaimantforms), so
+        // it needs the same $USER/$PAGE fiction the earlier tests do.
+        $this->setUser($manager);
+        $PAGE->set_url(new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => (int) $fresh->id]));
+        $claimantpage = new \mod_selfselectadvanced\output\ticket_page($activity, $fresh, $group, (int) $manager->id, false, true);
+        $this->assertFalse($claimantpage->export_for_template($output)->showclaimedbyline);
+    }
+
+    /**
+     * (10) THE MESSAGE/EVENT SPLIT (1.20.54 deliverable B): a trail row
+     * that carries a note is a POST - the actor surfaced as ITS OWN
+     * FIELD, 'actorlabel', not left reachable only by parsing
+     * actiontext's sentence - and a row with no note is a compact EVENT
+     * (hasnote false). Presentation only: trail() itself, and who sees
+     * which rows, are unchanged - this asserts the EXPORTED DATA, which
+     * is exactly what the template branches on.
+     */
+    public function test_message_event_split_in_exported_entries(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, $manager] = $this->setup_world();
+
+        $ticket = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Need a specialist',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        tickets::claim($activity, (int) $ticket->id, (int) $manager->id);
+        tickets::request_info($activity, (int) $ticket->id, 'Which subject?', FORMAT_PLAIN, (int) $manager->id);
+        tickets::provide_info($activity, (int) $ticket->id, 'Statistics.', FORMAT_PLAIN, (int) $guide->id);
+
+        $fresh = tickets::get($activity, (int) $ticket->id);
+        $output = $PAGE->get_renderer('core');
+        // The claimant view renders the resolve/decline forms - see the
+        // matching comment on test_whose_move_line_claimed_awaiting_reply_by_role().
+        $this->setUser($manager);
+        $PAGE->set_url(new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => (int) $fresh->id]));
+        $page = new \mod_selfselectadvanced\output\ticket_page($activity, $fresh, $group, (int) $manager->id, false, true);
+        $entries = $page->export_for_template($output)->entries;
+        $this->assertCount(4, $entries, 'filed, claimed, needsinfo, inforeply');
+
+        // Filed - event, no note, actor is the requester.
+        $this->assertObjectHasProperty('actorlabel', $entries[0]);
+        $this->assertFalse($entries[0]->hasnote);
+        $this->assertSame(fullname($guide), $entries[0]->actorlabel);
+
+        // Claimed - event, no note, actor is the claimant.
+        $this->assertFalse($entries[1]->hasnote);
+        $this->assertSame(fullname($manager), $entries[1]->actorlabel);
+
+        // Needsinfo - a POST: the claimant's question, actor in its own field.
+        $this->assertTrue($entries[2]->hasnote);
+        $this->assertSame(fullname($manager), $entries[2]->actorlabel);
+        $this->assertStringContainsString('Which subject?', $entries[2]->note);
+
+        // Inforeply - a POST: the requester's answer.
+        $this->assertTrue($entries[3]->hasnote);
+        $this->assertSame(fullname($guide), $entries[3]->actorlabel);
+        $this->assertStringContainsString('Statistics.', $entries[3]->note);
+
+        // Actiontext keeps working for the event lines (unchanged strings,
+        // spec: "Keep actiontext working for the event lines").
+        $this->assertSame(
+            get_string('threadentryfiled', 'mod_selfselectadvanced', fullname($guide)),
+            $entries[0]->actiontext
+        );
+        $this->assertSame(
+            get_string('threadentryclaimed', 'mod_selfselectadvanced', fullname($manager)),
+            $entries[1]->actiontext
+        );
+    }
+
+    /**
+     * (11) ABSENCE PROOF (spec: "prove absence too"): a requester's
+     * WHOLE exported page, serialised, must not contain a genuinely
+     * claimed, genuinely asked, genuinely answered ticket's staff
+     * member's fullname ANYWHERE - not merely in the specific fields
+     * this slice touches. A distinctive name, used nowhere else in this
+     * fixture, rules out an accidental substring match.
+     *
+     * MUTATION CAUGHT (report quotes the run): export_entry()'s
+     * anonymised branch temporarily changed to fall through to the
+     * staff branch's `$row->actorname` regardless of $withactors -
+     * reproducing exactly the kind of leak this test exists to catch.
+     * Reverted immediately after capturing the failure.
+     */
+    public function test_requester_export_contains_no_staff_fullname_anywhere(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide] = $this->setup_world();
+        $staffuser = $this->getDataGenerator()->create_user(['firstname' => 'Priyanka', 'lastname' => 'Handlerova']);
+        $this->getDataGenerator()->enrol_user((int) $staffuser->id, $activity->courseid(), 'editingteacher');
+
+        $ticket = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Need a specialist',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        tickets::claim($activity, (int) $ticket->id, (int) $staffuser->id);
+        tickets::request_info($activity, (int) $ticket->id, 'Which subject?', FORMAT_PLAIN, (int) $staffuser->id);
+        tickets::provide_info($activity, (int) $ticket->id, 'Statistics.', FORMAT_PLAIN, (int) $guide->id);
+
+        $output = $PAGE->get_renderer('core');
+
+        // Snapshot 1: STILL CLAIMED, and genuinely asked and answered -
+        // the spec's own words, and the exact state that exercises BOTH
+        // new surfaces at once: whose_move_line()'s claimed-awaiting-reply
+        // branch (the last trail row is the requester's own inforeply)
+        // AND the extended claimedbyline. A snapshot taken only after
+        // resolving would never even reach either branch's anonymised
+        // else-arm (showclaimedbyline's predicate requires claimed or
+        // needsinfo), so this ordering is deliberate, not incidental.
+        $claimedfresh = tickets::get($activity, (int) $ticket->id);
+        $claimedpage = new \mod_selfselectadvanced\output\ticket_page(
+            $activity,
+            $claimedfresh,
+            $group,
+            (int) $guide->id,
+            true,
+            false
+        );
+        $claimedhaystack = json_encode($claimedpage->export_for_template($output));
+        $this->assertIsString($claimedhaystack);
+        $this->assertStringNotContainsString(
+            fullname($staffuser),
+            $claimedhaystack,
+            'a requester must never learn a staff name anywhere on this page, even from a genuinely claimed and answered ticket'
+        );
+        $this->assertStringNotContainsString('Priyanka', $claimedhaystack);
+        $this->assertStringNotContainsString('Handlerova', $claimedhaystack);
+
+        // Snapshot 2: resolved, for good measure - the closing note and
+        // the resolved-and-when whose-move line are new surfaces too.
+        $resolvedfresh = tickets::close(
+            $activity,
+            (int) $ticket->id,
+            tickets::STATUS_RESOLVED,
+            'Added a specialist.',
+            FORMAT_PLAIN,
+            (int) $staffuser->id
+        );
+        $resolvedpage = new \mod_selfselectadvanced\output\ticket_page(
+            $activity,
+            $resolvedfresh,
+            $group,
+            (int) $guide->id,
+            true,
+            false
+        );
+        $resolvedhaystack = json_encode($resolvedpage->export_for_template($output));
+        $this->assertIsString($resolvedhaystack);
+        $this->assertStringNotContainsString(fullname($staffuser), $resolvedhaystack);
+        $this->assertStringNotContainsString('Priyanka', $resolvedhaystack);
+        $this->assertStringNotContainsString('Handlerova', $resolvedhaystack);
+    }
 }

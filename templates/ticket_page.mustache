@@ -30,12 +30,16 @@
         "statusclass": "bg-info text-dark",
         "escalated": false,
         "escalatebadgelabel": "Escalated",
+        "wholine": "Being handled.",
         "raisedtime": "1 Aug, 09:00",
         "requesterlabel": "Gina Guide",
         "contactline": null,
         "openingpost": "<p>Need a specialist.</p>",
         "openingfiles": [{"filename": "notes.pdf", "url": "https://example.com/pluginfile.php/1/mod_selfselectadvanced/ticketrequest/5/notes.pdf"}],
-        "entries": [{"actiontext": "Tina Teach took this up.", "hasnote": false, "note": "", "time": "1 Aug, 09:05", "hasfiles": false, "files": []}],
+        "entries": [
+            {"actiontext": "Tina Teach took this up.", "actorlabel": "Tina Teach", "hasnote": false, "note": "", "time": "1 Aug, 09:05", "hasfiles": false, "files": []},
+            {"actiontext": "Tina Teach asked:", "actorlabel": "Tina Teach", "hasnote": true, "note": "<p>Which subject?</p>", "time": "1 Aug, 09:10", "hasfiles": false, "files": []}
+        ],
         "hasentries": true,
         "actionurl": "https://example.com/mod/selfselectadvanced/ticket.php",
         "sesskey": "abc",
@@ -62,20 +66,35 @@
         "showrefer": true,
         "showreferempty": false,
         "refertargets": [{"id": 7, "name": "Cora Coordinator"}],
+        "showhandoff": true,
         "showhistory": false,
         "history": []
     }
 }}
 <div class="selfselectadvanced-ticketthread">
-    <div class="d-flex justify-content-between align-items-start flex-wrap mb-2">
-        <div>
-            <h3 class="mb-0">{{typelabel}}</h3>
-            <span class="text-muted small">{{subject}}</span>
+    {{! 1.20.54 deliverable A: the status block at the head of the
+        thread - the badge, now LABELLED rather than a stray tag; one
+        plain line of where this stands and whose move it is
+        (ticket_page::whose_move_line()); and, when the viewer is not
+        the claimant, who holds it (claimedbyline - the requester's own
+        version is anonymised, exactly the "Somebody is handling this."
+        idiom myrequests.php already uses). }}
+    <div class="selfselectadvanced-ticketstatusblock mb-2">
+        <div class="d-flex justify-content-between align-items-start flex-wrap">
+            <div>
+                <h3 class="mb-0">{{typelabel}}</h3>
+                <span class="text-muted small">{{subject}}</span>
+            </div>
+            <span>
+                <span class="text-muted small me-1">{{#str}} ticketstatus, mod_selfselectadvanced {{/str}}:</span>
+                <span class="badge {{statusclass}}">{{statuslabel}}</span>
+                {{#escalated}}<span class="badge bg-danger ms-1">{{escalatebadgelabel}}</span>{{/escalated}}
+            </span>
         </div>
-        <span>
-            <span class="badge {{statusclass}}">{{statuslabel}}</span>
-            {{#escalated}}<span class="badge bg-danger ms-1">{{escalatebadgelabel}}</span>{{/escalated}}
-        </span>
+        <p class="mb-0 mt-1 selfselectadvanced-ticketwholine">{{wholine}}</p>
+        {{#showclaimedbyline}}
+            <p class="text-muted small mb-0">{{claimedbyline}}</p>
+        {{/showclaimedbyline}}
     </div>
 
     {{! The opening post: author column + content column, forum-shaped. }}
@@ -99,24 +118,48 @@
 
     {{#hasentries}}
         {{#entries}}
-            <div class="selfselectadvanced-threadpost card mb-2">
-                <div class="card-body d-flex gap-3">
-                    <div class="selfselectadvanced-threadauthor text-muted" style="min-width: 10rem;">
-                        <div class="small">{{time}}</div>
-                    </div>
-                    <div class="selfselectadvanced-threadcontent flex-grow-1">
-                        <div>{{actiontext}}</div>
-                        {{#hasnote}}<div class="mt-1">{{{note}}}</div>{{/hasnote}}
-                        {{#hasfiles}}
-                            {{#files}}
-                                <div class="selfselectadvanced-threadattachment small mt-1">
-                                    <a href="{{url}}">{{filename}}</a>
-                                </div>
-                            {{/files}}
-                        {{/hasfiles}}
+            {{! 1.20.54 deliverable B: a row that CARRIES A NOTE is a POST
+                - the actor in its own author column, beside the
+                timestamp, exactly like the opening post above - and a
+                row with NO NOTE is a compact EVENT line, visually
+                subordinate rather than a full card competing with the
+                conversation. Presentation only - tickets::trail() itself,
+                and who sees which rows, are unchanged; actiontext keeps
+                working exactly as before for the event lines. }}
+            {{#hasnote}}
+                <div class="selfselectadvanced-threadpost card mb-2">
+                    <div class="card-body d-flex gap-3">
+                        <div class="selfselectadvanced-threadauthor text-muted" style="min-width: 10rem;">
+                            <div>{{actorlabel}}</div>
+                            <div class="small">{{time}}</div>
+                        </div>
+                        <div class="selfselectadvanced-threadcontent flex-grow-1">
+                            <div class="small text-muted">{{actiontext}}</div>
+                            <div class="mt-1">{{{note}}}</div>
+                            {{#hasfiles}}
+                                {{#files}}
+                                    <div class="selfselectadvanced-threadattachment small mt-1">
+                                        <a href="{{url}}">{{filename}}</a>
+                                    </div>
+                                {{/files}}
+                            {{/hasfiles}}
+                        </div>
                     </div>
                 </div>
-            </div>
+            {{/hasnote}}
+            {{^hasnote}}
+                <div class="selfselectadvanced-threadevent small text-muted border-start ps-2 mb-2">
+                    <span>{{time}}</span>
+                    <span class="ms-1">{{actiontext}}</span>
+                    {{#hasfiles}}
+                        {{#files}}
+                            <div class="selfselectadvanced-threadattachment mt-1">
+                                <a href="{{url}}">{{filename}}</a>
+                            </div>
+                        {{/files}}
+                    {{/hasfiles}}
+                </div>
+            {{/hasnote}}
         {{/entries}}
     {{/hasentries}}
 
@@ -140,102 +183,116 @@
         {{/showtakeup}}
 
         {{#showclaimantforms}}
+            {{! 1.20.54 deliverable C: the six staff forms (request-info,
+                resolve, decline, release, refer, escalate) grouped under
+                headings that say what each group does. Every control and
+                every predicate that governs it is EXACTLY what it was -
+                only the heading and the grouping markup are new; nothing
+                here is removed, and nothing new is offered. }}
             {{! 1.20.44 part 2: request-info and resolve/grant are now rendered
                 moodleforms (classes/form/ticketpost_form.php) for draft-area
                 attachment handling - the PHP-rendered HTML is passed through
                 verbatim, unescaped. }}
             {{#showrequestinfo}}
-                {{{requestinfoformhtml}}}
+                <div class="selfselectadvanced-ticketgroup mb-3">
+                    <h5>{{#str}} ticketthreadgroupaskheading, mod_selfselectadvanced {{/str}}</h5>
+                    {{{requestinfoformhtml}}}
+                </div>
             {{/showrequestinfo}}
 
-            {{{resolveformhtml}}}
+            <div class="selfselectadvanced-ticketgroup mb-3">
+                <h5>{{#str}} ticketthreadgroupcloseheading, mod_selfselectadvanced {{/str}}</h5>
+                {{{resolveformhtml}}}
 
-            <form method="post" action="{{actionurl}}">
-                <input type="hidden" name="t" value="{{ticketid}}">
-                <input type="hidden" name="action" value="decline">
-                <input type="hidden" name="sesskey" value="{{sesskey}}">
-                <div class="mb-2">
-                    <label for="selfselectadvanced-threaddecline-{{ticketid}}">
-                        {{#str}} ticketthreaddeclinelabel, mod_selfselectadvanced {{/str}}
-                    </label>
-                    <textarea id="selfselectadvanced-threaddecline-{{ticketid}}" name="declinereason" rows="3"
-                        class="form-control"></textarea>
-                </div>
-                <button type="submit" class="btn btn-warning">{{#str}} ticketdecline, mod_selfselectadvanced {{/str}}</button>
-            </form>
-
-            {{#showrelease}}
-                {{!
-                    The claimant's hand-back-to-the-queue: a bare button,
-                    no note field - restored alongside the three forms
-                    above (2026-08-15 orchestrator review), not a
-                    replacement for any of them.
-                }}
                 <form method="post" action="{{actionurl}}">
                     <input type="hidden" name="t" value="{{ticketid}}">
-                    <input type="hidden" name="action" value="release">
+                    <input type="hidden" name="action" value="decline">
                     <input type="hidden" name="sesskey" value="{{sesskey}}">
-                    <button type="submit" class="btn btn-outline-secondary">
-                        {{#str}} ticketrelease, mod_selfselectadvanced {{/str}}
-                    </button>
+                    <div class="mb-2">
+                        <label for="selfselectadvanced-threaddecline-{{ticketid}}">
+                            {{#str}} ticketthreaddeclinelabel, mod_selfselectadvanced {{/str}}
+                        </label>
+                        <textarea id="selfselectadvanced-threaddecline-{{ticketid}}" name="declinereason" rows="3"
+                            class="form-control"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-warning">{{#str}} ticketdecline, mod_selfselectadvanced {{/str}}</button>
                 </form>
-            {{/showrelease}}
+            </div>
         {{/showclaimantforms}}
 
-        {{#showclaimedbyline}}
-            <p class="text-muted mb-0">{{claimedbyline}}</p>
-        {{/showclaimedbyline}}
+        {{#showhandoff}}
+            <div class="selfselectadvanced-ticketgroup mb-3">
+                <h5>{{#str}} ticketthreadgrouphandoffheading, mod_selfselectadvanced {{/str}}</h5>
 
-        {{! The handling ladder (1.20.44): refer to another coordinator, escalate to staff. }}
-        {{#showrefer}}
-            <form method="post" action="{{actionurl}}" class="mb-3 selfselectadvanced-ticketrefer">
-                <input type="hidden" name="t" value="{{ticketid}}">
-                <input type="hidden" name="action" value="refer">
-                <input type="hidden" name="sesskey" value="{{sesskey}}">
-                <h5>{{#str}} ticketreferheading, mod_selfselectadvanced {{/str}}</h5>
-                <div class="mb-2">
-                    <label for="selfselectadvanced-threadrefertarget-{{ticketid}}">
-                        {{#str}} ticketrefertargetlabel, mod_selfselectadvanced {{/str}}
-                    </label>
-                    <select id="selfselectadvanced-threadrefertarget-{{ticketid}}" name="target" class="form-select">
-                        {{#refertargets}}
-                            <option value="{{id}}">{{name}}</option>
-                        {{/refertargets}}
-                    </select>
-                </div>
-                <div class="mb-2">
-                    <label for="selfselectadvanced-threadrefernote-{{ticketid}}">
-                        {{#str}} ticketrefernotelabel, mod_selfselectadvanced {{/str}}
-                    </label>
-                    <textarea id="selfselectadvanced-threadrefernote-{{ticketid}}" name="note" rows="3"
-                        class="form-control" required></textarea>
-                </div>
-                <button type="submit" class="btn btn-secondary">
-                    {{#str}} ticketrefersend, mod_selfselectadvanced {{/str}}
-                </button>
-            </form>
-        {{/showrefer}}
-        {{#showreferempty}}
-            <p class="text-muted small">{{#str}} ticketrefertargetempty, mod_selfselectadvanced {{/str}}</p>
-        {{/showreferempty}}
+                {{#showrelease}}
+                    {{!
+                        The claimant's hand-back-to-the-queue: a bare button,
+                        no note field - restored alongside the three forms
+                        above (2026-08-15 orchestrator review), not a
+                        replacement for any of them.
+                    }}
+                    <form method="post" action="{{actionurl}}">
+                        <input type="hidden" name="t" value="{{ticketid}}">
+                        <input type="hidden" name="action" value="release">
+                        <input type="hidden" name="sesskey" value="{{sesskey}}">
+                        <button type="submit" class="btn btn-outline-secondary">
+                            {{#str}} ticketrelease, mod_selfselectadvanced {{/str}}
+                        </button>
+                    </form>
+                {{/showrelease}}
 
-        {{#showescalate}}
-            <form method="post" action="{{actionurl}}" class="mb-3 selfselectadvanced-ticketescalate">
-                <input type="hidden" name="t" value="{{ticketid}}">
-                <input type="hidden" name="action" value="escalate">
-                <input type="hidden" name="sesskey" value="{{sesskey}}">
-                <div class="mb-2">
-                    <label for="selfselectadvanced-threadescalatenote-{{ticketid}}">
-                        {{escalatenotelabel}}
-                    </label>
-                    <textarea id="selfselectadvanced-threadescalatenote-{{ticketid}}" name="note" rows="3"
-                        class="form-control" required></textarea>
-                </div>
-                <button type="submit" class="btn btn-outline-danger">
-                    {{#str}} ticketescalate, mod_selfselectadvanced {{/str}}
-                </button>
-            </form>
-        {{/showescalate}}
+                {{! The handling ladder (1.20.44): refer to another coordinator, escalate to staff. }}
+                {{#showrefer}}
+                    <form method="post" action="{{actionurl}}" class="mb-3 selfselectadvanced-ticketrefer">
+                        <input type="hidden" name="t" value="{{ticketid}}">
+                        <input type="hidden" name="action" value="refer">
+                        <input type="hidden" name="sesskey" value="{{sesskey}}">
+                        <h6>{{#str}} ticketreferheading, mod_selfselectadvanced {{/str}}</h6>
+                        <div class="mb-2">
+                            <label for="selfselectadvanced-threadrefertarget-{{ticketid}}">
+                                {{#str}} ticketrefertargetlabel, mod_selfselectadvanced {{/str}}
+                            </label>
+                            <select id="selfselectadvanced-threadrefertarget-{{ticketid}}" name="target" class="form-select">
+                                {{#refertargets}}
+                                    <option value="{{id}}">{{name}}</option>
+                                {{/refertargets}}
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label for="selfselectadvanced-threadrefernote-{{ticketid}}">
+                                {{#str}} ticketrefernotelabel, mod_selfselectadvanced {{/str}}
+                            </label>
+                            <textarea id="selfselectadvanced-threadrefernote-{{ticketid}}" name="note" rows="3"
+                                class="form-control" required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-secondary">
+                            {{#str}} ticketrefersend, mod_selfselectadvanced {{/str}}
+                        </button>
+                    </form>
+                {{/showrefer}}
+                {{#showreferempty}}
+                    <p class="text-muted small">{{#str}} ticketrefertargetempty, mod_selfselectadvanced {{/str}}</p>
+                {{/showreferempty}}
+
+                {{#showescalate}}
+                    <form method="post" action="{{actionurl}}" class="mb-3 selfselectadvanced-ticketescalate">
+                        <input type="hidden" name="t" value="{{ticketid}}">
+                        <input type="hidden" name="action" value="escalate">
+                        <input type="hidden" name="sesskey" value="{{sesskey}}">
+                        <div class="mb-2">
+                            <label for="selfselectadvanced-threadescalatenote-{{ticketid}}">
+                                {{escalatenotelabel}}
+                            </label>
+                            <textarea id="selfselectadvanced-threadescalatenote-{{ticketid}}" name="note" rows="3"
+                                class="form-control" required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-outline-danger">
+                            {{#str}} ticketescalate, mod_selfselectadvanced {{/str}}
+                        </button>
+                    </form>
+                {{/showescalate}}
+            </div>
+        {{/showhandoff}}
 
         {{! 1.20.44 part 2: rendered moodleform, same reason as request-info/resolve above. }}
         {{#showprovideinfo}}

@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.20.54 — the ticket says where it stands, and the thread reads as a conversation (2026-08-20)
+
+> Serial `2026082000` / `1.20.54`. **No schema change.** Maturity stays RC.
+
+**The status was there and said nothing.** A bare badge, floated to the top
+right with no label, reading *Being handled* — and nothing anywhere on the page
+told you whose move it was. A request whose owner had already answered the
+question looked exactly like one nobody had touched. Worse, the requester was
+the only viewer told nothing at all: the "somebody is handling this" line was
+drawn for staff who were not the claimant and for nobody else, so the person
+who filed the request could not learn from their own request's page that anyone
+had picked it up.
+
+The head of the thread now carries a **labelled** status, a plain line of where
+the request stands — *Nobody has picked this up yet*, *Waiting on you*, *You
+replied. Waiting on whoever is handling this*, *Resolved on …* — and, for a
+viewer who is not the claimant, who holds it. Staff read a name; the requester
+reads the same anonymous wording their own request list has always used. Whose
+move it is comes from the trail rows the page has already fetched, reusing the
+rule 1.20.53 established rather than inventing a second one, and costing no
+extra query.
+
+**And a message no longer looks like an event.** Every trail row rendered as an
+identical card whose left column held only a timestamp, so *Staff Member 013
+took this up* and *Staff Member 013 asked: …* were the same object on screen,
+with the person speaking buried inside a sentence. A row carrying a note is now
+a **post** — its author beside the timestamp, exactly as the opening request has
+always been — and a row without one is a compact **event line**, subordinate to
+the conversation rather than competing with it.
+
+The six staff controls, which stacked as unlabelled forms, are grouped under
+headings that say what each group does.
+
+**Nothing about who may see or do what changed.** Every control keeps the
+predicate it had; `tickets::trail()` keeps its anonymised branch and its
+staff-internal exclusion; and a test asserts that a requester's whole exported
+page contains no staff name anywhere, against a fixture where a named staff
+member genuinely claimed, asked and was answered.
+
 ## 1.20.53 — a filed ticket stays findable, and says when it wants you (2026-08-19)
 
 > Serial `2026081900` / `1.20.53`. **No schema change.** Maturity stays RC.
