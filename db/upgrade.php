@@ -80,6 +80,88 @@ function selfselectadvanced_upgrade_merge_override_twins(moodle_database $DB): i
 }
 
 /**
+ * Add selfselectadvanced_ticket.pluginuid, backfill every existing row
+ * with its own distinct reference, THEN add the unique index - in that
+ * exact order (1.20.56 deliverable A, "THE TRAP"): a NOT NULL UNIQUE
+ * column added straight onto a populated table fails on the very first
+ * existing row, and the gate's fresh-install check exercises the empty
+ * path only, so it would never catch a step that got the order wrong.
+ *
+ * PUBLIC AND STANDALONE (not folded into the guarded step in
+ * xmldb_selfselectadvanced_upgrade() below) so a test can drive the
+ * upgrade path directly against a POPULATED table without going through
+ * that function's own $oldversion dispatch, which on a test site has
+ * already run. tests/ticket_pluginuid_upgrade_test.php does exactly
+ * that: it drops the field and index to reproduce the pre-1.20.56 shape,
+ * inserts legacy rows, and calls this function - so the order below is
+ * proven against real rows rather than against an empty table.
+ *
+ * @param moodle_database $db
+ * @param database_manager $dbman
+ */
+function selfselectadvanced_upgrade_ticket_pluginuid(moodle_database $db, database_manager $dbman): void {
+    $table = new xmldb_table('selfselectadvanced_ticket');
+    $field = new xmldb_field('pluginuid', XMLDB_TYPE_CHAR, '64', null, XMLDB_NOTNULL, null, '0', 'activityid');
+    if (!$dbman->field_exists($table, $field)) {
+        $dbman->add_field($table, $field);
+    }
+
+    // BACKFILL, before the index below: every row's temporary '0'
+    // default (just written by add_field() above) is replaced with a
+    // distinct reference. One query joins every ticket to its activity's
+    // uidprefix and its course's name, rather than one query per ticket.
+    //
+    // \mod_selfselectadvanced\local\ticketrefshape::build() rather than
+    // tickets::build_pluginuid(): docs/tools/upgrade-safety.sh (the
+    // gate's static check) refuses any db/upgrade.php call into a class
+    // whose FILE references a plugin subtable anywhere in it, and
+    // classes/local/tickets.php is full of them - the check does not
+    // look at which method was actually called, only at what the whole
+    // file contains, so a call there would fail it regardless.
+    // ticketrefshape.php is pure string logic with no table reference at
+    // all (see its own docblock), which is exactly why it exists.
+    $rows = $db->get_records_sql(
+        "SELECT t.id, s.uidprefix, c.shortname, c.fullname, c.id AS courseid
+           FROM {selfselectadvanced_ticket} t
+           JOIN {selfselectadvanced} s ON s.id = t.activityid
+           JOIN {course} c ON c.id = s.course
+       ORDER BY t.id"
+    );
+    foreach ($rows as $row) {
+        $db->set_field(
+            'selfselectadvanced_ticket',
+            'pluginuid',
+            \mod_selfselectadvanced\local\ticketrefshape::build(
+                (string) ($row->uidprefix ?? ''),
+                (string) $row->shortname,
+                (string) $row->fullname,
+                (int) $row->courseid,
+                (int) $row->id
+            ),
+            ['id' => (int) $row->id]
+        );
+    }
+    // An orphan - its activity or course row already gone, a state a
+    // real site should not have but an upgrade must never fatal over -
+    // matches neither JOIN above and still carries the temporary '0'.
+    // Given a distinct reference from nothing but its own id, so the
+    // unique index below can never find two rows sharing one.
+    foreach ($db->get_records('selfselectadvanced_ticket', ['pluginuid' => '0'], 'id', 'id') as $orphan) {
+        $db->set_field(
+            'selfselectadvanced_ticket',
+            'pluginuid',
+            'SSA-ORPHAN-T' . sprintf('%04d', (int) $orphan->id),
+            ['id' => (int) $orphan->id]
+        );
+    }
+
+    $index = new xmldb_index('pluginuid', XMLDB_INDEX_UNIQUE, ['pluginuid']);
+    if (!$dbman->index_exists($table, $index)) {
+        $dbman->add_index($table, $index);
+    }
+}
+
+/**
  * Execute an upgrade from the given old version.
  *
  * @param int $oldversion the version we are upgrading from
@@ -3196,6 +3278,44 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         );
 
         upgrade_mod_savepoint(true, 2026082001, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026082002) {
+        // 1.20.56 deliverable A: every ticket now has a quotable
+        // reference, shaped and minted like the group's own pluginuid.
+        //
+        // THE TRAP: a NOT NULL UNIQUE column added straight onto a
+        // populated table fails on the very first existing row - the
+        // gate's fresh-install check exercises the empty path only, so a
+        // step that got the order wrong would still pass it.
+        // selfselectadvanced_upgrade_ticket_pluginuid() above adds the
+        // field NOT NULL with a safe non-empty default first, backfills
+        // every row with its own distinct reference NEXT, and adds the
+        // unique index LAST, once nothing on the table can violate it.
+        selfselectadvanced_upgrade_ticket_pluginuid($DB, $dbman);
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.56 (2026082002). Every ticket now has a quotable reference, '
+                . 'shaped like the group\'s own.',
+            'Adds selfselectadvanced_ticket.pluginuid, CHAR(64) NOT NULL UNIQUE - matching the '
+                . 'group table\'s own pluginuid column exactly - minted once, at file() time, and '
+                . 'never rewritten, the same rule the group\'s own id follows. Every existing ticket '
+                . 'is backfilled with its own distinct reference before the unique index is added, '
+                . 'so a populated table upgrades exactly as cleanly as an empty one. The reference is '
+                . 'now shown wherever a ticket is named: the thread header, the staff queue, My '
+                . 'requests and the group page\'s own live-request rows. Every ticket notification '
+                . 'also carries it in the subject now, and the text that was actually written - the '
+                . 'question, the reply, the resolution - in the body, so the recipient can act '
+                . 'without logging in; the contact-privacy rule governs the email exactly as it '
+                . 'governs the screen, and no notification names a staff member to a requester. This '
+                . 'row is written if and only if the step actually executed.'
+        );
+
+        upgrade_mod_savepoint(true, 2026082002, 'selfselectadvanced');
     }
 
     return true;

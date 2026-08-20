@@ -1,5 +1,53 @@
 # Changelog
 
+## 1.20.56 — a ticket you can quote, and a notification worth reading (2026-08-20)
+
+> Serial `2026082002` / `1.20.56`. **Schema change:** `selfselectadvanced_ticket.pluginuid`,
+> CHAR(64) NOT NULL, UNIQUE. Maturity stays RC.
+
+The maintainer compared our tickets to a cPanel support ticket. This is the first
+two of the four things that comparison was missing, and the two everything else
+hangs off.
+
+**Every ticket now has a reference you can quote** — `SSA-PHYS101-T0042`, shaped
+exactly like the group's own `pluginuid` and following the same rule: minted once,
+at filing time, inside the lock the filer already holds, and never rewritten. It
+appears wherever a ticket is named — the thread header, the staff queue, My
+requests, and the group page's live-request rows — so a request can be referred to
+in a corridor, an email or a phone call without anybody reading out a URL.
+
+Every existing ticket is backfilled during the upgrade. **The order matters and is
+tested:** a NOT NULL UNIQUE column cannot be added to a populated table until every
+row already has a distinct value, so the step adds the field, backfills, and only
+then adds the unique index. The gate's fresh-install check exercises the *empty*
+path only and would have passed a step that got this wrong, so the proof is a test
+that drops the column to reproduce the old shape, inserts legacy rows, and runs the
+real upgrade function against them.
+
+**And a notification is now worth reading.** Every ticket message carries the
+reference in its subject and the text that was actually written — the question, the
+reply, the resolution — in its body, so the recipient can act without logging in.
+The contact-privacy rule governs the email exactly as it governs the screen: a
+requester's notification never names a staff member, built from the same
+anonymisation the thread uses rather than a second copy of the rule, and pinned by a
+test that reads the real message objects and asserts the name appears nowhere.
+
+**Two defects were found and fixed on the way, neither of them in this release's
+scope.** Restoring a second copy of an activity into the *same* course threw
+`Invalid module ID` — the restore step resolved its course module through a modinfo
+cache that is not warm for a module the same step has just created. The ticket path
+was new, but the group's own `pluginuid` restore had carried the identical latent
+bug since it was written; nothing had ever restored into the same course before.
+Both now regenerate from raw table reads with no course-module dependency.
+
+And the upgrade-safety scan in `versionbump_test` read only the text between a
+step's guard and its savepoint, so a step whose body was one call to a helper
+declared earlier in the same file had **all** of its DML invisible to it. Proven,
+not inferred: with the exemption removed, the old scan reported OK on a step that
+rewrites every row of the ticket table; the new one fails and names the table. It
+now follows every `db/upgrade.php` helper the step calls — the same class of blind
+spot as the ordering scan in 1.20.53, and the same lesson.
+
 ## 1.20.55 — the ticket-system audit, and what it found (2026-08-20)
 
 > Serial `2026082001` / `1.20.55`. **No schema change.** Maturity stays RC.

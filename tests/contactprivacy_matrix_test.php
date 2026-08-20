@@ -183,6 +183,11 @@ final class contactprivacy_matrix_test extends \advanced_testcase {
             // ticket lifecycle or notification delivery from filing the request.
             $DB->insert_record('selfselectadvanced_ticket', (object) [
                 'activityid' => $activity->id(),
+                // 1.20.56: pluginuid is NOT NULL UNIQUE now - one row per
+                // activity in this loop, so each needs its own distinct
+                // value; the point under test is read-side disclosure,
+                // not the reference.
+                'pluginuid' => 'MATRIX-' . strtoupper((string) $key) . '-T0001',
                 'groupid' => (int) $group->id,
                 'type' => tickets::TYPE_UNFREEZE,
                 'status' => tickets::STATUS_CLAIMED,

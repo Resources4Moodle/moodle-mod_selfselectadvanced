@@ -350,13 +350,18 @@ final class ticket_richtext_test extends \advanced_testcase {
             'timecreated' => $now,
             'timemodified' => $now,
         ];
+        // 1.20.56: pluginuid is NOT NULL UNIQUE now, so a row inserted
+        // directly (as any pre-1.20.56 row this test simulates would
+        // have been, before a real upgrade backfilled it) needs its own
+        // distinct value - the point under test is the STORED FORMAT,
+        // not the reference, so these are synthetic rather than minted.
         $moodleticketid = $DB->insert_record(
             'selfselectadvanced_ticket',
-            (object) (['requestformat' => FORMAT_MOODLE] + $base)
+            (object) (['requestformat' => FORMAT_MOODLE, 'pluginuid' => 'RICH-LEGACY-T0001'] + $base)
         );
         $plainticketid = $DB->insert_record(
             'selfselectadvanced_ticket',
-            (object) (['requestformat' => FORMAT_PLAIN] + $base)
+            (object) (['requestformat' => FORMAT_PLAIN, 'pluginuid' => 'RICH-LEGACY-T0002'] + $base)
         );
 
         $output = $PAGE->get_renderer('core');

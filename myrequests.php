@@ -88,6 +88,10 @@ if (!$mine) {
     $table = new html_table();
     $table->attributes['class'] = 'generaltable selfselectadvanced-myrequests';
     $table->head = [
+        // 1.20.56 deliverable A: the quotable reference - t.pluginuid
+        // arrives with the row already (mine()'s own "SELECT t.*"), so no
+        // query changes for this column.
+        get_string('ticketreference', 'mod_selfselectadvanced'),
         get_string('ticketsubject', 'mod_selfselectadvanced'),
         get_string('tickettype', 'mod_selfselectadvanced'),
         get_string('ticketrequest', 'mod_selfselectadvanced'),
@@ -160,6 +164,7 @@ if (!$mine) {
         }
 
         $table->data[] = [
+            s($ticket->pluginuid),
             $subject,
             get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced'),
             format_text((string) $ticket->request, (int) $ticket->requestformat, ['context' => $context]),

@@ -1006,6 +1006,11 @@ class group_page implements renderable, templatable {
             $isrequester = (int) $groupticket->requestedby === $this->userid;
             $groupticketrows[] = (object) [
                 'id' => (int) $groupticket->id,
+                // 1.20.56 deliverable A: the ticket's OWN quotable
+                // reference - named distinctly from the group's own
+                // pluginuid (already exported at the top level of this
+                // same template) so the two can never be confused.
+                'ticketpluginuid' => (string) $groupticket->pluginuid,
                 'typelabel' => get_string('tickettype' . $groupticket->type, 'mod_selfselectadvanced'),
                 'statuslabel' => get_string('ticketstatus' . $groupticket->status, 'mod_selfselectadvanced'),
                 'raised' => userdate((int) $groupticket->timecreated, get_string('strftimedatetimeshort')),

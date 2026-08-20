@@ -952,5 +952,106 @@ final class ticket_ladder_test extends \advanced_testcase {
             MUST_EXIST
         );
         $this->assertSame(1, (int) $restoredticket->escalated, 'the escalated flag must survive the round trip');
+        // 1.20.56 deliverable A: the reference travels with the backup
+        // (backup_selfselectadvanced_stepslib.php's ticket element) and
+        // is never left blank. pluginuid is unique PLUGIN-WIDE, not per
+        // course, so restoring into a different course is NOT a
+        // collision-free trip while the original ticket - carrying this
+        // very reference - is still sitting in its own course: this is
+        // in fact the regenerate-on-collision path, proven the other way
+        // round (a fresh, distinct value, never the original's) by
+        // test_a_colliding_reference_is_regenerated_not_left_blank_on_restore()
+        // below, which controls for the collision deliberately instead of
+        // hitting it by the accident this fixture's own site-wide reach
+        // would otherwise make it.
+        $this->assertNotEmpty($restoredticket->pluginuid, 'a restored ticket must never be left with a blank reference');
+    }
+
+    /**
+     * 1.20.56 deliverable A, the OTHER half of the round trip:
+     * restore_selfselectadvanced_stepslib.php::process_ssaticket()
+     * regenerates the reference on a collision, mirroring
+     * process_ssagroup()'s own existing pluginuid handling. Restoring the
+     * SAME backup into the SAME course - TARGET_CURRENT_ADDING, so the
+     * original ticket row is still there - is a guaranteed collision: the
+     * restored copy must still get a real, distinct reference rather than
+     * erroring on the unique index or being left blank.
+     */
+    public function test_a_colliding_reference_is_regenerated_not_left_blank_on_restore(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $admin = get_admin();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide] = $this->setup_world();
+        $cm = $activity->cm();
+
+        $ticket = $this->file($activity, $group, $guide);
+        $original = tickets::get($activity, (int) $ticket->id);
+
+        $bc = new backup_controller(
+            backup::TYPE_1ACTIVITY,
+            $cm->id,
+            backup::FORMAT_MOODLE,
+            backup::INTERACTIVE_NO,
+            backup::MODE_GENERAL,
+            (int) $admin->id
+        );
+        $bc->get_plan()->get_setting('users')->set_value(true);
+        $backupid = $bc->get_backupid();
+        $bc->execute_plan();
+        $results = $bc->get_results();
+        $file = $results['backup_destination'];
+        $dir = make_backup_temp_directory($backupid);
+        $file->extract_to_pathname(get_file_packer('application/vnd.moodle.backup'), $dir);
+        $bc->destroy();
+
+        // Same course as the original - the original activity, and its
+        // ticket carrying $original->pluginuid, are both still there.
+        $rc = new restore_controller(
+            $backupid,
+            (int) $activity->courseid(),
+            backup::INTERACTIVE_NO,
+            backup::MODE_GENERAL,
+            (int) $admin->id,
+            backup::TARGET_CURRENT_ADDING
+        );
+        $rc->execute_precheck();
+        $rc->execute_plan();
+        $rc->destroy();
+
+        $restoredinstances = $DB->get_records(
+            'selfselectadvanced',
+            ['course' => $activity->courseid()],
+            'id DESC',
+            '*',
+            0,
+            1
+        );
+        $this->assertNotEmpty($restoredinstances, 'the second copy of the activity did not restore at all');
+        $restoredinstance = reset($restoredinstances);
+        $this->assertNotEquals(
+            (int) $restoredinstance->id,
+            $activity->id(),
+            'fixture: this must be the NEW copy, not the original'
+        );
+
+        $restoredticket = $DB->get_record(
+            'selfselectadvanced_ticket',
+            ['activityid' => (int) $restoredinstance->id, 'type' => tickets::TYPE_COMPCHANGE],
+            '*',
+            MUST_EXIST
+        );
+        $this->assertNotEmpty($restoredticket->pluginuid, 'a colliding reference must not be left blank');
+        $this->assertNotSame(
+            $original->pluginuid,
+            $restoredticket->pluginuid,
+            'a colliding reference must be regenerated, not duplicated'
+        );
+        // And the ORIGINAL is untouched - regeneration only ever writes
+        // the NEW row, never rewrites the one it collided with.
+        $stillthere = $DB->get_record('selfselectadvanced_ticket', ['id' => (int) $original->id], '*', MUST_EXIST);
+        $this->assertSame($original->pluginuid, $stillthere->pluginuid, 'the original ticket\'s own reference must be untouched');
     }
 }

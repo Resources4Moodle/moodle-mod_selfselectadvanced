@@ -228,11 +228,66 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         }
         $newid = $DB->insert_record('selfselectadvanced_group', $data);
         if ($data->pluginuid === '') {
-            $activity = \mod_selfselectadvanced\activity::from_instance((int) $data->activityid);
+            // NOT \mod_selfselectadvanced\activity::from_instance() +
+            // groups::build_pluginuid(): that path resolves the course
+            // MODULE via get_course_and_cm_from_instance(), which depends
+            // on the course's modinfo cache - a real dependency this
+            // restore step cannot rely on being warm for a course_module
+            // its own restore may only just have created. Discovered live
+            // by ticket_ladder_test.php's
+            // test_a_colliding_reference_is_regenerated_not_left_blank_on_restore
+            // (a same-course restore, TARGET_CURRENT_ADDING) throwing
+            // "Invalid module ID" here - the identical latent defect
+            // process_ssaticket() below is written around from the start,
+            // for the same reason. Built from raw table reads instead,
+            // replicating groups::build_pluginuid()'s own algorithm
+            // exactly (its own constants reused; its method, and
+            // uid_template(), not called - both need an activity object).
+            $groupactivityrow = $DB->get_record(
+                'selfselectadvanced',
+                ['id' => (int) $data->activityid],
+                'course, uidprefix, uiddigits, uidformat'
+            );
+            $groupcourserow = $groupactivityrow
+                ? $DB->get_record('course', ['id' => (int) $groupactivityrow->course], 'id, shortname, fullname')
+                : false;
+            $groupprefix = preg_replace(
+                '/[^A-Z0-9]/',
+                '',
+                strtoupper($groupactivityrow ? (string) $groupactivityrow->uidprefix : '')
+            );
+            if ($groupprefix === '') {
+                $groupprefix = 'SSA';
+            }
+            $groupshort = $groupcourserow ? strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $groupcourserow->shortname)) : '';
+            if ($groupshort === '' && $groupcourserow) {
+                $groupshort = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $groupcourserow->fullname));
+            }
+            if ($groupshort === '') {
+                $groupshort = 'C' . ($groupcourserow ? (int) $groupcourserow->id : (int) ($groupactivityrow->course ?? 0));
+            }
+            $groupshort = substr($groupshort, 0, 12);
+            $groupdigits = $groupactivityrow
+                ? (int) $groupactivityrow->uiddigits
+                : \mod_selfselectadvanced\local\groups::UID_DIGITS_DEFAULT;
+            if (
+                $groupdigits < \mod_selfselectadvanced\local\groups::UID_DIGITS_MIN
+                || $groupdigits > \mod_selfselectadvanced\local\groups::UID_DIGITS_MAX
+            ) {
+                $groupdigits = \mod_selfselectadvanced\local\groups::UID_DIGITS_DEFAULT;
+            }
+            $grouptemplate = $groupactivityrow ? trim((string) $groupactivityrow->uidformat) : '';
+            if ($grouptemplate === '' || strpos($grouptemplate, '{number}') === false) {
+                $grouptemplate = \mod_selfselectadvanced\local\groups::UID_TEMPLATE_DEFAULT;
+            }
             $DB->set_field(
                 'selfselectadvanced_group',
                 'pluginuid',
-                \mod_selfselectadvanced\local\groups::build_pluginuid($activity, (int) $newid),
+                strtr($grouptemplate, [
+                    '{prefix}' => substr($groupprefix, 0, 8),
+                    '{course}' => $groupshort,
+                    '{number}' => sprintf('%0' . $groupdigits . 'd', $newid),
+                ]),
                 ['id' => $newid]
             );
         }
@@ -485,6 +540,17 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         }
         $data->claimedby = $data->claimedby ? ($this->get_mappingid('user', $data->claimedby) ?: null) : null;
         $data->resolvedby = $data->resolvedby ? ($this->get_mappingid('user', $data->resolvedby) ?: null) : null;
+        // 1.20.56: the ticket's own reference is unique plugin-wide, same
+        // as the group's - a same-site restore would collide with the
+        // original, so regenerate on collision from the new row id
+        // (the same rule process_ssagroup() applies to pluginuid above).
+        // A backup taken before 1.20.56 carries no pluginuid element at
+        // all, which reaches here as PHP null - treated the same as an
+        // empty string, since either way nothing usable travelled.
+        $data->pluginuid = (string) ($data->pluginuid ?? '');
+        if ($data->pluginuid === '' || $DB->record_exists('selfselectadvanced_ticket', ['pluginuid' => $data->pluginuid])) {
+            $data->pluginuid = '';
+        }
         // A claimed ticket whose claimant did not survive the restore
         // would be stuck (nobody could resolve or release it): release
         // it back to the queue instead. NEEDSINFO is the other live
@@ -507,6 +573,38 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
             $data->timeclaimed = null;
         }
         $newid = $DB->insert_record('selfselectadvanced_ticket', $data);
+        if ($data->pluginuid === '') {
+            // NOT \mod_selfselectadvanced\activity::from_instance() +
+            // tickets::build_pluginuid(), unlike process_ssagroup()'s
+            // identical-in-spirit regeneration above: that path resolves
+            // the course MODULE via get_course_and_cm_from_instance(),
+            // which depends on the course's modinfo cache - live-tested
+            // here (test_a_colliding_reference_is_regenerated_not_left_blank_on_restore,
+            // a same-course restore, TARGET_CURRENT_ADDING) to throw
+            // "Invalid module ID" because the second copy's course_module
+            // row is not yet visible to a modinfo cache built before this
+            // restore step ran. Built from raw table reads and
+            // \mod_selfselectadvanced\local\ticketrefshape::build()
+            // instead - the same pure-string shape db/upgrade.php's own
+            // backfill uses, for the same reason: neither can depend on a
+            // course module being resolvable.
+            $activityrow = $DB->get_record('selfselectadvanced', ['id' => (int) $data->activityid], 'course, uidprefix');
+            $courserow = $activityrow
+                ? $DB->get_record('course', ['id' => (int) $activityrow->course], 'id, shortname, fullname')
+                : false;
+            $DB->set_field(
+                'selfselectadvanced_ticket',
+                'pluginuid',
+                \mod_selfselectadvanced\local\ticketrefshape::build(
+                    $activityrow ? (string) $activityrow->uidprefix : '',
+                    $courserow ? (string) $courserow->shortname : '',
+                    $courserow ? (string) $courserow->fullname : '',
+                    $courserow ? (int) $courserow->id : (int) $data->activityid,
+                    (int) $newid
+                ),
+                ['id' => $newid]
+            );
+        }
         // RESTOREFILES=TRUE (1.20.44 part 2), not optional here: the
         // opening request's attachments are stored with the ticket id
         // as their itemid, and core only links a backed-up file back to

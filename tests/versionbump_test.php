@@ -68,13 +68,51 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026082001;
+    private const CURRENT = 2026082002;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026082000;
+    private const PREVIOUS = 2026082001;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.55';
+    private const RELEASE = '1.20.56';
+
+    /**
+     * The step's own text, plus the body of every db/upgrade.php helper it
+     * calls - so DML moved into a helper is still DML the scan can see.
+     *
+     * @param string $block the text between the guard and the savepoint
+     * @param string $code the whole of db/upgrade.php
+     * @return string $block with each called helper's body appended
+     */
+    private static function with_called_helpers(string $block, string $code): string {
+        preg_match_all('/\b(selfselectadvanced_[a-z_]+)\s*\(/', $block, $calls);
+        foreach (array_unique($calls[1] ?? []) as $name) {
+            $at = strpos($code, 'function ' . $name . '(');
+            if ($at === false) {
+                // Not declared here - a core function, or one this file only
+                // calls. Nothing to append, and nothing hidden either.
+                continue;
+            }
+            $open = strpos($code, '{', $at);
+            if ($open === false) {
+                continue;
+            }
+            $depth = 0;
+            for ($i = $open, $n = strlen($code); $i < $n; $i++) {
+                if ($code[$i] === '{') {
+                    $depth++;
+                } else if ($code[$i] === '}') {
+                    $depth--;
+                    if ($depth === 0) {
+                        $block .= "\n" . substr($code, $open, $i - $open + 1);
+                        break;
+                    }
+                }
+            }
+        }
+
+        return $block;
+    }
 
     /**
      * Upgrade constants and functions are not loaded in a plain test run.
@@ -381,6 +419,17 @@ final class versionbump_test extends \advanced_testcase {
         $this->assertLessThan($end, $start, 'the guard does not precede its savepoint');
 
         $block = substr($code, $start, $end - $start);
+
+        // A HELPER IS STILL THE STEP. The scan used to read only the text
+        // BETWEEN the guard and the savepoint, so a step whose body was one
+        // call to a function declared earlier in this same file had all of
+        // its DML invisible here - the register would read "no tables
+        // touched" for a step that rewrites every row of one. That is the
+        // ledger-127 failure mode exactly: a checker reporting a number
+        // about code it cannot see. Every selfselectadvanced_* function the
+        // step calls, and which db/upgrade.php itself declares, is appended
+        // to the text under examination.
+        $block = self::with_called_helpers($block, $code);
         // Kept unblanked: the creation check below has to see which table
         // each xmldb_table() declaration names.
         $original = $block;
@@ -414,13 +463,31 @@ final class versionbump_test extends \advanced_testcase {
         // claim, because the step has just guaranteed their existence, but it
         // has to be declared separately so nobody can quietly move a table
         // between the two categories.
-        // EMPTY for 2026082001. The 1.20.55 step touches no schema at
-        // all - the audit remediation adds guards, deletes rows that were
-        // always meant to go, and corrects queries, so the step carries an
-        // upgrade_log() marker and its savepoint and nothing else. The
-        // 2026082000 entry was empty and is gone: a one-off licence must
-        // not become a standing one.
-        $exempt = [];
+        // NOT EMPTY for 2026082002, and this is the first entry in a
+        // while that is genuinely earned. The 1.20.56 step adds
+        // selfselectadvanced_ticket.pluginuid NOT NULL UNIQUE, which a
+        // populated table cannot accept until every existing row has a
+        // distinct value - so the step must READ and WRITE the ticket
+        // table's rows between adding the field and adding the index.
+        // That is DML on a plugin table during an upgrade, the exact
+        // thing this register exists to make somebody declare out loud.
+        // It is safe for the reason the register's 'tables' arm requires:
+        // selfselectadvanced_ticket PREDATES this step by many releases,
+        // and the only column the backfill touches is the one the step
+        // itself has just added, so no site can be upgrading FROM a shape
+        // that lacks it.
+        //
+        // The 2026082001 entry was empty and is gone: a one-off licence
+        // must not become a standing one.
+        $exempt = [
+            self::CURRENT => [
+                'tables' => ['selfselectadvanced_ticket'],
+                'creates' => [],
+                'reason' => 'The backfill that makes a NOT NULL UNIQUE column addable to a populated '
+                    . 'table: every pre-existing ticket is given its own distinct reference after the '
+                    . 'field is added and before the unique index is, and the table long predates the step.',
+            ],
+        ];
         $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
         $allowed = array_key_exists(self::CURRENT, $exempt)
             ? array_merge($exempt[self::CURRENT]['tables'], $created)

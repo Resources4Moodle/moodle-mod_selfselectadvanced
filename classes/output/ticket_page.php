@@ -136,6 +136,10 @@ class ticket_page implements renderable, templatable {
         $data = [
             'cmid' => $cmid,
             'ticketid' => (int) $ticket->id,
+            // 1.20.56 deliverable A: the quotable reference, on the
+            // thread header - the ticket's own pluginuid column, never
+            // re-derived.
+            'pluginuid' => (string) $ticket->pluginuid,
             'typelabel' => get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced'),
             'subject' => $subject,
             'statuslabel' => get_string('ticketstatus' . $ticket->status, 'mod_selfselectadvanced'),

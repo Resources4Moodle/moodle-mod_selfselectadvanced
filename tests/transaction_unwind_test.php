@@ -949,6 +949,9 @@ final class transaction_unwind_test extends \advanced_testcase {
         // transaction.
         $DB->insert_record('selfselectadvanced_ticket', (object) [
             'activityid' => $activity->id(),
+            // 1.20.56: pluginuid is NOT NULL UNIQUE now - this test builds
+            // two raw rows, so each needs its own distinct value.
+            'pluginuid' => 'UNWIND-GUIDECAP-T0001',
             'groupid' => null,
             'type' => tickets::TYPE_GUIDECAP,
             'status' => tickets::STATUS_OPEN,
@@ -974,6 +977,9 @@ final class transaction_unwind_test extends \advanced_testcase {
         // requester is read inside the transaction.
         $open = $DB->insert_record('selfselectadvanced_ticket', (object) [
             'activityid' => $activity->id(),
+            // 1.20.56: pluginuid is NOT NULL UNIQUE now (see the
+            // guidecap row above, in this same test).
+            'pluginuid' => 'UNWIND-COMPCHANGE-T0001',
             'groupid' => (int) $group->id,
             'type' => tickets::TYPE_COMPCHANGE,
             'status' => tickets::STATUS_OPEN,

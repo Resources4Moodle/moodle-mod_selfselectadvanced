@@ -151,7 +151,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         ]);
         $tickets = new backup_nested_element('tickets');
         $ticket = new backup_nested_element('ticket', ['id'], [
-            'groupid', 'type', 'status', 'requestedby', 'request', 'requestformat',
+            'pluginuid', 'groupid', 'type', 'status', 'requestedby', 'request', 'requestformat',
             'claimedby', 'timeclaimed', 'resolvedby', 'timeresolved',
             'resolution', 'resolutionformat', 'timecreated', 'timemodified',
             'requested', 'disclaimerack', 'escalated',

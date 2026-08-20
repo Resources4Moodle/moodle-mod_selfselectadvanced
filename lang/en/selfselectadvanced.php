@@ -1062,32 +1062,33 @@ $string['msgstaffmessagesubject'] = '{$a->activity}: {$a->subject}';
 $string['msgsubmittedbody'] = 'Group "{$a->group}" ({$a->pluginuid}) has been submitted to you for review.
 The group has {$a->size} member(s). Read their proposal, then approve the group, return it with comments, or decline it.';
 $string['msgsubmittedsubject'] = 'Group "{$a->group}" awaits your review';
-$string['msgticketclaimedbody'] = 'Your {$a->type} request for group "{$a->group}" has been taken up.
+$string['msgticketclaimedbody'] = 'Your {$a->type} request ({$a->pluginuid}) for group "{$a->group}" has been taken up.
 Somebody is working on it now. You will hear again when it is decided.';
-$string['msgticketclaimedsubject'] = 'Your request for "{$a->group}" is being handled';
-$string['msgticketclosedbody'] = 'Your {$a->type} request for group "{$a->group}" is now {$a->status}.
+$string['msgticketclaimedsubject'] = 'Your request ({$a->pluginuid}) for "{$a->group}" is being handled';
+$string['msgticketclosedbody'] = 'Your {$a->type} request ({$a->pluginuid}) for group "{$a->group}" is now {$a->status}.
 What they said: {$a->resolution}';
-$string['msgticketclosedsubject'] = 'Your request for "{$a->group}": {$a->status}';
-$string['msgticketcommentedbody'] = 'There is a new reply on your {$a->type} request for group "{$a->group}".
+$string['msgticketclosedsubject'] = 'Your request ({$a->pluginuid}) for "{$a->group}": {$a->status}';
+$string['msgticketcommentedbody'] = 'There is a new reply on your {$a->type} request ({$a->pluginuid}) for group "{$a->group}".
 {$a->note}';
-$string['msgticketcommentedsubject'] = 'New reply on your request for "{$a->group}"';
-$string['msgticketescalatedbody'] = 'A {$a->type} request for group "{$a->group}" has been escalated to you.
+$string['msgticketcommentedsubject'] = 'New reply on your request ({$a->pluginuid}) for "{$a->group}"';
+$string['msgticketescalatedbody'] = 'A {$a->type} request ({$a->pluginuid}) for group "{$a->group}" has been escalated to you.
 {$a->note}';
-$string['msgticketescalatedsubject'] = 'Escalated: {$a->type} request for "{$a->group}"';
-$string['msgticketfiledbody'] = 'A {$a->type} request has joined the queue for group "{$a->group}".
+$string['msgticketescalatedsubject'] = 'Escalated ({$a->pluginuid}): {$a->type} request for "{$a->group}"';
+$string['msgticketfiledbody'] = 'A {$a->type} request ({$a->pluginuid}) has joined the queue for group "{$a->group}".
+What they asked: {$a->request}
 It waits until somebody takes it up. While one person holds it, nobody else can.';
-$string['msgticketfiledsubject'] = 'New {$a->type} request for "{$a->group}"';
-$string['msgticketinforeplybody'] = 'The requester answered your question about their {$a->type} request for group "{$a->group}".
+$string['msgticketfiledsubject'] = 'New {$a->type} request ({$a->pluginuid}) for "{$a->group}"';
+$string['msgticketinforeplybody'] = 'The requester answered your question about their {$a->type} request ({$a->pluginuid}) for group "{$a->group}".
 They said: {$a->reply}
 The ticket is back in your hands to continue.';
-$string['msgticketinforeplysubject'] = 'Answer received for "{$a->group}"';
-$string['msgticketneedsinfobody'] = 'The person handling your {$a->type} request for group "{$a->group}" needs more information before they can continue.
+$string['msgticketinforeplysubject'] = 'Answer received for {$a->pluginuid} ("{$a->group}")';
+$string['msgticketneedsinfobody'] = 'The person handling your {$a->type} request ({$a->pluginuid}) for group "{$a->group}" needs more information before they can continue.
 They asked: {$a->question}
 Answer from My requests to keep your request moving.';
-$string['msgticketneedsinfosubject'] = 'More information needed for your request: "{$a->group}"';
-$string['msgticketreferredbody'] = 'A {$a->type} request for group "{$a->group}" has been referred to you.
+$string['msgticketneedsinfosubject'] = 'More information needed for your request {$a->pluginuid} ("{$a->group}")';
+$string['msgticketreferredbody'] = 'A {$a->type} request ({$a->pluginuid}) for group "{$a->group}" has been referred to you.
 {$a->note}';
-$string['msgticketreferredsubject'] = 'Referred to you: {$a->type} request for "{$a->group}"';
+$string['msgticketreferredsubject'] = 'Referred to you ({$a->pluginuid}): {$a->type} request for "{$a->group}"';
 $string['msgunfrozenbody'] = 'Your group "{$a->group}" has been unfrozen by a coordinator.
 It is back to exactly the membership it had when it was frozen, and the group is firm again.';
 $string['msgunfrozensubject'] = 'Group "{$a->group}" unfrozen';
@@ -1693,6 +1694,7 @@ $string['ticketraisemember'] = 'Any enrolled participant may raise tickets';
 $string['ticketraisemember_help'] = 'On by default. Switching this off stops a group member - and a participant not yet in any group - from raising any ticket, even one they would otherwise be eligible for. This is eligibility on top of the existing rules for each request type: turning it on does not let a member raise a request only a guide or leader may file.';
 $string['ticketreasonhint'] = 'Why is this change needed?';
 $string['ticketreasonhint_help'] = 'Say what needs to change and why - this is what the managers or coordinators handling your request will read.';
+$string['ticketreference'] = 'Reference';
 $string['ticketreferheading'] = 'Refer to another coordinator';
 $string['ticketrefernotelabel'] = 'Note for the coordinator you are referring this to';
 $string['ticketreferrednotice'] = 'Ticket referred.';

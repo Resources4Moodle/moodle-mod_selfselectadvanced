@@ -28,8 +28,11 @@
       (1.20.53 deliverable A): who sees which is tickets::group_live()'s own
       authority (requester sees their own; queue authority sees them all;
       nobody else sees anything - the section itself draws only when there
-      is a row). Each row: typelabel, statuslabel, raised, threadurl,
-      needsyourreply (viewer is the requester and the status is needsinfo)
+      is a row). Each row: ticketpluginuid (1.20.56 deliverable A - the
+      ticket's own quotable reference, named distinctly from the group's
+      own pluginuid above so the two are never confused), typelabel,
+      statuslabel, raised, threadurl, needsyourreply (viewer is the
+      requester and the status is needsinfo)
 
     Example context (json):
     {
@@ -37,6 +40,7 @@
         "groupticketrows": [
             {
                 "id": 4,
+                "ticketpluginuid": "SSA-C101-T0004",
                 "typelabel": "Composition change",
                 "statuslabel": "Waiting on the requester",
                 "raised": "Wednesday, 22 July, 9:00 AM",
@@ -234,6 +238,7 @@
                                 {{! takes the first match - so the one link this row     }}
                                 {{! offers carries its own unambiguous label instead.    }}
                                 <strong>{{typelabel}}</strong>
+                                <span class="text-muted small">({{ticketpluginuid}})</span>
                                 <span class="badge bg-info text-dark ms-2">{{statuslabel}}</span>
                                 <span class="d-block small text-muted">{{raised}}</span>
                             </span>

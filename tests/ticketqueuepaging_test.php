@@ -68,6 +68,11 @@ final class ticketqueuepaging_test extends \advanced_testcase {
             ]);
             $DB->insert_record('selfselectadvanced_ticket', (object) [
                 'activityid' => $instance->id,
+                // 1.20.56: pluginuid is NOT NULL UNIQUE now - this row is
+                // built directly rather than through tickets::file(), so
+                // it needs its own distinct value; the point under test
+                // is paging, not the reference, so this is synthetic.
+                'pluginuid' => 'PAGING-T' . str_pad((string) $i, 4, '0', STR_PAD_LEFT),
                 'groupid' => $group->id,
                 'type' => tickets::TYPE_UNFREEZE,
                 'status' => tickets::STATUS_OPEN,
@@ -162,6 +167,8 @@ final class ticketqueuepaging_test extends \advanced_testcase {
         // sorts this row first.
         $DB->insert_record('selfselectadvanced_ticket', (object) [
             'activityid' => $activity->id(),
+            // 1.20.56: pluginuid is NOT NULL UNIQUE now (see setup_queue()'s own comment).
+            'pluginuid' => 'PAGING-ESCALATED-T0001',
             'groupid' => $group->id,
             'type' => tickets::TYPE_UNFREEZE,
             'status' => tickets::STATUS_CLAIMED,
@@ -238,6 +245,8 @@ final class ticketqueuepaging_test extends \advanced_testcase {
         $guide = $this->getDataGenerator()->create_user();
         $DB->insert_record('selfselectadvanced_ticket', (object) [
             'activityid' => $activity->id(),
+            // 1.20.56: pluginuid is NOT NULL UNIQUE now (see setup_queue()'s own comment).
+            'pluginuid' => 'PAGING-GUIDECAP-T0001',
             'groupid' => null,
             'type' => tickets::TYPE_GUIDECAP,
             'status' => tickets::STATUS_OPEN,

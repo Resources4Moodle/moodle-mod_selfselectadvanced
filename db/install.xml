@@ -472,6 +472,7 @@
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="pluginuid" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false" COMMENT="Plugin-scoped unique human-readable ticket reference, e.g. SSA-PHYS101-T0042"/>
         <FIELD NAME="groupid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="The team the request is about, or NULL for a request that is not about a team (guidecap)"/>
         <FIELD NAME="type" TYPE="char" LENGTH="128" NOTNULL="true" SEQUENCE="false" COMMENT="compchange, unfreeze, guidecap, guidegone, guidereduce, dates or penalty; widened from 12 in 1.20.31 so a new type is never blocked by its own name"/>
         <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="open" SEQUENCE="false" COMMENT="open, claimed, resolved, declined or withdrawn"/>
@@ -498,6 +499,7 @@
       </KEYS>
       <INDEXES>
         <INDEX NAME="activityid_status" UNIQUE="false" FIELDS="activityid, status"/>
+        <INDEX NAME="pluginuid" UNIQUE="true" FIELDS="pluginuid"/>
       </INDEXES>
     </TABLE>
     <TABLE NAME="selfselectadvanced_ticketlog" COMMENT="The history trail of a ticket: one row per handling action - filed, claimed, released, needsinfo, inforeply, resolved, declined or withdrawn - in order, so both the requester (state changes only) and staff (the full trail) can read what happened to a request">

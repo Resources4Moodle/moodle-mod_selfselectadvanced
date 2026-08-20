@@ -236,6 +236,52 @@ class tickets {
     ];
 
     /**
+     * Build the plugin-scoped human-readable ticket reference (1.20.56
+     * deliverable A): prefix-course-T-number, e.g. SSA-PHYS101-T0042.
+     * Mirrors groups::build_pluginuid()'s shape - the SAME manager-set
+     * `uidprefix` activity setting and course-name derivation (no new
+     * setting is added for tickets), so the two reference families read
+     * as one - with the ticket's own database id supplying the
+     * uniqueness exactly as the group's id does for its project id:
+     * unique plugin-wide forever, with no search or retry, because a
+     * ticket id is. The literal T marker is the one difference from a
+     * group's own shape: a ticket and a group are independent
+     * autoincrement sequences that can coincide numerically, and without
+     * it a ticket could read identically to a group's own project id for
+     * the same course.
+     *
+     * Called ONCE per ticket, right after its row is inserted (the id the
+     * reference embeds does not exist before that), from every filer
+     * inside the SAME lock the insert itself runs under - so two
+     * concurrent filings can never mint the same reference - and never
+     * again afterwards: minted once, never rewritten, the same rule
+     * groups::build_pluginuid() states for the id this mirrors.
+     *
+     * The actual shape is ticketrefshape::build() - shared with
+     * db/upgrade.php's backfill and the restore step's own regenerate-
+     * on-collision path, neither of which can reach an activity object
+     * the way every caller here always has one in hand (see that class's
+     * own docblock for why); this is simply the ordinary path calling it
+     * with an activity object's own values instead of duplicating the
+     * shape a third time.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the ticket's DB id
+     * @return string
+     */
+    public static function build_pluginuid(activity $activity, int $ticketid): string {
+        $course = get_course($activity->courseid());
+
+        return ticketrefshape::build(
+            (string) ($activity->settings()->uidprefix ?? ''),
+            (string) $course->shortname,
+            (string) $course->fullname,
+            $activity->courseid(),
+            $ticketid
+        );
+    }
+
+    /**
      * File a ticket.
      *
      * Who may file what: the group's assigned guide files either type;
@@ -388,6 +434,7 @@ class tickets {
             $now = time();
             $ticket = (object) [
                 'activityid' => $activity->id(),
+                'pluginuid' => '',
                 'groupid' => (int) $group->id,
                 'type' => $type,
                 'status' => self::STATUS_OPEN,
@@ -399,6 +446,13 @@ class tickets {
                 'timemodified' => $now,
             ];
             $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
+            // 1.20.56 deliverable A: minted INSIDE this lock, exactly like
+            // groups::build_pluginuid()'s own two-step insert-then-set (the
+            // id the reference embeds does not exist until the insert
+            // above returns), so two concurrent filings can never mint the
+            // same reference.
+            $ticket->pluginuid = self::build_pluginuid($activity, (int) $ticket->id);
+            $DB->set_field('selfselectadvanced_ticket', 'pluginuid', $ticket->pluginuid, ['id' => $ticket->id]);
 
             // The request text already lives on the ticket row, so the
             // trail's own note is null - the filed action itself is
@@ -546,6 +600,7 @@ class tickets {
             $now = time();
             $ticket = (object) [
                 'activityid' => $activity->id(),
+                'pluginuid' => '',
                 'groupid' => null,
                 'type' => self::TYPE_GUIDECAP,
                 'status' => self::STATUS_OPEN,
@@ -557,6 +612,10 @@ class tickets {
                 'timemodified' => $now,
             ];
             $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
+            // 1.20.56 deliverable A: minted inside this lock (see file()'s
+            // own comment on the same two-step pattern).
+            $ticket->pluginuid = self::build_pluginuid($activity, (int) $ticket->id);
+            $DB->set_field('selfselectadvanced_ticket', 'pluginuid', $ticket->pluginuid, ['id' => $ticket->id]);
 
             $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
 
@@ -662,6 +721,7 @@ class tickets {
             $now = time();
             $ticket = (object) [
                 'activityid' => $activity->id(),
+                'pluginuid' => '',
                 'groupid' => null,
                 'type' => self::TYPE_GUIDEREDUCE,
                 'status' => self::STATUS_OPEN,
@@ -673,6 +733,10 @@ class tickets {
                 'timemodified' => $now,
             ];
             $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
+            // 1.20.56 deliverable A: minted inside this lock (see file()'s
+            // own comment on the same two-step pattern).
+            $ticket->pluginuid = self::build_pluginuid($activity, (int) $ticket->id);
+            $DB->set_field('selfselectadvanced_ticket', 'pluginuid', $ticket->pluginuid, ['id' => $ticket->id]);
 
             $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
 
@@ -844,6 +908,7 @@ class tickets {
             $now = time();
             $ticket = (object) [
                 'activityid' => $activity->id(),
+                'pluginuid' => '',
                 'groupid' => (int) $group->id,
                 'type' => self::TYPE_GUIDEGONE,
                 'status' => self::STATUS_OPEN,
@@ -858,6 +923,10 @@ class tickets {
                 'timemodified' => $now,
             ];
             $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
+            // 1.20.56 deliverable A: minted inside this lock (see file()'s
+            // own comment on the same two-step pattern).
+            $ticket->pluginuid = self::build_pluginuid($activity, (int) $ticket->id);
+            $DB->set_field('selfselectadvanced_ticket', 'pluginuid', $ticket->pluginuid, ['id' => $ticket->id]);
 
             // The trail row is a DATABASE WRITE - it belongs inside
             // this transaction and before the commit, exactly where
@@ -987,6 +1056,7 @@ class tickets {
             $now = time();
             $ticket = (object) [
                 'activityid' => $activity->id(),
+                'pluginuid' => '',
                 'groupid' => $group !== null ? (int) $group->id : 0,
                 'type' => self::TYPE_HELP,
                 'status' => self::STATUS_OPEN,
@@ -998,6 +1068,10 @@ class tickets {
                 'timemodified' => $now,
             ];
             $ticket->id = $DB->insert_record('selfselectadvanced_ticket', $ticket);
+            // 1.20.56 deliverable A: minted inside this lock (see file()'s
+            // own comment on the same two-step pattern).
+            $ticket->pluginuid = self::build_pluginuid($activity, (int) $ticket->id);
+            $DB->set_field('selfselectadvanced_ticket', 'pluginuid', $ticket->pluginuid, ['id' => $ticket->id]);
 
             $ticketlogid = self::log($ticket->id, $userid, self::ACTION_FILED, null, FORMAT_PLAIN);
 
@@ -1798,6 +1872,10 @@ class tickets {
             (object) [
                 'group' => $groupname,
                 'type' => get_string('tickettype' . $fresh->type, 'mod_selfselectadvanced'),
+                // 1.20.56 deliverable B: staff-to-staff, like the
+                // escalated message above - the referral note may say
+                // anything the referring actor wrote.
+                'pluginuid' => (string) ($fresh->pluginuid ?? ''),
                 'note' => trim(html_to_text($note)),
             ],
             new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticketid]),
@@ -2010,6 +2088,11 @@ class tickets {
         $a = (object) [
             'group' => $groupname,
             'type' => get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced'),
+            // 1.20.56 deliverable B: the quotable reference, in the
+            // subject. Staff-to-staff (this message never reaches a
+            // requester), so the escalation note itself may say anything
+            // the escalating actor wrote - it already does, unchanged.
+            'pluginuid' => (string) ($ticket->pluginuid ?? ''),
             'note' => trim(html_to_text($note)),
         ];
         $url = new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticket->id]);
@@ -2304,6 +2387,13 @@ class tickets {
             (object) [
                 'group' => $groupname,
                 'type' => get_string('tickettype' . $fresh->type, 'mod_selfselectadvanced'),
+                // 1.20.56 deliverable B: this goes to the REQUESTER, so
+                // no staff identity travels with it - the contact-privacy
+                // rule applies to a notification exactly as it does to
+                // the screen, and this object never carries one. The
+                // claimant's own question is already the "actual text
+                // that was written" this deliverable asks for.
+                'pluginuid' => (string) ($fresh->pluginuid ?? ''),
                 'question' => trim(html_to_text($question)),
             ],
             new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticketid]),
@@ -2405,6 +2495,11 @@ class tickets {
             (object) [
                 'group' => $groupname,
                 'type' => get_string('tickettype' . $fresh->type, 'mod_selfselectadvanced'),
+                // 1.20.56 deliverable B: this goes to the CLAIMANT
+                // (staff), so a name may appear - it just never does here
+                // either, since a requester's reply carries no staff
+                // identity to begin with.
+                'pluginuid' => (string) ($fresh->pluginuid ?? ''),
                 'reply' => trim(html_to_text($reply)),
             ],
             new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticketid]),
@@ -2524,6 +2619,9 @@ class tickets {
             (object) [
                 'group' => $groupname,
                 'type' => get_string('tickettype' . $fresh->type, 'mod_selfselectadvanced'),
+                // 1.20.56 deliverable B: this goes to the REQUESTER - no
+                // staff identity travels with it, same as needsinfo above.
+                'pluginuid' => (string) ($fresh->pluginuid ?? ''),
                 'note' => trim(html_to_text($note)),
             ],
             new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticketid]),
@@ -4068,6 +4166,21 @@ class tickets {
                 'group' => $subject,
                 'type' => get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced'),
                 'status' => get_string('ticketstatus' . $ticket->status, 'mod_selfselectadvanced'),
+                // 1.20.56 deliverable B: the quotable reference, in every
+                // msgticket* subject - the ticket's own pluginuid column,
+                // never re-derived. No actor identity travels alongside
+                // it here (the contact-privacy rule applies to a
+                // notification exactly as it does to the screen): this
+                // object carries a group name, a type/status label and
+                // the WORDS somebody wrote, never a fullname().
+                'pluginuid' => (string) ($ticket->pluginuid ?? ''),
+                // Only msgticketfiledbody references this placeholder -
+                // every other subject/body pair here already carries its
+                // own written text (resolution/note/question/reply) from
+                // its own call site - but it costs nothing to resolve for
+                // the others too, and a site's Language customisation
+                // override could always choose to use it.
+                'request' => trim(html_to_text((string) ($ticket->request ?? ''))),
                 // Kept even though the thread now shows the resolution
                 // too: a message may be read on a device with no
                 // browser session at hand, and the outcome should not

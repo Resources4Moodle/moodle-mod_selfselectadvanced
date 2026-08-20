@@ -253,6 +253,10 @@ $table = new html_table();
 $table->attributes['class'] = 'generaltable selfselectadvanced-tickets';
 $table->head = [
     get_string('ticketqueuepos', 'mod_selfselectadvanced'),
+    // 1.20.56 deliverable A: the quotable reference - t.pluginuid arrives
+    // with the row already (queue()'s own "SELECT t.*"), so no query
+    // changes for this column.
+    get_string('ticketreference', 'mod_selfselectadvanced'),
     // Not "group name": a team-limit request is about a guide and the
     // number they are asking for, and has no team at all.
     get_string('ticketsubject', 'mod_selfselectadvanced'),
@@ -453,6 +457,7 @@ foreach ($queue as $ticket) {
 
     $row = new html_table_row([
         $isopen ? $position : '',
+        s($ticket->pluginuid),
         $subject,
         get_string('tickettype' . $ticket->type, 'mod_selfselectadvanced')
             . html_writer::div(
