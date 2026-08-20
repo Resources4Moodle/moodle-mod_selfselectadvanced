@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.20.57 — finding a ticket among many (2026-08-20)
+
+> Serial `2026082003` / `1.20.57`. **No schema change.** Maturity stays RC.
+
+Second of the four features the cPanel comparison was missing. The reference that
+shipped in 1.20.56 is what makes this worth having: a search box is only useful
+when there is something short and exact to type into it.
+
+**The requester's own list had paging and nothing else.** It now searches over the
+reference and the request text, and filters by state and type — using the same
+vocabulary the staff queue offers, extracted into one shared list so the two pages
+cannot drift apart. It also stops saying "you have not sent any requests" to
+somebody whose *filter* matched nothing, which was simply untrue.
+
+**The staff queue could filter by type and status but not search at all**, so a
+coordinator who remembered a phrase rather than a number had to open tickets until
+they found it. It now searches the reference, the request, **and the trail's own
+notes** — where the memorable phrase usually lives. The trail is reached by one
+`EXISTS` subquery, not a query per row and not a JOIN that would multiply a ticket
+by its matching log entries.
+
+**A filtered list is now counted as filtered.** Every count takes the same criteria
+as the fetch it accompanies, so the paging bar stops offering page 5 of a two-page
+result, and the queue Position stays correct on page 2 of a search.
+
+**Search narrows what a viewer could already see and never widens it**, which is
+tested from both directions rather than assumed. Removing the requester scope makes
+one person's search on another's exact reference return that person's ticket;
+removing the queue's own exclusion makes a coordinator's search return the ticket
+they filed themselves. Both were run as live mutations, not described.
+
+The wildcard escaping is proven the same way, with a ticket whose text genuinely
+contains a percent sign: without `sql_like_escape()` a student typing `50%` matches
+everything.
+
 ## 1.20.56 — a ticket you can quote, and a notification worth reading (2026-08-20)
 
 > Serial `2026082002` / `1.20.56`. **Schema change:** `selfselectadvanced_ticket.pluginuid`,

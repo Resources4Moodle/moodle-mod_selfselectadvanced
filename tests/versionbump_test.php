@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026082002;
+    private const CURRENT = 2026082003;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026082001;
+    private const PREVIOUS = 2026082002;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.56';
+    private const RELEASE = '1.20.57';
 
     /**
      * The step's own text, plus the body of every db/upgrade.php helper it
@@ -463,31 +463,14 @@ final class versionbump_test extends \advanced_testcase {
         // claim, because the step has just guaranteed their existence, but it
         // has to be declared separately so nobody can quietly move a table
         // between the two categories.
-        // NOT EMPTY for 2026082002, and this is the first entry in a
-        // while that is genuinely earned. The 1.20.56 step adds
-        // selfselectadvanced_ticket.pluginuid NOT NULL UNIQUE, which a
-        // populated table cannot accept until every existing row has a
-        // distinct value - so the step must READ and WRITE the ticket
-        // table's rows between adding the field and adding the index.
-        // That is DML on a plugin table during an upgrade, the exact
-        // thing this register exists to make somebody declare out loud.
-        // It is safe for the reason the register's 'tables' arm requires:
-        // selfselectadvanced_ticket PREDATES this step by many releases,
-        // and the only column the backfill touches is the one the step
-        // itself has just added, so no site can be upgrading FROM a shape
-        // that lacks it.
-        //
-        // The 2026082001 entry was empty and is gone: a one-off licence
-        // must not become a standing one.
-        $exempt = [
-            self::CURRENT => [
-                'tables' => ['selfselectadvanced_ticket'],
-                'creates' => [],
-                'reason' => 'The backfill that makes a NOT NULL UNIQUE column addable to a populated '
-                    . 'table: every pre-existing ticket is given its own distinct reference after the '
-                    . 'field is added and before the unique index is, and the table long predates the step.',
-            ],
-        ];
+        // EMPTY for 2026082003. The 1.20.57 step touches no schema and no
+        // rows: search is over columns that already exist, so the step
+        // carries an upgrade_log() marker and its savepoint and nothing
+        // else. The 2026082002 entry - the pluginuid backfill, the one
+        // genuinely earned exemption in a long while - is gone with the
+        // step it licensed: a one-off licence must not become a standing
+        // one.
+        $exempt = [];
         $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
         $allowed = array_key_exists(self::CURRENT, $exempt)
             ? array_merge($exempt[self::CURRENT]['tables'], $created)

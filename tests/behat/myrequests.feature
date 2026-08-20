@@ -100,3 +100,56 @@ Feature: A requester can see the request they made and what came back
   Scenario: Somebody who has asked for nothing is offered no way in
     When I am on the "Lab groups" "selfselectadvanced activity" page logged in as student1
     Then I should not see "My requests"
+
+  Scenario: A requester's own list can be searched and filtered by status
+    # Two of the requester's own tickets: the first withdrawn, so a
+    # second of the same type is allowed (the duplicate guard is by
+    # live status), and the two share no words - a search or a status
+    # filter can only be finding the ONE it names.
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
+    And I set the field "Ask for leadership help (say what the group needs):" to "Our leader has gone quiet"
+    And I press "File request"
+    And I am on the "Lab groups" "mod_selfselectadvanced > my requests" page
+    And I press "Withdraw"
+    Then I should see "Your request was withdrawn."
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
+    And I set the field "Ask for leadership help (say what the group needs):" to "Completely different wording about deadlines"
+    And I press "File request"
+    Then I should see "Your request has been queued for the managers and coordinators."
+
+    When I am on the "Lab groups" "mod_selfselectadvanced > my requests" page
+    Then I should see "Our leader has gone quiet"
+    And I should see "Completely different wording about deadlines"
+
+    # Narrowed by a search term unique to the second ticket's text.
+    When I set the field "Search" to "deadlines"
+    And I press "Filter"
+    Then I should see "1 ticket(s) match"
+    And I should see "Completely different wording about deadlines"
+    And I should not see "Our leader has gone quiet"
+
+    # Cleared: both are visible again.
+    When I set the field "Search" to ""
+    And I press "Filter"
+    Then I should see "Our leader has gone quiet"
+    And I should see "Completely different wording about deadlines"
+
+    # Narrowed by STATUS instead - the same vocabulary the staff queue
+    # offers (a "Status" field with "Withdrawn" among its options).
+    When I set the field "Status" to "Withdrawn"
+    And I press "Filter"
+    Then I should see "1 ticket(s) match"
+    And I should see "Our leader has gone quiet"
+    And I should not see "Completely different wording about deadlines"
+    When I set the field "Status" to "All statuses"
+    And I press "Filter"
+    Then I should see "Our leader has gone quiet"
+    And I should see "Completely different wording about deadlines"
+
+    # A search that matches NEITHER ticket must say so truthfully - not
+    # the "you have not sent any requests" message, which would be a lie
+    # (the requester plainly has two).
+    When I set the field "Search" to "zzzznomatchatall"
+    And I press "Filter"
+    Then I should see "No tickets match this filter."
+    And I should not see "You have not sent any requests."

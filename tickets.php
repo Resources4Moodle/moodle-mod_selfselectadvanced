@@ -61,16 +61,18 @@ if (!in_array($typefilter, $knowntypes, true)) {
     $typefilter = '';
 }
 $statusfilter = optional_param('status', '', PARAM_ALPHA);
-$knownstatuses = [
-    tickets::STATUS_OPEN,
-    tickets::STATUS_CLAIMED,
-    tickets::STATUS_RESOLVED,
-    tickets::STATUS_DECLINED,
-    tickets::STATUS_WITHDRAWN,
-];
+// 1.20.57: extracted to tickets::filterable_statuses() so this page and
+// myrequests.php share the SAME status vocabulary rather than keeping
+// two literals that could drift apart (spec).
+$knownstatuses = tickets::filterable_statuses();
 if (!in_array($statusfilter, $knownstatuses, true)) {
     $statusfilter = '';
 }
+// The free-text search (1.20.57 deliverable B): the reference, the
+// request, or a trail note. Trimmed here so a search of pure whitespace
+// reads as "no filter", matching the service layer's own definition of
+// empty (tickets::queue_search_condition()).
+$search = trim(optional_param('search', '', PARAM_TEXT));
 
 [$course, $cm] = get_course_and_cm_from_cmid($id, 'selfselectadvanced');
 require_login($course, true, $cm);
@@ -93,6 +95,9 @@ if ($typefilter !== '') {
 }
 if ($statusfilter !== '') {
     $baseurl->param('status', $statusfilter);
+}
+if ($search !== '') {
+    $baseurl->param('search', $search);
 }
 $PAGE->set_url($baseurl);
 $PAGE->set_title($activity->name());
@@ -148,6 +153,18 @@ echo html_writer::div(get_string('ticketsintro', 'mod_selfselectadvanced'), 'ale
 echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
     'class' => 'd-inline-flex gap-2 align-items-center flex-wrap mb-3']);
 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+// 1.20.57 deliverable B: the free-text search, ahead of the type/status
+// selects so the box that matters most for "I remember one phrase" reads
+// first.
+echo html_writer::label(get_string('search'), 'ssa-ticket-search', true, ['class' => 'me-2']);
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'id' => 'ssa-ticket-search',
+    'name' => 'search',
+    'value' => $search,
+    'placeholder' => get_string('ticketsearchplaceholder', 'mod_selfselectadvanced'),
+    'class' => 'form-control form-control-sm w-auto me-2',
+]);
 echo html_writer::label(get_string('tickettype', 'mod_selfselectadvanced'), 'ssa-ticket-type', true, ['class' => 'me-2']);
 $typeoptions = ['' => get_string('ticketfilterall', 'mod_selfselectadvanced')];
 foreach ($knowntypes as $knowntype) {
@@ -182,8 +199,8 @@ echo html_writer::end_tag('form');
 // one every other table on this plugin uses.
 $perpage = \mod_selfselectadvanced\local\perpage::current(50);
 $page = optional_param('page', 0, PARAM_INT);
-$totaltickets = tickets::queue_count($activity, (int) $USER->id, $typefilter, $statusfilter);
-$queue = tickets::queue($activity, (int) $USER->id, $page * $perpage, $perpage, $typefilter, $statusfilter);
+$totaltickets = tickets::queue_count($activity, (int) $USER->id, $typefilter, $statusfilter, $search);
+$queue = tickets::queue($activity, (int) $USER->id, $page * $perpage, $perpage, $typefilter, $statusfilter, $search);
 if (!$queue) {
     echo html_writer::div(get_string('ticketsempty', 'mod_selfselectadvanced'));
     echo $OUTPUT->footer();
@@ -192,7 +209,7 @@ if (!$queue) {
 // A filtered view that silently showed page 1 of an unstated total
 // would invite misreading it as the whole answer - so once a filter is
 // narrowing the queue, the total the filter matched is stated plainly.
-if ($typefilter !== '' || $statusfilter !== '') {
+if ($typefilter !== '' || $statusfilter !== '' || $search !== '') {
     echo html_writer::div(
         get_string('ticketfiltermatches', 'mod_selfselectadvanced', $totaltickets),
         'small text-muted mb-2'
@@ -291,7 +308,7 @@ $requesterline = static function (int $requesterid, bool $mine) use ($requesterc
 // page, never a trail() call per row.
 $awaitingclaimantids = tickets::awaiting_claimant_ids($activity, array_keys($queue));
 
-$position = tickets::open_before($activity, (int) $USER->id, $page * $perpage, $typefilter, $statusfilter);
+$position = tickets::open_before($activity, (int) $USER->id, $page * $perpage, $typefilter, $statusfilter, $search);
 foreach ($queue as $ticket) {
     $isopen = $ticket->status === tickets::STATUS_OPEN;
     // Needsinfo counts alongside claimed for "is this viewer working

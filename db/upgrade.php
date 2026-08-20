@@ -3318,5 +3318,31 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026082002, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026082003) {
+        // 1.20.57: tickets can be searched and filtered. NO SCHEMA - the
+        // search is over columns that already exist, the reference among
+        // them.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.57 (2026082003). Tickets can be searched by reference, text and trail, '
+                . 'and a filtered list is counted as filtered.',
+            'The requester\'s own list had paging and nothing else, and the staff queue could filter '
+                . 'by type and status but not search at all - so a coordinator who remembered a phrase '
+                . 'rather than a number had to open tickets until they found it. Both pages now search: '
+                . 'the requester\'s over the reference and the request text, the queue\'s over those and '
+                . 'the trail\'s own notes, where the memorable phrase usually lives. The trail is reached '
+                . 'by one EXISTS subquery rather than a query per row. Every count now takes the same '
+                . 'criteria as the fetch it accompanies, so a filtered list is no longer paged by an '
+                . 'unfiltered total. Search NARROWS what a viewer could already see and never widens it, '
+                . 'which is tested from both sides: one person cannot reach another\'s ticket by typing '
+                . 'its exact reference.'
+        );
+
+        upgrade_mod_savepoint(true, 2026082003, 'selfselectadvanced');
+    }
+
     return true;
 }

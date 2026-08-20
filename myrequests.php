@@ -40,6 +40,22 @@ use mod_selfselectadvanced\local\tickets;
 $id = required_param('id', PARAM_INT);
 $action = optional_param('action', '', PARAM_ALPHA);
 $page = optional_param('page', 0, PARAM_INT);
+// 1.20.57 deliverable A: state and type filters using the SAME
+// vocabulary tickets.php's own queue page uses (known_types()/
+// filterable_statuses() are the queue's own lists, shared rather than
+// duplicated, so the two pages cannot drift apart).
+$typefilter = optional_param('type', '', PARAM_ALPHA);
+if (!in_array($typefilter, tickets::known_types(), true)) {
+    $typefilter = '';
+}
+$statusfilter = optional_param('status', '', PARAM_ALPHA);
+if (!in_array($statusfilter, tickets::filterable_statuses(), true)) {
+    $statusfilter = '';
+}
+// The free-text search: the reference or the request text, trimmed so
+// pure whitespace reads as "no filter" (matches the service layer's own
+// definition of empty).
+$search = trim(optional_param('search', '', PARAM_TEXT));
 
 [$course, $cm] = get_course_and_cm_from_cmid($id, 'selfselectadvanced');
 require_login($course, true, $cm);
@@ -47,7 +63,21 @@ require_login($course, true, $cm);
 $activity = \mod_selfselectadvanced\activity::from_cmid($cm->id);
 $context = $activity->context();
 
+// The filter travels on $baseurl itself - every paging link and the
+// withdraw form's own redirect are built from it (the same reasoning
+// tickets.php's own $baseurl states: without this a filtered page two
+// would lose its filter the moment a page number or a withdraw
+// round-trip touched the URL).
 $baseurl = new moodle_url('/mod/selfselectadvanced/myrequests.php', ['id' => $cm->id]);
+if ($typefilter !== '') {
+    $baseurl->param('type', $typefilter);
+}
+if ($statusfilter !== '') {
+    $baseurl->param('status', $statusfilter);
+}
+if ($search !== '') {
+    $baseurl->param('search', $search);
+}
 $PAGE->set_url($baseurl);
 $PAGE->set_title($activity->name());
 $PAGE->set_heading(format_string($course->fullname));
@@ -72,18 +102,99 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
 }
 
 $perpage = \mod_selfselectadvanced\local\perpage::current(25);
-$total = tickets::mine_count($activity, (int) $USER->id);
-$mine = tickets::mine($activity, (int) $USER->id, $page * $perpage, $perpage);
+// The UNFILTERED total decides whether there is anything to filter or
+// search at all (1.20.57 deliverable A): a requester who has never filed
+// a ticket gets the plain "you have not sent any requests" message
+// regardless of what a hand-edited querystring asks for, and is never
+// shown a filter form with nothing behind it. $total (below) is the
+// FILTERED count, and it is what the paging bar and the "N match" line
+// use - the same split tickets.php's own $totaltickets keeps.
+$totalunfiltered = tickets::mine_count($activity, (int) $USER->id);
+$total = tickets::mine_count($activity, (int) $USER->id, $typefilter, $statusfilter, $search);
+$mine = tickets::mine($activity, (int) $USER->id, $page * $perpage, $perpage, $typefilter, $statusfilter, $search);
 
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('myrequests', 'mod_selfselectadvanced'));
 
-if (!$mine) {
+if ($totalunfiltered === 0) {
     // Not a refusal. Somebody who has asked for nothing has nothing
     // here, and saying so plainly beats an empty table.
     echo html_writer::div(get_string('myrequestsnone', 'mod_selfselectadvanced'), 'alert alert-info');
 } else {
     echo html_writer::tag('p', get_string('myrequestsintro', 'mod_selfselectadvanced'), ['class' => 'text-muted']);
+
+    // 1.20.57 deliverable A: search + state/type filters, modelled on
+    // tickets.php's own GET filter form so the two behave identically -
+    // changing any control drops the page number, since the old one
+    // belongs to a different, unfiltered list.
+    echo html_writer::start_tag('form', ['method' => 'get', 'action' => $baseurl->out_omit_querystring(),
+        'class' => 'd-inline-flex gap-2 align-items-center flex-wrap mb-3']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+    echo html_writer::label(get_string('search'), 'ssa-myrequests-search', true, ['class' => 'me-2']);
+    echo html_writer::empty_tag('input', [
+        'type' => 'text',
+        'id' => 'ssa-myrequests-search',
+        'name' => 'search',
+        'value' => $search,
+        'placeholder' => get_string('myrequestssearchplaceholder', 'mod_selfselectadvanced'),
+        'class' => 'form-control form-control-sm w-auto me-2',
+    ]);
+    echo html_writer::label(get_string('tickettype', 'mod_selfselectadvanced'), 'ssa-myrequests-type', true, ['class' => 'me-2']);
+    $typeoptions = ['' => get_string('ticketfilterall', 'mod_selfselectadvanced')];
+    foreach (tickets::known_types() as $knowntype) {
+        $typeoptions[$knowntype] = get_string('tickettype' . $knowntype, 'mod_selfselectadvanced');
+    }
+    echo html_writer::select(
+        $typeoptions,
+        'type',
+        $typefilter,
+        false,
+        ['id' => 'ssa-myrequests-type', 'class' => 'form-select form-select-sm w-auto me-2']
+    );
+    echo html_writer::label(
+        get_string('ticketstatus', 'mod_selfselectadvanced'),
+        'ssa-myrequests-status',
+        true,
+        ['class' => 'me-2']
+    );
+    $statusoptions = ['' => get_string('ticketfilterallstatuses', 'mod_selfselectadvanced')];
+    foreach (tickets::filterable_statuses() as $knownstatus) {
+        $statusoptions[$knownstatus] = get_string('ticketstatus' . $knownstatus, 'mod_selfselectadvanced');
+    }
+    echo html_writer::select(
+        $statusoptions,
+        'status',
+        $statusfilter,
+        false,
+        ['id' => 'ssa-myrequests-status', 'class' => 'form-select form-select-sm w-auto me-2']
+    );
+    echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('ticketfilterapply', 'mod_selfselectadvanced'),
+        'class' => 'btn btn-secondary btn-sm']);
+    echo html_writer::end_tag('form');
+
+    // Same "state the total once a filter narrows the list" rule
+    // tickets.php's own queue page follows.
+    if ($typefilter !== '' || $statusfilter !== '' || $search !== '') {
+        echo html_writer::div(
+            get_string('ticketfiltermatches', 'mod_selfselectadvanced', $total),
+            'small text-muted mb-2'
+        );
+    }
+
+    if (!$mine) {
+        // The requester DOES have tickets ($totalunfiltered > 0) - this
+        // filter or search simply matched none of them, which is a
+        // different, true statement from "you have not sent any
+        // requests" and must not be told the false one.
+        echo html_writer::div(get_string('ticketfilternomatches', 'mod_selfselectadvanced'), 'alert alert-info');
+        echo html_writer::link(
+            new moodle_url('/mod/selfselectadvanced/view.php', ['id' => $cm->id]),
+            get_string('back'),
+            ['class' => 'btn btn-secondary mt-3']
+        );
+        echo $OUTPUT->footer();
+        die;
+    }
 
     $table = new html_table();
     $table->attributes['class'] = 'generaltable selfselectadvanced-myrequests';

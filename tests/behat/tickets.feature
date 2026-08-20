@@ -206,3 +206,65 @@ Feature: The sequential ticket queue for composition changes and unfreezes
     When I click on "Ticket queue" "link" in the ".selfselectadvanced-ticketqueuepanel" "css_element"
     Then I should see "Composition change"
     And I should see "Swap in a data specialist"
+
+  Scenario: The queue can be narrowed by a search across the request text and a trail note
+    # A second requester, so the first ticket is "leadership help" -
+    # the type this feature's own "narrowed by type and status"
+    # scenario above already uses for exactly this fixture shape.
+    Given the following "users" exist:
+      | username | firstname | lastname | email          |
+      | student2 | Sara      | Two      | s2@example.com |
+    And the following "course enrolments" exist:
+      | user     | course | role    |
+      | student2 | C1     | student |
+    And the following "mod_selfselectadvanced > members" exist:
+      | ssagroup  | user     | status    |
+      | Team Blue | student2 | confirmed |
+    # Taken up and asked a question BEFORE the second ticket is filed -
+    # a question phrase that appears nowhere else on the page, so a
+    # later search for it can only be finding the trail.
+    When I am on the "Lab groups > Team Blue" "mod_selfselectadvanced > group" page logged in as student2
+    And I set the field "Ask for leadership help (say what the group needs):" to "Our leader has gone quiet"
+    And I press "File request"
+    Then I should see "Your request has been queued for the managers and coordinators."
+    When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
+    And I press "Take up"
+    And I follow "Open thread"
+    And I set the field "Question for the requester" to "Have you tried the alternate contact number?"
+    And I press "Send the question"
+    Then I should see "Waiting on the requester"
+
+    # A second, unrelated ticket - different request, different type,
+    # nothing in common with the first ticket's text or trail.
+    When I am on the "Lab groups" "mod_selfselectadvanced > guide" page logged in as guide1
+    And I follow "Groups I guide"
+    And I click on "Group page" "link" in the "Team Blue" "table_row"
+    And I set the field "Request a composition change from the managers" to "Swap in a data specialist"
+    And I press "File request"
+    Then I should see "Your request has been queued for the managers and coordinators."
+
+    When I am on the "Lab groups" "mod_selfselectadvanced > tickets" page logged in as teacher1
+    Then I should see "Swap in a data specialist"
+    And I should see "Our leader has gone quiet"
+
+    # Narrowed by the REQUEST text: only the matching ticket remains.
+    When I set the field "Search" to "data specialist"
+    And I press "Filter"
+    Then I should see "1 ticket(s) match"
+    And I should see "Swap in a data specialist"
+    And I should not see "Our leader has gone quiet"
+
+    # Cleared: both are visible again.
+    When I set the field "Search" to ""
+    And I press "Filter"
+    Then I should see "Swap in a data specialist"
+    And I should see "Our leader has gone quiet"
+
+    # Narrowed by a TRAIL NOTE - a phrase that appears only in the
+    # claimant's question, never in either ticket's own request text or
+    # reference.
+    When I set the field "Search" to "alternate contact number"
+    And I press "Filter"
+    Then I should see "1 ticket(s) match"
+    And I should see "Our leader has gone quiet"
+    And I should not see "Swap in a data specialist"

@@ -3321,6 +3321,122 @@ class tickets {
     }
 
     /**
+     * The ticket statuses offered as a queue/my-requests FILTER value
+     * (1.20.57 deliverables A and B): the same five tickets.php's own
+     * queue page has whitelisted since slice C2 - open, claimed,
+     * resolved, declined, withdrawn.
+     *
+     * DELIBERATELY not every self::STATUS_* constant: STATUS_NEEDSINFO
+     * is missing, exactly as it always has been in the queue page's own
+     * whitelist. A status filter is UI vocabulary the two pages must
+     * share (spec: "the same vocabulary the queue already uses, so the
+     * two pages cannot drift apart") - widening it for one page alone
+     * would be the very drift the spec forbids, so this is extracted
+     * from tickets.php's own literal rather than left as two copies
+     * that could disagree. validate_status_filter() below still accepts
+     * the full six-status set for any OTHER caller, because that guards
+     * the SERVICE layer against a coding bug, not this UI whitelist.
+     *
+     * @return string[] self::STATUS_* values offered as a filter
+     */
+    public static function filterable_statuses(): array {
+        return [
+            self::STATUS_OPEN,
+            self::STATUS_CLAIMED,
+            self::STATUS_RESOLVED,
+            self::STATUS_DECLINED,
+            self::STATUS_WITHDRAWN,
+        ];
+    }
+
+    /**
+     * The free-text search condition shared by the staff queue's
+     * filtering methods - queue(), queue_count(), count_open() and
+     * escalated_live_nonopen_count() (1.20.57 deliverable B): the
+     * reference, the request text, AND the trail's own notes, which is
+     * where the memorable phrase usually lives (spec).
+     *
+     * An EXISTS subquery against selfselectadvanced_ticketlog, never a
+     * JOIN: the queue page can hold a full page of tickets, and a JOIN
+     * against a one-to-many child table would return one row per
+     * MATCHING LOG ENTRY rather than one per ticket, which is exactly
+     * the "query multiplies rows" shape this plugin's house rule against
+     * a query inside a render loop exists to keep out of a listing in
+     * the first place. EXISTS keeps one row per ticket, the same promise
+     * every other queue method here already makes, and the search still
+     * runs as ONE statement rather than one query fired per row
+     * afterwards.
+     *
+     * Every fragment this returns is ANDed onto the caller's existing
+     * WHERE by the caller - never ORed in a way that could ADD rows -
+     * so a search can only narrow whatever set of tickets was already
+     * visible to the viewer, never widen it (spec: "search must narrow
+     * those sets, never widen them").
+     *
+     * Empty $search means no filtering (spec: "empty search = no
+     * filtering, exactly as today") - an empty fragment appended to
+     * nothing.
+     *
+     * @param string $search the typed text, '' for no filter
+     * @return array{0: string, 1: array<string, string>} [sql fragment
+     *         (a leading " AND (...)", or '' when unfiltered), params
+     *         for the caller to merge into its own params array]
+     */
+    private static function queue_search_condition(string $search): array {
+        global $DB;
+
+        $search = trim($search);
+        if ($search === '') {
+            return ['', []];
+        }
+        // Escape FIRST: a percent or underscore the searcher TYPED is
+        // data, not a wildcard, and the raw '%...%' wrapping below is
+        // the only wildcarding this search performs (spec: "a student
+        // typing a percent sign must not match everything").
+        $like = '%' . $DB->sql_like_escape($search) . '%';
+
+        $sql = ' AND (' . $DB->sql_like('t.pluginuid', ':searchref', false, false)
+            . ' OR ' . $DB->sql_like('t.request', ':searchreq', false, false)
+            . ' OR EXISTS (SELECT 1 FROM {selfselectadvanced_ticketlog} l'
+            . ' WHERE l.ticketid = t.id AND ' . $DB->sql_like('l.note', ':searchnote', false, false) . ')'
+            . ')';
+
+        return [$sql, ['searchref' => $like, 'searchreq' => $like, 'searchnote' => $like]];
+    }
+
+    /**
+     * The free-text search condition for a requester's own list - mine()
+     * and mine_count() (1.20.57 deliverable A): the reference and the
+     * request text.
+     *
+     * No trail here, unlike queue_search_condition() above: myrequests.php
+     * never shows a requester the staff trail at all (the requester's own
+     * thread view is trail($withactors = false), narrated state changes
+     * only), so matching against text this page never displays would
+     * search the invisible rather than help find anything.
+     *
+     * Same narrow-only and empty-means-unfiltered guarantees as
+     * queue_search_condition() above - see that docblock.
+     *
+     * @param string $search the typed text, '' for no filter
+     * @return array{0: string, 1: array<string, string>} [sql fragment, params to merge]
+     */
+    private static function mine_search_condition(string $search): array {
+        global $DB;
+
+        $search = trim($search);
+        if ($search === '') {
+            return ['', []];
+        }
+        $like = '%' . $DB->sql_like_escape($search) . '%';
+
+        $sql = ' AND (' . $DB->sql_like('t.pluginuid', ':searchref', false, false)
+            . ' OR ' . $DB->sql_like('t.request', ':searchreq', false, false) . ')';
+
+        return [$sql, ['searchref' => $like, 'searchreq' => $like]];
+    }
+
+    /**
      * Refuse a queue filter value that is not really one of ours.
      *
      * The status twin of validate_type_filter() above - same reasoning,
@@ -3358,6 +3474,9 @@ class tickets {
      * @param int $limitnum how many rows to return, 0 for all of them
      * @param string $type self::TYPE_*, or '' for every type (slice C2 triage filter)
      * @param string $status self::STATUS_*, or '' for every status (slice C2 triage filter)
+     * @param string $search free text to match against the reference, the
+     *        request, or a trail note (1.20.57 deliverable B); '' for no
+     *        filter
      * @return stdClass[] ticket rows
      * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
@@ -3367,7 +3486,8 @@ class tickets {
         int $limitfrom = 0,
         int $limitnum = 0,
         string $type = '',
-        string $status = ''
+        string $status = '',
+        string $search = ''
     ): array {
         global $DB;
 
@@ -3398,6 +3518,12 @@ class tickets {
             $statussql = ' AND t.status = :status';
             $params['status'] = $status;
         }
+        // The free-text search (1.20.57 deliverable B), ANDed on top of
+        // every clause above - see queue_search_condition()'s own
+        // docblock for why this can only narrow the set $mine already
+        // scoped, never widen it.
+        [$searchsql, $searchparams] = self::queue_search_condition($search);
+        $params = array_merge($params, $searchparams);
 
         // The team's name comes back with the row rather than being
         // looked up afterwards. The page used to resolve names by
@@ -3409,7 +3535,7 @@ class tickets {
             "SELECT t.*, g.name AS groupname, g.pluginuid AS grouppluginuid
                FROM {selfselectadvanced_ticket} t
           LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
-              WHERE t.activityid = :activityid" . $mine . $typesql . $statussql . "
+              WHERE t.activityid = :activityid" . $mine . $typesql . $statussql . $searchsql . "
            ORDER BY CASE WHEN t.status IN ('open','claimed','needsinfo') THEN 0 ELSE 1 END,
                     CASE WHEN t.status IN ('open','claimed','needsinfo') AND t.escalated = 1 THEN 0 ELSE 1 END,
                     CASE t.status
@@ -3438,10 +3564,20 @@ class tickets {
      * @param int $viewerid the viewer, 0 for no filtering
      * @param string $type self::TYPE_*, or '' for every type (slice C2 triage filter)
      * @param string $status self::STATUS_*, or '' for every status (slice C2 triage filter)
+     * @param string $search free text, same as queue()'s own parameter
+     *        (1.20.57 deliverable C: called with the SAME criteria as
+     *        queue() itself, so a paging bar built from this total is
+     *        never wrong about a filtered list's page count)
      * @return int
      * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
-    public static function queue_count(activity $activity, int $viewerid = 0, string $type = '', string $status = ''): int {
+    public static function queue_count(
+        activity $activity,
+        int $viewerid = 0,
+        string $type = '',
+        string $status = '',
+        string $search = ''
+    ): int {
         global $DB;
 
         self::validate_type_filter($type);
@@ -3463,10 +3599,15 @@ class tickets {
             $statussql = ' AND t.status = :status';
             $params['status'] = $status;
         }
+        // Mirrors queue()'s own WHERE fragment exactly (deliverable C):
+        // the same helper, called the same way, so the two can never
+        // disagree about what "matches" means.
+        [$searchsql, $searchparams] = self::queue_search_condition($search);
+        $params = array_merge($params, $searchparams);
 
         return $DB->count_records_sql(
             "SELECT COUNT(1) FROM {selfselectadvanced_ticket} t
-              WHERE t.activityid = :activityid" . $mine . $typesql . $statussql,
+              WHERE t.activityid = :activityid" . $mine . $typesql . $statussql . $searchsql,
             $params
         );
     }
@@ -3496,10 +3637,46 @@ class tickets {
      * @param int $userid the requester
      * @param int $limitfrom paging offset
      * @param int $limitnum page size, 0 for all
+     * @param string $type self::TYPE_*, or '' for every type (1.20.57
+     *        deliverable A, same vocabulary as the queue's own filter)
+     * @param string $status self::STATUS_*, or '' for every status
+     *        (1.20.57 deliverable A)
+     * @param string $search free text to match against the reference or
+     *        the request (1.20.57 deliverable A); '' for no filter
      * @return array<int, stdClass> ticket rows, each with groupname and grouppluginuid
+     * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
-    public static function mine(activity $activity, int $userid, int $limitfrom = 0, int $limitnum = 0): array {
+    public static function mine(
+        activity $activity,
+        int $userid,
+        int $limitfrom = 0,
+        int $limitnum = 0,
+        string $type = '',
+        string $status = '',
+        string $search = ''
+    ): array {
         global $DB;
+
+        self::validate_type_filter($type);
+        self::validate_status_filter($status);
+
+        $params = ['activityid' => $activity->id(), 'userid' => $userid];
+        $typesql = '';
+        if ($type !== '') {
+            $typesql = ' AND t.type = :type';
+            $params['type'] = $type;
+        }
+        $statussql = '';
+        if ($status !== '') {
+            $statussql = ' AND t.status = :status';
+            $params['status'] = $status;
+        }
+        // ANDed onto the requestedby scope already in the WHERE below -
+        // see mine_search_condition()'s own docblock for why a search
+        // can only narrow this requester's own rows, never reach anybody
+        // else's.
+        [$searchsql, $searchparams] = self::mine_search_condition($search);
+        $params = array_merge($params, $searchparams);
 
         // LEFT JOIN for the same reason queue() uses one: a team-limit
         // request carries no groupid and is about no team at all.
@@ -3515,7 +3692,7 @@ class tickets {
             "SELECT t.*, g.name AS groupname, g.pluginuid AS grouppluginuid
                FROM {selfselectadvanced_ticket} t
           LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
-              WHERE t.activityid = :activityid AND t.requestedby = :userid
+              WHERE t.activityid = :activityid AND t.requestedby = :userid" . $typesql . $statussql . $searchsql . "
            ORDER BY CASE t.status
                         WHEN 'needsinfo' THEN 0
                         WHEN 'open' THEN 1
@@ -3524,7 +3701,7 @@ class tickets {
                     END,
                     t.timecreated DESC,
                     t.id DESC",
-            ['activityid' => $activity->id(), 'userid' => $userid],
+            $params,
             $limitfrom,
             $limitnum
         );
@@ -3657,15 +3834,47 @@ class tickets {
      *
      * @param activity $activity the activity
      * @param int $userid the requester
+     * @param string $type self::TYPE_*, or '' for every type (1.20.57
+     *        deliverable A/C: same criteria as mine() itself, called
+     *        with them, so myrequests.php's paging bar is never wrong
+     *        about a filtered list's page count)
+     * @param string $status self::STATUS_*, or '' for every status
+     * @param string $search free text, same as mine()'s own parameter
      * @return int
+     * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
-    public static function mine_count(activity $activity, int $userid): int {
+    public static function mine_count(
+        activity $activity,
+        int $userid,
+        string $type = '',
+        string $status = '',
+        string $search = ''
+    ): int {
         global $DB;
 
-        return $DB->count_records('selfselectadvanced_ticket', [
-            'activityid' => $activity->id(),
-            'requestedby' => $userid,
-        ]);
+        self::validate_type_filter($type);
+        self::validate_status_filter($status);
+
+        $params = ['activityid' => $activity->id(), 'userid' => $userid];
+        $typesql = '';
+        if ($type !== '') {
+            $typesql = ' AND t.type = :type';
+            $params['type'] = $type;
+        }
+        $statussql = '';
+        if ($status !== '') {
+            $statussql = ' AND t.status = :status';
+            $params['status'] = $status;
+        }
+        // Mirrors mine()'s own WHERE fragment exactly (deliverable C).
+        [$searchsql, $searchparams] = self::mine_search_condition($search);
+        $params = array_merge($params, $searchparams);
+
+        return $DB->count_records_sql(
+            "SELECT COUNT(1) FROM {selfselectadvanced_ticket} t
+              WHERE t.activityid = :activityid AND t.requestedby = :userid" . $typesql . $statussql . $searchsql,
+            $params
+        );
     }
 
     /**
@@ -3725,6 +3934,11 @@ class tickets {
      * @param int $limitfrom the page offset
      * @param string $type self::TYPE_*, or '' for every type (slice C2 triage filter)
      * @param string $status self::STATUS_*, or '' for every status (slice C2 triage filter)
+     * @param string $search free text, same as queue()'s own parameter
+     *        (1.20.57 deliverable B: a search is a WHERE clause too, so
+     *        it must narrow the position count exactly like $type/$status
+     *        already do, or the Position column would lie on page two of
+     *        a searched queue)
      * @return int
      * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
@@ -3733,10 +3947,11 @@ class tickets {
         int $viewerid,
         int $limitfrom,
         string $type = '',
-        string $status = ''
+        string $status = '',
+        string $search = ''
     ): int {
-        $open = self::count_open($activity, $viewerid, $type, $status);
-        $escalatednonopen = self::escalated_live_nonopen_count($activity, $viewerid, $type, $status);
+        $open = self::count_open($activity, $viewerid, $type, $status, $search);
+        $escalatednonopen = self::escalated_live_nonopen_count($activity, $viewerid, $type, $status, $search);
 
         return min($open, max(0, $limitfrom - $escalatednonopen));
     }
@@ -3770,6 +3985,7 @@ class tickets {
      * @param int $viewerid the viewer, 0 for no filtering
      * @param string $type self::TYPE_*, or '' for every type (slice C2 triage filter)
      * @param string $status self::STATUS_*, or '' for every status (slice C2 triage filter)
+     * @param string $search free text, same as queue()'s own parameter (1.20.57 deliverable B)
      * @return int
      * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
@@ -3777,7 +3993,8 @@ class tickets {
         activity $activity,
         int $viewerid = 0,
         string $type = '',
-        string $status = ''
+        string $status = '',
+        string $search = ''
     ): int {
         global $DB;
 
@@ -3800,11 +4017,13 @@ class tickets {
             $statussql = ' AND t.status = :status';
             $params['status'] = $status;
         }
+        [$searchsql, $searchparams] = self::queue_search_condition($search);
+        $params = array_merge($params, $searchparams);
 
         return $DB->count_records_sql(
             "SELECT COUNT(1) FROM {selfselectadvanced_ticket} t
               WHERE t.activityid = :activityid AND t.escalated = 1
-                    AND t.status IN ('claimed', 'needsinfo')" . $mine . $typesql . $statussql,
+                    AND t.status IN ('claimed', 'needsinfo')" . $mine . $typesql . $statussql . $searchsql,
             $params
         );
     }
@@ -3826,10 +4045,17 @@ class tickets {
      * @param int $viewerid the viewer, 0 for no filtering
      * @param string $type self::TYPE_*, or '' for every type (slice C2 triage filter)
      * @param string $status self::STATUS_*, or '' for every status (slice C2 triage filter)
+     * @param string $search free text, same as queue()'s own parameter (1.20.57 deliverable B)
      * @return int
      * @throws \coding_exception if $type or $status is not empty and not a known constant
      */
-    public static function count_open(activity $activity, int $viewerid = 0, string $type = '', string $status = ''): int {
+    public static function count_open(
+        activity $activity,
+        int $viewerid = 0,
+        string $type = '',
+        string $status = '',
+        string $search = ''
+    ): int {
         global $DB;
 
         self::validate_type_filter($type);
@@ -3851,10 +4077,12 @@ class tickets {
             $statussql = ' AND t.status = :status';
             $params['status'] = $status;
         }
+        [$searchsql, $searchparams] = self::queue_search_condition($search);
+        $params = array_merge($params, $searchparams);
 
         return $DB->count_records_sql(
             "SELECT COUNT(1) FROM {selfselectadvanced_ticket} t
-              WHERE t.activityid = :activityid AND t.status = :open" . $mine . $typesql . $statussql,
+              WHERE t.activityid = :activityid AND t.status = :open" . $mine . $typesql . $statussql . $searchsql,
             $params
         );
     }
