@@ -235,6 +235,12 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
         $quota->set_source_table('selfselectadvanced_quota', ['activityid' => backup::VAR_PARENTID]);
         $tpl->set_source_table('selfselectadvanced_template', ['activityid' => backup::VAR_PARENTID]);
         $qslot->set_source_table('selfselectadvanced_qslot', ['activityid' => backup::VAR_PARENTID]);
+        // The knowledgebank (1.20.45) is reusable course content, not user
+        // data (the same reasoning the privacy provider's context purge
+        // already applies to it) - sourced unconditionally, alongside
+        // quotas/templates/qslots, or a Duplicate/rollover backup
+        // (userinfo off) silently loses every FAQ (audit B8/M-12).
+        $kbentry->set_source_table('selfselectadvanced_kb', ['activityid' => backup::VAR_PARENTID]);
         if ($userinfo) {
             $group->set_source_table('selfselectadvanced_group', ['activityid' => backup::VAR_PARENTID]);
             $member->set_source_table('selfselectadvanced_member', ['groupid' => backup::VAR_PARENTID]);
@@ -255,7 +261,7 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             );
             $ticket->set_source_table('selfselectadvanced_ticket', ['activityid' => backup::VAR_PARENTID]);
             $ticketlog->set_source_table('selfselectadvanced_ticketlog', ['ticketid' => backup::VAR_PARENTID]);
-            $kbentry->set_source_table('selfselectadvanced_kb', ['activityid' => backup::VAR_PARENTID]);
+            // Kbentry's own source is set unconditionally above (audit B8).
             $contact->set_source_table('selfselectadvanced_contact', ['activityid' => backup::VAR_PARENTID]);
         }
 

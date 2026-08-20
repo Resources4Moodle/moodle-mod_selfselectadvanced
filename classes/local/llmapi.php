@@ -139,7 +139,11 @@ final class llmapi {
             return self::ROLE_GUIDE;
         }
 
-        $group = tickets::group_of($activity, $ticket);
+        // Group_or_null(), not tickets::group_of(): a group deleted out
+        // from under a live ticket (audit B4/H-5, e.g. a solo leader
+        // dissolving their own forming group) must fall through to
+        // raiser_role(null, ...) -> 'member' rather than throw.
+        $group = self::group_or_null($activity, $ticket);
         $role = tickets::raiser_role($group, (int) $ticket->requestedby);
 
         return $role === 'member' ? self::ROLE_STUDENT : $role;
@@ -243,9 +247,49 @@ final class llmapi {
      * @return string
      */
     public static function subject_name(activity $activity, stdClass $ticket): string {
-        $group = tickets::group_of($activity, $ticket);
+        $group = self::group_or_null($activity, $ticket);
 
         return $group !== null ? format_string($group->name) : get_string('tickethasnoteam', 'mod_selfselectadvanced');
+    }
+
+    /**
+     * The ticket's group row, or null when it has none - never throwing,
+     * unlike tickets::group_of() (audit B4/H-5).
+     *
+     * A ticket whose group was deleted out from under it (a solo leader
+     * dissolving their own forming group is a permitted, ordinary action -
+     * classes/local/rules/gatekeeper.php's can_delete_group()) still has a
+     * groupid > 0, so tickets::group_of() re-queries with groups::get(),
+     * which is MUST_EXIST - one orphaned row then throws for the whole
+     * queue, not just that row (api_list_tickets, api_get_ticket).
+     *
+     * Callers reached through tickets::queue()/mine() already carry the
+     * LEFT JOINed 'groupname' column for exactly this reason: when it is
+     * present, its nullness already answers "does the group still exist"
+     * without a second query. A row with no such property (tickets::get(),
+     * the single-ticket read) falls back to a lookup that degrades to null
+     * instead of throwing.
+     *
+     * @param activity $activity the activity
+     * @param stdClass $ticket the ticket row, possibly carrying 'groupname'
+     * @return stdClass|null the group row, or null
+     */
+    private static function group_or_null(activity $activity, stdClass $ticket): ?stdClass {
+        global $DB;
+
+        if ($ticket->groupid === null || (int) $ticket->groupid <= 0) {
+            return null;
+        }
+        if (property_exists($ticket, 'groupname') && $ticket->groupname === null) {
+            // The LEFT JOIN that produced this row already proved the
+            // group is gone - no need to ask again.
+            return null;
+        }
+
+        return $DB->get_record('selfselectadvanced_group', [
+            'id' => (int) $ticket->groupid,
+            'activityid' => $activity->id(),
+        ], '*', IGNORE_MISSING) ?: null;
     }
 
     /**

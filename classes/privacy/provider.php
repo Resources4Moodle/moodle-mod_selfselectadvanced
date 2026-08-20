@@ -991,6 +991,15 @@ class provider implements
             // guide and not about a team, so it carries no groupid. An
             // inner join dropped every one of them out of the person's
             // own export.
+            //
+            // The fourth OR EXISTS clause (audit B9/M-14) is the same
+            // relation get_contexts_for_userid() already tests on
+            // ticketlog.actorid, "a SEPARATE relation from the three
+            // above, not implied by them" (that method's own comment) -
+            // a coordinator who referred or escalated a ticket away is
+            // recorded ONLY there once claimedby moves on, so without
+            // this clause their export said nothing about a context this
+            // very method already discovered for them.
             $tickets = $DB->get_records_sql(
                 "SELECT t.id, g.name, g.pluginuid, t.type, t.status, t.requestedby, t.claimedby,
                         t.resolvedby, t.request, t.requestformat, t.resolution, t.resolutionformat,
@@ -998,8 +1007,10 @@ class provider implements
                    FROM {selfselectadvanced_ticket} t
               LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
                   WHERE t.activityid = :activityid
-                    AND (t.requestedby = :u1 OR t.claimedby = :u2 OR t.resolvedby = :u3)",
-                ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid, 'u3' => $userid]
+                    AND (t.requestedby = :u1 OR t.claimedby = :u2 OR t.resolvedby = :u3
+                         OR EXISTS (SELECT 1 FROM {selfselectadvanced_ticketlog} tl
+                                     WHERE tl.ticketid = t.id AND tl.actorid = :u4))",
+                ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid, 'u3' => $userid, 'u4' => $userid]
             );
             // The history trail, nested under the ticket export below
             // rather than fetched separately (decision 1, 2026-08-15):
@@ -1236,6 +1247,14 @@ class provider implements
                         // stagedbyyou/wassubject - identifying a THIRD
                         // party by id inside THIS person's export is
                         // not this export's business.
+                        //
+                        // exportable_trail() (audit B3/H-2/H-8) withholds
+                        // STAFF_INTERNAL_ACTIONS rows (referred, escalated,
+                        // published_faq) from anyone who is not staff on
+                        // THIS ticket and not that row's own actor - the
+                        // same rows every other requester-facing surface
+                        // already withholds (tickets::trail($withactors =
+                        // false)'s own SQL exclusion).
                         'trail' => array_values(array_map(static fn($l) => (object) [
                             'action' => $l->action,
                             'note' => $l->note !== null
@@ -1243,7 +1262,7 @@ class provider implements
                                 : null,
                             'wasyou' => transform::yesno((int) $l->actorid === $userid),
                             'timecreated' => transform::datetime($l->timecreated),
-                        ], $ticketlogs[(int) $t->id] ?? [])),
+                        ], self::exportable_trail($ticketlogs[(int) $t->id] ?? [], $t, $userid))),
                     ], $tickets)),
                 ]
             );
@@ -1258,19 +1277,41 @@ class provider implements
             // that itemid by another route (a stray upload, a bug
             // elsewhere) must still never be handed to a subject-access
             // export just because nothing legitimate put it there.
+            //
+            // EACH TICKET GETS ITS OWN LEAF (audit B11/M-17). Both areas
+            // declare subdirs = 0, so every file's filepath is '/' and
+            // the FILENAME is the only discriminator a flat folder has:
+            // two tickets whose requesters each attached screenshot.png
+            // shared one path, and the second overwrote the first in the
+            // export. The itemid is the only thing that tells them
+            // apart, so it names the folder - and a post's files sit
+            // under their own ticket, which is where a reader looking
+            // for them would go.
             foreach ($tickets as $exportedticket) {
-                writer::with_context($context)->export_area_files(
-                    [get_string('pluginname', 'mod_selfselectadvanced'), get_string('tickets', 'mod_selfselectadvanced')],
-                    'mod_selfselectadvanced',
-                    'ticketrequest',
-                    (int) $exportedticket->id
-                );
+                // The opening request's attachment follows the SAME test
+                // as its text three lines above (audit B11/M-16): a
+                // handler who is not the requester is not shown the
+                // request's own wording, and must not be handed the file
+                // that belongs to it either.
+                $ticketleaf = [
+                    get_string('pluginname', 'mod_selfselectadvanced'),
+                    get_string('tickets', 'mod_selfselectadvanced'),
+                    'ticket-' . (int) $exportedticket->id,
+                ];
+                if ((int) $exportedticket->requestedby === $userid) {
+                    writer::with_context($context)->export_area_files(
+                        $ticketleaf,
+                        'mod_selfselectadvanced',
+                        'ticketrequest',
+                        (int) $exportedticket->id
+                    );
+                }
                 foreach ($ticketlogs[(int) $exportedticket->id] ?? [] as $exportedlog) {
                     if (in_array($exportedlog->action, \mod_selfselectadvanced\local\tickets::STAFF_INTERNAL_ACTIONS, true)) {
                         continue;
                     }
                     writer::with_context($context)->export_area_files(
-                        [get_string('pluginname', 'mod_selfselectadvanced'), get_string('tickets', 'mod_selfselectadvanced')],
+                        array_merge($ticketleaf, ['post-' . (int) $exportedlog->id]),
                         'mod_selfselectadvanced',
                         'ticketpost',
                         (int) $exportedlog->id
@@ -1278,6 +1319,33 @@ class provider implements
                 }
             }
         }
+    }
+
+    /**
+     * The ticketlog rows a subject-access export may show for one ticket
+     * (audit B3/H-2/H-8): every row whose action is not one of
+     * tickets::STAFF_INTERNAL_ACTIONS, plus a staff-internal one when the
+     * exporting user is staff on THIS ticket (claimant or resolver) or is
+     * that row's own actor - a handler still sees their own referral or
+     * escalation note even after moving the ticket on (audit B9/M-14's
+     * "a handler still sees their own referral note").
+     *
+     * @param \stdClass[] $rows the ticket's ticketlog rows
+     * @param \stdClass $ticket the ticket row (claimedby, resolvedby, requestedby)
+     * @param int $userid the exporting user
+     * @return \stdClass[] the rows this export may include
+     */
+    private static function exportable_trail(array $rows, \stdClass $ticket, int $userid): array {
+        $isstaffonthisticket = (int) ($ticket->claimedby ?? 0) === $userid
+            || (int) ($ticket->resolvedby ?? 0) === $userid;
+
+        return array_values(array_filter($rows, static function ($l) use ($isstaffonthisticket, $userid) {
+            if (!in_array($l->action, \mod_selfselectadvanced\local\tickets::STAFF_INTERNAL_ACTIONS, true)) {
+                return true;
+            }
+
+            return $isstaffonthisticket || (int) $l->actorid === $userid;
+        }));
     }
 
     /**
@@ -1797,13 +1865,21 @@ class provider implements
             }
         }
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $activityid, 'requestedby' => $userid]);
+        // Both live claimed states (audit B7/M-7/M-10), not CLAIMED alone:
+        // NEEDSINFO is a claimed-and-live state everywhere else in the
+        // plugin (decision 2, "counts as LIVE everywhere open and claimed
+        // already did"), and the scrub's own stated intent is "a half-
+        // worked claim is released back to the queue" - leaving a
+        // needs-info ticket claimed by nobody is the one state that has
+        // no exit: the requester's next reply would go to user 0.
         $DB->execute(
             "UPDATE {selfselectadvanced_ticket}
                 SET claimedby = NULL, timeclaimed = NULL,
-                    status = CASE WHEN status = :claimed THEN :open ELSE status END
+                    status = CASE WHEN status IN (:claimed, :needsinfo) THEN :open ELSE status END
               WHERE activityid = :activityid AND claimedby = :userid",
             [
                 'claimed' => \mod_selfselectadvanced\local\tickets::STATUS_CLAIMED,
+                'needsinfo' => \mod_selfselectadvanced\local\tickets::STATUS_NEEDSINFO,
                 'open' => \mod_selfselectadvanced\local\tickets::STATUS_OPEN,
                 'activityid' => $activityid,
                 'userid' => $userid,

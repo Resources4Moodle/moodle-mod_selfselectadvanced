@@ -285,6 +285,18 @@ function selfselectadvanced_delete_instance($id): bool {
     // Queue tickets, guide interests and queued digest items are keyed
     // to the activity too: nothing may outlive the activity it points
     // at, or the rows become unreachable orphans.
+    //
+    // The trail first, while it can still be found by ticketid (the same
+    // order the privacy provider's own context purge uses, and for the
+    // same reason): selfselectadvanced_ticketlog carries no activityid of
+    // its own, so deleting the tickets first would strand every trail
+    // row - including a student's own inforeply prose - unreachable by
+    // any privacy path forever (audit B1/H-6).
+    $DB->delete_records_select(
+        'selfselectadvanced_ticketlog',
+        'ticketid IN (SELECT id FROM {selfselectadvanced_ticket} WHERE activityid = ?)',
+        [$id]
+    );
     $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_contact', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $id]);
@@ -295,6 +307,11 @@ function selfselectadvanced_delete_instance($id): bool {
     $DB->delete_records('selfselectadvanced_template', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_agrun', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_group', ['activityid' => $id]);
+    // The knowledgebank (1.20.45) is keyed to the activity the same way:
+    // an FAQ published from a resolved ticket, or authored directly,
+    // outlives the ticket it grew from but must not outlive the activity
+    // it belongs to (audit B1/H-6, M-9).
+    $DB->delete_records('selfselectadvanced_kb', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced', ['id' => $id]);
     // Reminder markers die with the instance (audit item 23).
     $DB->delete_records('user_preferences', ['name' => 'mod_selfselectadvanced_reminded_' . $id]);
@@ -452,21 +469,38 @@ function selfselectadvanced_reset_userdata($data): array {
         // The groups these point at are about to go: a ticket or an
         // interest left behind would name a team that no longer
         // exists, and the queue would list work nobody can do.
+        //
+        // The trail first, while it can still be found by ticketid - the
+        // module context SURVIVES a reset, and selfselectadvanced_ticketlog
+        // carries no activityid of its own, so deleting the tickets first
+        // would strand every trail row (including a student's own
+        // inforeply prose) unreachable by any privacy path (audit
+        // B2/H-3/H-7).
+        $DB->delete_records_select(
+            'selfselectadvanced_ticketlog',
+            'ticketid IN (SELECT id FROM {selfselectadvanced_ticket} WHERE activityid = ?)',
+            [$instance->id]
+        );
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_contact', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $instance->id]);
         \mod_selfselectadvanced\local\notifier::purge_activity_digests((int) $instance->id);
-        // Proposal attachments are keyed by plugin group id in the
-        // module's own context, and a reset does NOT remove that
-        // context - so without this the files outlive every group that
-        // owned them, unreachable and uncounted against nobody's quota.
-        // (Deleting the activity itself is different: core drops the
-        // whole context, files included.)
-        if ($groupids) {
-            $resetcm = get_coursemodule_from_instance('selfselectadvanced', $instance->id, $data->courseid, false, IGNORE_MISSING);
-            if ($resetcm) {
-                $fs = get_file_storage();
-                $resetcontext = context_module::instance($resetcm->id);
+        // The cm/context lookup is hoisted OUT of `if ($groupids)`
+        // (audit B2): a groupless help/guidecap ticket can carry
+        // attachments even when the activity has no plugin groups at
+        // all, so the ticket file areas below must not depend on
+        // $groupids being non-empty.
+        $resetcm = get_coursemodule_from_instance('selfselectadvanced', $instance->id, $data->courseid, false, IGNORE_MISSING);
+        if ($resetcm) {
+            $fs = get_file_storage();
+            $resetcontext = context_module::instance($resetcm->id);
+            // Proposal attachments are keyed by plugin group id in the
+            // module's own context, and a reset does NOT remove that
+            // context - so without this the files outlive every group
+            // that owned them, unreachable and uncounted against
+            // nobody's quota. (Deleting the activity itself is
+            // different: core drops the whole context, files included.)
+            if ($groupids) {
                 foreach ($groupids as $groupid) {
                     $fs->delete_area_files(
                         $resetcontext->id,
@@ -476,6 +510,14 @@ function selfselectadvanced_reset_userdata($data): array {
                     );
                 }
             }
+            // Both ticket file areas, wholesale - the same treatment the
+            // privacy provider's own context purge gives them, and for
+            // the same reason: every itemid either area can carry
+            // (ticket ids, ticketlog ids) belongs to THIS context alone,
+            // and the ticket/trail rows that named them are gone above
+            // (audit B2/H-4/H-7).
+            $fs->delete_area_files($resetcontext->id, 'mod_selfselectadvanced', 'ticketrequest');
+            $fs->delete_area_files($resetcontext->id, 'mod_selfselectadvanced', 'ticketpost');
         }
         // LIFE-002, maintainer ruling 2026-08-13, option B. The Moodle course
         // groups this plugin made SURVIVE a reset - they are course data, and

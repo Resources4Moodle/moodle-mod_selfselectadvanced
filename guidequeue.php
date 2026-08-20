@@ -205,13 +205,14 @@ if ($tab === 'waiting') {
         // The id breaks the tie, newest first - staff read this queue in order.
         'timecreated DESC, id DESC'
     );
-    $live = null;
-    foreach ($mine as $ticket) {
-        if (in_array($ticket->status, [tickets::STATUS_OPEN, tickets::STATUS_CLAIMED], true)) {
-            $live = $ticket;
-            break;
-        }
-    }
+    // Audit A6 (2026-08-20): the SERVICE's own liveness predicate, not
+    // this page's own copy of it - that copy had drifted (needsinfo
+    // omitted), so a guide whose capacity request was waiting on THEIR
+    // OWN answer was shown neither the pending banner nor a link to the
+    // question, and was offered ask-more/ask-less forms
+    // file_guidecap()/file_guidereduce() could only refuse as a
+    // duplicate.
+    $live = tickets::guide_live_capacity_request($activity, (int) $USER->id);
 
     if ($mine) {
         $table = new html_table();
@@ -251,6 +252,22 @@ if ($tab === 'waiting') {
             'mod_selfselectadvanced',
             (int) $live->requested
         ));
+        if ($live->status === tickets::STATUS_NEEDSINFO) {
+            // Audit A6: the one state where the ticket is waiting on
+            // THIS guide, not on staff - the same hint and "Respond"
+            // affordance myrequests.php already draws for its own
+            // needsinfo row, so the two surfaces never disagree about
+            // whose move it is.
+            echo html_writer::span(
+                get_string('ticketthreadneedsinfohint', 'mod_selfselectadvanced'),
+                'small text-warning-emphasis'
+            );
+            echo html_writer::link(
+                new moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $live->id]),
+                get_string('ticketthreadrespond', 'mod_selfselectadvanced'),
+                ['class' => 'btn btn-primary btn-sm']
+            );
+        }
         if ($live->status === tickets::STATUS_OPEN) {
             echo html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false), 'class' => 'd-inline']);
             echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);

@@ -127,6 +127,84 @@ final class ticketqueuepaging_test extends \advanced_testcase {
     }
 
     /**
+     * AUDIT A7 (2026-08-20): the escalated ordering tier sorts a live
+     * escalated ticket that is NOT open ahead of every open one
+     * (queue()'s ORDER BY), so a run of them before an offset displaces
+     * the opens open_before() used to assume were simply "the first N".
+     * RED-FIRST PROOF (see the report): before the fix, open_before()
+     * answers min($limitfrom, count_open()) and inflates every one of
+     * the mid-range assertions below by exactly the one escalated
+     * non-open row that precedes the offset.
+     *
+     * MUTATION CAUGHT (documented, see the report): reverting
+     * escalated_live_nonopen_count()'s use back to the old
+     * min($limitfrom, count_open()) formula makes the offset-1 and
+     * offset-5 assertions fail (1 and 5 instead of 0 and 4).
+     */
+    public function test_escalated_claimed_ticket_does_not_inflate_open_positions(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$activity, $manager] = $this->setup_queue(12);
+
+        $claimant = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($claimant->id, (int) $activity->cm()->course, 'editingteacher');
+        $leader = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($leader->id, (int) $activity->cm()->course, 'student');
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('mod_selfselectadvanced');
+        $group = $plugingen->create_group([
+            'activityid' => $activity->id(),
+            'leaderid' => $leader->id,
+            'name' => 'Escalated team',
+        ]);
+        $now = time();
+        // Deliberately timestamped BEFORE every open ticket in the
+        // fixture, to prove the escalated tier - not recency - is what
+        // sorts this row first.
+        $DB->insert_record('selfselectadvanced_ticket', (object) [
+            'activityid' => $activity->id(),
+            'groupid' => $group->id,
+            'type' => tickets::TYPE_UNFREEZE,
+            'status' => tickets::STATUS_CLAIMED,
+            'claimedby' => $claimant->id,
+            'timeclaimed' => $now,
+            'escalated' => 1,
+            'requestedby' => $leader->id,
+            'request' => 'Escalated ahead of the open queue',
+            'requestformat' => FORMAT_HTML,
+            'timecreated' => $now - 1000,
+            'timemodified' => $now,
+        ]);
+
+        // The open count is unaffected - the escalated ticket is
+        // claimed, not open.
+        $this->assertSame(12, tickets::count_open($activity, (int) $manager->id));
+
+        // Fixture check: the escalated claimed ticket really is the
+        // very first physical row (queue()'s own ordering), ahead of
+        // every open ticket despite being the oldest by far.
+        $firstpage = tickets::queue($activity, (int) $manager->id, 0, 1);
+        $firstrow = reset($firstpage);
+        $this->assertSame(tickets::STATUS_CLAIMED, $firstrow->status, 'fixture: the escalated ticket must sort first');
+
+        $this->assertSame(0, tickets::open_before($activity, (int) $manager->id, 0));
+        $this->assertSame(
+            0,
+            tickets::open_before($activity, (int) $manager->id, 1),
+            'the one row before offset 1 is the escalated claimed ticket, not an open one'
+        );
+        $this->assertSame(
+            4,
+            tickets::open_before($activity, (int) $manager->id, 5),
+            'one escalated non-open row precedes offset 5, so only 4 of those 5 rows are open'
+        );
+        $this->assertSame(
+            12,
+            tickets::open_before($activity, (int) $manager->id, 50),
+            'positions still cap at the total number open once the offset runs past every live ticket'
+        );
+    }
+
+    /**
      * The team's name travels with the ticket, so the page never has to
      * load every group to label a screenful.
      */

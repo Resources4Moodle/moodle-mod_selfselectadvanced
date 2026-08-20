@@ -125,7 +125,12 @@ class kb_page implements renderable, templatable {
     private function export_student_view(): stdClass {
         $cmid = $this->activity->cm()->id;
         $groups = [];
-        foreach (array_merge([''], tickets::known_types()) as $type) {
+        // Kb::TYPE_GENERAL (audit B5/M-4/M-18/M-23), not '': '' means "no
+        // type filter - every type", so passing it here returned every
+        // published article, which then repeated under each of its own
+        // type's heading below. TYPE_GENERAL asks the one thing this loop
+        // actually needs from its first pass - tickettype is exactly ''.
+        foreach (array_merge([kb::TYPE_GENERAL], tickets::known_types()) as $type) {
             $rows = kb::search($this->activity, $type, $this->q, true);
             if (!$rows) {
                 continue;
@@ -158,14 +163,15 @@ class kb_page implements renderable, templatable {
     }
 
     /**
-     * A tickettype value's display label - the general ('') group's own
-     * label for the empty string, tickets' own type label otherwise.
+     * A tickettype value's display label - the general group's own label
+     * for kb::TYPE_GENERAL (or, defensively, ''), tickets' own type label
+     * otherwise.
      *
-     * @param string $type tickets::TYPE_*, or ''
+     * @param string $type tickets::TYPE_*, kb::TYPE_GENERAL, or ''
      * @return string
      */
     private function type_label(string $type): string {
-        return $type !== ''
+        return ($type !== '' && $type !== kb::TYPE_GENERAL)
             ? get_string('tickettype' . $type, 'mod_selfselectadvanced')
             : get_string('kbtypegeneral', 'mod_selfselectadvanced');
     }

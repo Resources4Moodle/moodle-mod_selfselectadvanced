@@ -22,6 +22,7 @@ use core_privacy\local\request\transform;
 use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
 use mod_selfselectadvanced\local\groups;
+use mod_selfselectadvanced\local\tickets;
 use mod_selfselectadvanced\privacy\provider;
 
 /**
@@ -984,5 +985,270 @@ final class privacygaps_test extends \advanced_testcase {
         }
 
         return $id;
+    }
+
+    /**
+     * A course/activity, its context, a requester and two staff members
+     * (editingteacher archetype, which carries mod/selfselectadvanced:manage
+     * by default) - the fixture the four ticket-export tests below share.
+     *
+     * @return array [activity, context, requester, coordinator A, coordinator B]
+     */
+    private function ticket_scene(): array {
+        $this->resetAfterTest();
+        [, $instance, $context] = $this->module_fixture();
+        $activity = activity::from_instance((int) $instance->id);
+        $generator = $this->getDataGenerator();
+
+        $requester = $generator->create_user();
+        $generator->enrol_user($requester->id, $instance->course, 'student');
+        $coorda = $generator->create_user();
+        $generator->enrol_user($coorda->id, $instance->course, 'editingteacher');
+        $coordb = $generator->create_user();
+        $generator->enrol_user($coordb->id, $instance->course, 'editingteacher');
+
+        return [$activity, $context, $requester, $coorda, $coordb];
+    }
+
+    /**
+     * B3 (HIGH, cardinal privacy rule). A subject-access export must
+     * never hand the REQUESTER the staff-internal referral/escalation
+     * trail - the same rows every other requester-facing surface
+     * withholds (tickets::trail($withactors=false)'s own SQL exclusion,
+     * may_access_ticket_file()'s refusal) - while a CLAIMANT or RESOLVER
+     * on the ticket must still see the full trail, including a
+     * referral note that is their own words
+     * (TICKET-AUDIT-20260820.md, B3 / H-2 / H-8).
+     *
+     * MUTATION CAUGHT: reverting provider.php's STAFF_INTERNAL_ACTIONS
+     * filter on the trail export (mapping $ticketlogs[...] with no
+     * filter, as before) makes the requester's export contain the
+     * 'referred' row and its note - the first block of assertions below
+     * fails.
+     */
+    public function test_requester_export_withholds_staff_internal_trail_but_a_handler_still_sees_it(): void {
+        [$activity, $context, $requester, $coorda, $coordb] = $this->ticket_scene();
+
+        $ticket = tickets::file_help($activity, null, 'Please help.', FORMAT_PLAIN, (int) $requester->id);
+        tickets::claim($activity, (int) $ticket->id, (int) $coorda->id);
+        $note = 'Handing this over - this student has been difficult about the last two requests.';
+        tickets::refer($activity, (int) $ticket->id, (int) $coordb->id, $note, FORMAT_PLAIN, (int) $coorda->id);
+
+        // ABSENCE: the requester never sees the referred row or its note.
+        $requesterexport = $this->export_module_data($requester, $context);
+        $this->assertNotEmpty($requesterexport->tickets, 'fixture setup failed - the requester export has no tickets');
+        $requestertrail = $requesterexport->tickets[0]->trail;
+        $this->assertNotContains(
+            tickets::ACTION_REFERRED,
+            array_map(static fn($row) => $row->action, $requestertrail),
+            'the requester export must never contain a staff-internal referred row'
+        );
+        foreach ($requestertrail as $row) {
+            $this->assertStringNotContainsString(
+                'difficult',
+                (string) $row->note,
+                'a staff-internal referral note leaked into the requester export'
+            );
+        }
+
+        // PRESENCE: the current claimant (staff on this ticket) still
+        // sees it, verbatim.
+        $handlerexport = $this->export_module_data($coordb, $context);
+        $this->assertNotEmpty($handlerexport->tickets, 'fixture setup failed - the handler export has no tickets');
+        $handlertrail = $handlerexport->tickets[0]->trail;
+        $referredrow = null;
+        foreach ($handlertrail as $row) {
+            if ($row->action === tickets::ACTION_REFERRED) {
+                $referredrow = $row;
+            }
+        }
+        $this->assertNotNull($referredrow, 'a claimant must still see how the ticket was handled, including a referral');
+        $this->assertStringContainsString('difficult', (string) $referredrow->note);
+    }
+
+    /**
+     * B9 (MEDIUM). export_user_data()'s ticket query must find a ticket
+     * through the ticketlog.actorid relation too, not only requestedby/
+     * claimedby/resolvedby - get_contexts_for_userid() already lists the
+     * context for exactly this reason (its own EXISTS clause on
+     * ticketlog), so before this fix the context is discovered but the
+     * export inside it says nothing about a person whose only trace on a
+     * ticket is a referral or escalation note
+     * (TICKET-AUDIT-20260820.md, B9 / M-14).
+     *
+     * Coordinator A claims the ticket, then refers it away - afterwards A
+     * is neither requestedby, claimedby nor resolvedby; only the referred
+     * ticketlog row names them.
+     *
+     * MUTATION CAUGHT: reverting the fourth `OR EXISTS` clause on
+     * provider.php's ticket query leaves $referrerexport->tickets empty,
+     * failing the assertions below.
+     */
+    public function test_export_finds_a_ticket_through_the_ticketlog_actor_relation_alone(): void {
+        global $DB;
+
+        [$activity, $context, $requester, $coorda, $coordb] = $this->ticket_scene();
+
+        $ticket = tickets::file_help($activity, null, 'Please help.', FORMAT_PLAIN, (int) $requester->id);
+        tickets::claim($activity, (int) $ticket->id, (int) $coorda->id);
+        $note = 'Passing this along - out of my depth.';
+        tickets::refer($activity, (int) $ticket->id, (int) $coordb->id, $note, FORMAT_PLAIN, (int) $coorda->id);
+
+        $this->assertSame(
+            (int) $coordb->id,
+            (int) $DB->get_field('selfselectadvanced_ticket', 'claimedby', ['id' => $ticket->id]),
+            'fixture setup failed - coordinator B must be the claimant after the referral'
+        );
+
+        $this->assertContainsEquals(
+            $context->id,
+            provider::get_contexts_for_userid((int) $coorda->id)->get_contextids(),
+            'get_contexts_for_userid must already list this context via ticketlog.actorid (pre-existing, not the bug)'
+        );
+
+        $referrerexport = $this->export_module_data($coorda, $context);
+        $this->assertNotEmpty(
+            $referrerexport->tickets,
+            'a referrer whose only trace on a ticket is a ticketlog row got an empty tickets export'
+        );
+        $trail = $referrerexport->tickets[0]->trail;
+        $referredrow = null;
+        foreach ($trail as $row) {
+            if ($row->action === tickets::ACTION_REFERRED) {
+                $referredrow = $row;
+            }
+        }
+        $this->assertNotNull($referredrow, 'the referrer must see their own referral row in their own export');
+        $this->assertStringContainsString('Passing this along', (string) $referredrow->note);
+    }
+
+    /**
+     * B7 (MEDIUM, privacy half). Erasing a claimant must release a
+     * NEEDSINFO ticket back to the queue exactly as it already releases a
+     * CLAIMED one - the scrub's own stated intent - or the ticket is left
+     * claimed by nobody with no exit: the requester's next reply would go
+     * to user 0 (TICKET-AUDIT-20260820.md, B7 / M-7 / M-10).
+     *
+     * MUTATION CAUGHT: reverting provider.php's scrub_user_in_activity()
+     * CASE expression back to `WHEN status = :claimed` (STATUS_CLAIMED
+     * alone) leaves the restored... erased ticket at status='needsinfo'
+     * with claimedby still non-null before the UPDATE (so the WHERE
+     * clause never even touches it), failing the first assertion below.
+     */
+    public function test_privacy_erasure_releases_a_needsinfo_ticket_claimed_by_the_erased_staff_member(): void {
+        global $DB;
+
+        [$activity, $context, $requester, $coorda] = $this->ticket_scene();
+
+        $ticket = tickets::file_help($activity, null, 'Please help.', FORMAT_PLAIN, (int) $requester->id);
+        tickets::claim($activity, (int) $ticket->id, (int) $coorda->id);
+        tickets::request_info($activity, (int) $ticket->id, 'Which team is this about?', FORMAT_PLAIN, (int) $coorda->id);
+        $this->assertSame(
+            tickets::STATUS_NEEDSINFO,
+            $DB->get_field('selfselectadvanced_ticket', 'status', ['id' => $ticket->id]),
+            'fixture setup failed'
+        );
+
+        provider::delete_data_for_user(new approved_contextlist(
+            $coorda,
+            'mod_selfselectadvanced',
+            [$context->id]
+        ));
+
+        $restored = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticket->id], '*', MUST_EXIST);
+        $this->assertSame(
+            tickets::STATUS_OPEN,
+            $restored->status,
+            'erasing the claimant of a needs-info ticket must release it back to the queue'
+        );
+        $this->assertNull($restored->claimedby);
+        $this->assertNull($restored->timeclaimed);
+    }
+
+    /**
+     * B11 (MEDIUM). The opening request TEXT is withheld from anyone who
+     * is not the requester (provider.php's 'request' key, guarded on
+     * requestedby === $userid), but the ticketrequest file loop exported
+     * the requester's opening ATTACHMENT to every handler regardless -
+     * the two must agree (TICKET-AUDIT-20260820.md, B11 / M-16).
+     *
+     * Reads back via the test content_writer's own get_files() (its
+     * public read-back API - the interface's export_area_files() alone
+     * has none), at the SHARED [pluginname, tickets] subcontext both
+     * ticket file areas still use.
+     *
+     * The audit's second half of B11 (M-17, a subcontext leaf per ticket)
+     * IS applied, so this reads the files back under the ticket's own
+     * folder rather than the flat one the first draft used. The two
+     * halves were written in separate passes and the flat lookup here
+     * outlived the change for one gate run, which is the whole reason
+     * this helper now takes the ticket id instead of assuming a shared
+     * folder every caller has to remember.
+     *
+     * MUTATION CAUGHT: reverting the `if ((int) $exportedticket->
+     * requestedby === $userid)` guard on the ticketrequest loop makes the
+     * handler's export contain the requester's attachment, failing the
+     * "handler must not receive it" assertion.
+     */
+    public function test_export_attachments_respect_the_request_text_guard(): void {
+        [$activity, $context, $requester, $coorda] = $this->ticket_scene();
+
+        $ticket = tickets::file_help($activity, null, 'Please help.', FORMAT_PLAIN, (int) $requester->id);
+        get_file_storage()->create_file_from_string([
+            'contextid' => $context->id,
+            'component' => 'mod_selfselectadvanced',
+            'filearea' => tickets::FILEAREA_REQUEST,
+            'itemid' => (int) $ticket->id,
+            'filepath' => '/',
+            'filename' => 'medical-note.pdf',
+        ], 'the requester attachment');
+        tickets::claim($activity, (int) $ticket->id, (int) $coorda->id);
+        tickets::close($activity, (int) $ticket->id, tickets::STATUS_RESOLVED, 'Handled.', FORMAT_PLAIN, (int) $coorda->id);
+
+        // The requester's own export carries the attachment.
+        $requesterfiles = $this->exported_filenames($requester, $context, (int) $ticket->id);
+        $this->assertContains(
+            'medical-note.pdf',
+            $requesterfiles,
+            'fixture setup failed - the requester should see their own attachment'
+        );
+
+        // The claimant/resolver, who is NOT the requester, must not -
+        // the request text is withheld from them by the same test.
+        $handlerfiles = $this->exported_filenames($coorda, $context, (int) $ticket->id);
+        $this->assertNotContains(
+            'medical-note.pdf',
+            $handlerfiles,
+            'a non-requester handler received the withheld requester attachment'
+        );
+    }
+
+    /**
+     * Export $user's data for $context and return the filenames exported
+     * under one ticket's own folder (audit B11/M-17: each ticket owns a
+     * leaf, so two tickets' same-named attachments cannot share a path).
+     *
+     * @param \stdClass $user the subject
+     * @param \context_module $context the activity context
+     * @param int $ticketid the ticket whose folder to read
+     * @return string[] filenames
+     */
+    private function exported_filenames(\stdClass $user, \context_module $context, int $ticketid): array {
+        writer::reset();
+        provider::export_user_data(new approved_contextlist(
+            $user,
+            'mod_selfselectadvanced',
+            [$context->id]
+        ));
+        $files = writer::with_context($context)->get_files([
+            get_string('pluginname', 'mod_selfselectadvanced'),
+            get_string('tickets', 'mod_selfselectadvanced'),
+            'ticket-' . $ticketid,
+        ]);
+
+        return array_values(array_map(
+            static fn(\stored_file $file) => $file->get_filename(),
+            $files
+        ));
     }
 }

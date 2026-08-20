@@ -51,6 +51,20 @@ use stdClass;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class kb {
+    /**
+     * @var string search()'s sentinel for "tickettype is exactly the
+     *      empty string" (audit B5/M-4/M-18/M-23), as distinct from ''
+     *      itself, which search() has always meant as "no type filter -
+     *      every type, including general". A caller that wants the
+     *      untyped GROUP alone (kb_page's student view, sectioning by
+     *      type) had no way to ask for that until this constant existed;
+     *      passing '' for that purpose silently asked for "everything"
+     *      instead and duplicated every typed article under the "General"
+     *      heading. Never a real tickettype value - tickets::known_types()
+     *      cannot collide with it.
+     */
+    public const TYPE_GENERAL = '__general__';
+
     /** @var int deflect()'s top-N result cap (spec: "top N (5)"). */
     public const DEFLECT_LIMIT = 5;
 
@@ -200,6 +214,13 @@ class kb {
      * the row's current value - the one form kb.php uses for both a
      * full edit and a bare republish (['published' => 1]).
      *
+     * ANONYMISATION IS SERVICE-ENFORCED HERE TOO (audit B6/M-22): when the
+     * entry was published FROM a ticket (sourceticketid > 0),
+     * publish_from_ticket()'s own guard_anonymisation() runs again against
+     * the wording this call is ABOUT to store - editing a published FAQ is
+     * exactly as capable of naming the requester as the original publish
+     * was, and until this fix it was the one write path that never asked.
+     *
      * @param activity $activity the activity
      * @param int $id the entry
      * @param array $draft see normalise_draft()
@@ -213,6 +234,17 @@ class kb {
         tickets::require_queue_authority($activity, $userid);
         $current = self::get($activity, $id);
         $normalised = self::normalise_draft($draft, $current);
+
+        if ((int) $current->sourceticketid > 0) {
+            $sourceticket = tickets::get($activity, (int) $current->sourceticketid);
+            self::guard_anonymisation(
+                $activity,
+                $sourceticket,
+                $normalised['title'],
+                $normalised['question'],
+                $normalised['answer']
+            );
+        }
 
         $entry = (object) array_merge((array) $current, $normalised, [
             'usermodified' => $userid,
@@ -319,22 +351,25 @@ class kb {
      * false, to see unpublished entries too.
      *
      * @param activity $activity the activity
-     * @param string $type tickets::TYPE_*, or '' for every type (including general, '')
+     * @param string $type tickets::TYPE_*, '' for every type (including
+     *        general), or self::TYPE_GENERAL for "tickettype is exactly ''"
      * @param string $q free text, matched against title and keywords; '' matches everything
      * @param bool $publishedonly true for every public caller
      * @return stdClass[] id => row, newest-edited first
-     * @throws \coding_exception if $type is not empty and not a known type
+     * @throws \coding_exception if $type is not empty, not TYPE_GENERAL and not a known type
      */
     public static function search(activity $activity, string $type, string $q, bool $publishedonly = true): array {
         global $DB;
 
-        if ($type !== '' && !in_array($type, tickets::known_types(), true)) {
+        if ($type !== '' && $type !== self::TYPE_GENERAL && !in_array($type, tickets::known_types(), true)) {
             throw new \coding_exception('Unknown knowledgebank type filter ' . $type);
         }
 
         $conditions = ['activityid = :activityid'];
         $params = ['activityid' => $activity->id()];
-        if ($type !== '') {
+        if ($type === self::TYPE_GENERAL) {
+            $conditions[] = "tickettype = ''";
+        } else if ($type !== '') {
             $conditions[] = 'tickettype = :tickettype';
             $params['tickettype'] = $type;
         }

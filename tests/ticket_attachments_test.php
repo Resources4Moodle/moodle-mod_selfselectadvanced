@@ -138,9 +138,16 @@ final class ticket_attachments_test extends \core_privacy\tests\provider_testcas
      * @param string $filearea tickets::FILEAREA_*
      * @param int $itemid the ticket id or ticketlog row id
      * @param string $filename the filename
+     * @param string|null $content the body, or null for the shared default
      * @return \stored_file
      */
-    private function put_file(activity $activity, string $filearea, int $itemid, string $filename): \stored_file {
+    private function put_file(
+        activity $activity,
+        string $filearea,
+        int $itemid,
+        string $filename,
+        ?string $content = null
+    ): \stored_file {
         return get_file_storage()->create_file_from_string([
             'contextid' => $activity->context()->id,
             'component' => 'mod_selfselectadvanced',
@@ -148,7 +155,7 @@ final class ticket_attachments_test extends \core_privacy\tests\provider_testcas
             'itemid' => $itemid,
             'filepath' => '/',
             'filename' => $filename,
-        ], self::BODY);
+        ], $content ?? self::BODY);
     }
 
     /**
@@ -560,12 +567,67 @@ final class ticket_attachments_test extends \core_privacy\tests\provider_testcas
         $this->export_context_data_for_user((int) $guide->id, $context, 'mod_selfselectadvanced');
         $writer = \core_privacy\local\request\writer::with_context($context);
 
-        $subcontext = [get_string('pluginname', 'mod_selfselectadvanced'), get_string('tickets', 'mod_selfselectadvanced')];
-        $requestexports = $writer->get_files($subcontext);
+        // AUDIT B11/M-17: each ticket now owns a folder, and a post owns
+        // one inside it. Both areas declare subdirs = 0, so before this
+        // the filename was the only discriminator and two tickets'
+        // same-named attachments shared - and overwrote - one path.
+        $base = [get_string('pluginname', 'mod_selfselectadvanced'), get_string('tickets', 'mod_selfselectadvanced')];
+        $ticketleaf = array_merge($base, ['ticket-' . (int) $ticket->id]);
+        $requestexports = $writer->get_files($ticketleaf);
         $this->assertNotEmpty($requestexports, 'the opening request attachment must be exported');
-        $hashes = array_map(static fn($f) => $f->get_contenthash(), $requestexports);
-        $this->assertContains($requestfile->get_contenthash(), $hashes);
-        $this->assertContains($postfile->get_contenthash(), $hashes);
+        $this->assertContains(
+            $requestfile->get_contenthash(),
+            array_map(static fn($f) => $f->get_contenthash(), $requestexports)
+        );
+        $postexports = $writer->get_files(array_merge($ticketleaf, ['post-' . (int) $resolvedlog->id]));
+        $this->assertNotEmpty($postexports, 'the resolution attachment must be exported under its own post');
+        $this->assertContains(
+            $postfile->get_contenthash(),
+            array_map(static fn($f) => $f->get_contenthash(), $postexports)
+        );
+    }
+
+    /**
+     * TWO tickets, each with an attachment of the SAME NAME, must both
+     * survive the export (audit B11/M-17).
+     *
+     * This is the defect itself rather than the shape of the fix: with
+     * one flat folder the second file simply replaced the first, and the
+     * subject-access export handed the person one file where they had
+     * uploaded two. A single-ticket fixture cannot see that at all,
+     * which is why the test above could not have caught it.
+     */
+    public function test_privacy_export_keeps_same_named_attachments_apart(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, , ] = $this->setup_world();
+        $context = $activity->context();
+
+        $first = tickets::file($activity, $group, tickets::TYPE_COMPCHANGE, 'One', FORMAT_PLAIN, (int) $guide->id);
+        $firstfile = $this->put_file($activity, tickets::FILEAREA_REQUEST, (int) $first->id, 'evidence.txt', 'FIRST');
+        tickets::withdraw($activity, (int) $first->id, (int) $guide->id);
+        $second = tickets::file($activity, $group, tickets::TYPE_COMPCHANGE, 'Two', FORMAT_PLAIN, (int) $guide->id);
+        $secondfile = $this->put_file($activity, tickets::FILEAREA_REQUEST, (int) $second->id, 'evidence.txt', 'SECOND');
+        $this->assertNotSame(
+            $firstfile->get_contenthash(),
+            $secondfile->get_contenthash(),
+            'the fixture must use two DIFFERENT files sharing one name, or it proves nothing'
+        );
+
+        $this->export_context_data_for_user((int) $guide->id, $context, 'mod_selfselectadvanced');
+        $writer = \core_privacy\local\request\writer::with_context($context);
+        $base = [get_string('pluginname', 'mod_selfselectadvanced'), get_string('tickets', 'mod_selfselectadvanced')];
+
+        $firsthashes = array_map(
+            static fn($f) => $f->get_contenthash(),
+            $writer->get_files(array_merge($base, ['ticket-' . (int) $first->id]))
+        );
+        $secondhashes = array_map(
+            static fn($f) => $f->get_contenthash(),
+            $writer->get_files(array_merge($base, ['ticket-' . (int) $second->id]))
+        );
+        $this->assertContains($firstfile->get_contenthash(), $firsthashes, 'the first ticket\'s file was lost');
+        $this->assertContains($secondfile->get_contenthash(), $secondhashes, 'the second ticket\'s file was lost');
     }
 
     /**

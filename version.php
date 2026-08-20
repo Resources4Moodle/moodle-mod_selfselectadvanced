@@ -25,7 +25,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'mod_selfselectadvanced';
-$plugin->version = 2026082000;
+$plugin->version = 2026082001;
 // Moodle 5.2 only, by decision rather than by drift. The plugin was previously
 // declared for 4.5 LTS to 5.2, but it has only ever been tested on 5.2 - the
 // gate that governs this codebase runs one branch. Promising four branches and
@@ -38,4 +38,4 @@ $plugin->supported = [502, 502];
 // consolidated master audit §10): the metadata tells the truth about a
 // tree that is wave 2 of a planned response, not a finished stable.
 $plugin->maturity = MATURITY_RC;
-$plugin->release = '1.20.54';
+$plugin->release = '1.20.55';

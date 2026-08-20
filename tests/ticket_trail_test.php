@@ -243,6 +243,66 @@ final class ticket_trail_test extends \advanced_testcase {
     }
 
     /**
+     * (1b) AUDIT A5 (2026-08-20): trail()'s STAFF branch used to INNER
+     * JOIN {user} on actorid, so a row de-linked to the 0 sentinel by a
+     * privacy erasure (classes/privacy/provider.php's
+     * scrub_user_in_activity(): "actorid = 0, note = NULL", deliberately
+     * keeping the row) vanished from the staff view entirely - the
+     * requester's own anonymised trail (no join at all) kept it. The
+     * scrub itself is out of scope for this file (provider.php belongs
+     * to another fix); the 0 sentinel is reproduced directly here, on
+     * the exact column the scrub writes.
+     */
+    public function test_trail_survives_an_actor_delinked_to_zero(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, $manager] = $this->setup_world();
+
+        $ticket = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Need one more pair of hands',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        tickets::claim($activity, (int) $ticket->id, (int) $manager->id);
+        tickets::request_info(
+            $activity,
+            (int) $ticket->id,
+            'Which subject does the specialist need to cover?',
+            FORMAT_PLAIN,
+            (int) $manager->id
+        );
+
+        // Reproduce the scrub's own de-link, exactly as provider.php
+        // writes it, on the 'claimed' row alone.
+        $DB->execute(
+            "UPDATE {selfselectadvanced_ticketlog} SET actorid = 0, note = NULL
+              WHERE ticketid = :ticketid AND action = :action",
+            ['ticketid' => (int) $ticket->id, 'action' => tickets::ACTION_CLAIMED]
+        );
+
+        $staff = array_values(tickets::trail($activity, (int) $ticket->id, true));
+        $this->assertCount(
+            3,
+            $staff,
+            'the de-linked row must still be RETURNED by the staff trail, not dropped by the join'
+        );
+        $delinked = $staff[1];
+        $this->assertSame(tickets::ACTION_CLAIMED, $delinked->action, 'fixture: row 1 must be the de-linked claim');
+        $this->assertSame(0, (int) $delinked->actorid);
+        $this->assertNotSame('', trim((string) $delinked->actorname), 'a de-linked row must still carry a placeholder name');
+        $this->assertStringNotContainsString(
+            fullname($manager),
+            $delinked->actorname,
+            'a de-linked row must never resolve back to the real actor\'s name'
+        );
+    }
+
+    /**
      * (2) request_info(): refused for a non-claimant staff member,
      * refused from an open ticket, refused with an empty question; on
      * success the requester is notified exactly once, and the subject
@@ -306,6 +366,96 @@ final class ticket_trail_test extends \advanced_testcase {
         $this->assertStringNotContainsString('{$a', $messages[0]->subject, 'the subject shipped an unresolved placeholder');
         $this->assertStringNotContainsString('{$a', $messages[0]->fullmessage, 'the body shipped an unresolved placeholder');
         $this->assertStringContainsString('specialist need to cover', $messages[0]->fullmessage);
+    }
+
+    /**
+     * (2b) AUDIT A1 (2026-08-20): request_info() had no authority gate
+     * of its own. A REQUESTER (no queue authority at all) opening their
+     * own thread and POSTing action=requestinfo used to reach the
+     * not-claimant check inside the lock and be handed the claimant's
+     * fullname by workflow_refusal - ticket.php catches that exception
+     * type and redirects with $e->getMessage() as the notice text, so
+     * the requester would read the claimant's real name. RED-FIRST
+     * PROOF (see the report): before the fix this throws
+     * workflow_refusal('refusalticketnotclaimant', ..., fullname($manager))
+     * and the second catch arm below explicitly fails the test on that
+     * leak; after the fix it throws core's required_capability_exception
+     * first, before the lock is ever taken, carrying no name at all.
+     */
+    public function test_request_info_by_the_requester_never_names_the_claimant(): void {
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, $manager] = $this->setup_world();
+
+        $ticket = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Need one more pair of hands',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        tickets::claim($activity, (int) $ticket->id, (int) $manager->id);
+
+        try {
+            // The GUIDE is this ticket's own requester - no queue
+            // authority (:manage/:coordinate) at all, only 'teacher'.
+            tickets::request_info(
+                $activity,
+                (int) $ticket->id,
+                'Why is this taking so long?',
+                FORMAT_PLAIN,
+                (int) $guide->id
+            );
+            $this->fail('a requester with no queue authority must be refused before request_info() ever runs');
+        } catch (\required_capability_exception $e) {
+            $this->assertStringNotContainsString(
+                fullname($manager),
+                $e->getMessage(),
+                'a requester must never learn the claimant\'s name from this refusal'
+            );
+        } catch (local\workflow_refusal $e) {
+            $this->fail(
+                'expected core\'s required_capability_exception (no name); got a workflow_refusal ('
+                . $e->errorcode . ') instead - it reached the not-claimant check, which names the claimant'
+            );
+        }
+    }
+
+    /**
+     * (2c) AUDIT A1's identical leak through comment() (2026-08-20):
+     * latent (only reachable via api_respond, which checks authority
+     * itself) rather than live, but the same missing door. Same RED-
+     * FIRST shape as the request_info() proof above.
+     */
+    public function test_comment_by_a_non_staff_actor_never_names_the_claimant(): void {
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, $manager] = $this->setup_world();
+
+        $ticket = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Need one more pair of hands',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        tickets::claim($activity, (int) $ticket->id, (int) $manager->id);
+
+        try {
+            tickets::comment($activity, (int) $ticket->id, 'Trying to post into my own ticket', FORMAT_PLAIN, (int) $guide->id);
+            $this->fail('an actor with no queue authority must be refused before comment() ever runs');
+        } catch (\required_capability_exception $e) {
+            $this->assertStringNotContainsString(fullname($manager), $e->getMessage());
+        } catch (local\workflow_refusal $e) {
+            $this->fail(
+                'expected core\'s required_capability_exception (no name); got a workflow_refusal ('
+                . $e->errorcode . ') instead'
+            );
+        }
     }
 
     /**

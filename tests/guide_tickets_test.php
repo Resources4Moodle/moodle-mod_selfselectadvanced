@@ -275,4 +275,82 @@ final class guide_tickets_test extends \advanced_testcase {
         $this->assertSame(tickets::STATUS_WITHDRAWN, $withdrawn->status);
         $sink->close();
     }
+
+    /**
+     * AUDIT A4 (2026-08-20): grant_guidecap() must accept a needsinfo
+     * ticket exactly as close() itself does (decision 2, LIVENESS) -
+     * the thread's own Grant button is offered in both CLAIMED and
+     * NEEDSINFO, so the service must agree or the button is a
+     * guaranteed refusal. RED-FIRST PROOF (see the report): before the
+     * fix this throws refusalticketnotclaimed instead of granting.
+     */
+    public function test_grant_guidecap_accepts_from_needsinfo(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, , $guide] = $this->world();
+        $ceiling = (new \mod_selfselectadvanced\local\api($activity))
+            ->gatekeeper()->resolver()->guide_capacity_ceiling((int) $guide->id);
+
+        $ticket = tickets::file_guidecap($activity, $ceiling->value + 1, 'Room for more', FORMAT_PLAIN, (int) $guide->id);
+        $coordinator = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($coordinator->id, (int) $activity->cm()->course, 'editingteacher');
+        tickets::claim($activity, (int) $ticket->id, (int) $coordinator->id);
+        tickets::request_info(
+            $activity,
+            (int) $ticket->id,
+            'How many teams do you currently hold?',
+            FORMAT_PLAIN,
+            (int) $coordinator->id
+        );
+        $fresh = tickets::get($activity, (int) $ticket->id);
+        $this->assertSame(tickets::STATUS_NEEDSINFO, $fresh->status, 'fixture: the ticket must genuinely be needsinfo');
+
+        $granted = tickets::grant_guidecap(
+            $activity,
+            (int) $ticket->id,
+            'Approved without waiting for the reply',
+            FORMAT_PLAIN,
+            (int) $coordinator->id
+        );
+        $this->assertSame(tickets::STATUS_RESOLVED, $granted->status);
+
+        $newceiling = (new \mod_selfselectadvanced\local\api($activity))
+            ->gatekeeper()->resolver()->guide_capacity_ceiling((int) $guide->id);
+        $this->assertSame($ceiling->value + 1, $newceiling->value, 'the override must actually have been written');
+        $sink->close();
+    }
+
+    /**
+     * AUDIT A6 (2026-08-20): a guide's own live capacity request must
+     * still read as LIVE while it sits in needsinfo - the same trio
+     * file_guidecap()'s own duplicate guard already treats as live
+     * (decision 2). guidequeue.php's own inline copy of this predicate
+     * had drifted (needsinfo omitted); proven here directly against the
+     * extracted predicate the page now calls instead.
+     */
+    public function test_live_capacity_request_counts_needsinfo_as_live(): void {
+        $this->resetAfterTest();
+        $sink = $this->redirectMessages();
+        [$activity, , $guide] = $this->world();
+        $ceiling = (new \mod_selfselectadvanced\local\api($activity))
+            ->gatekeeper()->resolver()->guide_capacity_ceiling((int) $guide->id);
+
+        $ticket = tickets::file_guidecap($activity, $ceiling->value + 1, 'Room for more', FORMAT_PLAIN, (int) $guide->id);
+        $coordinator = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($coordinator->id, (int) $activity->cm()->course, 'editingteacher');
+        tickets::claim($activity, (int) $ticket->id, (int) $coordinator->id);
+        tickets::request_info(
+            $activity,
+            (int) $ticket->id,
+            'How many teams do you currently hold?',
+            FORMAT_PLAIN,
+            (int) $coordinator->id
+        );
+
+        $live = tickets::guide_live_capacity_request($activity, (int) $guide->id);
+        $this->assertNotNull($live, 'a needsinfo capacity ticket must still read as the guide\'s live request');
+        $this->assertSame(tickets::STATUS_NEEDSINFO, $live->status);
+        $this->assertSame((int) $ticket->id, (int) $live->id);
+        $sink->close();
+    }
 }

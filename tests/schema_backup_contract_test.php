@@ -146,4 +146,96 @@ final class schema_backup_contract_test extends \advanced_testcase {
                 . 'different lifecycle point than the source site chose'
         );
     }
+
+    /**
+     * Child tables that are COURSE CONTENT, not the erased/exported
+     * person's own data, keyed to whether their source is set
+     * unconditionally in the backup step (audit B8/M-12).
+     *
+     * WHY THIS EXISTS. selfselectadvanced_kb (1.20.45) was reusable
+     * content the whole way through - the privacy provider keeps it
+     * through a full context purge for exactly that reason - but its
+     * backup source table was set INSIDE `if ($userinfo)` regardless, so
+     * a Duplicate or a "include enrolled users" unticked restore silently
+     * lost every FAQ, alongside quotas/templates/qslots, which were
+     * always correctly unconditional. Nothing compared the two lists,
+     * the same shape of gap test_every_activity_column_has_a_backup_
+     * policy() above exists to close for activity settings.
+     *
+     * HOW TO SATISFY IT when you add a course-content child table (staff-
+     * authored configuration or reference data, not a participant's own
+     * record). Source it OUTSIDE `if ($userinfo)`, alongside quota/
+     * template/qslot/kbentry, and add its element variable name here.
+     *
+     * @return string[] the backup step's local variable names (without
+     *         the leading $) whose set_source_table()/set_source_sql()
+     *         call must appear before `if ($userinfo) {`
+     */
+    private function unconditional_child_elements(): array {
+        return ['quota', 'tpl', 'qslot', 'kbentry'];
+    }
+
+    /**
+     * Every course-content child element's source is set BEFORE
+     * `if ($userinfo) {`, not inside it.
+     *
+     * MUTATION CAUGHT: moving $kbentry->set_source_table(...) back inside
+     * `if ($userinfo) {` (M-12's actual defect) makes its position land
+     * after $ifpos, failing the assertion for 'kbentry'.
+     */
+    public function test_course_content_child_tables_are_sourced_unconditionally(): void {
+        global $CFG;
+
+        $source = file_get_contents(
+            $CFG->dirroot . '/mod/selfselectadvanced/backup/moodle2/backup_selfselectadvanced_stepslib.php'
+        );
+        $this->assertNotFalse($source, 'could not read the backup stepslib source');
+
+        $ifpos = strpos($source, 'if ($userinfo) {');
+        $this->assertNotFalse($ifpos, "the backup stepslib has no 'if (\$userinfo) {' block any more - update this test");
+
+        foreach ($this->unconditional_child_elements() as $element) {
+            $needle = '$' . $element . '->set_source_';
+            $pos = strpos($source, $needle);
+            $this->assertNotFalse($pos, "no set_source_table()/set_source_sql() call found for \$$element");
+            $this->assertLessThan(
+                $ifpos,
+                $pos,
+                "\$$element's source is set INSIDE if (\$userinfo) - course content must be backed up even "
+                    . "when a restore excludes user data (audit B8/M-12), or a Duplicate/rollover silently "
+                    . "loses it"
+            );
+        }
+    }
+
+    /**
+     * The restore side of the same contract: ssakbentry's path element
+     * must be registered unconditionally too, or a no-userinfo archive
+     * that DOES carry kb rows (because the backup fix above sourced them)
+     * has nothing to route those rows to on restore.
+     *
+     * MUTATION CAUGHT: moving the 'ssakbentry' restore_path_element back
+     * inside `if ($userinfo)` in restore_selfselectadvanced_stepslib.php
+     * makes its position land after $ifpos, failing the assertion.
+     */
+    public function test_ssakbentry_restore_path_is_registered_unconditionally(): void {
+        global $CFG;
+
+        $source = file_get_contents(
+            $CFG->dirroot . '/mod/selfselectadvanced/backup/moodle2/restore_selfselectadvanced_stepslib.php'
+        );
+        $this->assertNotFalse($source, 'could not read the restore stepslib source');
+
+        $ifpos = strpos($source, 'if ($userinfo) {');
+        $this->assertNotFalse($ifpos, "the restore stepslib has no 'if (\$userinfo) {' block any more - update this test");
+
+        $kbpos = strpos($source, "'ssakbentry'");
+        $this->assertNotFalse($kbpos, "no 'ssakbentry' restore_path_element registration found");
+        $this->assertLessThan(
+            $ifpos,
+            $kbpos,
+            "'ssakbentry' is registered INSIDE if (\$userinfo) - a no-userinfo archive that carries kb rows "
+                . "(the backup half of audit B8/M-12) has nothing to route them to on restore"
+        );
+    }
 }

@@ -251,6 +251,51 @@ final class ticket_ladder_test extends \advanced_testcase {
     }
 
     /**
+     * AUDIT A1 (2026-08-20): refer() had no authority gate of its own
+     * either. The ticket's own REQUESTER (no queue authority at all)
+     * POSTing action=refer used to reach the not-claimant check inside
+     * the lock and be handed the claimant's fullname by
+     * workflow_refusal - the identical leak request_info() had.
+     * RED-FIRST PROOF (see the report): before the fix this throws
+     * workflow_refusal('refusalticketnotclaimant', ..., fullname($coordinator1))
+     * and the second catch arm below fails the test on that leak; after
+     * the fix, core's required_capability_exception is thrown before
+     * the lock is ever taken.
+     */
+    public function test_refer_by_the_requester_never_names_the_claimant(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, , $coordinator1, $coordinator2] = $this->setup_world();
+
+        $ticket = $this->file($activity, $group, $guide);
+        tickets::claim($activity, (int) $ticket->id, (int) $coordinator1->id);
+
+        try {
+            // The GUIDE is this ticket's own requester.
+            tickets::refer(
+                $activity,
+                (int) $ticket->id,
+                (int) $coordinator2->id,
+                'Trying to redirect my own ticket',
+                FORMAT_PLAIN,
+                (int) $guide->id
+            );
+            $this->fail('a requester with no queue authority must be refused before refer() ever runs');
+        } catch (\required_capability_exception $e) {
+            $this->assertStringNotContainsString(
+                fullname($coordinator1),
+                $e->getMessage(),
+                'a requester must never learn the claimant\'s name from this refusal'
+            );
+        } catch (local\workflow_refusal $e) {
+            $this->fail(
+                'expected core\'s required_capability_exception (no name); got a workflow_refusal ('
+                . $e->errorcode . ') instead - it reached the not-claimant check, which names the claimant'
+            );
+        }
+    }
+
+    /**
      * A target who holds queue authority but is INVOLVED with the team
      * (here: the guide, also role-assigned Group Coordinator) is refused
      * - require_uninvolved(), mirrored exactly as claim()'s own gate.
@@ -798,6 +843,49 @@ final class ticket_ladder_test extends \advanced_testcase {
         $after = array_values(tickets::trail($activity, (int) $ticket->id, false));
         $this->assertCount(2, $before);
         $this->assertCount(2, $after, 'an escalation must add nothing to the requester\'s own trail');
+    }
+
+    /**
+     * AUDIT A2 (2026-08-20): the requester's own thread export must
+     * never carry the 'escalated' flag as true, even though the column
+     * genuinely is 1 on the row - ticket_page.php used to export it
+     * unconditionally, the one surface 1.20.44's "narration withheld,
+     * never narrated" rule (this file's own docblock, and the trail
+     * test right above) was not applied to. A staff viewer of the SAME
+     * ticket must still see it - PROVING ABSENCE, not merely presence,
+     * on both sides of one genuinely escalated ticket.
+     */
+    public function test_escalated_badge_hidden_from_requester_shown_to_staff(): void {
+        global $PAGE;
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, , $coordinator1] = $this->setup_world();
+
+        $ticket = $this->file($activity, $group, $guide);
+        tickets::claim($activity, (int) $ticket->id, (int) $coordinator1->id);
+        tickets::escalate($activity, (int) $ticket->id, 'Needs a manager\'s eyes', FORMAT_PLAIN, (int) $coordinator1->id);
+        $fresh = tickets::get($activity, (int) $ticket->id);
+        $this->assertSame(1, (int) $fresh->escalated, 'fixture: the ticket must genuinely be escalated');
+
+        $output = $PAGE->get_renderer('core');
+
+        $reqpage = new \mod_selfselectadvanced\output\ticket_page($activity, $fresh, $group, (int) $guide->id, true, false);
+        $reqexported = $reqpage->export_for_template($output);
+        $this->assertFalse(
+            $reqexported->escalated,
+            'the requester must never see the escalated badge, even on a genuinely escalated ticket'
+        );
+
+        $staffpage = new \mod_selfselectadvanced\output\ticket_page(
+            $activity,
+            $fresh,
+            $group,
+            (int) $coordinator1->id,
+            false,
+            true
+        );
+        $staffexported = $staffpage->export_for_template($output);
+        $this->assertTrue($staffexported->escalated, 'a staff viewer of the same ticket must still see the badge');
     }
 
     /**

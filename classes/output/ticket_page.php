@@ -144,7 +144,18 @@ class ticket_page implements renderable, templatable {
             // escalated is independent of status (an escalated ticket can
             // be open, claimed or needsinfo) so it is never folded into
             // statuslabel/statusclass above.
-            'escalated' => (int) ($ticket->escalated ?? 0) === 1,
+            //
+            // STAFF ONLY (audit A2, 2026-08-20): escalated is a
+            // STAFF_INTERNAL narration, excluded from the requester's own
+            // trail by trail($withactors=false)'s SQL - exporting the
+            // badge unconditionally reinstated exactly that disclosure on
+            // the requester's own thread. Gated on $this->isstaff, the
+            // same predicate export_entry()'s $withactors and
+            // export_actionbox()'s claimed-by line already use, never
+            // $this->isrequester - a viewer who happens to hold staff
+            // capability on their OWN filed ticket still reads it, exactly
+            // as they already read every trail actor by name on this page.
+            'escalated' => $this->isstaff && (int) ($ticket->escalated ?? 0) === 1,
             'escalatebadgelabel' => get_string('ticketescalatebadge', 'mod_selfselectadvanced'),
             // 1.20.54 deliverable A: "one plain line of where this
             // stands, naming whose move it is" - see whose_move_line().

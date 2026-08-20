@@ -361,7 +361,7 @@ class tickets {
                 $type === self::TYPE_LEADERCHANGE => 'member',
                 default => 'guide',
             };
-            self::require_may_raise($activity, $role);
+            self::require_may_raise($activity, $role, $userid);
             // Deliverable C, ON TOP of deliverable A: the responsible-
             // person mode, when on, narrows raising further to the one
             // person responsible for this SPECIFIC group at its current
@@ -503,7 +503,7 @@ class tickets {
         // ever pass an ack, and gating it here without one would make a
         // capacity request permanently unfileable the moment an activity
         // set a disclaimer.
-        self::require_may_raise($activity, 'guide');
+        self::require_may_raise($activity, 'guide', $userid);
 
         // Asking for nothing, or for less than the activity's own
         // ceiling allows, is not a request anybody can act on.
@@ -623,7 +623,7 @@ class tickets {
             throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
         // Deliverable A, same scope note as file_guidecap() above.
-        self::require_may_raise($activity, 'guide');
+        self::require_may_raise($activity, 'guide', $userid);
 
         $ceiling = (new api($activity))->gatekeeper()->resolver()->guide_capacity_ceiling($userid);
         if ($requested < 0) {
@@ -702,6 +702,51 @@ class tickets {
         self::notify_workers($activity, $ticket, null);
 
         return $ticket;
+    }
+
+    /**
+     * A guide's own LIVE capacity request right now, across BOTH
+     * capacity types (audit A6, 2026-08-20): open, claimed OR needsinfo
+     * (LIVENESS, decision 2) - the identical trio file_guidecap()'s and
+     * file_guidereduce()'s own duplicate guard already treat as one live
+     * slot.
+     *
+     * Extracted from guidequeue.php's own inline copy of this predicate,
+     * the same "testable without executing the page script PHPUnit
+     * cannot run end-to-end" reasoning may_view_thread() above is built
+     * on: that inline copy had drifted (needsinfo omitted), so the page
+     * offered ask-more/ask-less forms the service could only refuse, and
+     * hid the one banner that would have told the guide their earlier
+     * request was in fact waiting on THEM.
+     *
+     * @param activity $activity the activity
+     * @param int $userid the guide
+     * @return stdClass|null the live ticket (newest first, matching the
+     *         page's own tie-break), or null when there is none
+     */
+    public static function guide_live_capacity_request(activity $activity, int $userid): ?stdClass {
+        global $DB;
+
+        $rows = $DB->get_records_select(
+            'selfselectadvanced_ticket',
+            "activityid = :activityid AND requestedby = :userid AND type IN (:cap, :reduce)"
+                . " AND status IN (:open, :claimed, :needsinfo)",
+            [
+                'activityid' => $activity->id(),
+                'userid' => $userid,
+                'cap' => self::TYPE_GUIDECAP,
+                'reduce' => self::TYPE_GUIDEREDUCE,
+                'open' => self::STATUS_OPEN,
+                'claimed' => self::STATUS_CLAIMED,
+                'needsinfo' => self::STATUS_NEEDSINFO,
+            ],
+            'timecreated DESC, id DESC',
+            '*',
+            0,
+            1
+        );
+
+        return $rows ? reset($rows) : null;
     }
 
     /**
@@ -898,7 +943,7 @@ class tickets {
             throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
         }
         self::require_disclaimer_ack($activity, $disclaimerack);
-        self::require_may_raise($activity, self::raiser_role($group, $userid));
+        self::require_may_raise($activity, self::raiser_role($group, $userid), $userid);
 
         // Locked on the group when there is one (the same lock every
         // other filing arm takes, so a concurrent leadership or guide
@@ -1068,15 +1113,19 @@ class tickets {
      *
      * @param activity $activity the activity
      * @param string $role 'guide', 'leader' or 'member'
+     * @param int $userid the raiser, 0 when the caller has none to give
+     *        (a page deciding only whether to SHOW a control - filing
+     *        itself always passes a real one, see may_raise_refusalkey())
      * @return bool
      */
-    public static function may_raise(activity $activity, string $role): bool {
-        return self::may_raise_refusalkey($activity, $role) === null;
+    public static function may_raise(activity $activity, string $role, int $userid = 0): bool {
+        return self::may_raise_refusalkey($activity, $role, $userid) === null;
     }
 
     /**
      * Refuse unless the activity's who-may-raise checkbox for this role
-     * is on (1.20.43 deliverable A).
+     * is on (1.20.43 deliverable A), and (for 'member') unless the
+     * raiser is actually enrolled here (audit A3, 2026-08-20).
      *
      * This is ELIGIBILITY on top of the existing per-type relational
      * gates each file_* entry point already applies - it never widens
@@ -1087,25 +1136,46 @@ class tickets {
      *
      * @param activity $activity the activity
      * @param string $role 'guide', 'leader' or 'member'
+     * @param int $userid the raiser, 0 when the caller has none to give
      * @throws \moodle_exception refusalticketraise{role} when the
-     *         checkbox is off
+     *         checkbox is off, or refusalticketnotenrolled for an
+     *         unenrolled 'member' raiser
      */
-    public static function require_may_raise(activity $activity, string $role): void {
-        if ($key = self::may_raise_refusalkey($activity, $role)) {
+    public static function require_may_raise(activity $activity, string $role, int $userid = 0): void {
+        if ($key = self::may_raise_refusalkey($activity, $role, $userid)) {
             throw new workflow_refusal($key, 'mod_selfselectadvanced');
         }
     }
 
     /**
-     * The refusal key for require_may_raise(), or null when the
-     * checkbox is on. Extracted so may_raise() and require_may_raise()
-     * ask exactly one question between them.
+     * The refusal key for require_may_raise(), or null when the raiser
+     * may proceed. Extracted so may_raise() and require_may_raise() ask
+     * exactly one question between them.
+     *
+     * $userid defaults to 0 so the existing UI-hint callers (group.php,
+     * filehelp.php, landing.php - none of them owned by this fix, and
+     * none of them the actual filing door) keep compiling and keep
+     * their exact old behaviour unchanged; every genuine filing arm in
+     * THIS class (file(), file_guidecap(), file_guidereduce(),
+     * file_help()) passes its real actor.
+     *
+     * The enrolment test applies to 'member' only (audit A3,
+     * 2026-08-20): file_help() had NO participant gate at all, so a
+     * guest auto-logged in by require_login() could file straight into
+     * the staff queue merely by holding a session - may_raise() being
+     * true by default is an activity-level ON/OFF SWITCH, never a test
+     * of the person. 'guide' and 'leader' need no equivalent check here
+     * - each is already proven by a group relation (guideid/leaderid) a
+     * caller established before ever reaching this gate. The idiom is
+     * the one lib.php's candidate_name() and staffmessage::may_message_
+     * map() already use for "may take part in this activity".
      *
      * @param activity $activity the activity
      * @param string $role 'guide', 'leader' or 'member'
+     * @param int $userid the raiser, 0 to skip the enrolment test
      * @return string|null
      */
-    private static function may_raise_refusalkey(activity $activity, string $role): ?string {
+    private static function may_raise_refusalkey(activity $activity, string $role, int $userid = 0): ?string {
         $settings = $activity->settings();
         $flag = match ($role) {
             'guide' => (int) ($settings->ticketraiseguide ?? 1),
@@ -1113,8 +1183,18 @@ class tickets {
             'member' => (int) ($settings->ticketraisemember ?? 1),
             default => throw new \coding_exception('Unknown raiser role ' . $role),
         };
+        if (!$flag) {
+            return 'refusalticketraise' . $role;
+        }
+        if (
+            $role === 'member'
+            && $userid > 0
+            && !is_enrolled($activity->context(), $userid, 'mod/selfselectadvanced:respond', true)
+        ) {
+            return 'refusalticketnotenrolled';
+        }
 
-        return $flag ? null : ('refusalticketraise' . $role);
+        return null;
     }
 
     /**
@@ -1260,7 +1340,15 @@ class tickets {
         if ($ticket->type !== self::TYPE_GUIDECAP) {
             throw new \coding_exception('grant_guidecap called on a ' . $ticket->type . ' ticket');
         }
-        if ($ticket->status !== self::STATUS_CLAIMED) {
+        // NEEDSINFO ALLOWED HERE TOO (audit A4, 2026-08-20 - the same
+        // widening close() already carries, decision 2 LIVENESS): the
+        // thread offers the Grant button in both CLAIMED and NEEDSINFO,
+        // and this delegates to close() below, which already accepts
+        // both - so the offered control and the service must agree, or
+        // a coordinator who has enough to say yes without the answer
+        // they asked for has no way to grant at all until the guide
+        // happens to reply.
+        if (!in_array($ticket->status, [self::STATUS_CLAIMED, self::STATUS_NEEDSINFO], true)) {
             throw new workflow_refusal('refusalticketnotclaimed', 'mod_selfselectadvanced');
         }
 
@@ -1561,9 +1649,13 @@ class tickets {
      *
      * Authority mirrors request_info() exactly (same spec instruction):
      * this is a question of RECORD OWNERSHIP - the ticket's own current
-     * claimant, whoever that is right now - so there is no separate
-     * queue-authority re-ask before the lock; the claim already proved
-     * that once. The TARGET is a different question, asked fresh on the
+     * claimant, whoever that is right now. require_queue_authority() is
+     * still re-asked first, exactly as close() asks it (audit A1,
+     * 2026-08-20): without it, a REQUESTER with no queue authority at
+     * all reaches the not-claimant check below and is handed the
+     * claimant's fullname by workflow_refusal - the "record ownership"
+     * question only makes sense once the actor is proven to be a queue
+     * worker at all. The TARGET is a different question, asked fresh on the
      * row read inside the lock: they must hold queue authority (manage
      * or coordinate) and pass the same conflict-of-interest rule a
      * claimant needs (require_uninvolved(), or the groupless self-check
@@ -1601,6 +1693,11 @@ class tickets {
         int $actorid
     ): stdClass {
         global $DB;
+
+        // The queue-worker authority, asked FIRST (audit A1, 2026-08-20),
+        // before the note is even validated - see this method's own
+        // docblock above.
+        self::require_queue_authority($activity, $actorid);
 
         if (trim(html_to_text($note)) === '') {
             throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
@@ -2123,6 +2220,14 @@ class tickets {
     ): stdClass {
         global $DB;
 
+        // The queue-worker authority, asked FIRST (audit A1, 2026-08-20),
+        // exactly as close() asks it, before even the emptiness check
+        // below: without this, a REQUESTER with no queue authority at
+        // all reaches the not-claimant check further down and is handed
+        // the claimant's fullname by workflow_refusal - the cardinal
+        // "Somebody is handling this" rule broken by a redirect notice.
+        self::require_queue_authority($activity, $actorid);
+
         // The emptiness idiom file() and close() both use: a question
         // that says nothing is not a question a requester could answer.
         if (trim(html_to_text($question)) === '') {
@@ -2130,12 +2235,10 @@ class tickets {
         }
 
         // Lock + transaction + re-read + rollback discipline copied
-        // from claim(): the authority question here is entirely about
-        // RECORD OWNERSHIP (this ticket's claimant, whoever that is
-        // right now), so unlike close() there is no separate queue-
-        // authority re-ask before the lock - the claim itself already
-        // proved that once, and nothing here grants a NEW authority a
-        // stale read could get wrong.
+        // from claim(): the RECORD OWNERSHIP question below (this
+        // ticket's claimant, whoever that is right now) only makes
+        // sense once the actor is proven to hold queue authority at
+        // all, which the re-ask above just did.
         $events = new eventqueue();
         $lock = locks::acquire('ticket:' . $ticketid);
         try {
@@ -2324,7 +2427,11 @@ class tickets {
      * nothing about the ticket's status or claim, and that the requester
      * DOES see, needed its own action - ACTION_COMMENTED.
      *
-     * Authority mirrors request_info() exactly: record ownership (the
+     * Authority mirrors request_info() exactly: require_queue_authority()
+     * re-asked first (audit A1, 2026-08-20 - this method was reachable
+     * only through api_respond, which checks authority itself, so the
+     * missing gate was latent rather than live; fixed anyway, the same
+     * door as request_info()/refer()), then record ownership (the
      * ticket's own current claimant, whoever that is right now), only
      * while CLAIMED - the same shape a genuine "I'm working on it, here's
      * an update" reply has for a human coordinator, and the one that
@@ -2348,6 +2455,10 @@ class tickets {
         int $actorid
     ): stdClass {
         global $DB;
+
+        // The queue-worker authority, asked FIRST (audit A1, 2026-08-20),
+        // exactly as request_info()/refer() ask it.
+        self::require_queue_authority($activity, $actorid);
 
         if (trim(html_to_text($note)) === '') {
             throw new workflow_refusal('refusalticketreason', 'mod_selfselectadvanced');
@@ -2960,18 +3071,32 @@ class tickets {
         // long-handled ticket can hold a dozen rows, and this plugin's
         // house rule against a query per row applies here exactly as it
         // does to notify_workers()'s recipient loop.
+        //
+        // LEFT JOIN, not INNER (audit A5, 2026-08-20): a privacy erasure
+        // de-links a row's actorid to the 0 sentinel rather than
+        // deleting the row (classes/privacy/provider.php's
+        // scrub_user_in_activity() - "de-linked to the same 0 sentinel"
+        // as every other actor column it touches). No {user} row has id
+        // 0, so an INNER JOIN silently turned that de-link into a
+        // deletion for the STAFF view alone - the anonymised requester
+        // branch above has no join at all and kept the row - making the
+        // append-only audit trail LOSE rows exactly where it matters
+        // most. A missing name now renders as the de-linked placeholder
+        // instead of vanishing the row.
         $rows = $DB->get_records_sql(
             "SELECT l.id, l.action, l.note, l.noteformat, l.timecreated, l.actorid,
                     u.firstname, u.lastname, u.firstnamephonetic, u.lastnamephonetic,
                     u.middlename, u.alternatename
                FROM {selfselectadvanced_ticketlog} l
-               JOIN {user} u ON u.id = l.actorid
+          LEFT JOIN {user} u ON u.id = l.actorid
               WHERE l.ticketid = :ticketid
            ORDER BY l.timecreated, l.id",
             ['ticketid' => $ticketid]
         );
         foreach ($rows as $row) {
-            $row->actorname = fullname($row);
+            $row->actorname = $row->actorid
+                ? fullname($row)
+                : get_string('threadactordeleted', 'mod_selfselectadvanced');
             unset(
                 $row->firstname,
                 $row->lastname,
@@ -3470,16 +3595,32 @@ class tickets {
      * How many OPEN tickets precede a given offset in the queue.
      *
      * The queue numbers open tickets 1, 2, 3 for the people waiting in
-     * it, and that numbering has to stay true on page two. Open tickets
-     * sort first, so the count of open ones before an offset is simply
-     * the smaller of the offset and the total number open.
+     * it, and that numbering has to stay true on page two.
+     *
+     * UNTIL audit A7 (2026-08-20) this assumed open tickets sort first,
+     * so the count of open ones before an offset was simply the smaller
+     * of the offset and the total number open. 1.20.44 falsified that
+     * premise: queue()'s ORDER BY sorts a LIVE ESCALATED ticket that is
+     * NOT open (claimed or needsinfo - escalate() only leaves a claim in
+     * place for a manage-level holder) ahead of every ordinary open one.
+     * A run of those before the offset displaces opens the old formula
+     * still counted as if they were open, inflating the position on
+     * every page after the one holding them.
+     *
+     * Corrected by counting what actually precedes the offset instead of
+     * assuming: of the first $limitfrom physical rows, at most
+     * escalated_live_nonopen_count() of them are the escalated non-open
+     * tickets queue() sorts ahead of the opens, so that many fewer of
+     * the offset's own rows can be open ones - and the total can never
+     * exceed count_open() regardless, exactly as before.
      *
      * Slice C2: $type/$status are the page's ACTIVE filter, not a
      * separate query - a filter is a WHERE clause, it does not touch the
-     * ordering, so "open still sorts first" stays true under it and
-     * min(offset, count_open(same filter)) stays the right position
-     * count for that filtered page too. Passed straight through to
-     * count_open(); left at '' this is exactly the old unfiltered call.
+     * ordering, so min(offset, count_open(same filter)) - escalated
+     * count (same filter) stays the right position count for that
+     * filtered page too. Passed straight through to count_open() and
+     * escalated_live_nonopen_count(); left at '' this is exactly the old
+     * unfiltered call.
      *
      * @param activity $activity the activity
      * @param int $viewerid the viewer, 0 for no filtering
@@ -3496,7 +3637,78 @@ class tickets {
         string $type = '',
         string $status = ''
     ): int {
-        return min($limitfrom, self::count_open($activity, $viewerid, $type, $status));
+        $open = self::count_open($activity, $viewerid, $type, $status);
+        $escalatednonopen = self::escalated_live_nonopen_count($activity, $viewerid, $type, $status);
+
+        return min($open, max(0, $limitfrom - $escalatednonopen));
+    }
+
+    /**
+     * How many LIVE tickets are both escalated AND not open - claimed or
+     * needsinfo, escalated = 1 (audit A7, 2026-08-20).
+     *
+     * queue()'s ORDER BY sorts every one of these ahead of every
+     * ordinary (non-escalated) open ticket, so open_before() subtracts
+     * this count from the offset before asking how many opens it could
+     * possibly hold - correcting exactly the audited scenario (a live
+     * escalated ticket that is CLAIMED or NEEDSINFO displacing opens on
+     * page two).
+     *
+     * KNOWN NARROW GAP, left open rather than papered over: escalate()
+     * also permits a manage-level holder to escalate a ticket that is
+     * still OPEN (unclaimed), and that row sorts ahead of the ordinary
+     * opens too while itself counting as one of count_open()'s opens.
+     * This method deliberately does not add it to the subtraction (doing
+     * so would over-subtract once the offset runs past that ticket), but
+     * a page whose offset lands INSIDE a run of escalated-open tickets
+     * can still under-count by a small, self-correcting amount until the
+     * offset clears that run. Out of scope for audit A7, whose fixture
+     * and fix both concern an escalated ticket that is NOT open.
+     *
+     * Same $mine/$type/$status filters as count_open(), so the two stay
+     * comparable under the same page filter.
+     *
+     * @param activity $activity the activity
+     * @param int $viewerid the viewer, 0 for no filtering
+     * @param string $type self::TYPE_*, or '' for every type (slice C2 triage filter)
+     * @param string $status self::STATUS_*, or '' for every status (slice C2 triage filter)
+     * @return int
+     * @throws \coding_exception if $type or $status is not empty and not a known constant
+     */
+    private static function escalated_live_nonopen_count(
+        activity $activity,
+        int $viewerid = 0,
+        string $type = '',
+        string $status = ''
+    ): int {
+        global $DB;
+
+        self::validate_type_filter($type);
+        self::validate_status_filter($status);
+
+        $params = ['activityid' => $activity->id()];
+        $mine = '';
+        if ($viewerid > 0 && !has_capability('mod/selfselectadvanced:manage', $activity->context(), $viewerid)) {
+            $mine = ' AND t.requestedby <> :viewerid';
+            $params['viewerid'] = $viewerid;
+        }
+        $typesql = '';
+        if ($type !== '') {
+            $typesql = ' AND t.type = :type';
+            $params['type'] = $type;
+        }
+        $statussql = '';
+        if ($status !== '') {
+            $statussql = ' AND t.status = :status';
+            $params['status'] = $status;
+        }
+
+        return $DB->count_records_sql(
+            "SELECT COUNT(1) FROM {selfselectadvanced_ticket} t
+              WHERE t.activityid = :activityid AND t.escalated = 1
+                    AND t.status IN ('claimed', 'needsinfo')" . $mine . $typesql . $statussql,
+            $params
+        );
     }
 
     /**

@@ -3170,5 +3170,33 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         upgrade_mod_savepoint(true, 2026082000, 'selfselectadvanced');
     }
 
+    if ($oldversion < 2026082001) {
+        // 1.20.55: the ticket-system audit remediation. NO SCHEMA - every
+        // fix is a guard, a delete that was missing, or a query that asked
+        // the wrong question.
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.55 (2026082001). Ticket-system audit: 5 high and 13 medium '
+                . 'defects fixed, two of them contact-privacy breaches.',
+            'A full adversarial audit of the ticket system raised 70 findings across ten lenses '
+                . 'and confirmed 59 of them. The two that broke the cardinal rule are closed: a '
+                . 'requester could POST a request-info or refer action at their own ticket and read '
+                . 'the claimant\'s real name out of the refusal message, and a subject-access export '
+                . 'handed the requester every staff-internal referral and escalation note. Deleting '
+                . 'an activity or resetting a course left the whole ticket trail and both attachment '
+                . 'areas orphaned in the database, beyond the reach of any privacy request, and one '
+                . 'deleted group could make the assistant API fail for an entire activity. The '
+                . 'knowledgebank listed every article twice, could be edited past its own '
+                . 'anonymisation guard, and was lost whenever an activity was duplicated. Nothing '
+                . 'about who may do what widened: every fix is a guard added, a row deleted that '
+                . 'should always have been, or a query corrected.'
+        );
+
+        upgrade_mod_savepoint(true, 2026082001, 'selfselectadvanced');
+    }
+
     return true;
 }

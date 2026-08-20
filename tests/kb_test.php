@@ -20,6 +20,7 @@ use mod_selfselectadvanced\local\kb;
 use mod_selfselectadvanced\local\state;
 use mod_selfselectadvanced\local\tickets;
 use mod_selfselectadvanced\local\workflow_refusal;
+use mod_selfselectadvanced\output\kb_page;
 
 /**
  * 1.20.45, the knowledgebank, proven at the SERVICE (direct calls, never
@@ -674,5 +675,149 @@ final class kb_test extends \advanced_testcase {
 
         kb::create($activity, (int) $staff->id, $this->clean_draft());
         $this->assertTrue(kb::has_published($activity));
+    }
+
+    // ------------------------------------------------------------------
+    // F. kb::TYPE_GENERAL: search() can say "tickettype is exactly ''".
+    // (TICKET-AUDIT-20260820.md, B5 / M-4 / M-18 / M-23.)
+
+    /**
+     * search($type = kb::TYPE_GENERAL) matches only the untyped entries -
+     * distinct from search($type = '') matching every type, including
+     * general.
+     *
+     * MUTATION CAUGHT: reverting search()'s TYPE_GENERAL branch (so the
+     * sentinel falls into the `$type !== ''` bound-parameter branch, or
+     * is rejected by the "unknown type" coding_exception) makes the first
+     * assertion below fail or throw.
+     */
+    public function test_search_type_general_matches_only_untyped_entries(): void {
+        $this->resetAfterTest();
+
+        [$activity, , , , , $staff] = $this->scene();
+        $general = $this->clean_draft();
+        $general['tickettype'] = '';
+        $general['title'] = 'A general question';
+        kb::create($activity, (int) $staff->id, $general);
+
+        $typed = $this->clean_draft();
+        $typed['tickettype'] = tickets::TYPE_COMPCHANGE;
+        $typed['title'] = 'A composition-change question';
+        kb::create($activity, (int) $staff->id, $typed);
+
+        $generalonly = kb::search($activity, kb::TYPE_GENERAL, '', true);
+        $this->assertCount(1, $generalonly, 'TYPE_GENERAL must match only the untyped entry');
+        $this->assertSame('A general question', reset($generalonly)->title);
+
+        // The unfiltered contract ('' = everything, including general)
+        // must be unchanged by TYPE_GENERAL existing at all.
+        $everything = kb::search($activity, '', '', true);
+        $this->assertCount(2, $everything, "'' must still mean every type, unaffected by the new sentinel");
+    }
+
+    /**
+     * kb_page's student view must list every published article exactly
+     * once, with the untyped one under "General" and nothing else there.
+     *
+     * MUTATION CAUGHT: reverting kb_page.php's export_student_view() loop
+     * to array_merge([''], tickets::known_types()) makes the typed
+     * article's title appear in the totalled entry count twice (once
+     * under "General", once under its own type), failing the count
+     * assertion; the per-group content assertions also fail because the
+     * "General" group would then contain both titles.
+     */
+    public function test_student_view_general_group_is_not_duplicated(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+
+        [$activity, , , , , $staff] = $this->scene();
+        $general = $this->clean_draft();
+        $general['tickettype'] = '';
+        $general['title'] = 'A general question';
+        kb::create($activity, (int) $staff->id, $general);
+
+        $typed = $this->clean_draft();
+        $typed['tickettype'] = tickets::TYPE_COMPCHANGE;
+        $typed['title'] = 'A composition-change question';
+        kb::create($activity, (int) $staff->id, $typed);
+
+        $page = new kb_page($activity, false, '');
+        $data = $page->export_for_template($PAGE->get_renderer('core'));
+
+        $alltitles = [];
+        foreach ($data->groups as $group) {
+            foreach ($group->entries as $entry) {
+                $alltitles[] = $entry->title;
+            }
+        }
+        $this->assertCount(2, $alltitles, 'every published article must appear exactly once across all groups');
+        $this->assertEqualsCanonicalizing(['A general question', 'A composition-change question'], $alltitles);
+
+        $generalgroup = null;
+        foreach ($data->groups as $group) {
+            if ($group->typelabel === get_string('kbtypegeneral', 'mod_selfselectadvanced')) {
+                $generalgroup = $group;
+            }
+        }
+        $this->assertNotNull($generalgroup, 'fixture setup failed - no General group rendered');
+        $generaltitles = array_map(static fn($e) => $e->title, $generalgroup->entries);
+        $this->assertSame(
+            ['A general question'],
+            $generaltitles,
+            'the General group must hold only the untyped article, not a copy of everything'
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // G. update() re-runs the anonymisation guard when sourceticketid > 0.
+    // (TICKET-AUDIT-20260820.md, B6 / M-22.)
+
+    /**
+     * update() must refuse wording that names the requester verbatim,
+     * exactly as publish_from_ticket() does, when the entry was published
+     * FROM a ticket - and must leave the stored row unchanged.
+     *
+     * MUTATION CAUGHT: reverting update()'s added guard_anonymisation()
+     * call makes kb::update() below succeed instead of throwing, and the
+     * stored row's answer would then contain the requester's fullname -
+     * both assertions fail.
+     */
+    public function test_update_re_runs_the_anonymisation_guard_when_published_from_a_ticket(): void {
+        $this->resetAfterTest();
+
+        [$activity, , $leader, , , $staff] = $this->scene();
+        $group = $this->group($activity, (int) $leader->id, state::FIRM);
+        $ticket = $this->resolved_ticket($activity, $group, (int) $leader->id, (int) $staff->id);
+        $entry = kb::publish_from_ticket($activity, (int) $ticket->id, (int) $staff->id, $this->clean_draft());
+
+        $dirtyanswer = 'We spoke to Lena Leader and appointed a successor.';
+        try {
+            kb::update($activity, (int) $entry->id, ['answer' => $dirtyanswer], (int) $staff->id);
+            $this->fail('an update naming the requester verbatim must be refused, same as publish_from_ticket()');
+        } catch (workflow_refusal $e) {
+            $this->assertSame('refusalkbanonymisation', $e->errorcode);
+        }
+
+        $stored = kb::get($activity, (int) $entry->id);
+        $this->assertSame($entry->answer, $stored->answer, 'the refused update must not have changed the stored row');
+    }
+
+    /**
+     * The positive control, its own method (PostgreSQL transaction-
+     * poisoning rule): a CLEAN update to a ticket-sourced entry still
+     * saves - the guard must not block ordinary editing.
+     */
+    public function test_update_clean_wording_still_saves_when_published_from_a_ticket(): void {
+        $this->resetAfterTest();
+
+        [$activity, , $leader, , , $staff] = $this->scene();
+        $group = $this->group($activity, (int) $leader->id, state::FIRM);
+        $ticket = $this->resolved_ticket($activity, $group, (int) $leader->id, (int) $staff->id);
+        $entry = kb::publish_from_ticket($activity, (int) $ticket->id, (int) $staff->id, $this->clean_draft());
+
+        $updated = kb::update($activity, (int) $entry->id, ['title' => 'A clearer title'], (int) $staff->id);
+
+        $this->assertSame('A clearer title', $updated->title);
     }
 }

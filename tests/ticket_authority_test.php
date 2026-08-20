@@ -359,6 +359,47 @@ final class ticket_authority_test extends \advanced_testcase {
         $this->assertSame(1, tickets::count_open($activity, 0, tickets::TYPE_HELP));
     }
 
+    /**
+     * AUDIT A3 (2026-08-20): file_help() had no participant gate at all
+     * - a visitor with no enrolment in the course at all could file
+     * straight into the staff queue. RED-FIRST PROOF (see the report):
+     * before the fix this call never throws - filing SUCCEEDS instead,
+     * and the $this->fail() below is what actually runs.
+     */
+    public function test_help_refuses_a_non_enrolled_visitor(): void {
+        $this->resetAfterTest();
+
+        [$activity] = $this->scene();
+        // Deliberately never enrolled anywhere near this course.
+        $stranger = $this->getDataGenerator()->create_user();
+
+        try {
+            tickets::file_help($activity, null, 'I should not reach the queue', FORMAT_PLAIN, (int) $stranger->id);
+            $this->fail('a non-enrolled visitor must be refused before a ticket is ever created');
+        } catch (local\workflow_refusal $e) {
+            $this->assertSame('refusalticketnotenrolled', $e->errorcode);
+        }
+    }
+
+    /**
+     * The positive control for the arm above, in its own method
+     * (PostgreSQL transaction-poison rule, see the checkbox tests'
+     * docblock): an enrolled groupless raiser is unaffected by the new
+     * gate - already proven by test_help_groupid_is_zero_for_a_groupless_
+     * raiser above, restated here as the direct before/after pair for
+     * this specific finding.
+     */
+    public function test_help_still_allows_an_enrolled_groupless_raiser(): void {
+        $this->resetAfterTest();
+
+        [$activity, $course] = $this->scene();
+        $loner = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($loner->id, $course->id, 'student');
+
+        $ticket = tickets::file_help($activity, null, 'I am actually enrolled', FORMAT_PLAIN, (int) $loner->id);
+        $this->assertSame(tickets::STATUS_OPEN, $ticket->status);
+    }
+
     // ------------------------------------------------------------------
     // C. Responsible-person mode.
 

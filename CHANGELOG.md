@@ -1,5 +1,64 @@
 # Changelog
 
+## 1.20.55 — the ticket-system audit, and what it found (2026-08-20)
+
+> Serial `2026082001` / `1.20.55`. **No schema change.** Maturity stays RC.
+
+A complete adversarial audit of the ticket system — ten independent lenses, every
+finding then handed to a separate reviewer briefed to refute it. **70 raised, 59
+confirmed, 11 refuted.** This release fixes all five HIGH and thirteen MEDIUM
+defects. Nothing about who may do what widened: every fix is a guard added, a row
+deleted that should always have gone, or a query corrected.
+
+**Two of them broke the contact-privacy rule.**
+
+The first: a requester could read the claimant's real name off their own ticket.
+Every *display* surface was built to prevent that — the thread says "Somebody is
+handling this" — but the *refusal* path was not. `request_info()` and `refer()`
+had no authority gate at all, so a requester POSTing those actions at their own
+ticket reached a refusal whose message is built from the claimant's full name, and
+the page printed it back at them. All three service methods, `comment()` included,
+now require queue authority as their first statement, so a requester gets a
+capability exception that carries no name.
+
+The second: a subject-access export handed the requester every staff-internal
+referral and escalation note — the rows withheld on every screen — because the
+export selected the whole trail with no action filter. It now applies the same
+exclusion the screens do, while a handler still sees their own notes.
+
+**Deleting an activity, or resetting a course, left personal data behind that
+nothing could ever reach again.** Both removed the ticket rows but not the trail,
+and `selfselectadvanced_ticketlog` carries no activityid — every privacy path
+reaches it *through* a live ticket. Each student's own reply and each question
+about them therefore became permanently undeletable and undiscoverable. Course
+reset also left both attachment areas in a context that survives the reset, keyed
+on ids that no longer name anything. Both now delete the trail before the tickets,
+and the reset purges both file areas — including for activities with no groups at
+all, where the old code did not even look.
+
+**One deleted group could take down the assistant API for a whole activity.** A
+solo leader may delete their own forming group; a ticket about it survives, and
+the API's subject lookup re-queried with `MUST_EXIST` instead of using the group
+name the query had already returned. It now degrades to "Not about a group".
+
+**The knowledgebank** listed every article twice on the student view, could be
+edited past its own anonymisation guard, and vanished whenever an activity was
+duplicated because it was only backed up alongside user data. All three fixed.
+
+Also: a guest could file into the staff queue; the requester saw the staff-internal
+*Escalated* badge; a capacity request in needs-info was a dead end for both the
+guide and the coordinator; a privacy erasure or a restore could strand a needs-info
+ticket claimed by nobody; an erased actor's trail rows vanished from the staff
+audit view; queue positions overstated on page 2 and beyond; restored threads and
+FAQs showed literal link tokens; the export missed anyone whose only trace was a
+trail row, and filed every attachment in one flat folder where same-named files
+overwrote each other.
+
+The LOW findings — an unbounded history render, missing `get_objectid_mapping()`,
+an N+1 in the queue render loop, untied knowledgebank ordering, attachment counts
+enforced only in the form — are recorded in `audit_state/TICKET-AUDIT-20260820.md`
+rather than silently dropped.
+
 ## 1.20.54 — the ticket says where it stands, and the thread reads as a conversation (2026-08-20)
 
 > Serial `2026082000` / `1.20.54`. **No schema change.** Maturity stays RC.

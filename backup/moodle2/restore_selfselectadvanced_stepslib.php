@@ -44,6 +44,16 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
             new restore_path_element('ssaquota', '/activity/selfselectadvanced/quotas/quota'),
             new restore_path_element('ssatemplate', '/activity/selfselectadvanced/templates/template'),
             new restore_path_element('ssaqslot', '/activity/selfselectadvanced/qslots/qslot'),
+            // The knowledgebank (1.20.45) is reusable course content, not
+            // user data - registered here, unconditionally, alongside
+            // quotas/templates/qslots, the same way its backup source is
+            // set outside `if ($userinfo)` below, or a Duplicate/rollover
+            // backup (userinfo off) silently loses every FAQ (audit
+            // B8/M-12).
+            new restore_path_element(
+                'ssakbentry',
+                '/activity/selfselectadvanced/kbentries/kbentry'
+            ),
         ];
         if ($userinfo) {
             $paths[] = new restore_path_element('ssagroup', '/activity/selfselectadvanced/groups/group');
@@ -90,17 +100,16 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
                 'ssaticketlog',
                 '/activity/selfselectadvanced/tickets/ticket/ticketlogs/ticketlog'
             );
-            // Sibling of tickets, not nested under one: an entry authored
-            // directly (sourceticketid 0) is not "about" any ticket, and
-            // one published FROM a ticket still stands as its own row
-            // once restored - process_ssakbentry() maps sourceticketid
-            // with get_mappingid() against the OLD id, the same "was THIS
+            // Ssakbentry is registered unconditionally above (audit
+            // B8/M-12): an entry authored directly (sourceticketid 0) is
+            // not "about" any ticket, and one published FROM a ticket
+            // still stands as its own row once restored -
+            // process_ssakbentry() maps sourceticketid with
+            // get_mappingid() against the OLD id, the same "was THIS
             // ticket ever mapped at all" question process_ssaticketlog()
-            // asks of ITS ticketid.
-            $paths[] = new restore_path_element(
-                'ssakbentry',
-                '/activity/selfselectadvanced/kbentries/kbentry'
-            );
+            // asks of ITS ticketid, degrading to 0 when there is no
+            // mapping (no source ticket, or no userinfo so ssaticket
+            // carries no mapping at all).
             $paths[] = new restore_path_element(
                 'ssacontact',
                 '/activity/selfselectadvanced/contacts/contact'
@@ -478,8 +487,22 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         $data->resolvedby = $data->resolvedby ? ($this->get_mappingid('user', $data->resolvedby) ?: null) : null;
         // A claimed ticket whose claimant did not survive the restore
         // would be stuck (nobody could resolve or release it): release
-        // it back to the queue instead.
-        if ($data->status === \mod_selfselectadvanced\local\tickets::STATUS_CLAIMED && $data->claimedby === null) {
+        // it back to the queue instead. NEEDSINFO is the other live
+        // claimed state (decision 2's LIVENESS) and has the identical
+        // failure mode - a restored needs-info ticket with no claimant
+        // has no exit, since the requester's reply would go to nobody
+        // (audit B7/M-11).
+        if (
+            in_array(
+                $data->status,
+                [
+                    \mod_selfselectadvanced\local\tickets::STATUS_CLAIMED,
+                    \mod_selfselectadvanced\local\tickets::STATUS_NEEDSINFO,
+                ],
+                true
+            )
+            && $data->claimedby === null
+        ) {
             $data->status = \mod_selfselectadvanced\local\tickets::STATUS_OPEN;
             $data->timeclaimed = null;
         }
@@ -558,13 +581,20 @@ class restore_selfselectadvanced_activity_structure_step extends restore_activit
         global $DB;
 
         $data = (object) $data;
+        $oldid = $data->id;
         $data->activityid = $this->get_new_parentid('selfselectadvanced');
         $data->usercreated = $this->get_mappingid('user', $data->usercreated) ?: 0;
         $data->usermodified = $this->get_mappingid('user', $data->usermodified) ?: 0;
         $data->sourceticketid = !empty($data->sourceticketid)
             ? ($this->get_mappingid('ssaticket', $data->sourceticketid) ?: 0)
             : 0;
-        $DB->insert_record('selfselectadvanced_kb', $data);
+        $newid = $DB->insert_record('selfselectadvanced_kb', $data);
+        // Needed for restore_decode_content('selfselectadvanced_kb', [...],
+        // 'ssakbentry') to find this row at all (audit B10/M-15) - a rule
+        // whose item name was never mapped decodes nothing and fails
+        // silently (the file's own warning, restore_selfselectadvanced_
+        // activity_task.class.php).
+        $this->set_mapping('ssakbentry', $oldid, $newid);
     }
 
     /**

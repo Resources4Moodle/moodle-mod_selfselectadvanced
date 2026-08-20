@@ -75,6 +75,14 @@ class restore_selfselectadvanced_activity_task extends restore_activity_task {
             new restore_decode_content('selfselectadvanced_ticket', ['request', 'resolution'], 'ssaticket'),
             new restore_decode_content('selfselectadvanced_move', ['reason', 'responsenote'], 'ssajoinrequest'),
             new restore_decode_content('selfselectadvanced_penalty', ['waivereason'], 'ssapenalty'),
+            // Ticketlog (1.20.42) and kb (1.20.45) both arrived after the
+            // sweep this docblock describes and were never added (audit
+            // B10/M-15): a needs-info question, an info-reply or a
+            // resolution note exists ONLY in the trail, and a knowledgebank
+            // article's question/answer is public-facing wording either
+            // one can link back to the activity.
+            new restore_decode_content('selfselectadvanced_ticketlog', ['note'], 'ssaticketlog'),
+            new restore_decode_content('selfselectadvanced_kb', ['question', 'answer'], 'ssakbentry'),
         ];
     }
 

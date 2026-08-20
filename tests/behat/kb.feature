@@ -74,6 +74,24 @@ Feature: The knowledgebank grows out of resolved tickets
     When I am on the "Lab groups" "mod_selfselectadvanced > kb" page logged in as student1
     Then I should see "How do groups get frozen?"
 
+  Scenario: A typed article appears exactly once in the student view, not once under its own type and again under General
+    # TICKET-AUDIT-20260820.md B5/M-4/M-18/M-23: export_student_view()
+    # used to pass '' (kb::search()'s "no type filter - every type"
+    # meaning) for what was meant to be the untyped GROUP alone, so a
+    # TYPED article was listed once under "General" and again under its
+    # own type heading. A plain "I should see" cannot tell one copy from
+    # two; only a genuine occurrence count can.
+    Given I am on the "Lab groups" "mod_selfselectadvanced > kb" page logged in as teacher1
+    And I follow "Add an article"
+    And I set the field "Title" to "Can I ask the managers for general help?"
+    And I set the field "Question" to "Who do I contact for a general question?"
+    And I set the field "Answer" to "Use the general help request from the landing page or your group page."
+    And I set the field "Type" to "General help"
+    And I press "Save"
+
+    When I am on the "Lab groups" "mod_selfselectadvanced > kb" page logged in as student1
+    Then I should see "1" occurrences of "Can I ask the managers for general help?" in the ".selfselectadvanced-kbpage" "css_element"
+
   Scenario: The filing screen offers a matching article before a new ticket is raised, and "continue anyway" still files
     Given I am on the "Lab groups" "mod_selfselectadvanced > kb" page logged in as teacher1
     And I follow "Add an article"
