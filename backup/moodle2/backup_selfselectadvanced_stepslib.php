@@ -82,6 +82,8 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             // ticket disclaimer.
             'ticketraiseguide', 'ticketraiseleader', 'ticketraisemember', 'ticketresponsiblemode',
             'ticketdisclaimer', 'ticketdisclaimerformat',
+            // 1.20.58 deliverable A: the target first-response time.
+            'tickettargethours',
             'timecreated', 'timemodified',
         ]);
         $quotas = new backup_nested_element('quotas');

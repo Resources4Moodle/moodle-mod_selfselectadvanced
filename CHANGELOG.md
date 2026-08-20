@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.20.58 — how long has this been waiting, and is that too long (2026-08-21)
+
+> Serial `2026082004` / `1.20.58`. **Schema change:** `selfselectadvanced.tickettargethours`,
+> INT NOT NULL DEFAULT 0. Maturity stays RC.
+
+Third of the four features the cPanel comparison was missing. Nothing on any
+surface said how old a request was: a student could not tell whether to keep
+waiting, and a coordinator could not tell which of forty open tickets had been
+sitting longest.
+
+**A per-activity target first-response time**, in hours, `0` meaning no target —
+which is what every existing activity gets, so nothing changes anywhere until
+somebody sets one. That is not a hope; it is a test, because a release that
+quietly starts marking every old ticket overdue would be worse than no feature.
+
+**Every ticket now shows how long it has been waiting** on the queue, on the
+requester's own list and on the thread. And **"waiting" means waiting on STAFF**,
+which is the rule 1.20.53 and 1.20.54 already established, now extracted into one
+named function rather than written out a third time:
+
+- **open** — since it was filed;
+- **claimed**, the requester having replied last — since that reply;
+- **claimed** otherwise — since it was claimed;
+- **needs-info** — **no clock at all**. The ball is with the requester, and a ticket
+  sitting on their own unanswered question for a week is not staff being slow.
+  Marking that overdue would be a lie told to a coordinator, so the function returns
+  null rather than a number somebody downstream has to remember to ignore.
+
+**Overdue** is shown only when a target is set and the staff clock has passed it —
+as a badge on the queue, and to the requester as a full sentence acknowledging the
+delay rather than silence.
+
+Five mutations were run to prove the guards bite, including the two the spec named
+as the real risks: making needs-info fall through to a claimed-style clock (six
+tests red, across four statuses and both the single and bulk paths), and removing
+the zero-target guard (four red). The boundary was checked too — a wait exactly *at*
+the target is not yet overdue — by flipping `>` to `>=`.
+
+The queue's per-page cost is unchanged: the bulk derivation is one join over only
+the claimed subset, reusing the helper 1.20.53 added, and the test measures the
+actual query count for eight tickets against two rather than trusting the shape.
+
 ## 1.20.57 — finding a ticket among many (2026-08-20)
 
 > Serial `2026082003` / `1.20.57`. **No schema change.** Maturity stays RC.

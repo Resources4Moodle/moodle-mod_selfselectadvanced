@@ -45,6 +45,10 @@ final class settings_validator_test extends \basic_testcase {
             'timeopen' => 1000,
             'timedue' => 2000,
             'timecutoff' => 3000,
+            // 1.20.58 deliverable A: 0 is its documented sentinel ("no
+            // target set"), matching every real activity until this is
+            // deliberately changed.
+            'tickettargethours' => 0,
         ];
     }
 
@@ -322,6 +326,8 @@ final class settings_validator_test extends \basic_testcase {
             'eoimax' => ['eoimax'],
             'eoigroupmax' => ['eoigroupmax'],
             'minmembership' => ['minmembership'],
+            // 1.20.58 deliverable A.
+            'tickettargethours' => ['tickettargethours'],
         ];
     }
 
@@ -370,7 +376,7 @@ final class settings_validator_test extends \basic_testcase {
      */
     public function test_the_positive_family_and_the_sentinel_family_stay_separate(): void {
         $zeroed = $this->valid();
-        foreach (['contactmax', 'joinexpiry', 'eoimax', 'eoigroupmax', 'minmembership'] as $field) {
+        foreach (['contactmax', 'joinexpiry', 'eoimax', 'eoigroupmax', 'minmembership', 'tickettargethours'] as $field) {
             $zeroed[$field] = 0;
         }
         $this->assertSame([], settings_validator::validate($zeroed), 'a zeroed sentinel set was refused');

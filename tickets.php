@@ -307,6 +307,12 @@ $requesterline = static function (int $requesterid, bool $mine) use ($requesterc
 // claimant, not merely "being handled". One bulk query for the whole
 // page, never a trail() call per row.
 $awaitingclaimantids = tickets::awaiting_claimant_ids($activity, array_keys($queue));
+// 1.20.58 deliverables B and C: how long the staff clock has been
+// running for each row on THIS page, one bulk statement for the whole
+// page rather than a query per row (staff_wait_since_map()'s own
+// docblock), and the activity's own target, read once.
+$waitsincemap = tickets::staff_wait_since_map($activity, $queue);
+$targethours = (int) $activity->settings()->tickettargethours;
 
 $position = tickets::open_before($activity, (int) $USER->id, $page * $perpage, $typefilter, $statusfilter, $search);
 foreach ($queue as $ticket) {
@@ -357,6 +363,24 @@ foreach ($queue as $ticket) {
             ),
             'badge bg-warning text-dark'
         );
+    }
+    // 1.20.58 deliverables B and C: how long this ticket has been
+    // waiting on staff (absent while the ball is with the requester or
+    // the ticket is closed - staff_wait_since_map() answers null there),
+    // and, only when the activity has set a target and that clock has
+    // run past it, the overdue badge.
+    $waitsince = $waitsincemap[(int) $ticket->id] ?? null;
+    if ($waitsince !== null) {
+        $statuscell .= html_writer::div(
+            get_string('ticketwaitingsince', 'mod_selfselectadvanced', format_time(time() - $waitsince)),
+            'small text-muted'
+        );
+        if (tickets::is_overdue($waitsince, $targethours)) {
+            $statuscell .= ' ' . html_writer::span(
+                get_string('ticketoverduebadge', 'mod_selfselectadvanced'),
+                'badge bg-danger'
+            );
+        }
     }
     if (
         in_array($ticket->status, [tickets::STATUS_RESOLVED, tickets::STATUS_DECLINED], true)

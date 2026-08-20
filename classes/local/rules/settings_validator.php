@@ -70,19 +70,25 @@ final class settings_validator {
             $errors['inviteexpiry'] = 'errnonnegative';
         }
 
-        // ONE CANONICAL DOMAIN FOR THE FIVE SENTINEL FIELDS. Each of these
+        // ONE CANONICAL DOMAIN FOR THE SENTINEL FIELDS. Each of these
         // already treats 0 as a documented sentinel at runtime - contacts.php
         // disables approaches below 1, expire_due() and the expiry task want
         // a positive interval, eoi::express() caps only when the value is
-        // above 0, and the gradebook penalises only a positive minimum. A
+        // above 0, the gradebook penalises only a positive minimum, and
+        // (1.20.58) a 0 target-hours means no target is set at all. A
         // NEGATIVE value therefore behaved as a second, undocumented spelling
         // of the same sentinel: it saved cleanly, changed nothing, and made
         // the stored configuration unreadable.
         //
         // Deliberately NOT folded into the positive loop above. Zero is valid
-        // for all five and means something specific in each; errpositiveint
+        // for all six and means something specific in each; errpositiveint
         // would reject it and change behaviour on existing sites.
-        foreach (['contactmax', 'joinexpiry', 'eoimax', 'eoigroupmax', 'minmembership'] as $field) {
+        //
+        // tickettargethours joined this domain in 1.20.58: 0 is its
+        // documented sentinel too ("no target set"), and every existing
+        // activity reads 0 after the upgrade - errpositiveint would break
+        // every one of them the moment they merely opened this form.
+        foreach (['contactmax', 'joinexpiry', 'eoimax', 'eoigroupmax', 'minmembership', 'tickettargethours'] as $field) {
             if (isset($data[$field]) && (int) $data[$field] < 0) {
                 $errors[$field] = 'errnonnegative';
             }

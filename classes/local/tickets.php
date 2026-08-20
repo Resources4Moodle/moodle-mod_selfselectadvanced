@@ -4218,6 +4218,170 @@ class tickets {
     }
 
     /**
+     * Whether a CLAIMED ticket's trail's last row is the requester's own
+     * inforeply - the ball is back in the claimant's court, rather than
+     * merely "being handled" (1.20.53's own question). THE ONE PLACE
+     * this predicate is stated in PHP: 1.20.54's whose_move_claimed_line()
+     * (classes/output/ticket_page.php) and 1.20.58's staff_wait_since()
+     * below both call this rather than re-deriving it (spec: "the
+     * whose-move derivation is REUSED from the existing helper, not
+     * copied"). awaiting_claimant_ids() above and staff_wait_since_map()
+     * below still state the identical condition a second time, in SQL -
+     * a JOIN cannot call back into a PHP method - but that is the one
+     * boundary this cannot be reused across; PHP callers all funnel
+     * through here.
+     *
+     * @param string $status self::STATUS_* - callers pass the ticket's
+     *        own status rather than this method re-reading it off
+     *        $lastrow, which carries no ticket id at all; anything other
+     *        than STATUS_CLAIMED is always false by definition (the ball
+     *        is never "back with the claimant" on an open, needsinfo or
+     *        closed ticket)
+     * @param stdClass|null $lastrow the ticket's last trail row (only
+     *        ->action is read - present on both trail() branches), or
+     *        null for a ticket logged with no rows at all
+     * @return bool
+     */
+    public static function is_awaiting_claimant_reply(string $status, ?stdClass $lastrow): bool {
+        return $status === self::STATUS_CLAIMED && $lastrow !== null && $lastrow->action === self::ACTION_INFOREPLY;
+    }
+
+    /**
+     * The staff clock's start time for ONE ticket (1.20.58 deliverable
+     * B) - the 1.20.54 whose-move rule, reused rather than re-derived a
+     * second time (spec, verbatim: "the whose-move derivation is REUSED
+     * from the existing helper, not copied"):
+     *
+     * - open: since it was filed;
+     * - claimed, with the requester's own inforeply as the trail's last
+     *   row (is_awaiting_claimant_reply() above): since that reply;
+     * - claimed otherwise: since it was claimed;
+     * - needsinfo: the ball is with the REQUESTER, so no staff clock runs;
+     * - resolved/declined/withdrawn: closed, no clock.
+     *
+     * Takes data the caller already has in hand - never a query here -
+     * so ticket_page.php's thread (one ticket, its trail already
+     * fetched by export_for_template()'s own loop) can call this
+     * directly. A page holding many tickets on one screen (the staff
+     * queue, a requester's own list) must call staff_wait_since_map()
+     * below instead, which asks the identical question in bulk rather
+     * than once per row.
+     *
+     * @param stdClass $ticket the ticket row (status, timecreated,
+     *        timeclaimed read)
+     * @param stdClass|null $lastrow the ticket's last trail row (only
+     *        ->action and ->timecreated are read), or null
+     * @return int|null unix timestamp the staff clock started, or null
+     *         when no staff clock is running for this ticket right now
+     */
+    public static function staff_wait_since(stdClass $ticket, ?stdClass $lastrow): ?int {
+        if ($ticket->status === self::STATUS_OPEN) {
+            return (int) $ticket->timecreated;
+        }
+        if ($ticket->status === self::STATUS_CLAIMED) {
+            return self::is_awaiting_claimant_reply($ticket->status, $lastrow)
+                ? (int) $lastrow->timecreated
+                : (int) $ticket->timeclaimed;
+        }
+
+        // Needsinfo, resolved, declined, withdrawn: no staff clock at all.
+        return null;
+    }
+
+    /**
+     * The bulk form of staff_wait_since() above, for a PAGE showing many
+     * tickets at once (1.20.58 deliverable B: "the age must be computed
+     * from rows already fetched ... do not add a query per row"). One
+     * SQL statement joins each CLAIMED ticket's own last trail row -
+     * last_log_join(), the identical join awaiting_claimant_ids() above
+     * already uses for the same shape of question - rather than a
+     * trail() or staff_wait_since() call per row.
+     *
+     * open tickets need no join at all: the answer is timecreated, which
+     * the caller's own $tickets rows already carry. needsinfo and closed
+     * tickets need no join either: the answer is the constant null. Only
+     * the CLAIMED subset of the page ever reaches the database here, and
+     * that subset is fetched in exactly one query regardless of how many
+     * of them there are.
+     *
+     * @param activity $activity the activity
+     * @param stdClass[] $tickets ticket rows already fetched by the
+     *        caller (queue()/mine()) - only ->id, ->status, ->timecreated
+     *        and ->timeclaimed are read
+     * @return array<int, int|null> ticketid => unix timestamp the staff
+     *         clock started, or null when no staff clock runs for that ticket
+     */
+    public static function staff_wait_since_map(activity $activity, array $tickets): array {
+        global $DB;
+
+        $result = [];
+        $claimed = [];
+        foreach ($tickets as $ticket) {
+            $id = (int) $ticket->id;
+            if ($ticket->status === self::STATUS_OPEN) {
+                $result[$id] = (int) $ticket->timecreated;
+            } else if ($ticket->status === self::STATUS_CLAIMED) {
+                $claimed[$id] = $ticket;
+            } else {
+                // Needsinfo, resolved, declined, withdrawn: no staff clock.
+                $result[$id] = null;
+            }
+        }
+        if (!$claimed) {
+            return $result;
+        }
+
+        [$insql, $params] = $DB->get_in_or_equal(array_keys($claimed), SQL_PARAMS_NAMED, 'tid');
+        $params['activityid'] = $activity->id();
+        $rows = $DB->get_records_sql(
+            "SELECT t.id, l.action AS lastaction, l.timecreated AS lasttime
+               FROM {selfselectadvanced_ticket} t
+               " . self::last_log_join('t') . "
+              WHERE t.id $insql AND t.activityid = :activityid",
+            $params
+        );
+        foreach ($claimed as $id => $ticket) {
+            $row = $rows[$id] ?? null;
+            // The SAME condition is_awaiting_claimant_reply() states in
+            // PHP (see that method's own docblock for why this is
+            // expressed a second time, in SQL, rather than reused).
+            $result[$id] = ($row !== null && $row->lastaction === self::ACTION_INFOREPLY)
+                ? (int) $row->lasttime
+                : (int) $ticket->timeclaimed;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Deliverable C: overdue means the activity SET a target AND the
+     * staff clock (staff_wait_since()/staff_wait_since_map() above) has
+     * run past it.
+     *
+     * A target of 0 ("no target set") must change nothing anywhere - the
+     * deliverable's own stated requirement, since every activity reads 0
+     * until this is deliberately changed - so a non-positive target
+     * always answers false, checked BEFORE $waitsince is even read: a
+     * ticket with no staff clock running (null) can never be overdue
+     * either way, but the target is checked first so the two negatives
+     * (no target, no clock) are never conflated into one code path that
+     * could accidentally start reading $waitsince before confirming a
+     * target exists at all.
+     *
+     * @param int|null $waitsince staff_wait_since()'s own return, or
+     *        null when no staff clock is running (never overdue)
+     * @param int $targethours the activity's tickettargethours setting
+     * @return bool
+     */
+    public static function is_overdue(?int $waitsince, int $targethours): bool {
+        if ($targethours <= 0 || $waitsince === null) {
+            return false;
+        }
+
+        return (time() - $waitsince) > $targethours * HOURSECS;
+    }
+
+    /**
      * Unwind a transaction that an exception is escaping from.
      *
      * Moodle expects the exception to be handed to rollback(), which

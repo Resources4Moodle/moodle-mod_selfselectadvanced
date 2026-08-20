@@ -379,6 +379,19 @@ class mod_selfselectadvanced_mod_form extends moodleform_mod {
         $mform->setType('ticketresponsiblemode', PARAM_INT);
         $mform->setDefault('ticketresponsiblemode', 0);
         $mform->addHelpButton('ticketresponsiblemode', 'ticketresponsiblemode', 'mod_selfselectadvanced');
+        // 1.20.58 deliverable A: how long a live ticket may wait on staff
+        // before it is marked overdue. 0 (the default, so every existing
+        // activity upgrades unaffected) means no target is set, and
+        // nothing anywhere is ever marked overdue.
+        $mform->addElement(
+            'text',
+            'tickettargethours',
+            get_string('tickettargethours', 'mod_selfselectadvanced'),
+            ['size' => 4]
+        );
+        $mform->setType('tickettargethours', PARAM_INT);
+        $mform->setDefault('tickettargethours', 0);
+        $mform->addHelpButton('tickettargethours', 'tickettargethours', 'mod_selfselectadvanced');
         // Moodle's rich text interface (maintainer): the standard editor
         // save/restore idiom, matching this plugin's own group_form.php
         // brief field - a plain editor element with no draft file area,

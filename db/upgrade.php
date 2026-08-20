@@ -162,6 +162,48 @@ function selfselectadvanced_upgrade_ticket_pluginuid(moodle_database $db, databa
 }
 
 /**
+ * 1.20.58 deliverable A: add selfselectadvanced.tickettargethours - the
+ * per-activity target first-response time in hours, INT NOT NULL
+ * DEFAULT 0, 0 meaning "no target set".
+ *
+ * Unlike selfselectadvanced_upgrade_ticket_pluginuid() above (a NOT NULL
+ * UNIQUE column, which needs a backfill before its index can go on), a
+ * plain NOT NULL column with a DEFAULT is safe to add straight onto a
+ * populated table: every existing row reads the default the instant the
+ * column exists, and 0 already means exactly what every pre-1.20.58
+ * activity's behaviour was - no target, nothing marked overdue.
+ *
+ * PUBLIC AND STANDALONE for the same reason its 1.20.56 neighbour is:
+ * db/upgrade.php's own guarded step below is keyed on the literal
+ * placeholder token 2026082004 (the maintainer's own instruction - a
+ * real serial is not this repo's to invent), which is not a condition a
+ * test can satisfy via $oldversion. tests/ticket_response_target_
+ * upgrade_test.php drops the column to reproduce the pre-1.20.58 shape,
+ * inserts activity rows first, and calls this function directly - so the
+ * "safe on a populated table" claim is proven against real rows, not
+ * merely against db/install.xml's empty fresh-install path.
+ *
+ * @param moodle_database $db
+ * @param database_manager $dbman
+ */
+function selfselectadvanced_upgrade_add_tickettargethours(moodle_database $db, database_manager $dbman): void {
+    $table = new xmldb_table('selfselectadvanced');
+    $field = new xmldb_field(
+        'tickettargethours',
+        XMLDB_TYPE_INTEGER,
+        '10',
+        null,
+        XMLDB_NOTNULL,
+        null,
+        '0',
+        'ticketdisclaimerformat'
+    );
+    if (!$dbman->field_exists($table, $field)) {
+        $dbman->add_field($table, $field);
+    }
+}
+
+/**
  * Execute an upgrade from the given old version.
  *
  * @param int $oldversion the version we are upgrading from
@@ -3342,6 +3384,36 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         );
 
         upgrade_mod_savepoint(true, 2026082003, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026082004) {
+        // 1.20.58 deliverable A: a per-activity target first-response
+        // time, in hours - 0 (every existing activity, after this
+        // upgrade) means no target, and changes nothing anywhere.
+        selfselectadvanced_upgrade_add_tickettargethours($DB, $dbman);
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.58 (2026082004). A target first-response time, and how long a '
+                . 'ticket has been waiting on staff.',
+            'Adds selfselectadvanced.tickettargethours, INT NOT NULL DEFAULT 0 - safe to add '
+                . 'straight onto a populated table, unlike 1.20.56\'s CHAR NOT NULL UNIQUE column, '
+                . 'because every existing row reads the default the instant the column exists, and 0 '
+                . 'already means exactly what every activity\'s behaviour was before this release: no '
+                . 'target, nothing marked overdue. The staff queue, a requester\'s own list and the '
+                . 'ticket thread now show how long a live ticket has been waiting on STAFF - reusing '
+                . '1.20.54\'s own whose-move rule rather than a second one: open since it was filed; '
+                . 'claimed, with the requester\'s own reply as the trail\'s last row, since that reply; '
+                . 'claimed otherwise since it was claimed; and no staff clock at all while the ball is '
+                . 'with the requester (needsinfo) or the ticket is closed. When an activity sets a '
+                . 'target and that clock has run past it, the ticket is marked overdue on the queue, '
+                . 'and the requester is told rather than left to guess.'
+        );
+
+        upgrade_mod_savepoint(true, 2026082004, 'selfselectadvanced');
     }
 
     return true;

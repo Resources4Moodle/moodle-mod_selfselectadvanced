@@ -133,6 +133,14 @@ class ticket_page implements renderable, templatable {
             $lastrow = $row;
         }
 
+        // 1.20.58 deliverables B and C: reuses the SAME $ticket/$lastrow
+        // whose_move_line() above already has, so this is never a second
+        // query either - see tickets::staff_wait_since()'s own docblock
+        // for why the derivation itself lives there and not here.
+        $waitsince = tickets::staff_wait_since($ticket, $lastrow);
+        $targethours = (int) ($this->activity->settings()->tickettargethours ?? 0);
+        $overdue = tickets::is_overdue($waitsince, $targethours);
+
         $data = [
             'cmid' => $cmid,
             'ticketid' => (int) $ticket->id,
@@ -164,6 +172,29 @@ class ticket_page implements renderable, templatable {
             // 1.20.54 deliverable A: "one plain line of where this
             // stands, naming whose move it is" - see whose_move_line().
             'wholine' => $this->whose_move_line($lastrow, $isclaimant),
+            // 1.20.58 deliverables B and C: how long the staff clock has
+            // been running (never a query - $ticket and $lastrow are the
+            // same two things whose_move_line() above already has in
+            // hand), and, when the activity has a target and the clock
+            // has run past it, the overdue marking - shown to BOTH
+            // audiences on this shared page, which is what makes this
+            // the thread's own acknowledgement to the requester rather
+            // than silence (deliverable C), on top of the queue's badge.
+            'showwaiting' => $waitsince !== null,
+            'waitinglabel' => $waitsince !== null
+                ? get_string('ticketwaitingsince', 'mod_selfselectadvanced', format_time(time() - $waitsince))
+                : '',
+            'overdue' => $overdue,
+            'overduelabel' => get_string('ticketoverduebadge', 'mod_selfselectadvanced'),
+            // The longer acknowledgement sentence, requester-facing only
+            // (spec: "to the requester as an acknowledgement rather than
+            // silence") - gated on isrequester exactly like showwithdraw
+            // below, never isstaff, so a staff member reading their OWN
+            // filed ticket reads it too, consistent with every other
+            // isrequester-gated field on this page.
+            'overduenotice' => ($overdue && $this->isrequester)
+                ? get_string('ticketoverduenotice', 'mod_selfselectadvanced')
+                : '',
             'raisedtime' => userdate((int) $ticket->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
             'requesterlabel' => $requesterlabel,
             'contactline' => $contactline,
@@ -244,14 +275,17 @@ class ticket_page implements renderable, templatable {
      * {selfselectadvanced_ticketlog} row is ACTION_INFOREPLY - the same
      * test handling_awaiting_reply_count()/awaiting_claimant_ids() run
      * in bulk over the raw table, asked here instead of $lastrow, the
-     * trail this page already fetched for this one ticket.
+     * trail this page already fetched for this one ticket. Routed
+     * through tickets::is_awaiting_claimant_reply() (1.20.58) rather than
+     * restated inline, since that is now the one place this predicate is
+     * stated in PHP - see its own docblock.
      *
      * @param stdClass|null $lastrow the trail's last row, or null
      * @param bool $isclaimant whether the viewer is THIS ticket's claimant
      * @return string
      */
     private function whose_move_claimed_line(?stdClass $lastrow, bool $isclaimant): string {
-        $awaitingstaff = $lastrow !== null && $lastrow->action === tickets::ACTION_INFOREPLY;
+        $awaitingstaff = tickets::is_awaiting_claimant_reply($this->ticket->status, $lastrow);
         if (!$awaitingstaff) {
             // Claimed otherwise, being handled (spec, verbatim): the same
             // text the status badge already carries for this status.

@@ -68,13 +68,13 @@ namespace mod_selfselectadvanced;
  */
 final class versionbump_test extends \advanced_testcase {
     /** @var int The serial this release ships, in version.php and as the final savepoint. */
-    private const CURRENT = 2026082003;
+    private const CURRENT = 2026082004;
 
     /** @var int The previous release serial that must remain in the savepoint ladder. */
-    private const PREVIOUS = 2026082002;
+    private const PREVIOUS = 2026082003;
 
     /** @var string $plugin->release, set once and never lowered or churned. */
-    private const RELEASE = '1.20.57';
+    private const RELEASE = '1.20.58';
 
     /**
      * The step's own text, plus the body of every db/upgrade.php helper it
@@ -463,13 +463,12 @@ final class versionbump_test extends \advanced_testcase {
         // claim, because the step has just guaranteed their existence, but it
         // has to be declared separately so nobody can quietly move a table
         // between the two categories.
-        // EMPTY for 2026082003. The 1.20.57 step touches no schema and no
-        // rows: search is over columns that already exist, so the step
-        // carries an upgrade_log() marker and its savepoint and nothing
-        // else. The 2026082002 entry - the pluginuid backfill, the one
-        // genuinely earned exemption in a long while - is gone with the
-        // step it licensed: a one-off licence must not become a standing
-        // one.
+        // EMPTY for 2026082004. The 1.20.58 step adds ONE activity column,
+        // int NOT NULL DEFAULT 0, and reads or writes no row of any plugin
+        // table - a default is what lets a NOT NULL column land on a
+        // populated table without a backfill, which is precisely why this
+        // step needs no exemption where 1.20.56's CHAR NOT NULL UNIQUE
+        // did. The 2026082003 entry was empty and is gone.
         $exempt = [];
         $created = array_key_exists(self::CURRENT, $exempt) ? ($exempt[self::CURRENT]['creates'] ?? []) : [];
         $allowed = array_key_exists(self::CURRENT, $exempt)

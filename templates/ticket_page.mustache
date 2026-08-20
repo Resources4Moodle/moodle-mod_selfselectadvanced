@@ -32,6 +32,11 @@
         "escalated": false,
         "escalatebadgelabel": "Escalated",
         "wholine": "Being handled.",
+        "showwaiting": true,
+        "waitinglabel": "Waiting 2 days 3 hours",
+        "overdue": false,
+        "overduelabel": "Overdue",
+        "overduenotice": "",
         "raisedtime": "1 Aug, 09:00",
         "requesterlabel": "Gina Guide",
         "contactline": null,
@@ -90,9 +95,26 @@
                 <span class="text-muted small me-1">{{#str}} ticketstatus, mod_selfselectadvanced {{/str}}:</span>
                 <span class="badge {{statusclass}}">{{statuslabel}}</span>
                 {{#escalated}}<span class="badge bg-danger ms-1">{{escalatebadgelabel}}</span>{{/escalated}}
+                {{! 1.20.58 deliverable C: independent of status and of the
+                    escalated badge, same reason as that badge - an
+                    overdue ticket can be open, claimed or needsinfo. }}
+                {{#overdue}}<span class="badge bg-danger ms-1">{{overduelabel}}</span>{{/overdue}}
             </span>
         </div>
         <p class="mb-0 mt-1 selfselectadvanced-ticketwholine">{{wholine}}</p>
+        {{! 1.20.58 deliverable B: how long the staff clock has been
+            running - absent entirely (showwaiting false) while the ball
+            is with the requester (needsinfo) or the ticket is closed. }}
+        {{#showwaiting}}
+            <p class="text-muted small mb-0 selfselectadvanced-ticketwaiting">{{waitinglabel}}</p>
+        {{/showwaiting}}
+        {{! 1.20.58 deliverable C: the requester's own acknowledgement -
+            never silence - kept as its own line rather than folded into
+            the badge above, which staff read too but which says nothing
+            about being told. }}
+        {{#overduenotice}}
+            <p class="text-danger small mb-0 selfselectadvanced-ticketoverduenotice">{{overduenotice}}</p>
+        {{/overduenotice}}
         {{#showclaimedbyline}}
             <p class="text-muted small mb-0">{{claimedbyline}}</p>
         {{/showclaimedbyline}}

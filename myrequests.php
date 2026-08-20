@@ -211,6 +211,13 @@ if ($totalunfiltered === 0) {
         get_string('actions'),
     ];
 
+    // 1.20.58 deliverables B and C: how long the staff clock has been
+    // running for each row on THIS page, one bulk statement for the
+    // whole page rather than a query per row, and the activity's own
+    // target, read once.
+    $waitsincemap = tickets::staff_wait_since_map($activity, $mine);
+    $targethours = (int) $activity->settings()->tickettargethours;
+
     foreach ($mine as $ticket) {
         $subject = $ticket->groupname !== null
             ? format_string($ticket->groupname) . ' (' . s($ticket->grouppluginuid) . ')'
@@ -221,6 +228,23 @@ if ($totalunfiltered === 0) {
         // blank reads as "nothing was said" when the truth may be
         // "something was said and this page lost it".
         $statuscell = get_string('ticketstatus' . $ticket->status, 'mod_selfselectadvanced');
+        // How long this has been waiting on staff (absent while the ball
+        // is with the requester themself, or the request is closed), and
+        // the acknowledgement - never silence - when it has run past the
+        // activity's own target.
+        $waitsince = $waitsincemap[(int) $ticket->id] ?? null;
+        if ($waitsince !== null) {
+            $statuscell .= html_writer::div(
+                get_string('ticketwaitingsince', 'mod_selfselectadvanced', format_time(time() - $waitsince)),
+                'small text-muted'
+            );
+            if (tickets::is_overdue($waitsince, $targethours)) {
+                $statuscell .= html_writer::div(
+                    get_string('ticketoverduenotice', 'mod_selfselectadvanced'),
+                    'small text-danger'
+                );
+            }
+        }
         if (in_array($ticket->status, [tickets::STATUS_RESOLVED, tickets::STATUS_DECLINED], true)) {
             $note = trim((string) ($ticket->resolution ?? ''));
             $statuscell .= html_writer::div(

@@ -53,6 +53,7 @@
         <FIELD NAME="ticketresponsiblemode" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1.20.43: 0 = anyone eligible may raise a ticket, 1 = only the person responsible for the group at its current stage (self, leader or guide)"/>
         <FIELD NAME="ticketdisclaimer" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="1.20.43: rich-text notice shown before any ticket is raised; empty means no gate screen"/>
         <FIELD NAME="ticketdisclaimerformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1.20.43: text format of ticketdisclaimer"/>
+        <FIELD NAME="tickettargethours" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1.20.58: target first-response time in hours; 0 = no target set, so every existing activity is unaffected"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
       </FIELDS>
