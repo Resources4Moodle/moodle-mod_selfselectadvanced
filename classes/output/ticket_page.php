@@ -52,6 +52,11 @@ class ticket_page implements renderable, templatable {
         tickets::ACTION_FILED,
         tickets::ACTION_INFOREPLY,
         tickets::ACTION_WITHDRAWN,
+        // 1.20.59: "did this help?" is the requester's own answer about
+        // their own request, exactly like the three above - never
+        // staff-internal, and never in tickets::STAFF_INTERNAL_ACTIONS.
+        tickets::ACTION_FEEDBACK_HELPED,
+        tickets::ACTION_FEEDBACK_NOTHELPED,
     ];
 
     /**
@@ -481,6 +486,9 @@ class ticket_page implements renderable, templatable {
             'showprovideinfo' => false,
             'provideinfoformhtml' => '',
             'showwithdraw' => false,
+            'showfeedback' => false,
+            'feedbackverdicthelped' => tickets::VERDICT_HELPED,
+            'feedbackverdictnothelped' => tickets::VERDICT_NOTHELPED,
         ];
 
         if ($this->isstaff && $ticket->status === tickets::STATUS_OPEN) {
@@ -593,6 +601,24 @@ class ticket_page implements renderable, templatable {
         }
         if ($this->isrequester && $ticket->status === tickets::STATUS_OPEN) {
             $box->showwithdraw = true;
+        }
+        // 1.20.59 deliverable A: offered to the REQUESTER only, only
+        // while RESOLVED (never declined or withdrawn - those never
+        // asked "did this help?"), and only while unanswered - the
+        // SAME test tickets::give_feedback() re-checks under its own
+        // lock, so a stale render between page load and submit is still
+        // caught there exactly as every other control on this page is
+        // (export_ladder()'s own docblock states the same UI-hides-what-
+        // the-service-forbids rule). Once answered, no separate "you
+        // said" box is drawn here - the answer is already the ticket's
+        // own trail entry, which the requester reads like every other
+        // row of their own thread (deliverable C).
+        if (
+            $this->isrequester
+            && $ticket->status === tickets::STATUS_RESOLVED
+            && (int) $ticket->verdict === tickets::VERDICT_UNANSWERED
+        ) {
+            $box->showfeedback = true;
         }
 
         return $box;

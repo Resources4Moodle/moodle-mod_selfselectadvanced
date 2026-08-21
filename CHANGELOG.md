@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.20.59 — did the resolution actually help (2026-08-21)
+
+> Serial `2026082005` / `1.20.59`. **Schema change:** three columns on
+> `selfselectadvanced_ticket` — `verdict` INT NOT NULL DEFAULT 0, `verdictnote`,
+> `timeverdict`. Maturity stays RC.
+
+Last of the four features the cPanel comparison was missing. A resolution used to
+be a one-way statement: staff said it was handled and nobody ever asked the person
+who raised it whether it was.
+
+When a ticket is **resolved**, its requester is asked whether it helped — yes or
+no, with an optional note. Declined and withdrawn tickets are not asked, because
+neither is a "did this help?" question. It is offered **once** and the screen says
+so before they answer: an opinion recorded and then edited is not the opinion staff
+acted on. **Declining to answer stays silent** — no nagging, no badge, no reminder.
+
+Staff see a "did not help" **without opening the ticket** — on the queue row itself
+and as a count on the coordinator dashboard — because that is the signal worth
+surfacing. The answer is a normal trail entry, the requester's own action, so it is
+deliberately *not* staff-internal and the requester reads it as their own.
+
+**Feedback changes nothing about a ticket's state, and that is the strongest thing
+in the release.** A "no" records and surfaces; it does not reopen, unclaim, or touch
+`status`, `claimedby`, `timeclaimed`, `resolvedby` or `timeresolved`. Two tests
+capture the whole row before and after and compare every one of those fields — two,
+not one, deliberately: the mutation that reinstates "a no reopens the ticket" turns
+the *did-not-help* test red while the *helped* test stays green, and a single shared
+test would have let a verdict-specific defect hide behind the passing half.
+
+> ```
+> status must never change on feedback
+> Failed asserting that two strings are identical.
+> -'resolved'
+> +'open'
+> ```
+
+This is a guard on a maintainer ruling, not a preference. The ladder goes up only
+(decision 115) and the machine may never close a ticket; a machine that can
+un-close one is that same authority pointed the other way. **Whether a "no" should
+reopen is logged as D-108 and remains open** — if it is ruled the other way, that
+becomes its own change, with its own ruling about who a reopened ticket belongs to.
+
+The requester's note is their own personal data: declared in the privacy metadata,
+exported to them and to nobody else, and removed with their ticket on erasure.
+
 ## 1.20.58 — how long has this been waiting, and is that too long (2026-08-21)
 
 > Serial `2026082004` / `1.20.58`. **Schema change:** `selfselectadvanced.tickettargethours`,

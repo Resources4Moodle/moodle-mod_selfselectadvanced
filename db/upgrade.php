@@ -204,6 +204,74 @@ function selfselectadvanced_upgrade_add_tickettargethours(moodle_database $db, d
 }
 
 /**
+ * 1.20.59: add selfselectadvanced_ticket.verdict/verdictnote/timeverdict -
+ * "did this help?" feedback the REQUESTER may give once a ticket is
+ * RESOLVED. verdict is INT NOT NULL DEFAULT 0 (0 unanswered, 1 helped,
+ * 2 did not help); verdictnote and timeverdict are nullable, with no
+ * value on an existing row until the requester actually answers.
+ *
+ * SAFE ON A POPULATED TABLE, all three, for the same reason
+ * tickettargethours was (its own docblock above): verdict is NOT NULL
+ * with a DEFAULT, so every existing ticket reads 0 ("unanswered") the
+ * instant the column exists - exactly what every pre-1.20.59 ticket's
+ * true state already was - and verdictnote/timeverdict are plain
+ * nullable columns with nothing to backfill. Unlike 1.20.56's
+ * pluginuid, no DML pass and no unique index are needed here.
+ *
+ * PUBLIC AND STANDALONE for the same reason its neighbours are:
+ * db/upgrade.php's own guarded step below is keyed on the literal
+ * placeholder token 2026082005 (the maintainer's own instruction -
+ * a real serial is not this repo's to invent), which is not a condition
+ * a test can satisfy via $oldversion. tests/ticket_feedback_upgrade_
+ * test.php drops all three columns to reproduce the pre-1.20.59 shape,
+ * inserts ticket rows first, and calls this function directly - so the
+ * "safe on a populated table" claim is proven against real rows, not
+ * merely against db/install.xml's empty fresh-install path.
+ *
+ * @param moodle_database $db
+ * @param database_manager $dbman
+ */
+function selfselectadvanced_upgrade_add_ticket_feedback(moodle_database $db, database_manager $dbman): void {
+    $table = new xmldb_table('selfselectadvanced_ticket');
+
+    $verdict = new xmldb_field('verdict', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0', 'escalated');
+    if (!$dbman->field_exists($table, $verdict)) {
+        $dbman->add_field($table, $verdict);
+    }
+
+    $verdictnote = new xmldb_field('verdictnote', XMLDB_TYPE_TEXT, null, null, null, null, null, 'verdict');
+    if (!$dbman->field_exists($table, $verdictnote)) {
+        $dbman->add_field($table, $verdictnote);
+    }
+
+    // The format verdictnote was written in, stored beside it exactly as
+    // resolutionformat is stored beside resolution. Hardcoding a constant
+    // at RENDER time is what this plugin stopped doing in 1.20.52: the
+    // stored format travels with the row, so a note written under one
+    // convention still renders as itself if the control ever changes.
+    // FORMAT_MOODLE is 0, so the default is the value the only control
+    // that writes this column produces.
+    $verdictnoteformat = new xmldb_field(
+        'verdictnoteformat',
+        XMLDB_TYPE_INTEGER,
+        '2',
+        null,
+        XMLDB_NOTNULL,
+        null,
+        '0',
+        'verdictnote'
+    );
+    if (!$dbman->field_exists($table, $verdictnoteformat)) {
+        $dbman->add_field($table, $verdictnoteformat);
+    }
+
+    $timeverdict = new xmldb_field('timeverdict', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'verdictnoteformat');
+    if (!$dbman->field_exists($table, $timeverdict)) {
+        $dbman->add_field($table, $timeverdict);
+    }
+}
+
+/**
  * Execute an upgrade from the given old version.
  *
  * @param int $oldversion the version we are upgrading from
@@ -3414,6 +3482,36 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         );
 
         upgrade_mod_savepoint(true, 2026082004, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026082005) {
+        // 1.20.59: the last of the four cPanel-comparison features - once
+        // a ticket is RESOLVED, its requester may say once whether it
+        // helped, with an optional note. RECORD, NEVER REOPEN (D-108): no
+        // status, claim or resolution column is ever touched by this.
+        selfselectadvanced_upgrade_add_ticket_feedback($DB, $dbman);
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.59 (2026082005). A resolved ticket now asks its requester whether it helped.',
+            'Adds selfselectadvanced_ticket.verdict (INT NOT NULL DEFAULT 0: 0 unanswered, 1 helped, 2 did '
+                . 'not help), verdictnote (nullable TEXT) with its own verdictnoteformat, and timeverdict - all safe to '
+                . 'add straight onto a populated table, unlike 1.20.56\'s CHAR NOT NULL UNIQUE column, because '
+                . 'every existing ticket reads 0/null the instant the columns exist, which is exactly what its '
+                . 'true state already was. Offered to the REQUESTER only, only while the ticket is RESOLVED '
+                . '(never declined or withdrawn), and only once - the screen says so before they answer, and '
+                . 'answering is final. The answer is logged as an ordinary trail entry the requester sees as '
+                . 'their own, and the staff queue and coordinator dashboard now surface a "did not help" '
+                . 'answer without opening the ticket. This release changes NO status, claim or resolution '
+                . 'column: the escalation ladder goes up only (decision 115) and the machine may never close '
+                . 'a ticket, so nothing here can reopen one - a machine that could undo a close would be that '
+                . 'same authority pointed the other way.'
+        );
+
+        upgrade_mod_savepoint(true, 2026082005, 'selfselectadvanced');
     }
 
     return true;

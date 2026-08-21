@@ -67,6 +67,9 @@
         "showprovideinfo": false,
         "provideinfoformhtml": "",
         "showwithdraw": false,
+        "showfeedback": false,
+        "feedbackverdicthelped": 1,
+        "feedbackverdictnothelped": 2,
         "showescalate": true,
         "escalatenotelabel": "Why does this need to go to an editing teacher or manager?",
         "showrefer": true,
@@ -332,6 +335,37 @@
                 </button>
             </form>
         {{/showwithdraw}}
+
+        {{! 1.20.59 deliverable A: "did this help?" - the requester's own
+            answer, offered once. The notice that answering is final is
+            said BEFORE the buttons, not after (spec: "the screen must
+            say so before they answer"). One shared optional note field,
+            two submit buttons carrying the verdict as their own value -
+            no radio button needed, and no JavaScript. }}
+        {{#showfeedback}}
+            <div class="selfselectadvanced-ticketgroup selfselectadvanced-ticketfeedback mb-3">
+                <h5>{{#str}} ticketfeedbackheading, mod_selfselectadvanced {{/str}}</h5>
+                <p class="text-muted small">{{#str}} ticketfeedbackoncenotice, mod_selfselectadvanced {{/str}}</p>
+                <form method="post" action="{{actionurl}}">
+                    <input type="hidden" name="t" value="{{ticketid}}">
+                    <input type="hidden" name="action" value="feedback">
+                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                    <div class="mb-2">
+                        <label for="selfselectadvanced-threadfeedbacknote-{{ticketid}}">
+                            {{#str}} ticketfeedbacknotelabel, mod_selfselectadvanced {{/str}}
+                        </label>
+                        <textarea id="selfselectadvanced-threadfeedbacknote-{{ticketid}}" name="feedbacknote" rows="2"
+                            class="form-control"></textarea>
+                    </div>
+                    <button type="submit" name="verdict" value="{{feedbackverdicthelped}}" class="btn btn-success">
+                        {{#str}} ticketfeedbackyes, mod_selfselectadvanced {{/str}}
+                    </button>
+                    <button type="submit" name="verdict" value="{{feedbackverdictnothelped}}" class="btn btn-outline-danger ms-1">
+                        {{#str}} ticketfeedbackno, mod_selfselectadvanced {{/str}}
+                    </button>
+                </form>
+            </div>
+        {{/showfeedback}}
     </div>
 
     {{#showhistory}}

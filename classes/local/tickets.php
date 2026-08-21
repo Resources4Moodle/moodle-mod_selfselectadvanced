@@ -212,6 +212,36 @@ class tickets {
     public const ACTION_COMMENTED = 'commented';
 
     /**
+     * @var string The REQUESTER answered "did this help?" with yes
+     *      (1.20.59, give_feedback()). Requester-visible like filed/
+     *      inforeply/withdrawn - never staff-internal, and deliberately
+     *      absent from STAFF_INTERNAL_ACTIONS below, because it is the
+     *      requester's own action about their own request.
+     */
+    public const ACTION_FEEDBACK_HELPED = 'feedbackhelped';
+
+    /**
+     * @var string The REQUESTER answered "did this help?" with no
+     *      (1.20.59, give_feedback()). The one verdict staff most need
+     *      to see without opening the ticket (deliverable B) - split
+     *      from ACTION_FEEDBACK_HELPED as its own action, the same way
+     *      ACTION_RESOLVED and ACTION_DECLINED are two actions rather
+     *      than one "closed" action with the outcome elsewhere, so the
+     *      trail's own wording (threadentryfeedbacknothelped) never
+     *      depends on a second field.
+     */
+    public const ACTION_FEEDBACK_NOTHELPED = 'feedbacknothelped';
+
+    /** @var int No feedback given yet - the column's own default. */
+    public const VERDICT_UNANSWERED = 0;
+
+    /** @var int The requester said the resolution helped. */
+    public const VERDICT_HELPED = 1;
+
+    /** @var int The requester said the resolution did not help. */
+    public const VERDICT_NOTHELPED = 2;
+
+    /**
      * @var string[] Trail actions that are ladder machinery between
      *      staff, never narrated to the REQUESTER's anonymised view
      *      (1.20.44). Part 2 of the same release calls a referral's or
@@ -1548,6 +1578,156 @@ class tickets {
         $events->flush();
 
         return $fresh;
+    }
+
+    /**
+     * "Did this help?" - the requester's own answer to a resolved
+     * ticket (1.20.59 deliverable A), offered ONCE.
+     *
+     * D-108 is decided as RECORD, NEVER REOPEN (see the ticket spec's
+     * own section): the escalation ladder goes up only (decision 115)
+     * and the machine may never close a ticket, so a "no" here is
+     * recorded and surfaced, never acted on. THE HARDEST CONSTRAINT this
+     * method exists to keep: status, claimedby, timeclaimed, resolvedby
+     * and timeresolved are never read for a WRITE decision here and
+     * never assigned - the only columns this method ever sets on the
+     * ticket row are verdict, verdictnote, timeverdict and timemodified
+     * (every other transition in this class also advances timemodified
+     * on its own write; see comment()'s identical note).
+     *
+     * Authority is ownership alone, exactly like withdraw() above: the
+     * requester of THIS ticket, re-read inside the lock, and nobody
+     * else - no capability check, because the authority to answer is
+     * having asked, the same "record ownership" idiom close()'s own
+     * docblock states for claimedby. Offered only while the ticket is
+     * RESOLVED (not declined, not withdrawn: those never asked "did
+     * this help?") and only while verdict is still VERDICT_UNANSWERED -
+     * the "offered once, never revised" rule is enforced HERE, at the
+     * single door every caller (ticket.php, myrequests.php) goes
+     * through, not merely hidden in the UI that offers the control.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the resolved ticket
+     * @param int $verdict self::VERDICT_HELPED or self::VERDICT_NOTHELPED
+     * @param string $note an optional note explaining the verdict; hand-
+     *        rolled plain textarea, stored and rendered FORMAT_MOODLE
+     *        exactly like declinereason (no separate format column - see
+     *        db/install.xml's own comment on verdictnote)
+     * @param int $userid the requester
+     * @return stdClass the updated ticket
+     * @throws \moodle_exception when refused
+     */
+    public static function give_feedback(
+        activity $activity,
+        int $ticketid,
+        int $verdict,
+        string $note,
+        int $userid
+    ): stdClass {
+        global $DB;
+
+        if (!in_array($verdict, [self::VERDICT_HELPED, self::VERDICT_NOTHELPED], true)) {
+            // Not a workflow_refusal (contrast the emptiness/duplicate
+            // checks elsewhere in this class): no legitimate control
+            // this plugin ever renders can produce a verdict outside
+            // this pair, exactly the same "caller bug, not something a
+            // person typed" reasoning validate_type_filter() states for
+            // an unknown queue-filter type.
+            throw new \coding_exception('Unknown ticket verdict ' . $verdict);
+        }
+        $note = trim($note);
+
+        $events = new eventqueue();
+        $lock = locks::acquire('ticket:' . $ticketid);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticketid], '*', MUST_EXIST);
+            if ((int) $fresh->activityid !== $activity->id()) {
+                throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->requestedby !== $userid) {
+                throw new workflow_refusal('refusalticketnotyours', 'mod_selfselectadvanced');
+            }
+            if ($fresh->status !== self::STATUS_RESOLVED) {
+                throw new workflow_refusal('refusalticketfeedbacknotresolved', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->verdict !== self::VERDICT_UNANSWERED) {
+                throw new workflow_refusal('refusalticketfeedbackalreadygiven', 'mod_selfselectadvanced');
+            }
+
+            // NO STATUS TRANSITION. NONE. $fresh->status, ->claimedby,
+            // ->timeclaimed, ->resolvedby and ->timeresolved are never
+            // assigned below - only the three feedback columns and
+            // timemodified, which every other transition in this class
+            // advances on its own write too (comment()'s own comment
+            // states the same rule for its own no-status-change update).
+            $now = time();
+            $fresh->verdict = $verdict;
+            $fresh->verdictnote = $note !== '' ? $note : null;
+            // STORED, not guessed at render (1.20.52's rule). The
+            // constant lives here rather than on the page because the
+            // control that writes this note is fixed - one hand-rolled
+            // textarea, the same choice declinereason made - so there is
+            // no caller-supplied format to honour and every page that
+            // renders the note reads this column instead of repeating a
+            // constant of its own.
+            $fresh->verdictnoteformat = FORMAT_MOODLE;
+            $fresh->timeverdict = $now;
+            $fresh->timemodified = $now;
+            $DB->update_record('selfselectadvanced_ticket', $fresh);
+
+            $action = $verdict === self::VERDICT_HELPED ? self::ACTION_FEEDBACK_HELPED : self::ACTION_FEEDBACK_NOTHELPED;
+            // FORMAT_MOODLE, hardcoded - the same convention
+            // declinereason's own trail row uses (ticket.php's decline
+            // arm), for the identical reason: a hand-rolled textarea
+            // with no editor and no stored format column of its own.
+            $ticketlogid = self::log($ticketid, $userid, $action, $note !== '' ? $note : null, FORMAT_MOODLE);
+
+            $event = \mod_selfselectadvanced\event\ticket_feedback_given::create([
+                'objectid' => $ticketid,
+                'context' => $activity->context(),
+                'other' => [
+                    'type' => $fresh->type,
+                    'action' => $action,
+                    'verdict' => $verdict,
+                    'groupid' => (int) ($fresh->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                ],
+            ]);
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
+        } finally {
+            $lock->release();
+        }
+
+        $event->trigger();
+
+        return $fresh;
+    }
+
+    /**
+     * How many RESOLVED tickets in this activity the requester said did
+     * NOT help (1.20.59 deliverable B) - the coordinator dashboard's own
+     * card. Unfiltered by viewer, like the dashboard's own
+     * $awaitingfreeze/$frozen counts beside it: a "did not help" answer
+     * is a signal about the QUEUE's own outcomes, not about which
+     * tickets this particular viewer may claim, so it carries none of
+     * count_open()'s conflict-of-interest narrowing.
+     *
+     * @param activity $activity the activity
+     * @return int
+     */
+    public static function count_feedback_nothelped(activity $activity): int {
+        global $DB;
+
+        return $DB->count_records('selfselectadvanced_ticket', [
+            'activityid' => $activity->id(),
+            'status' => self::STATUS_RESOLVED,
+            'verdict' => self::VERDICT_NOTHELPED,
+        ]);
     }
 
     /**

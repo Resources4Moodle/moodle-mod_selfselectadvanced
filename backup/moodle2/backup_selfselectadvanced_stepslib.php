@@ -157,6 +157,10 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
             'claimedby', 'timeclaimed', 'resolvedby', 'timeresolved',
             'resolution', 'resolutionformat', 'timecreated', 'timemodified',
             'requested', 'disclaimerack', 'escalated',
+            // 1.20.59: the requester's "did this help?" feedback -
+            // schema_backup_contract_test's docblock is emphatic that
+            // two prior releases forgot this step (joinexpiry, mirrorat).
+            'verdict', 'verdictnote', 'timeverdict',
         ]);
         // The history trail (decision 1, 2026-08-15) nests under its own
         // ticket, not under the activity beside $tickets: a trail row is

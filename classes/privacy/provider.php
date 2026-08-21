@@ -142,6 +142,12 @@ class provider implements
             // it is the requester's own data exactly like every other
             // column on this row.
             'disclaimerack' => 'privacy:metadata:ticket:disclaimerack',
+            // 1.20.59: the requester's own "did this help?" answer,
+            // given once on a resolved ticket - their own data exactly
+            // like request/resolution above.
+            'verdict' => 'privacy:metadata:ticket:verdict',
+            'verdictnote' => 'privacy:metadata:ticket:verdictnote',
+            'timeverdict' => 'privacy:metadata:ticket:timeverdict',
         ], 'privacy:metadata:ticket');
         // The history trail (decision 1, 2026-08-15): one row per action
         // taken on a ticket, so the same personal data the ticket row
@@ -1003,7 +1009,8 @@ class provider implements
             $tickets = $DB->get_records_sql(
                 "SELECT t.id, g.name, g.pluginuid, t.type, t.status, t.requestedby, t.claimedby,
                         t.resolvedby, t.request, t.requestformat, t.resolution, t.resolutionformat,
-                        t.requested, t.disclaimerack, t.timecreated, t.timeresolved
+                        t.requested, t.disclaimerack, t.timecreated, t.timeresolved,
+                        t.verdict, t.verdictnote, t.timeverdict
                    FROM {selfselectadvanced_ticket} t
               LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
                   WHERE t.activityid = :activityid
@@ -1239,6 +1246,18 @@ class provider implements
                         // activity's disclaimer when they filed this -
                         // always 0/No when the activity had none set.
                         'disclaimerack' => transform::yesno($t->disclaimerack),
+                        // 1.20.59: "did this help?" - the requester's own
+                        // answer, exported the same way 'request' above
+                        // is (requester-only, never the handler's): it
+                        // is the requester's opinion about the outcome,
+                        // not a fact about the person who resolved it.
+                        'verdict' => (int) $t->requestedby === $userid ? (int) $t->verdict : null,
+                        'verdictnote' => $t->verdictnote !== null && (int) $t->requestedby === $userid
+                            ? format_text($t->verdictnote, FORMAT_MOODLE, ['context' => $context])
+                            : null,
+                        'timeverdict' => ((int) $t->requestedby === $userid && $t->timeverdict)
+                            ? transform::datetime($t->timeverdict)
+                            : null,
                         'timecreated' => transform::datetime($t->timecreated),
                         'timeresolved' => $t->timeresolved ? transform::datetime($t->timeresolved) : null,
                         // The history trail, nested here rather than a

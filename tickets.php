@@ -395,6 +395,24 @@ foreach ($queue as $ticket) {
             'small text-muted'
         );
     }
+    // 1.20.59 deliverable B: whether the requester said the resolution
+    // helped, and their note - visible WITHOUT opening the ticket
+    // (spec: "a 'no' must be visible without opening the ticket; that
+    // is the signal worth surfacing"), so this reads straight off the
+    // row this loop already has, never a query per row.
+    if ($ticket->status === tickets::STATUS_RESOLVED && (int) $ticket->verdict !== tickets::VERDICT_UNANSWERED) {
+        $verdicthelped = (int) $ticket->verdict === tickets::VERDICT_HELPED;
+        $statuscell .= ' ' . html_writer::span(
+            get_string($verdicthelped ? 'ticketfeedbackstaffhelped' : 'ticketfeedbackstaffnothelped', 'mod_selfselectadvanced'),
+            'badge ' . ($verdicthelped ? 'bg-success' : 'bg-danger')
+        );
+        if (trim((string) $ticket->verdictnote) !== '') {
+            $statuscell .= html_writer::div(
+                format_text((string) $ticket->verdictnote, (int) $ticket->verdictnoteformat, ['context' => $context]),
+                'small text-muted'
+            );
+        }
+    }
 
     // Slice B2 (deliverable 2): every row links to its thread now -
     // conversation, and for a claimed/needsinfo ticket the resolve,

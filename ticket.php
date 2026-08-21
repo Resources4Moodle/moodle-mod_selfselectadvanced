@@ -290,6 +290,32 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
     }
 }
 
+if ($action === 'feedback' && data_submitted() && confirm_sesskey()) {
+    // 1.20.59 deliverable A: "did this help?" - a hand-rolled plain
+    // textarea, the same choice decline's own declinereason field made
+    // (no editor, no attachments, spec names none) - so its format is
+    // the hardcoded FORMAT_MOODLE constant, never a stored column, the
+    // exact reasoning decline's own arm above already states for its
+    // note. $verdict is PARAM_INT read straight off the two buttons'
+    // own values (tickets::VERDICT_HELPED/VERDICT_NOTHELPED) - a value
+    // outside that pair cannot come from this page's own form, and
+    // give_feedback() throws a coding_exception for one exactly as
+    // close() does for an unknown $outcome.
+    $verdict = required_param('verdict', PARAM_INT);
+    $note = optional_param('feedbacknote', '', PARAM_RAW);
+    try {
+        tickets::give_feedback($activity, $t, $verdict, $note, (int) $USER->id);
+        redirect(
+            $baseurl,
+            get_string('ticketfeedbackthanks', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
 // GET, or a POST that fell through every action arm above (an unknown
 // or missing 'action'): render. The view event fires here, once, only
 // on the path that actually reads the thread - every POST arm above

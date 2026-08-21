@@ -101,6 +101,28 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
     }
 }
 
+// 1.20.59 deliverable A: "did this help?" - offered on this list too
+// (spec: "on the thread and on their own list"), the same
+// tickets::give_feedback() door ticket.php's own arm calls, so the two
+// surfaces can never disagree about who may answer, when, or how many
+// times.
+if ($action === 'feedback' && data_submitted() && confirm_sesskey()) {
+    $ticketid = required_param('t', PARAM_INT);
+    $verdict = required_param('verdict', PARAM_INT);
+    $note = optional_param('note', '', PARAM_RAW);
+    try {
+        tickets::give_feedback($activity, $ticketid, $verdict, $note, (int) $USER->id);
+        redirect(
+            $baseurl,
+            get_string('ticketfeedbackthanks', 'mod_selfselectadvanced'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+}
+
 $perpage = \mod_selfselectadvanced\local\perpage::current(25);
 // The UNFILTERED total decides whether there is anything to filter or
 // search at all (1.20.57 deliverable A): a requester who has never filed
@@ -253,6 +275,70 @@ if ($totalunfiltered === 0) {
                     : format_text($note, (int) $ticket->resolutionformat, ['context' => $context]),
                 'small text-muted selfselectadvanced-myrequests-note'
             );
+        }
+        // 1.20.59 deliverable A: "did this help?" - RESOLVED only (never
+        // declined or withdrawn, which never asked the question), and
+        // only while unanswered; once answered this prints the read-only
+        // "you said" line instead and never offers the control again -
+        // the same VERDICT_UNANSWERED gate tickets::give_feedback() and
+        // ticket_page::export_actionbox() both re-check at their own
+        // doors, so a stale render here can be resubmitted but never
+        // double-recorded.
+        if ($ticket->status === tickets::STATUS_RESOLVED) {
+            if ((int) $ticket->verdict === tickets::VERDICT_UNANSWERED) {
+                $statuscell .= html_writer::start_div('selfselectadvanced-myrequests-feedback mt-1');
+                $statuscell .= html_writer::tag(
+                    'p',
+                    get_string('ticketfeedbackoncenotice', 'mod_selfselectadvanced'),
+                    ['class' => 'small text-muted mb-1']
+                );
+                $statuscell .= html_writer::start_tag('form', ['method' => 'post', 'action' => $baseurl->out(false)]);
+                $statuscell .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $cm->id]);
+                $statuscell .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'feedback']);
+                $statuscell .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 't', 'value' => $ticket->id]);
+                $statuscell .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+                $statuscell .= html_writer::empty_tag('input', [
+                    'type' => 'text',
+                    'name' => 'note',
+                    'placeholder' => get_string('ticketfeedbacknotelabel', 'mod_selfselectadvanced'),
+                    'class' => 'form-control form-control-sm d-inline-block w-auto mb-1',
+                ]);
+                $statuscell .= html_writer::tag('div', '', ['class' => 'w-100']);
+                // A button element, not a plain submit input: the visible
+                // label (Yes/No) and the submitted value (the verdict
+                // int) need to differ, which only a button element can
+                // carry - the same two-button, one-shared-note-field
+                // shape ticket_page.mustache's own thread form uses.
+                $statuscell .= html_writer::tag(
+                    'button',
+                    get_string('ticketfeedbackyes', 'mod_selfselectadvanced'),
+                    ['type' => 'submit', 'name' => 'verdict', 'value' => tickets::VERDICT_HELPED,
+                        'class' => 'btn btn-success btn-sm', ]
+                );
+                $statuscell .= html_writer::tag(
+                    'button',
+                    get_string('ticketfeedbackno', 'mod_selfselectadvanced'),
+                    ['type' => 'submit', 'name' => 'verdict', 'value' => tickets::VERDICT_NOTHELPED,
+                        'class' => 'btn btn-outline-danger btn-sm ms-1', ]
+                );
+                $statuscell .= html_writer::end_tag('form');
+                $statuscell .= html_writer::end_div();
+            } else {
+                $verdicthelped = (int) $ticket->verdict === tickets::VERDICT_HELPED;
+                $statuscell .= html_writer::div(
+                    get_string(
+                        $verdicthelped ? 'ticketfeedbackyousaidhelped' : 'ticketfeedbackyousaidnothelped',
+                        'mod_selfselectadvanced'
+                    ),
+                    'small ' . ($verdicthelped ? 'text-success' : 'text-danger')
+                );
+                if (trim((string) $ticket->verdictnote) !== '') {
+                    $statuscell .= html_writer::div(
+                        format_text((string) $ticket->verdictnote, (int) $ticket->verdictnoteformat, ['context' => $context]),
+                        'small text-muted'
+                    );
+                }
+            }
         }
 
         $threadurl = new moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticket->id]);
