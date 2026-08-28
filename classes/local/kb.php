@@ -389,7 +389,14 @@ class kb {
             'selfselectadvanced_kb',
             implode(' AND ', $conditions),
             $params,
-            'timemodified DESC'
+            // 1.20.60 (audit L-12/L-21): id DESC tiebreaker. Entries
+            // published in the same second tied on timemodified alone,
+            // so PostgreSQL and MariaDB returned different orders - and
+            // for deflect(), whose result is CAPPED, a different order
+            // means a DIFFERENT SET of articles, not merely a different
+            // sequence. Both the human kb page and the two LLM endpoints
+            // (api_list_kb, api_search_kb) read this helper.
+            'timemodified DESC, id DESC'
         );
     }
 
@@ -438,7 +445,10 @@ class kb {
             'selfselectadvanced_kb',
             implode(' AND ', $conditions),
             $params,
-            'timemodified DESC',
+            // 1.20.60 (audit L-12/L-21) - see search() above. This call
+            // is the capped one, so a tie changed WHICH articles a
+            // requester was offered, not just their order.
+            'timemodified DESC, id DESC',
             '*',
             0,
             self::DEFLECT_LIMIT

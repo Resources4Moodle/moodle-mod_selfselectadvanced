@@ -17,13 +17,16 @@
 namespace mod_selfselectadvanced\event;
 
 /**
- * Event fired when a queue ticket changes: claimed.
+ * Event fired when a queue ticket changes: the requester REOPENED a
+ * resolved ticket, with an explanation (1.20.60; maintainer ruling on
+ * D-108, 2026-08-27 - "let it be `reply to reopen ticket`. To open a
+ * closed ticket, the individual should be asked to explain").
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class ticket_claimed extends \core\event\base {
+class ticket_reopened extends \core\event\base {
     /**
      * Initialise the event data.
      */
@@ -39,7 +42,7 @@ class ticket_claimed extends \core\event\base {
      * @return string
      */
     public static function get_name(): string {
-        return get_string('eventticketclaimed', 'mod_selfselectadvanced');
+        return get_string('eventticketreopened', 'mod_selfselectadvanced');
     }
 
     /**
@@ -50,8 +53,10 @@ class ticket_claimed extends \core\event\base {
     public function get_description(): string {
         $type = $this->other['type'] ?? '';
 
-        return "The user with id '$this->userid' changed the '$type' ticket with id "
-            . "'$this->objectid' (claimed) in the activity with course module id "
+        $returnedto = $this->other['returnedto'] ?? '';
+
+        return "The user with id '$this->userid' reopened the resolved '$type' ticket with id "
+            . "'$this->objectid' (now '$returnedto') in the activity with course module id "
             . "'$this->contextinstanceid'.";
     }
 

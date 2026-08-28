@@ -145,6 +145,19 @@ echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('tickets', 'mod_selfselectadvanced'));
 echo html_writer::div(get_string('ticketsintro', 'mod_selfselectadvanced'), 'alert alert-info');
 
+// 1.20.60 (maintainer instruction 2026-08-27): the queue is where a
+// flood is seen, so the control that slows one requester down is one
+// click from it. The page behind this link asks the capability again -
+// this is a link, not a permission.
+echo html_writer::div(
+    html_writer::link(
+        new moodle_url('/mod/selfselectadvanced/ticketthrottle.php', ['id' => $cm->id]),
+        get_string('ticketthrottles', 'mod_selfselectadvanced'),
+        ['class' => 'btn btn-outline-secondary btn-sm']
+    ),
+    'mb-3'
+);
+
 // The triage filter form (slice C2), modelled on guidequeue.php's own
 // kind filter: GET, a hidden id, one select per axis, and a submit -
 // changing either select drops any existing page number, which is the
@@ -314,6 +327,15 @@ $awaitingclaimantids = tickets::awaiting_claimant_ids($activity, array_keys($que
 $waitsincemap = tickets::staff_wait_since_map($activity, $queue);
 $targethours = (int) $activity->settings()->tickettargethours;
 
+// 1.20.60 (audit L-20): the conflict-of-interest answer for the WHOLE
+// page, in one query, in the same bulk idiom as the three maps above.
+// The render loop used to read the group row and call
+// require_uninvolved() per open row - up to two queries a row, 400 on a
+// 200-row page - to print a reason that comes from three arms of one
+// SELECT. A :manage holder gets the empty map and is never conflicted,
+// exactly as involvement()'s own first arm decides.
+$involvementmap = tickets::involvement_map($activity, (int) $USER->id);
+
 $position = tickets::open_before($activity, (int) $USER->id, $page * $perpage, $typefilter, $statusfilter, $search);
 foreach ($queue as $ticket) {
     $isopen = $ticket->status === tickets::STATUS_OPEN;
@@ -446,15 +468,15 @@ foreach ($queue as $ticket) {
                 && !$canmanage
             ) {
                 $claimrefusal = get_string('refusalticketescalated', 'mod_selfselectadvanced');
-            } else if ((int) $ticket->groupid) {
-                $tgroup = $DB->get_record('selfselectadvanced_group', ['id' => (int) $ticket->groupid]);
-                if ($tgroup) {
-                    try {
-                        \mod_selfselectadvanced\local\tickets::require_uninvolved($activity, $tgroup, (int) $USER->id);
-                    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-                        $claimrefusal = $e->getMessage();
-                    }
-                }
+            } else if ((int) $ticket->groupid && isset($involvementmap[(int) $ticket->groupid])) {
+                // The same sentence require_uninvolved() would have
+                // thrown, built from the map read once above rather than
+                // from a group row fetched for this one line.
+                $claimrefusal = get_string(
+                    'refusalcoiinvolved',
+                    'mod_selfselectadvanced',
+                    $involvementmap[(int) $ticket->groupid]
+                );
             }
             if ($claimrefusal !== '') {
                 $actions = html_writer::tag('button', get_string('ticketclaim', 'mod_selfselectadvanced'), [

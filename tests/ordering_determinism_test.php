@@ -30,7 +30,8 @@ namespace mod_selfselectadvanced;
  *
  * Ten more untied orderings were then found by scanning, and all eleven now
  * break the tie on id. THIS TEST STOPS THE TWELFTH: it reads the source and
- * fails on any `timecreated` ordering that does not carry an id tiebreaker,
+ * fails on any `timecreated` or `timemodified` ordering that does not carry
+ * an id tiebreaker,
  * so a future author cannot reintroduce the class of defect quietly. It is a
  * source scan rather than a behavioural test on purpose - the behaviour only
  * misbehaves on a tie, on one engine, sometimes, which is precisely what a
@@ -68,14 +69,19 @@ final class ordering_determinism_test extends \advanced_testcase {
     }
 
     /**
-     * Every `timecreated` ordering names a tiebreaker.
+     * Every `timecreated` OR `timemodified` ordering names a tiebreaker.
      *
      * The scan is deliberately generous about SHAPE - it catches both the SQL
      * `ORDER BY x.timecreated ASC` and the `get_records()` sort argument
      * `'timecreated ASC'` - and strict about the ANSWER: the same statement
      * must also mention an id column, in either direction.
+     *
+     * 1.20.60 (audit L-12/L-21) added timemodified to the trigger and renamed
+     * this method, which had promised only timecreated. Both columns are
+     * written by `time()` and both therefore tie whenever two rows are
+     * touched in the same second.
      */
-    public function test_every_timecreated_ordering_breaks_its_tie(): void {
+    public function test_every_time_ordering_breaks_its_tie(): void {
         $offenders = [];
         $examined = 0;
 
@@ -107,7 +113,20 @@ final class ordering_determinism_test extends \advanced_testcase {
                 // been deleted without a single test going red. A checker
                 // that cannot see the code it is meant to guard is worse
                 // than no checker, because it reports a number.
-                if (!preg_match('/\btimecreated\s+(ASC|DESC)/i', $line)) {
+                //
+                // 1.20.60 (audit L-12/L-21) WIDENED THE TRIGGER to
+                // timemodified as well. It had been timecreated-only, so
+                // an equally tie-prone `timemodified DESC` was skipped
+                // before $examined++ and never reached the tiebreaker
+                // test below - the same blind spot the paragraph above
+                // describes, one column over. Three real orderings were
+                // living in it: kb::search(), kb::deflect() (whose
+                // result is CAPPED, so a tie changed which articles were
+                // returned, not merely their order) and group_page's
+                // declined-invitations list (capped at ten for the same
+                // reason). All three are fixed; this widening is what
+                // stops the fourth.
+                if (!preg_match('/\b(timecreated|timemodified)\s+(ASC|DESC)/i', $line)) {
                     continue;
                 }
                 $examined++;
@@ -145,13 +164,13 @@ final class ordering_determinism_test extends \advanced_testcase {
         $this->assertGreaterThan(
             0,
             $examined,
-            'the scan found no timecreated ordering at all - it is measuring nothing'
+            'the scan found no timecreated/timemodified ordering at all - it is measuring nothing'
         );
 
         $this->assertSame(
             [],
             $offenders,
-            "a timecreated ordering with no id tiebreaker can be returned in either order by the "
+            "a timecreated/timemodified ordering with no id tiebreaker can be returned in either order by the "
                 . "database, and this plugin renders such orders to users:\n  " . implode("\n  ", $offenders)
         );
     }

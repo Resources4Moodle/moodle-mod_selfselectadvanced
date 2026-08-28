@@ -122,12 +122,18 @@ if ($action === 'requestinfo' && data_submitted() && confirm_sesskey()) {
     $questionformat = (int) ($questioneditor['format'] ?? FORMAT_MOODLE);
     $questiondraftid = optional_param('questionattachments', 0, PARAM_INT);
     try {
-        tickets::request_info($activity, $t, $question, $questionformat, (int) $USER->id);
+        // 1.20.60 (audit L-16): the limits are checked BEFORE the
+        // transition, so an over-sized post is refused as a whole rather
+        // than committing the trail row and then rejecting its files.
+        tickets::require_within_file_limits($questiondraftid);
+        $asked = tickets::request_info($activity, $t, $question, $questionformat, (int) $USER->id);
         // The needs-info question just became a new ticketlog row - the
         // same two-step sequence group.php's filing forms use for a
         // ticket's own id, completed here now that the row's real id
-        // exists.
-        tickets::save_post_attachments($activity, $t, $questiondraftid);
+        // exists. 1.20.60 (audit L-3/L-10/L-15) passes THAT row's id,
+        // handed back on the returned ticket, instead of letting the
+        // service re-read the trail and take whatever is newest.
+        tickets::save_post_attachments($activity, (int) $asked->ticketlogid, $questiondraftid);
         redirect(
             $baseurl,
             get_string('ticketthreadquestionsent', 'mod_selfselectadvanced'),
@@ -177,7 +183,13 @@ if ($action === 'escalate' && data_submitted() && confirm_sesskey()) {
     }
 }
 
-if ($action === 'grant' && data_submitted() && confirm_sesskey()) {
+// 1.20.60 (audit L-1): THE TYPE IS PART OF THE DOOR. grant_guidecap()
+// accepts only a guidecap ticket and throws a coding_exception on any
+// other - an exception page, not a notice - and may_view_thread() admits
+// the REQUESTER of any ticket, so a student who filed a help request
+// could post action=grant with their own sesskey and reach it. The arm
+// now asks the same question the service asks.
+if ($action === 'grant' && $ticket->type === tickets::TYPE_GUIDECAP && data_submitted() && confirm_sesskey()) {
     // 1.20.52: the grant variant shares ticketpost_form.php's
     // 'resolution' field with the genuine resolve arm below, so it is
     // the same editor ARRAY - read with optional_param_array(), storing
@@ -187,16 +199,26 @@ if ($action === 'grant' && data_submitted() && confirm_sesskey()) {
     $noteformat = (int) ($noteeditor['format'] ?? FORMAT_MOODLE);
     $resolutiondraftid = optional_param('resolutionattachments', 0, PARAM_INT);
     try {
-        tickets::grant_guidecap($activity, $t, $note, $noteformat, (int) $USER->id);
-        tickets::save_post_attachments($activity, $t, $resolutiondraftid);
+        tickets::require_within_file_limits($resolutiondraftid);
+        $granted = tickets::grant_guidecap($activity, $t, $note, $noteformat, (int) $USER->id);
+        tickets::save_post_attachments($activity, (int) $granted->ticketlogid, $resolutiondraftid);
         redirect(
             $baseurl,
             get_string('guidecapgranted', 'mod_selfselectadvanced'),
             null,
             \core\output\notification::NOTIFY_SUCCESS
         );
-    } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
-        redirect($baseurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+        // 1.20.60 (audit L-1): the CAPABILITY refusal is caught too.
+        // :override is granted by default to the coordinator role but an
+        // administrator may withdraw it, and grant_guidecap()'s own
+        // require_capability() then throws required_capability_exception
+        // - which is not a workflow_refusal, so it escaped every arm in
+        // this file and produced Moodle's permission-denied screen.
+        // Decision 72 says an administrator adjusting a role mid-session
+        // must produce a NOTICE, not what reads like a fault, and both
+        // group.php and filehelp.php already catch the pair this way.
+    } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
+        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
     }
 }
 
@@ -230,9 +252,10 @@ if (in_array($action, ['resolve', 'decline'], true) && data_submitted() && confi
     $publishfaq = $action === 'resolve' && (bool) optional_param('publishfaq', 0, PARAM_BOOL);
     $outcome = $action === 'resolve' ? tickets::STATUS_RESOLVED : tickets::STATUS_DECLINED;
     try {
-        tickets::close($activity, $t, $outcome, $note, $noteformat, (int) $USER->id);
+        tickets::require_within_file_limits($resolutiondraftid);
+        $closed = tickets::close($activity, $t, $outcome, $note, $noteformat, (int) $USER->id);
         if ($action === 'resolve') {
-            tickets::save_post_attachments($activity, $t, $resolutiondraftid);
+            tickets::save_post_attachments($activity, (int) $closed->ticketlogid, $resolutiondraftid);
         }
         if ($publishfaq) {
             // Publishing is a SECOND deliberate step (maintainer's own
@@ -263,8 +286,9 @@ if ($action === 'provideinfo' && data_submitted() && confirm_sesskey()) {
     $replyformat = (int) ($replyeditor['format'] ?? FORMAT_MOODLE);
     $replydraftid = optional_param('replyattachments', 0, PARAM_INT);
     try {
-        tickets::provide_info($activity, $t, $reply, $replyformat, (int) $USER->id);
-        tickets::save_post_attachments($activity, $t, $replydraftid);
+        tickets::require_within_file_limits($replydraftid);
+        $replied = tickets::provide_info($activity, $t, $reply, $replyformat, (int) $USER->id);
+        tickets::save_post_attachments($activity, (int) $replied->ticketlogid, $replydraftid);
         redirect(
             $baseurl,
             get_string('ticketthreadreplysentnotice', 'mod_selfselectadvanced'),
@@ -296,14 +320,33 @@ if ($action === 'feedback' && data_submitted() && confirm_sesskey()) {
     // (no editor, no attachments, spec names none) - so its format is
     // the hardcoded FORMAT_MOODLE constant, never a stored column, the
     // exact reasoning decline's own arm above already states for its
-    // note. $verdict is PARAM_INT read straight off the two buttons'
-    // own values (tickets::VERDICT_HELPED/VERDICT_NOTHELPED) - a value
-    // outside that pair cannot come from this page's own form, and
-    // give_feedback() throws a coding_exception for one exactly as
-    // close() does for an unknown $outcome.
-    $verdict = required_param('verdict', PARAM_INT);
+    // note. $verdict is PARAM_INT read straight off the Yes button's own
+    // value (tickets::VERDICT_HELPED) - a value outside the known pair
+    // cannot come from this page's own form, and give_feedback() throws
+    // a coding_exception for one exactly as close() does for an unknown
+    // $outcome.
+    //
+    // 1.20.60 (D-108, maintainer ruling): the second button is no longer
+    // a "this did not help" verdict but REPLY TO REOPEN, and it carries
+    // its own submit name rather than a verdict value - the two arms now
+    // call two different service methods, so one shared $verdict int
+    // would have to mean "record" for one and "act" for the other. The
+    // shared note field stays: it is optional praise on the Yes arm and
+    // a required explanation on the reopen arm, and it is reopen() that
+    // enforces that, not this page.
     $note = optional_param('feedbacknote', '', PARAM_RAW);
+    $wantsreopen = (bool) optional_param('reopen', 0, PARAM_BOOL);
     try {
+        if ($wantsreopen) {
+            tickets::reopen($activity, $t, $note, FORMAT_MOODLE, (int) $USER->id);
+            redirect(
+                $baseurl,
+                get_string('ticketreopenednotice', 'mod_selfselectadvanced'),
+                null,
+                \core\output\notification::NOTIFY_SUCCESS
+            );
+        }
+        $verdict = required_param('verdict', PARAM_INT);
         tickets::give_feedback($activity, $t, $verdict, $note, (int) $USER->id);
         redirect(
             $baseurl,

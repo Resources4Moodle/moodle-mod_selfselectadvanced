@@ -42,6 +42,14 @@ use templatable;
  */
 class ticket_page implements renderable, templatable {
     /**
+     * How many of the requester's OTHER tickets the thread lists
+     * (1.20.60, audit L-22). Twenty shows a pattern without turning a
+     * constantly-opened page into an unbounded read; the count beside
+     * the list says what was left out.
+     */
+    private const HISTORY_LIMIT = 20;
+
+    /**
      * Trail actions the REQUESTER themself performed - everything else
      * in tickets::ACTION_* is a staff action, and the split is what lets
      * the anonymised requester view print "You" for their own rows and
@@ -57,6 +65,10 @@ class ticket_page implements renderable, templatable {
         // staff-internal, and never in tickets::STAFF_INTERNAL_ACTIONS.
         tickets::ACTION_FEEDBACK_HELPED,
         tickets::ACTION_FEEDBACK_NOTHELPED,
+        // 1.20.60 (D-108): reopening is the requester's own act on their
+        // own request, and the explanation they had to give is theirs to
+        // be seen giving.
+        tickets::ACTION_REOPENED,
     ];
 
     /**
@@ -479,6 +491,22 @@ class ticket_page implements renderable, templatable {
             'requestinfoformhtml' => '',
             'showrelease' => false,
             'isguidecap' => $ticket->type === tickets::TYPE_GUIDECAP,
+            // 1.20.60 (audit L-1): OFFER WHAT THE SERVICE WILL ACCEPT.
+            // grant_guidecap() requires mod/selfselectadvanced:override,
+            // which is granted by default to the Group Coordinator role
+            // but which an administrator may withdraw - and the role's
+            // own ensure() never overrules a prevent. Until now the page
+            // drew Grant as the ONLY resolve control on a guidecap
+            // ticket without asking that question, so a coordinator
+            // without :override was handed a button that could only
+            // fail. They now get the ordinary resolve/decline pair,
+            // which needs no :override, and the service still enforces
+            // the capability for real whatever this page renders.
+            'cangrant' => $ticket->type === tickets::TYPE_GUIDECAP && has_capability(
+                'mod/selfselectadvanced:override',
+                $this->activity->context(),
+                $this->viewerid
+            ),
             'guidecaprequested' => (int) ($ticket->requested ?? 0),
             'resolveformhtml' => '',
             'showclaimedbyline' => false,
@@ -488,7 +516,12 @@ class ticket_page implements renderable, templatable {
             'showwithdraw' => false,
             'showfeedback' => false,
             'feedbackverdicthelped' => tickets::VERDICT_HELPED,
-            'feedbackverdictnothelped' => tickets::VERDICT_NOTHELPED,
+            // 1.20.60 (D-108): the second button no longer submits a
+            // verdict at all - it submits `reopen`, and reopen() decides
+            // what happens. VERDICT_NOTHELPED survives as a value old
+            // rows still carry and this page still renders; nothing
+            // writes a new one.
+            'feedbackreopen' => 1,
         ];
 
         if ($this->isstaff && $ticket->status === tickets::STATUS_OPEN) {
@@ -532,9 +565,9 @@ class ticket_page implements renderable, templatable {
             }
             $box->resolveformhtml = $this->render_ticketpost_form(
                 'resolution',
-                $box->isguidecap ? 'grant' : 'resolve',
+                $box->cangrant ? 'grant' : 'resolve',
                 get_string('ticketthreadresolutionlabel', 'mod_selfselectadvanced'),
-                $box->isguidecap
+                $box->cangrant
                     ? get_string('guidecapgrant', 'mod_selfselectadvanced', $box->guidecaprequested)
                     : get_string('ticketresolve', 'mod_selfselectadvanced'),
                 false,
@@ -754,10 +787,26 @@ class ticket_page implements renderable, templatable {
      */
     private function export_history(): stdClass {
         if (!$this->isstaff) {
-            return (object) ['showhistory' => false, 'history' => []];
+            return (object) ['showhistory' => false, 'history' => [], 'showthrottlelink' => false];
         }
 
+        // 1.20.60 (audit L-22): A BOUNDED SLICE, AND SAY SO. This asked
+        // for every ticket the requester had ever filed and rendered all
+        // of them, on every staff view of every thread - unbounded work
+        // on a page that is opened constantly. Twenty is enough to show
+        // a pattern; the count beside it keeps the list honest, because
+        // a truncated list that does not admit it reads as the whole
+        // record (decision 90's own rule, applied to the group page's
+        // declined invitations for exactly this reason).
         $rows = tickets::history(
+            $this->activity,
+            (int) $this->ticket->requestedby,
+            $this->viewerid,
+            (int) $this->ticket->id,
+            0,
+            self::HISTORY_LIMIT
+        );
+        $total = tickets::history_count(
             $this->activity,
             (int) $this->ticket->requestedby,
             $this->viewerid,
@@ -777,7 +826,31 @@ class ticket_page implements renderable, templatable {
             ];
         }
 
-        return (object) ['showhistory' => !empty($history), 'history' => $history];
+        return (object) [
+            'showhistory' => !empty($history),
+            'history' => $history,
+            'historytruncated' => $total > count($history),
+            'historymore' => get_string(
+                'ticketthreadhistorymore',
+                'mod_selfselectadvanced',
+                (object) ['shown' => count($history), 'total' => $total]
+            ),
+            // 1.20.60 (maintainer instruction 2026-08-27): the throttle
+            // is reached from HERE, beside the list of everything else
+            // this person has filed, because that list is where a flood
+            // is recognised. Hidden when the requester holds queue
+            // authority themself - throttle::set() refuses that target
+            // outright, and offering a control that can only be refused
+            // is the defect audit L-1 was about.
+            'showthrottlelink' => !tickets::has_queue_authority(
+                $this->activity,
+                (int) $this->ticket->requestedby
+            ),
+            'throttleurl' => (new \moodle_url('/mod/selfselectadvanced/ticketthrottle.php', [
+                'id' => $this->activity->cm()->id,
+                'user' => (int) $this->ticket->requestedby,
+            ]))->out(false),
+        ];
     }
 
     /**

@@ -202,6 +202,232 @@ final class ticket_attachments_test extends \core_privacy\tests\provider_testcas
     }
 
     // ------------------------------------------------------------------
+    // 1.20.60: where the attachment lands, and what the server refuses.
+
+    /**
+     * Put $count files of $bytes each into a fresh draft area belonging
+     * to $user, and return its id.
+     *
+     * @param \stdClass $user the owner
+     * @param int $count how many files
+     * @param int $bytes how big each one is
+     * @return int the draft item id
+     */
+    private function draft_with_files(\stdClass $user, int $count, int $bytes = 16): int {
+        $this->setUser($user);
+        $draftid = file_get_unused_draft_itemid();
+        $usercontext = \context_user::instance((int) $user->id);
+        for ($i = 1; $i <= $count; $i++) {
+            get_file_storage()->create_file_from_string([
+                'contextid' => $usercontext->id,
+                'component' => 'user',
+                'filearea' => 'draft',
+                'itemid' => $draftid,
+                'filepath' => '/',
+                'filename' => 'evidence' . $i . '.txt',
+            ], str_repeat('x', $bytes));
+        }
+
+        return $draftid;
+    }
+
+    /**
+     * THE ATTACHMENT LANDS ON THE ROW THE SERVICE WROTE (audit
+     * L-3/L-10/L-15), even when another trail row arrives in between.
+     *
+     * save_post_attachments() used to re-read the trail and take the
+     * LAST row. Its own defence was that the caller is one HTTP request
+     * and nothing else could be writing - which stopped being true when
+     * the assistant gained comment() and had never been true for
+     * escalate(), which any manage holder may fire on a live ticket
+     * without holding the claim. The service call's lock is released
+     * before the save runs, so a row arriving in that window took the
+     * file: on a STAFF_INTERNAL_ACTIONS row, may_access_ticket_file()
+     * then refused the uploader their own attachment.
+     *
+     * This test reproduces that window deliberately - the escalation
+     * happens between the service call and the save - and asserts the
+     * file is on the needs-info row the claimant actually wrote.
+     */
+    public function test_an_attachment_lands_on_the_row_the_service_wrote_not_the_newest(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, $leader, , $guide, $manager, $coordinator1] = $this->setup_world();
+
+        $ticket = tickets::file(
+            $activity,
+            $group,
+            tickets::TYPE_COMPCHANGE,
+            'Swap a member',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        tickets::claim($activity, (int) $ticket->id, (int) $coordinator1->id);
+        $asked = tickets::request_info(
+            $activity,
+            (int) $ticket->id,
+            'Which member?',
+            FORMAT_PLAIN,
+            (int) $coordinator1->id
+        );
+        $askedlogid = (int) $asked->ticketlogid;
+        $this->assertGreaterThan(0, $askedlogid, 'the service must hand back the row it wrote');
+
+        // THE WINDOW: a manage holder escalates before the file is
+        // saved, writing a newer - and staff-internal - trail row.
+        tickets::escalate($activity, (int) $ticket->id, 'Above the coordinator', FORMAT_PLAIN, (int) $manager->id);
+        $trail = array_values(tickets::trail($activity, (int) $ticket->id, true));
+        $newest = end($trail);
+        $this->assertSame(tickets::ACTION_ESCALATED, $newest->action, 'fixture: the newest row must be the escalation');
+        $this->assertNotSame($askedlogid, (int) $newest->id);
+
+        $draftid = $this->draft_with_files($coordinator1, 1);
+        tickets::save_post_attachments($activity, $askedlogid, $draftid);
+
+        $onasked = get_file_storage()->get_area_files(
+            $activity->context()->id,
+            'mod_selfselectadvanced',
+            tickets::FILEAREA_POST,
+            $askedlogid,
+            'id',
+            false
+        );
+        $onescalation = get_file_storage()->get_area_files(
+            $activity->context()->id,
+            'mod_selfselectadvanced',
+            tickets::FILEAREA_POST,
+            (int) $newest->id,
+            'id',
+            false
+        );
+        $this->assertCount(1, $onasked, 'the file belongs to the row the service wrote');
+        $this->assertCount(0, $onescalation, 'and must never land on the row that arrived in the window');
+
+        // And the consequence that made this a real defect rather than a
+        // tidiness point: the REQUESTER can reach it. The requester of
+        // this ticket is the guide who filed it, not the group's leader
+        // - a composition change is the guide's to raise - and getting
+        // that wrong is the difference between asserting the access rule
+        // and asserting that a stranger is refused.
+        $this->assertTrue(tickets::may_access_ticket_file(
+            $activity,
+            tickets::FILEAREA_POST,
+            $askedlogid,
+            (int) $guide->id
+        ), 'the person who asked must be able to read the answer they were sent');
+        // The leader is nobody here: not the requester, no queue
+        // authority. The rule refuses them, which is what makes the
+        // assertion above mean something.
+        $this->assertFalse(tickets::may_access_ticket_file(
+            $activity,
+            tickets::FILEAREA_POST,
+            $askedlogid,
+            (int) $leader->id
+        ));
+        unset($DB);
+    }
+
+    /**
+     * MORE FILES THAN THE DOCUMENTED LIMIT ARE REFUSED BY THE SERVER
+     * (audit L-16). file_options() has said "maxfiles 5" since the
+     * feature shipped and every filemanager enforced it - in the
+     * browser. A replayed or hand-made POST met nothing at all.
+     */
+    public function test_more_attachments_than_the_limit_are_refused(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, , , , , , $coordinator1] = $this->setup_world();
+
+        $max = (int) tickets::file_options()['maxfiles'];
+        $this->assertGreaterThan(0, $max, 'the limit under test must be a real number');
+
+        // Exactly the limit is fine.
+        $ok = $this->draft_with_files($coordinator1, $max);
+        tickets::require_within_file_limits($ok);
+
+        // One more is not.
+        $toomany = $this->draft_with_files($coordinator1, $max + 1);
+        try {
+            tickets::require_within_file_limits($toomany);
+            $this->fail('a draft area holding more than the documented limit must be refused');
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+            $this->assertSame(
+                get_string('refusalticketattachmentcount', 'mod_selfselectadvanced', $max),
+                $e->getMessage()
+            );
+        }
+    }
+
+    /**
+     * A file bigger than the site's own ceiling is refused (audit
+     * L-16), and the refusal quotes the ceiling in the units a person
+     * reads rather than a raw byte count.
+     */
+    public function test_an_oversized_attachment_is_refused(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, , , , , , $coordinator1] = $this->setup_world();
+
+        // A deliberately tiny ceiling, so the fixture file does not have
+        // to be large. moodlecourse's own setting is zeroed first: the
+        // service prefers it when set, and a site default of "unlimited"
+        // must not be able to hide this test's real subject.
+        set_config('maxbytes', 0, 'moodlecourse');
+        set_config('maxbytes', 100);
+
+        $small = $this->draft_with_files($coordinator1, 1, 50);
+        tickets::require_within_file_limits($small);
+
+        $big = $this->draft_with_files($coordinator1, 1, 500);
+        try {
+            tickets::require_within_file_limits($big);
+            $this->fail('a file larger than the site ceiling must be refused');
+        } catch (\mod_selfselectadvanced\local\workflow_refusal $e) {
+            $this->assertSame(
+                get_string('refusalticketattachmentsize', 'mod_selfselectadvanced', display_size(100)),
+                $e->getMessage()
+            );
+        }
+        unset($activity);
+    }
+
+    /**
+     * The no-ops: nothing submitted, or no row to attach to. Both are
+     * deliberate returns rather than errors, and neither may create a
+     * file area out of nothing.
+     */
+    public function test_saving_with_no_draft_or_no_row_does_nothing(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, , $coordinator1] = $this->setup_world();
+
+        $ticket = tickets::file($activity, $group, tickets::TYPE_COMPCHANGE, 'Swap', FORMAT_PLAIN, (int) $guide->id);
+        tickets::claim($activity, (int) $ticket->id, (int) $coordinator1->id);
+        $asked = tickets::request_info($activity, (int) $ticket->id, 'Which one?', FORMAT_PLAIN, (int) $coordinator1->id);
+
+        // No draft.
+        tickets::save_post_attachments($activity, (int) $asked->ticketlogid, 0);
+        // No row.
+        $draftid = $this->draft_with_files($coordinator1, 1);
+        tickets::save_post_attachments($activity, 0, $draftid);
+
+        $this->assertCount(0, get_file_storage()->get_area_files(
+            $activity->context()->id,
+            'mod_selfselectadvanced',
+            tickets::FILEAREA_POST,
+            (int) $asked->ticketlogid,
+            'id',
+            false
+        ));
+        // A zero draft is the same no-op for require_within_file_limits():
+        // there is nothing to measure, and refusing here would
+        // break every submission that carries no attachment at all.
+        tickets::require_within_file_limits(0);
+    }
+
+    // ------------------------------------------------------------------
     // The access rule: tickets::may_access_ticket_file() directly.
 
     /**

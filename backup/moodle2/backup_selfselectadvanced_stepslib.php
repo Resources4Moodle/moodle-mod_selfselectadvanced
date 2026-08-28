@@ -266,7 +266,20 @@ class backup_selfselectadvanced_activity_structure_step extends backup_activity_
                 [backup::VAR_PARENTID]
             );
             $ticket->set_source_table('selfselectadvanced_ticket', ['activityid' => backup::VAR_PARENTID]);
-            $ticketlog->set_source_table('selfselectadvanced_ticketlog', ['ticketid' => backup::VAR_PARENTID]);
+            // 1.20.60 (audit L-14): SORTED, oldest first. Without an
+            // explicit sort the archive is written in whatever order the
+            // engine returns, and restore inserts rows in archive order,
+            // so a restored trail can carry ids that no longer ascend
+            // with time. Several readers take MAX(id) to mean 'newest
+            // row' (last_log_join(), the queue's whose-move badges), and
+            // trail() itself orders by timecreated then id - all of which
+            // quietly become wrong on a restored course. Sorting the
+            // SOURCE is the cheap end of that fix.
+            $ticketlog->set_source_table(
+                'selfselectadvanced_ticketlog',
+                ['ticketid' => backup::VAR_PARENTID],
+                'timecreated ASC, id ASC'
+            );
             // Kbentry's own source is set unconditionally above (audit B8).
             $contact->set_source_table('selfselectadvanced_contact', ['activityid' => backup::VAR_PARENTID]);
         }

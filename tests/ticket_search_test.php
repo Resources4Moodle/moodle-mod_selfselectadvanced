@@ -598,16 +598,32 @@ final class ticket_search_test extends \advanced_testcase {
 
         // The two pages MUST offer the same status vocabulary - proven
         // directly, not merely by both filtering correctly below.
+        // All SIX since 1.20.60 (audit L-7/L-23): needsinfo was the one
+        // status the triage filter could not ask for, though queue()
+        // sorts it as its own tier and validate_status_filter() has
+        // always accepted it.
         $this->assertSame(
             [
                 tickets::STATUS_OPEN,
                 tickets::STATUS_CLAIMED,
+                tickets::STATUS_NEEDSINFO,
                 tickets::STATUS_RESOLVED,
                 tickets::STATUS_DECLINED,
                 tickets::STATUS_WITHDRAWN,
             ],
             tickets::filterable_statuses()
         );
+        // Every offered value must be one the SERVICE will actually
+        // honour. validate_status_filter() is private and throws a
+        // coding_exception on an unknown status, so the two ends are
+        // pinned by calling the doors the pages call: a status the
+        // filter offers must never blow up queue() or mine(). The drift
+        // L-23 found ran the other way (the page refusing a status the
+        // service accepted); this catches the reverse drift too.
+        foreach (tickets::filterable_statuses() as $offered) {
+            $this->assertIsArray(tickets::queue($activity, 0, 0, 0, '', $offered));
+            $this->assertIsArray(tickets::mine($activity, (int) $guide->id, 0, 0, '', $offered));
+        }
 
         $bytype = array_map(
             static fn($t) => (int) $t->id,

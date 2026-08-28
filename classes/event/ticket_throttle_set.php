@@ -17,18 +17,19 @@
 namespace mod_selfselectadvanced\event;
 
 /**
- * Event fired when a queue ticket changes: claimed.
+ * Event fired when a member of staff put one requester under a ticket
+ * THROTTLE, or changed the one they were already under (1.20.60).
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class ticket_claimed extends \core\event\base {
+class ticket_throttle_set extends \core\event\base {
     /**
      * Initialise the event data.
      */
     protected function init(): void {
-        $this->data['objecttable'] = 'selfselectadvanced_ticket';
+        $this->data['objecttable'] = 'selfselectadvanced_ticketthrottle';
         $this->data['crud'] = 'u';
         $this->data['edulevel'] = self::LEVEL_OTHER;
     }
@@ -39,7 +40,7 @@ class ticket_claimed extends \core\event\base {
      * @return string
      */
     public static function get_name(): string {
-        return get_string('eventticketclaimed', 'mod_selfselectadvanced');
+        return get_string('eventticketthrottleset', 'mod_selfselectadvanced');
     }
 
     /**
@@ -48,10 +49,11 @@ class ticket_claimed extends \core\event\base {
      * @return string
      */
     public function get_description(): string {
-        $type = $this->other['type'] ?? '';
+        $max = $this->other['maxtickets'] ?? 0;
+        $hours = $this->other['windowhours'] ?? 0;
 
-        return "The user with id '$this->userid' changed the '$type' ticket with id "
-            . "'$this->objectid' (claimed) in the activity with course module id "
+        return "The user with id '$this->userid' set a ticket throttle on the user with id "
+            . "'$this->relateduserid' ($max per $hours hours) in the activity with course module id "
             . "'$this->contextinstanceid'.";
     }
 
@@ -66,26 +68,16 @@ class ticket_claimed extends \core\event\base {
         ]);
     }
 
-    /**
-     * Map the objectid for backup and restore.
-     *
-     * 1.20.60 (audit L-19): without this, core's logstore restore has no
-     * way to translate this event's objectid into the id the row was
-     * given on the target site, so the log record is dropped rather than
-     * carried through - and the ticket trail, which every other part of
-     * this plugin backs up and restores faithfully, loses its matching
-     * log entries. Every other event class in this plugin already
-     * declares one; the ticket and knowledgebank families were the
-     * exception.
-     *
-     * 'restore' is the name the restore step gave this table's MAPPING
-     * (set_mapping('ssaticket', ...) / set_mapping('ssakbentry', ...)),
-     * not the table name - a mapping name that does not exist would
-     * silently map nothing, which is the state this is fixing.
-     *
-     * @return array mapping description
-     */
-    public static function get_objectid_mapping(): array {
-        return ['db' => 'selfselectadvanced_ticket', 'restore' => 'ssaticket'];
-    }
+    // NO objectid mapping, deliberately.
+    //
+    // Throttles are not backed up. A rate limit is a moderation decision
+    // about one person in one running activity - restoring it into a new
+    // course would silently re-impose somebody's judgement on somebody
+    // else's students, months later, with no way for them to see where it
+    // came from. Since the row cannot survive a restore, claiming a
+    // mapping for it would be claiming a translation that does not exist:
+    // core's default (no mapping, log record not carried) is the honest
+    // answer, and this comment is here so the absence reads as a decision
+    // rather than an oversight (audit L-19 is why every OTHER event in
+    // this plugin does declare one).
 }

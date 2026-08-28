@@ -276,6 +276,93 @@ final class ticket_queue_filter_test extends \advanced_testcase {
     }
 
     /**
+     * THE VIEWER EXCLUSION, proven on all three counters (audit L-27).
+     *
+     * A coordinator may not work their own request - the conflict-of-
+     * interest rule the queue enforces by simply not showing it to them
+     * - and queue(), queue_count() and count_open() each carry their own
+     * copy of the `AND t.requestedby <> :viewerid` fragment. Three
+     * copies of one rule, and nothing compared them: a queue that hides
+     * the row while the counter above it still counts it produces a
+     * "12 requests" heading over eleven rows, and a position number that
+     * is off by one for everybody below it.
+     *
+     * A manage holder is deliberately exempt (the same `if` names the
+     * capability): they may act on their own request, so nothing is
+     * hidden from them, and that arm is asserted too - otherwise a
+     * mutation that dropped the exclusion entirely would pass half this
+     * test.
+     */
+    public function test_a_coordinators_own_request_is_hidden_from_them_but_not_from_a_manager(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, $manager, $coordinator] = $this->setup_world();
+
+        // Somebody else's request, so the counts are never zero on both
+        // sides of the comparison (a test where everything is hidden
+        // proves nothing about what is hidden).
+        tickets::file($activity, $group, tickets::TYPE_COMPCHANGE, 'Swap a member', FORMAT_PLAIN, (int) $guide->id);
+        // And the coordinator's own, filed as a guide-capacity request -
+        // the one type a coordinator can raise for themself.
+        $own = tickets::file_guidecap($activity, 11, 'I can take one more', FORMAT_PLAIN, (int) $coordinator->id);
+
+        $seen = tickets::queue($activity, (int) $coordinator->id);
+        $this->assertArrayNotHasKey(
+            (int) $own->id,
+            $seen,
+            'a coordinator must not be shown their own request in the queue they work'
+        );
+        $this->assertCount(1, $seen, 'the other request is still there - the exclusion is not hiding everything');
+
+        // The three counters agree with what the queue actually returned.
+        $this->assertSame(count($seen), tickets::queue_count($activity, (int) $coordinator->id));
+        $this->assertSame(
+            count($seen),
+            tickets::count_open($activity, (int) $coordinator->id),
+            'both fixture requests are open, so the open count and the queue count coincide here'
+        );
+
+        // The manager sees both, and counts both.
+        $managerseen = tickets::queue($activity, (int) $manager->id);
+        $this->assertArrayHasKey((int) $own->id, $managerseen, 'a manage holder is exempt from the exclusion');
+        $this->assertCount(2, $managerseen);
+        $this->assertSame(2, tickets::queue_count($activity, (int) $manager->id));
+        $this->assertSame(2, tickets::count_open($activity, (int) $manager->id));
+    }
+
+    /**
+     * The exclusion survives a FILTER. queue() and queue_count() build
+     * their WHERE clauses separately, so the pairing has to hold when
+     * both fragments are present at once - the drift audit L-27 named
+     * would show up here first, as a paging bar promising a page the
+     * list cannot fill.
+     */
+    public function test_the_viewer_exclusion_and_a_filter_agree_on_the_total(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, , $coordinator] = $this->setup_world();
+
+        tickets::file($activity, $group, tickets::TYPE_COMPCHANGE, 'Swap a member', FORMAT_PLAIN, (int) $guide->id);
+        tickets::file_guidecap($activity, 11, 'I can take one more', FORMAT_PLAIN, (int) $coordinator->id);
+
+        foreach (['', tickets::TYPE_COMPCHANGE, tickets::TYPE_GUIDECAP] as $type) {
+            $rows = tickets::queue($activity, (int) $coordinator->id, 0, 0, $type);
+            $this->assertSame(
+                count($rows),
+                tickets::queue_count($activity, (int) $coordinator->id, $type),
+                "the count and the list disagree for type filter '" . ($type === '' ? 'none' : $type) . "'"
+            );
+        }
+
+        // And the guidecap arm is genuinely empty for this viewer -
+        // their own request is the only one of that type, so the loop
+        // above compared 0 with 0 there ON PURPOSE, and this states it
+        // rather than leaving it to be assumed.
+        $this->assertSame(0, tickets::queue_count($activity, (int) $coordinator->id, tickets::TYPE_GUIDECAP));
+        $this->assertSame(1, tickets::queue_count($activity, (int) $coordinator->id, tickets::TYPE_COMPCHANGE));
+    }
+
+    /**
      * (f) A type value that is not '' and not one of the known TYPE_*
      * constants is a coding_exception, not a workflow_refusal or a
      * silently-ignored no-op: the page whitelists before ever calling

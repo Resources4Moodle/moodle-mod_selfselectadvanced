@@ -873,6 +873,46 @@ final class tickets_test extends \advanced_testcase {
         $this->assertSame([], tickets::involved_group_ids($activity, (int) $manager->id));
     }
 
+    /**
+     * THE THIRD PRODUCER agrees too (1.20.60, audit L-20).
+     *
+     * involvement_map() is the queue page's own bulk form: it returns
+     * the LOCALISED involvement per group in one query, where the page
+     * used to call involvement() once per row - a query per ticket on a
+     * page that already loads fifty. A third restatement of the same
+     * three arms is a third chance for them to drift, so it is walked
+     * through the same actors as its two siblings, and against the
+     * WORDING involvement() produces, not merely against "involved or
+     * not": the queue prints this string to a coordinator as the reason
+     * they may not take a ticket up, and "you are a member of this
+     * group" in place of "you are its guide" is a wrong answer even
+     * though both mean "involved".
+     */
+    public function test_the_involvement_map_agrees_with_the_per_group_answer(): void {
+        $this->resetAfterTest();
+        [$activity, $group, $leader, $member, $guide, $manager, $coordinator] = $this->setup_world();
+
+        $examined = 0;
+        foreach ([$leader, $member, $guide, $manager, $coordinator] as $actor) {
+            $map = tickets::involvement_map($activity, (int) $actor->id);
+            $pergroup = tickets::involvement($activity, $group, (int) $actor->id);
+            $this->assertSame(
+                $pergroup,
+                $map[(int) $group->id] ?? null,
+                "the map and the per-group answer disagree for user {$actor->id}"
+            );
+            $examined++;
+        }
+        $this->assertSame(5, $examined, 'every fixture actor must have been walked');
+
+        // Not vacuous: at least one of them IS involved, with wording.
+        $guidemap = tickets::involvement_map($activity, (int) $guide->id);
+        $this->assertSame(get_string('coiguide', 'mod_selfselectadvanced'), $guidemap[(int) $group->id] ?? null);
+
+        // The trusted arm again: a :manage holder maps to nothing.
+        $this->assertSame([], tickets::involvement_map($activity, (int) $manager->id));
+    }
+
     // ------------------------------------------------------------------
     // 1.20.53: ticket-visibility deliverables A-C.
 

@@ -161,6 +161,19 @@ class provider implements
             'note' => 'privacy:metadata:ticketlog:note',
             'timecreated' => 'privacy:metadata:ticketlog:timecreated',
         ], 'privacy:metadata:ticketlog');
+        // The request limit (1.20.60). BOTH ids are declared: the person
+        // limited is obviously the subject of the row, and so is the
+        // member of staff who set it - "who decided this about me" is
+        // exactly the question a subject-access request asks, and the
+        // reason column is prose one person wrote about another.
+        $collection->add_database_table('selfselectadvanced_ticketthrottle', [
+            'userid' => 'privacy:metadata:ticketthrottle:userid',
+            'maxtickets' => 'privacy:metadata:ticketthrottle:maxtickets',
+            'windowhours' => 'privacy:metadata:ticketthrottle:windowhours',
+            'nextallowed' => 'privacy:metadata:ticketthrottle:nextallowed',
+            'reason' => 'privacy:metadata:ticketthrottle:reason',
+            'setby' => 'privacy:metadata:ticketthrottle:setby',
+        ], 'privacy:metadata:ticketthrottle');
         // The knowledgebank (1.20.45). Declared for the two annotated
         // columns only, the same idiom override/group/move already use
         // for THEIR usermodified - the article's own content (title,
@@ -287,7 +300,11 @@ class provider implements
                     OR EXISTS (
                         SELECT 1 FROM {selfselectadvanced_kb} kb
                          WHERE kb.activityid = a.id
-                           AND (kb.usercreated = :userid25 OR kb.usermodified = :userid26))";
+                           AND (kb.usercreated = :userid25 OR kb.usermodified = :userid26))
+                    OR EXISTS (
+                        SELECT 1 FROM {selfselectadvanced_ticketthrottle} th
+                         WHERE th.activityid = a.id
+                           AND (th.userid = :userid27 OR th.setby = :userid28))";
         // The last six clauses close the reverse asymmetry the
         // get_users_in_context() comment describes: whoever triggered a
         // grouping run, sent an invitation, took a roster snapshot or is
@@ -319,6 +336,9 @@ class provider implements
             'userid18' => $userid, 'userid19' => $userid, 'userid20' => $userid,
             'userid21' => $userid, 'userid22' => $userid, 'userid23' => $userid,
             'userid24' => $userid, 'userid25' => $userid, 'userid26' => $userid,
+            // 1.20.60: both sides of a request limit - the person under
+            // it, and the member of staff who set it.
+            'userid27' => $userid, 'userid28' => $userid,
         ]);
 
         global $DB;
@@ -572,6 +592,24 @@ class provider implements
                FROM {selfselectadvanced_ticketlog} tl
                JOIN {selfselectadvanced_ticket} t ON t.id = tl.ticketid
                JOIN {course_modules} cm ON cm.instance = t.activityid AND cm.id = :cmid",
+            $params
+        );
+        // 1.20.60: both sides of a request limit. get_contexts_for_userid()
+        // finds this context for both of them, and the two APIs have to
+        // agree - the comment lower down in this method explains at
+        // length what a disagreement costs.
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT th.userid
+               FROM {selfselectadvanced_ticketthrottle} th
+               JOIN {course_modules} cm ON cm.instance = th.activityid AND cm.id = :cmid",
+            $params
+        );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT th.setby AS userid
+               FROM {selfselectadvanced_ticketthrottle} th
+               JOIN {course_modules} cm ON cm.instance = th.activityid AND cm.id = :cmid",
             $params
         );
         $userlist->add_from_sql(
@@ -993,6 +1031,19 @@ class provider implements
                   WHERE eo.activityid = :activityid AND eo.guideid = :userid",
                 ['activityid' => $cm->instance, 'userid' => $userid]
             );
+            // The request limits (1.20.60) this person is under, and any
+            // they set on somebody else. Both, in one query, because
+            // both are declared in the metadata and an export that
+            // named only one half would answer "who decided this about
+            // me" and not "what did I decide about others" - the same
+            // two-sided treatment 'contacts' and 'moves' already get.
+            $throttles = $DB->get_records_select(
+                'selfselectadvanced_ticketthrottle',
+                'activityid = :activityid AND (userid = :u1 OR setby = :u2)',
+                ['activityid' => $cm->instance, 'u1' => $userid, 'u2' => $userid],
+                // The id breaks the tie - an export must be reproducible.
+                'timemodified ASC, id ASC'
+            );
             // LEFT JOIN deliberately: a team-limit ticket is about the
             // guide and not about a team, so it carries no groupid. An
             // inner join dropped every one of them out of the person's
@@ -1283,6 +1334,25 @@ class provider implements
                             'timecreated' => transform::datetime($l->timecreated),
                         ], self::exportable_trail($ticketlogs[(int) $t->id] ?? [], $t, $userid))),
                     ], $tickets)),
+                    // 1.20.60. NO raw user id, the same "wasyou" shape
+                    // the trail above uses: a limit somebody set on a
+                    // third party appears in this export because this
+                    // person set it, and naming the third party by id
+                    // is not this export's business. Where the limit is
+                    // ON the exporting person, the reason is theirs to
+                    // read - they are quoted it at the door anyway.
+                    'requestlimits' => array_values(array_map(static fn($th) => (object) [
+                        'appliedtoyou' => transform::yesno((int) $th->userid === $userid),
+                        'setbyyou' => transform::yesno((int) $th->setby === $userid),
+                        'maxtickets' => (int) $th->maxtickets,
+                        'windowhours' => (int) $th->windowhours,
+                        'nextallowed' => $th->nextallowed ? transform::datetime((int) $th->nextallowed) : null,
+                        'reason' => $th->reason !== null
+                            ? format_text((string) $th->reason, FORMAT_PLAIN, ['context' => $context])
+                            : null,
+                        'timecreated' => transform::datetime((int) $th->timecreated),
+                        'timemodified' => transform::datetime((int) $th->timemodified),
+                    ], $throttles)),
                 ]
             );
             // 1.20.44: attachments travel alongside each ticket/trail
@@ -1515,6 +1585,10 @@ class provider implements
         $fs->delete_area_files($context->id, 'mod_selfselectadvanced', 'ticketrequest');
         $fs->delete_area_files($context->id, 'mod_selfselectadvanced', 'ticketpost');
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $cm->instance]);
+        // 1.20.60: the limits go with the tickets they were a reaction
+        // to. A purge that left them would keep a staff judgement about
+        // a named person in a context that is supposed to hold nothing.
+        $DB->delete_records('selfselectadvanced_ticketthrottle', ['activityid' => $cm->instance]);
         $DB->delete_records('selfselectadvanced_contact', ['activityid' => $cm->instance]);
         // NULL, not 0. The schema says leaderid names a real user, so writing
         // 0 asserted that user zero leads every group in the activity. A
@@ -1933,6 +2007,23 @@ class provider implements
               WHERE actorid = :userid
                 AND ticketid IN (SELECT id FROM {selfselectadvanced_ticket} WHERE activityid = :activityid)",
             ['userid' => $userid, 'activityid' => $activityid]
+        );
+
+        // The request limit (1.20.60). A limit ON the erased person goes
+        // outright - it is a judgement about them and nothing else, and
+        // an orphan row would keep rate-limiting a user id that is
+        // supposed to have left. A limit they SET on somebody else is
+        // that other person's record, so it stays: only the staff
+        // identity is de-linked, to the same 0 sentinel actorid uses
+        // above, and the reason they wrote is scrubbed with it - the
+        // exact asymmetry the contact rows below draw between "their
+        // words" and "somebody else's row".
+        $DB->delete_records('selfselectadvanced_ticketthrottle', ['activityid' => $activityid, 'userid' => $userid]);
+        $DB->execute(
+            "UPDATE {selfselectadvanced_ticketthrottle}
+                SET setby = 0, reason = NULL
+              WHERE activityid = :activityid AND setby = :userid",
+            ['activityid' => $activityid, 'userid' => $userid]
         );
 
         // An approach a person sent is their own words, so it goes with

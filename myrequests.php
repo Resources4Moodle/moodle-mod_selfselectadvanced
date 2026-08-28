@@ -108,9 +108,23 @@ if ($action === 'withdraw' && data_submitted() && confirm_sesskey()) {
 // times.
 if ($action === 'feedback' && data_submitted() && confirm_sesskey()) {
     $ticketid = required_param('t', PARAM_INT);
-    $verdict = required_param('verdict', PARAM_INT);
     $note = optional_param('note', '', PARAM_RAW);
+    // 1.20.60 (D-108): the same two arms the thread offers, through the
+    // same two service doors, so the two surfaces cannot disagree about
+    // what the second button does any more than they could about who may
+    // answer the first.
+    $wantsreopen = (bool) optional_param('reopen', 0, PARAM_BOOL);
     try {
+        if ($wantsreopen) {
+            tickets::reopen($activity, $ticketid, $note, FORMAT_MOODLE, (int) $USER->id);
+            redirect(
+                $baseurl,
+                get_string('ticketreopenednotice', 'mod_selfselectadvanced'),
+                null,
+                \core\output\notification::NOTIFY_SUCCESS
+            );
+        }
+        $verdict = required_param('verdict', PARAM_INT);
         tickets::give_feedback($activity, $ticketid, $verdict, $note, (int) $USER->id);
         redirect(
             $baseurl,
@@ -305,20 +319,23 @@ if ($totalunfiltered === 0) {
                 ]);
                 $statuscell .= html_writer::tag('div', '', ['class' => 'w-100']);
                 // A button element, not a plain submit input: the visible
-                // label (Yes/No) and the submitted value (the verdict
-                // int) need to differ, which only a button element can
-                // carry - the same two-button, one-shared-note-field
-                // shape ticket_page.mustache's own thread form uses.
+                // label and the submitted value need to differ, which
+                // only a button element can carry - the same two-button,
+                // one-shared-note-field shape ticket_page.mustache's own
+                // thread form uses.
                 $statuscell .= html_writer::tag(
                     'button',
                     get_string('ticketfeedbackyes', 'mod_selfselectadvanced'),
                     ['type' => 'submit', 'name' => 'verdict', 'value' => tickets::VERDICT_HELPED,
                         'class' => 'btn btn-success btn-sm', ]
                 );
+                // 1.20.60 (D-108): reply to reopen. Its own submit name,
+                // not a verdict value - the two buttons now call two
+                // different service methods.
                 $statuscell .= html_writer::tag(
                     'button',
-                    get_string('ticketfeedbackno', 'mod_selfselectadvanced'),
-                    ['type' => 'submit', 'name' => 'verdict', 'value' => tickets::VERDICT_NOTHELPED,
+                    get_string('ticketfeedbackreopen', 'mod_selfselectadvanced'),
+                    ['type' => 'submit', 'name' => 'reopen', 'value' => 1,
                         'class' => 'btn btn-outline-danger btn-sm ms-1', ]
                 );
                 $statuscell .= html_writer::end_tag('form');

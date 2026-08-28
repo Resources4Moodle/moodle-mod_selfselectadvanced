@@ -72,12 +72,15 @@ $frozen = $DB->count_records('selfselectadvanced_group', [
     'activityid' => $activity->id(),
     'state' => state::FROZEN,
 ]);
-// 1.20.59 deliverable B: the requester's own "did this help?" answer,
-// surfaced here too, not only on the staff queue (spec names both
-// surfaces). Unfiltered by viewer, like $awaitingfreeze/$frozen above -
-// a "did not help" answer is a signal about the queue's own outcomes,
-// not about which tickets THIS viewer may claim.
-$nothelped = tickets::count_feedback_nothelped($activity);
+// 1.20.59 deliverable B, reshaped by D-108 in 1.20.60: the requester's
+// own verdict on a resolution, surfaced here too and not only on the
+// staff queue (spec names both surfaces). It counts REOPENED requests
+// now rather than "did not help" answers - the same signal, but one
+// that came with an explanation and put the work back in the queue.
+// Unfiltered by viewer, like $awaitingfreeze/$frozen above: it is a fact
+// about the queue's outcomes, not about which tickets THIS viewer may
+// claim.
+$reopened = tickets::count_reopened($activity);
 
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('coordinatordashboard', 'mod_selfselectadvanced'));
@@ -135,7 +138,7 @@ $cards = [
     [$awaitingfreeze, get_string('coordinatorcardfirm', 'mod_selfselectadvanced')],
     [$frozen, get_string('coordinatorcardfrozen', 'mod_selfselectadvanced')],
     [count($involved), get_string('coordinatorcardinvolved', 'mod_selfselectadvanced')],
-    [$nothelped, get_string('coordinatorcardnothelped', 'mod_selfselectadvanced')],
+    [$reopened, get_string('coordinatorcardreopened', 'mod_selfselectadvanced')],
 ];
 $cardhtml = '';
 foreach ($cards as [$value, $label]) {

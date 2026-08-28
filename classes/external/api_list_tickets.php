@@ -65,7 +65,7 @@ class api_list_tickets extends external_api {
      * @return array{tickets: array[], total: int}
      */
     public static function execute(int $cmid, string $status = '', string $type = '', int $page = 0): array {
-        global $USER;
+        global $DB, $USER;
 
         [
             'cmid' => $cmid,
@@ -94,6 +94,24 @@ class api_list_tickets extends external_api {
         $rows = tickets::queue($activity, $userid, $limitfrom, self::PERPAGE, $type, $status);
         $position = tickets::open_before($activity, $userid, $limitfrom, $type, $status);
 
+        // 1.20.60 (audit L-11): every requester on this page in ONE
+        // query, instead of a core_user::get_user() per row inside the
+        // loop below. get_user() reads the database each time it is
+        // called, so a full page of tickets paid for a query per name.
+        $requesters = [];
+        $requesterids = array_values(array_unique(array_map(
+            static fn($row) => (int) $row->requestedby,
+            $rows
+        )));
+        if ($requesterids !== []) {
+            // Whole rows, like core_user::get_user() itself returns:
+            // fullname() reads every name field a site may have
+            // configured, and guessing that list here would be the kind
+            // of narrowing that breaks on a site using middlename or
+            // alternatename. One query for at most a page of people.
+            $requesters = $DB->get_records_list('user', 'id', $requesterids);
+        }
+
         $out = [];
         foreach ($rows as $row) {
             $isopen = $row->status === tickets::STATUS_OPEN;
@@ -105,7 +123,11 @@ class api_list_tickets extends external_api {
                 'status' => (string) $row->status,
                 'escalated' => (int) ($row->escalated ?? 0) === 1,
                 'groupname' => llmapi::subject_name($activity, $row),
-                'requester' => llmapi::requester_identity($activity, $row),
+                'requester' => llmapi::requester_identity(
+                    $activity,
+                    $row,
+                    $requesters[(int) $row->requestedby] ?? null
+                ),
                 'timerequested' => (int) $row->timecreated,
                 'position' => $isopen ? $position : 0,
             ];

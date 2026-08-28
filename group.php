@@ -824,6 +824,11 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
     // throws unless the activity's disclaimer (if any) was acknowledged.
     $ticketdisclaimerack = (bool) optional_param('disclaimerack', 0, PARAM_BOOL);
     try {
+        // 1.20.60 (audit L-16): the documented "maxfiles 5" checked on
+        // the SERVER, before anything is filed. Until now it lived only
+        // in the rendered filemanager, so the limit bound the honest and
+        // nobody else.
+        \mod_selfselectadvanced\local\tickets::require_within_file_limits($draftitemid);
         // Deliverable B: help is filed through its own service method -
         // the (group, type) duplicate guard the other five types share
         // does not fit a ticket that can carry no group, so it keeps its
@@ -876,7 +881,23 @@ if ($action === 'ticket' && data_submitted() && confirm_sesskey()) {
             \core\output\notification::NOTIFY_SUCCESS
         );
     } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
-        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
+        // 1.20.60 (audit L-17): KEEP THE FILES. A refusal used to send
+        // the person back to an empty form, silently discarding an
+        // attachment they had already uploaded - and these refusals are
+        // the ordinary ones (a duplicate live request for this team, a
+        // disclaimer not acknowledged, a race with a leadership change).
+        // The draft area is real storage keyed on the itemid and the
+        // uploader, so it survives the redirect; carrying its id, with
+        // the type whose form it belongs to, lets that ONE form adopt it
+        // again - up to six render on this page at once.
+        redirect(
+            new moodle_url($baseurl, $draftitemid > 0
+                ? ['tdraft' => $draftitemid, 'tdrafttype' => $tickettype]
+                : []),
+            selfselectadvanced_refusal_notice($e),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
 }
 
@@ -1707,7 +1728,13 @@ if ($requestable && $ticketdisclaimertext !== '' && !$ticketack) {
         // one for a new discussion's attachments - the same two-step
         // sequence the 'ticket' action above completes once the real
         // ticket id exists.
-        $ticketdraftid = 0;
+        // 1.20.60 (audit L-17): adopt the draft area a refused submission
+        // left behind, but only on the form it came from - the id is
+        // carried with its ticket type precisely because several of
+        // these forms are on screen together.
+        $ticketdraftid = optional_param('tdrafttype', '', PARAM_ALPHA) === $tickettype
+            ? optional_param('tdraft', 0, PARAM_INT)
+            : 0;
         file_prepare_draft_area(
             $ticketdraftid,
             $context->id,

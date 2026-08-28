@@ -26,15 +26,26 @@ use mod_selfselectadvanced\privacy\provider;
  * 1.20.59: "did this help?" - once a ticket is RESOLVED, its requester
  * may say once whether it helped, with an optional note.
  *
- * D-108 IS DECIDED AS RECORD, NEVER REOPEN (the ticket spec's own
- * words): the escalation ladder goes up only (decision 115) and the
- * machine may never close a ticket, so a "no" is recorded and surfaced,
- * never acted on. test_feedback_never_changes_status_or_claim_fields_*
- * below is the guard on that ruling and is deliberately the strongest
- * pair of tests in this file: each captures the WHOLE ticket row before
- * calling give_feedback() and asserts every one of status, claimedby,
- * timeclaimed, resolvedby and timeresolved is byte-identical afterwards
- * - not merely status.
+ * D-108 WAS DECIDED THE OTHER WAY IN 1.20.60. This file used to open by
+ * saying "D-108 IS DECIDED AS RECORD, NEVER REOPEN" - that a "this did
+ * not help" answer must be recorded and surfaced and never acted on -
+ * and its strongest pair of tests proved the ticket's whole row was
+ * byte-identical after one. The maintainer ruled on 2026-08-27 that the
+ * second button should instead be REPLY TO REOPEN, with an explanation
+ * required, so the verdict that provoked that reasoning no longer
+ * exists to be given: give_feedback() records VERDICT_HELPED only.
+ *
+ * What survives, and is still proven here:
+ *   - the ask itself - once, requester-only, resolved-only, optional
+ *     note, format stored beside it;
+ *   - that the surviving verdict changes no state
+ *     (test_feedback_never_changes_status_or_claim_fields_helped);
+ *   - that the RETIRED verdict is refused outright
+ *     (test_give_feedback_refuses_the_retired_verdict);
+ *   - that rows written by 1.20.59 still read correctly everywhere -
+ *     the queue row, the dashboard counter and the privacy export -
+ *     which is what legacy_nothelped_row() below exists for.
+ * The reopen path itself has its own file: ticket_reopen_test.php.
  *
  * @package    mod_selfselectadvanced
  * @copyright  2026 JSP <jsp@jsp.net.in>
@@ -92,6 +103,47 @@ final class ticket_feedback_test extends \advanced_testcase {
         return tickets::get($activity, (int) $ticket->id);
     }
 
+    /**
+     * A PRE-1.20.60 "this did not help" row, written straight to the
+     * database because nothing in the plugin writes one any more.
+     *
+     * The D-108 ruling replaced that second button with REPLY TO
+     * REOPEN, and give_feedback() now refuses VERDICT_NOTHELPED outright
+     * (test_give_feedback_refuses_the_retired_verdict below is the guard
+     * on that). The VALUE still has to be readable, though: every site
+     * that ran 1.20.59 has rows carrying it, and the queue, the
+     * dashboard card, the trail and the privacy export must all still
+     * render them. This helper is how those rows are reached now - a
+     * fixture for a shape the service will never produce again, which is
+     * exactly what a legacy-data test needs.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the resolved ticket
+     * @param string $note the requester's note, '' for none
+     */
+    private function legacy_nothelped_row(activity $activity, int $ticketid, string $note): void {
+        global $DB;
+
+        $now = time();
+        $ticket = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticketid], '*', MUST_EXIST);
+        $DB->update_record('selfselectadvanced_ticket', (object) [
+            'id' => $ticketid,
+            'verdict' => tickets::VERDICT_NOTHELPED,
+            'verdictnote' => trim($note) === '' ? null : $note,
+            'verdictnoteformat' => FORMAT_MOODLE,
+            'timeverdict' => $now,
+            'timemodified' => $now,
+        ]);
+        $DB->insert_record('selfselectadvanced_ticketlog', (object) [
+            'ticketid' => $ticketid,
+            'actorid' => (int) $ticket->requestedby,
+            'action' => tickets::ACTION_FEEDBACK_NOTHELPED,
+            'note' => trim($note) === '' ? null : $note,
+            'noteformat' => FORMAT_MOODLE,
+            'timecreated' => $now,
+        ]);
+    }
+
     // Deliverable A: the ask.
 
     /**
@@ -122,12 +174,15 @@ final class ticket_feedback_test extends \advanced_testcase {
         );
         $this->assertNotEmpty($updated->timeverdict, 'timeverdict must be set once answered');
 
-        // A second, independent ticket: the "no" verdict, with no note
-        // at all - stored as null, not '', matching every other
-        // optional note column in this class.
-        $nothelped = $this->resolved_ticket($activity, $group, $leader, $staff);
-        $updated2 = tickets::give_feedback($activity, (int) $nothelped->id, tickets::VERDICT_NOTHELPED, '   ', (int) $leader->id);
-        $this->assertSame(tickets::VERDICT_NOTHELPED, (int) $updated2->verdict);
+        // A second, independent ticket, answered with a note of pure
+        // whitespace - stored as null, not '', matching every other
+        // optional note column in this class. This used to be the "no"
+        // verdict's own case; since 1.20.60 (D-108) there is only one
+        // verdict give_feedback() will accept, so the whitespace rule is
+        // proven on that one.
+        $blanknote = $this->resolved_ticket($activity, $group, $leader, $staff);
+        $updated2 = tickets::give_feedback($activity, (int) $blanknote->id, tickets::VERDICT_HELPED, '   ', (int) $leader->id);
+        $this->assertSame(tickets::VERDICT_HELPED, (int) $updated2->verdict);
         $this->assertNull($updated2->verdictnote, 'whitespace-only note must be stored as null, not a blank string');
     }
 
@@ -154,7 +209,7 @@ final class ticket_feedback_test extends \advanced_testcase {
 
         $this->expectException(workflow_refusal::class);
         $this->expectExceptionMessage(get_string('refusalticketfeedbackalreadygiven', 'mod_selfselectadvanced'));
-        tickets::give_feedback($activity, (int) $ticket->id, tickets::VERDICT_NOTHELPED, 'Changed my mind', (int) $leader->id);
+        tickets::give_feedback($activity, (int) $ticket->id, tickets::VERDICT_HELPED, 'Changed my mind', (int) $leader->id);
     }
 
     /**
@@ -386,7 +441,11 @@ final class ticket_feedback_test extends \advanced_testcase {
         $this->redirectMessages();
         [$activity, , $leader, $staff, $group] = $this->scene();
         $resolved = $this->resolved_ticket($activity, $group, $leader, $staff);
-        tickets::give_feedback($activity, (int) $resolved->id, tickets::VERDICT_NOTHELPED, 'Still broken.', (int) $leader->id);
+        // Deliberately the RETIRED verdict (1.20.60, D-108): a value the
+        // service no longer writes is exactly the one a narrowed SELECT
+        // list would drop unnoticed, because no new row would ever miss
+        // it again.
+        $this->legacy_nothelped_row($activity, (int) $resolved->id, 'Still broken.');
 
         $rows = tickets::queue($activity, (int) $staff->id);
         $this->assertArrayHasKey((int) $resolved->id, $rows);
@@ -410,10 +469,15 @@ final class ticket_feedback_test extends \advanced_testcase {
 
         $unanswered = $this->resolved_ticket($activity, $group, $leader, $staff);
 
+        // Legacy rows (1.20.60, D-108): the counter survives to read
+        // what 1.20.59 wrote, so its test has to WRITE what 1.20.59
+        // wrote. The dashboard card that used to show this number is
+        // gone - count_reopened() replaced it - but the method stays
+        // and must stay correct.
         $nothelped1 = $this->resolved_ticket($activity, $group, $leader, $staff);
-        tickets::give_feedback($activity, (int) $nothelped1->id, tickets::VERDICT_NOTHELPED, '', (int) $leader->id);
+        $this->legacy_nothelped_row($activity, (int) $nothelped1->id, '');
         $nothelped2 = $this->resolved_ticket($activity, $group, $leader, $staff);
-        tickets::give_feedback($activity, (int) $nothelped2->id, tickets::VERDICT_NOTHELPED, '', (int) $leader->id);
+        $this->legacy_nothelped_row($activity, (int) $nothelped2->id, '');
 
         // A live (still-open) ticket contributes nothing either.
         tickets::file_help($activity, $group, 'Live one', FORMAT_PLAIN, (int) $leader->id);
@@ -475,23 +539,30 @@ final class ticket_feedback_test extends \advanced_testcase {
         $this->redirectMessages();
         [$activity, , $leader, $staff, $group] = $this->scene();
         $resolved = $this->resolved_ticket($activity, $group, $leader, $staff);
-        tickets::give_feedback($activity, (int) $resolved->id, tickets::VERDICT_NOTHELPED, 'Still stuck.', (int) $leader->id);
+        // 1.20.60 (D-108): driven through the REAL service call, which
+        // now accepts one verdict only. The retired verdict's own trail
+        // row is a legacy shape and is proven where it still matters -
+        // the queue row and the privacy export below.
+        tickets::give_feedback($activity, (int) $resolved->id, tickets::VERDICT_HELPED, 'Still stuck.', (int) $leader->id);
 
         // Never staff-internal - the requester's own action about their
-        // own request, exactly like filed/inforeply/withdrawn.
+        // own request, exactly like filed/inforeply/withdrawn. BOTH
+        // actions are asserted, the retired one included: rows carrying
+        // it exist on every site that ran 1.20.59, and hiding them from
+        // the requester's own thread now would be the same defect.
         $this->assertNotContains(tickets::ACTION_FEEDBACK_HELPED, tickets::STAFF_INTERNAL_ACTIONS);
         $this->assertNotContains(tickets::ACTION_FEEDBACK_NOTHELPED, tickets::STAFF_INTERNAL_ACTIONS);
 
         $staffrows = array_values(tickets::trail($activity, (int) $resolved->id, true));
         $last = end($staffrows);
-        $this->assertSame(tickets::ACTION_FEEDBACK_NOTHELPED, $last->action, 'the answer must be the last trail row');
+        $this->assertSame(tickets::ACTION_FEEDBACK_HELPED, $last->action, 'the answer must be the last trail row');
         $this->assertSame('Still stuck.', $last->note);
 
         // The anonymised requester view includes the SAME row - a
         // requester-authored action, never withheld.
         $anonrows = array_values(tickets::trail($activity, (int) $resolved->id, false));
         $anonlast = end($anonrows);
-        $this->assertSame(tickets::ACTION_FEEDBACK_NOTHELPED, $anonlast->action);
+        $this->assertSame(tickets::ACTION_FEEDBACK_HELPED, $anonlast->action);
         $this->assertSame('Still stuck.', $anonlast->note);
         $this->assertSame(count($staffrows), count($anonrows), 'no staff-internal row exists here to exclude');
     }
@@ -523,15 +594,17 @@ final class ticket_feedback_test extends \advanced_testcase {
     // THE HARDEST CONSTRAINT: no status transition. None.
 
     /**
-     * RED-FIRST EVIDENCE (captured for real on m5pg, with
-     * give_feedback() temporarily mutated to add, right after the
-     * verdict/verdictnote/timeverdict assignment:
+     * give_feedback() REFUSES the retired verdict (1.20.60, D-108).
+     *
+     * WHAT THIS TEST REPLACED, and why the replacement is not a
+     * weakening. Until this release the guard here was
+     * test_feedback_never_changes_status_or_claim_fields_nothelped(),
+     * which proved that answering "this did not help" left status,
+     * claimedby, timeclaimed, resolvedby and timeresolved byte-identical
+     * - the "a no must not reopen the ticket" rule. Its RED-FIRST
+     * EVIDENCE, captured on m5pg with give_feedback() mutated to add
      * `if ($verdict === self::VERDICT_NOTHELPED) { $fresh->status =
-     * self::STATUS_OPEN; $fresh->claimedby = null; $fresh->timeclaimed =
-     * null; }` - simulating exactly the forbidden "a 'no' reopens the
-     * ticket" behaviour decision 115 and the founding "the machine may
-     * never close a ticket" rule both forbid), run alongside its
-     * "helped" sibling below:
+     * self::STATUS_OPEN; ... }` right after the verdict assignment, was:
      *
      *   F.  2 / 2 (100%)
      *   1) test_feedback_never_changes_status_or_claim_fields_nothelped:
@@ -544,16 +617,23 @@ final class ticket_feedback_test extends \advanced_testcase {
      *
      *   Tests: 2, Assertions: 7, Failures: 1.
      *
-     * The "." is test_feedback_never_changes_status_or_claim_fields_
-     * helped() below, PASSING - proof that a fix special-cased to one
-     * verdict cannot hide behind the other verdict's own green test,
-     * which is exactly why this guard is two tests rather than one.
-     * Reverted immediately after capturing the failure; full suite green
-     * again with no other change. This is deliberately the strongest
-     * test pair in the release: each captures the WHOLE row, not merely
-     * status.
+     * The maintainer's D-108 ruling removed the button that produced
+     * that verdict: the second answer is now REPLY TO REOPEN, which
+     * reopens the ticket DELIBERATELY, through tickets::reopen(), at the
+     * requester's explicit request and with a required explanation. The
+     * old test would now be asserting that a code path nothing can reach
+     * behaves a certain way - a green check examining nothing.
+     *
+     * So the constraint moved rather than went: the machine still never
+     * changes a ticket's state off the back of a satisfaction answer
+     * (test_feedback_never_changes_status_or_claim_fields_helped() below
+     * still proves that for the one verdict that survives), and THIS
+     * test proves the retired verdict cannot be written at all - by any
+     * caller, including a stale external client posting the old integer.
+     * Where the state DOES change now, it changes through a named method
+     * with its own rules; ticket_reopen_test.php is that guard.
      */
-    public function test_feedback_never_changes_status_or_claim_fields_nothelped(): void {
+    public function test_give_feedback_refuses_the_retired_verdict(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -563,19 +643,25 @@ final class ticket_feedback_test extends \advanced_testcase {
 
         $before = $DB->get_record('selfselectadvanced_ticket', ['id' => (int) $resolved->id], '*', MUST_EXIST);
 
-        tickets::give_feedback($activity, (int) $resolved->id, tickets::VERDICT_NOTHELPED, 'Did not fix it.', (int) $leader->id);
+        try {
+            tickets::give_feedback(
+                $activity,
+                (int) $resolved->id,
+                tickets::VERDICT_NOTHELPED,
+                'Did not fix it.',
+                (int) $leader->id
+            );
+            $this->fail('give_feedback() must refuse the retired VERDICT_NOTHELPED since 1.20.60');
+        } catch (\coding_exception $e) {
+            $this->assertStringContainsString('1.20.60', $e->getMessage());
+        }
 
+        // AND NOTHING WAS WRITTEN. A refusal that half-applied would be
+        // worse than none: the row must be exactly as it was, verdict
+        // still unanswered.
         $after = $DB->get_record('selfselectadvanced_ticket', ['id' => (int) $resolved->id], '*', MUST_EXIST);
-
-        $this->assertSame($before->status, $after->status, 'status must never change on feedback');
-        $this->assertSame($before->claimedby, $after->claimedby, 'claimedby must never change on feedback');
-        $this->assertSame($before->timeclaimed, $after->timeclaimed, 'timeclaimed must never change on feedback');
-        $this->assertSame($before->resolvedby, $after->resolvedby, 'resolvedby must never change on feedback');
-        $this->assertSame($before->timeresolved, $after->timeresolved, 'timeresolved must never change on feedback');
-        // Positive confirmation the write actually happened, so the
-        // five assertions above are not vacuously comparing two
-        // untouched rows.
-        $this->assertSame(tickets::VERDICT_NOTHELPED, (int) $after->verdict);
+        $this->assertEquals($before, $after, 'a refused verdict must leave the ticket row untouched');
+        $this->assertSame(tickets::VERDICT_UNANSWERED, (int) $after->verdict);
     }
 
     /**
@@ -618,7 +704,10 @@ final class ticket_feedback_test extends \advanced_testcase {
         $this->redirectMessages();
         [$activity, $cm, $leader, $staff, $group] = $this->scene();
         $resolved = $this->resolved_ticket($activity, $group, $leader, $staff);
-        tickets::give_feedback($activity, (int) $resolved->id, tickets::VERDICT_NOTHELPED, 'Nope.', (int) $leader->id);
+        // The retired verdict again (1.20.60, D-108): a subject-access
+        // export must still hand back what the person actually said on
+        // 1.20.59, not only what the current form can produce.
+        $this->legacy_nothelped_row($activity, (int) $resolved->id, 'Nope.');
 
         $context = \context_module::instance($cm->id);
         $contextlist = new approved_contextlist(

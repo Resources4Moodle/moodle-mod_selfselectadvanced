@@ -224,21 +224,41 @@ class contactprivacy {
             }
 
             // Rule (c): requesters of tickets this viewer currently holds
-            // CLAIMED. An open ticket in the queue is not a connection,
-            // and neither is being eligible to decide one: claiming is
-            // the act that creates the link. Read after commit - the
-            // same claimedby column tickets::claim() writes under lock -
-            // so a released claim drops the row by itself.
+            // LIVE-CLAIMED - claimed OR needs-info. An open ticket in the
+            // queue is not a connection, and neither is being eligible to
+            // decide one: claiming is the act that creates the link. Read
+            // after commit - the same claimedby column tickets::claim()
+            // writes under lock - so a released claim drops the row by
+            // itself.
+            //
+            // 1.20.60 (audit L-2) ADDED NEEDSINFO. This was CLAIMED-only
+            // while tickets.php's own queue counted the two alike, under
+            // a comment asserting they agreed ("needsinfo counts
+            // alongside claimed (decision 2, LIVENESS): the claimant is
+            // still the same connection while the ticket waits on the
+            // requester's answer"). They did not agree: the coordinator
+            // who asked a question watched the requester's consented
+            // number vanish from the queue row at exactly the moment
+            // they were chasing an unanswered question, with no
+            // explanation, and the same happened to the thread's own
+            // contact line. The direction was the safe one - nothing was
+            // over-disclosed - but a false statement about behaviour
+            // sitting next to the code it describes is its own defect.
+            // handling_count() pairs the two statuses the same way.
+            [$statussql, $statusparams] = $DB->get_in_or_equal(
+                [tickets::STATUS_CLAIMED, tickets::STATUS_NEEDSINFO],
+                SQL_PARAMS_NAMED,
+                'cpst'
+            );
             $rows = $DB->get_fieldset_sql(
                 "SELECT DISTINCT t.requestedby
                    FROM {selfselectadvanced_ticket} t
                   WHERE t.activityid = :aid AND t.claimedby = :viewer
-                    AND t.status = :st AND t.requestedby $insql",
+                    AND t.status $statussql AND t.requestedby $insql",
                 [
                     'aid' => $activity->id(),
                     'viewer' => $viewerid,
-                    'st' => tickets::STATUS_CLAIMED,
-                ] + $inparams
+                ] + $statusparams + $inparams
             );
             foreach ($rows as $userid) {
                 $map[(int) $userid] = true;

@@ -314,7 +314,7 @@ class group_page implements renderable, templatable {
                               FROM {selfselectadvanced_member} m
                               JOIN {user} u ON u.id = m.userid
                              WHERE m.groupid = :groupid AND m.status = :status
-                          ORDER BY m.timemodified DESC";
+                          ORDER BY m.timemodified DESC, m.id DESC";
             // Decision 90: a cap that nobody is told about reads as the complete
             // record, so a missing decline reads as an invitation never made.
             // The landing page already discloses its own cap; this brings the

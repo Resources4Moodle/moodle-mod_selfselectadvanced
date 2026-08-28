@@ -155,10 +155,21 @@ final class llmapi {
      *
      * @param activity $activity the activity
      * @param stdClass $ticket the ticket row
+     * @param stdClass|null $requester the requester's user row when the
+     *        caller already has it (1.20.60, audit L-11); null to look
+     *        it up here
      * @return array{fullname: string, role: string}
      */
-    public static function requester_identity(activity $activity, stdClass $ticket): array {
-        $requester = \core_user::get_user((int) $ticket->requestedby);
+    public static function requester_identity(
+        activity $activity,
+        stdClass $ticket,
+        ?stdClass $requester = null
+    ): array {
+        // 1.20.60 (audit L-11): the caller may hand in the user row it
+        // has already loaded in bulk for the whole page. core_user's own
+        // get_user() is a database read every time it is called, so a
+        // 50-row listing paid for 50 of them to print 50 names.
+        $requester ??= \core_user::get_user((int) $ticket->requestedby);
 
         return [
             'fullname' => $requester ? fullname($requester) : '',
@@ -211,15 +222,16 @@ final class llmapi {
     /**
      * The status twin of known_type_or_blank().
      *
-     * DISCRETIONARY CALL (flagged for the orchestrator): this list
-     * includes tickets::STATUS_NEEDSINFO, which tickets.php's own UI
-     * dropdown does not offer (its local $knownstatuses omits it) even
-     * though the SERVICE layer's own validate_status_filter() accepts
-     * it. The machine's filter is built against the service layer's
-     * actual range, not the human page's narrower dropdown - a
-     * needs-info ticket is exactly the kind of state a coordinating LLM
-     * has reason to filter for, often because it asked the question
-     * itself.
+     * This list includes tickets::STATUS_NEEDSINFO. When it was written
+     * that was a discretionary call, because the human queue's own
+     * dropdown omitted needs-info even though validate_status_filter()
+     * accepted it, and the machine's filter was deliberately built
+     * against the SERVICE layer's real range - a needs-info ticket is
+     * exactly the kind of state a coordinating LLM has reason to filter
+     * for, often because it asked the question itself. 1.20.60 (audit
+     * L-7/L-23) closed that gap from the other end: filterable_statuses()
+     * now offers all six too, so the two vocabularies agree and no
+     * discretion is left in it.
      *
      * @param string $status the caller's raw value
      * @return string $status, or '' if unrecognised
@@ -238,6 +250,34 @@ final class llmapi {
     }
 
     /**
+     * A TEXT FORMAT the caller sent, or FORMAT_PLAIN when it is not one
+     * this plugin stores (1.20.60, audit L-13).
+     *
+     * The twin of known_type_or_blank()/known_status_or_blank() above,
+     * and added for the same reason: every OTHER enum this API accepts
+     * is whitelisted before it is used, and noteformat was not. It
+     * arrived as a bare PARAM_INT, went straight into comment(),
+     * request_info() or escalate(), and was PERSISTED on the ticketlog
+     * row - so a caller could store 99, or 0 meaning "moodle" when it
+     * meant "plain", and every later render of that trail row would
+     * read the stored number and format the text by it. A stored format
+     * is not a display preference; it decides whether stored text is
+     * later treated as HTML.
+     *
+     * Unrecognised collapses to FORMAT_PLAIN rather than throwing, the
+     * same forgiving idiom the two whitelists above use, and the same
+     * default the three endpoints already declare.
+     *
+     * @param int $format the caller's raw value
+     * @return int one of the four formats this plugin stores
+     */
+    public static function known_format_or_plain(int $format): int {
+        return in_array($format, [FORMAT_MOODLE, FORMAT_HTML, FORMAT_PLAIN, FORMAT_MARKDOWN], true)
+            ? $format
+            : FORMAT_PLAIN;
+    }
+
+    /**
      * The team name a ticket names, or the "no team" placeholder for a
      * guidecap/guidereduce request - the same idiom
      * tickets::subject_name() keeps privately for its own notifications.
@@ -247,6 +287,17 @@ final class llmapi {
      * @return string
      */
     public static function subject_name(activity $activity, stdClass $ticket): string {
+        // 1.20.60 (audit L-11): READ THE COLUMN THE QUERY ALREADY JOINED.
+        // queue() and mine() LEFT JOIN the group name onto every row
+        // expressly so their callers need no second read; this method
+        // fetched the whole group row anyway, once per ticket, to print
+        // one string that was already sitting on the row it was handed.
+        if (property_exists($ticket, 'groupname')) {
+            return $ticket->groupname !== null
+                ? format_string($ticket->groupname)
+                : get_string('tickethasnoteam', 'mod_selfselectadvanced');
+        }
+
         $group = self::group_or_null($activity, $ticket);
 
         return $group !== null ? format_string($group->name) : get_string('tickethasnoteam', 'mod_selfselectadvanced');
@@ -286,10 +337,22 @@ final class llmapi {
             return null;
         }
 
-        return $DB->get_record('selfselectadvanced_group', [
-            'id' => (int) $ticket->groupid,
-            'activityid' => $activity->id(),
-        ], '*', IGNORE_MISSING) ?: null;
+        // 1.20.60 (audit L-11): MEMOISED FOR THE REQUEST. requester_role()
+        // needs columns the queue's LEFT JOIN does not carry (guideid and
+        // the leader), so a read is unavoidable - but a page of tickets is
+        // routinely a page about a handful of teams, and this was read once
+        // per CALL, twice per row. Keyed on activity and group, so two
+        // activities in one request cannot see each other's rows.
+        static $cache = [];
+        $key = $activity->id() . ':' . (int) $ticket->groupid;
+        if (!array_key_exists($key, $cache)) {
+            $cache[$key] = $DB->get_record('selfselectadvanced_group', [
+                'id' => (int) $ticket->groupid,
+                'activityid' => $activity->id(),
+            ], '*', IGNORE_MISSING) ?: null;
+        }
+
+        return $cache[$key];
     }
 
     /**

@@ -298,6 +298,11 @@ function selfselectadvanced_delete_instance($id): bool {
         [$id]
     );
     $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $id]);
+    // A request limit belongs to the activity it was set in (1.20.60):
+    // it is not a sanction that follows a person around a site, and a
+    // row left behind would silently limit somebody in an activity that
+    // no longer exists if the id were ever reused.
+    $DB->delete_records('selfselectadvanced_ticketthrottle', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_contact', ['activityid' => $id]);
     $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $id]);
     \mod_selfselectadvanced\local\notifier::purge_activity_digests((int) $id);
@@ -482,6 +487,10 @@ function selfselectadvanced_reset_userdata($data): array {
             [$instance->id]
         );
         $DB->delete_records('selfselectadvanced_ticket', ['activityid' => $instance->id]);
+        // 1.20.60: the tickets that provoked the limit are going, so the
+        // limit goes with them. Keeping it would leave somebody rate-
+        // limited on the strength of requests the reset has erased.
+        $DB->delete_records('selfselectadvanced_ticketthrottle', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_contact', ['activityid' => $instance->id]);
         $DB->delete_records('selfselectadvanced_eoi', ['activityid' => $instance->id]);
         \mod_selfselectadvanced\local\notifier::purge_activity_digests((int) $instance->id);

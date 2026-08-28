@@ -204,6 +204,53 @@ function selfselectadvanced_upgrade_add_tickettargethours(moodle_database $db, d
 }
 
 /**
+ * 1.20.60: the ticket throttle table (maintainer instruction 2026-08-27,
+ * "a mechanism where the agent (Teacher or group coordinator) can
+ * initiate a throttle").
+ *
+ * A NEW TABLE, not columns on an existing one, and that is the whole
+ * reason this upgrade is safe on a populated site: nothing existing is
+ * altered, no default has to be invented for rows already there, and an
+ * activity with no throttles simply has no rows - which is exactly what
+ * "nobody is throttled" already meant before this release.
+ *
+ * The unique index on (activityid, userid) is what makes "one throttle
+ * per person per activity" a fact about the database rather than a
+ * promise in a service method: throttle::set() upserts, and without the
+ * index two concurrent sets would leave two rows and require_within()
+ * would enforce whichever the engine returned first.
+ *
+ * @param moodle_database $db the database
+ * @param database_manager $dbman its manager
+ */
+function selfselectadvanced_upgrade_add_ticket_throttle(moodle_database $db, database_manager $dbman): void {
+    $table = new xmldb_table('selfselectadvanced_ticketthrottle');
+    if ($dbman->table_exists($table)) {
+        return;
+    }
+
+    $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+    $table->add_field('activityid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('maxtickets', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+    $table->add_field('windowhours', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '24');
+    $table->add_field('nextallowed', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+    $table->add_field('reason', XMLDB_TYPE_TEXT, null, null, null, null, null);
+    $table->add_field('setby', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+
+    $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+    $table->add_key('fk_activityid', XMLDB_KEY_FOREIGN, ['activityid'], 'selfselectadvanced', ['id']);
+    $table->add_key('fk_userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+    $table->add_key('fk_setby', XMLDB_KEY_FOREIGN, ['setby'], 'user', ['id']);
+
+    $table->add_index('activity_user', XMLDB_INDEX_UNIQUE, ['activityid', 'userid']);
+
+    $dbman->create_table($table);
+}
+
+/**
  * 1.20.59: add selfselectadvanced_ticket.verdict/verdictnote/timeverdict -
  * "did this help?" feedback the REQUESTER may give once a ticket is
  * RESOLVED. verdict is INT NOT NULL DEFAULT 0 (0 unanswered, 1 helped,
@@ -3512,6 +3559,37 @@ function xmldb_selfselectadvanced_upgrade($oldversion): bool {
         );
 
         upgrade_mod_savepoint(true, 2026082005, 'selfselectadvanced');
+    }
+
+    if ($oldversion < 2026082700) {
+        // 1.20.60: the ticket throttle. One row per (activity, person),
+        // set by somebody with queue authority who is looking at a flood.
+        selfselectadvanced_upgrade_add_ticket_throttle($DB, $dbman);
+
+        upgrade_log(
+            UPGRADE_LOG_NOTICE,
+            'mod_selfselectadvanced',
+            // The info column is varchar(255) and upgrade_log() swallows an
+            // overlong insert on PostgreSQL - keep this short.
+            'Upgraded to 1.20.60 (2026082700). Reply to reopen, ticket throttles, 27 audit fixes.',
+            'Adds selfselectadvanced_ticketthrottle (a new table, so nothing existing is altered and no '
+                . 'default has to be invented for rows already there) with a UNIQUE index on '
+                . '(activityid, userid). A member of staff with queue authority may now rate-limit ONE '
+                . 'requester - so many requests per rolling window, and/or a time before the next is '
+                . 'accepted - and the limit is asked at every filing door a person goes through. Nobody is '
+                . 'throttled by default and there is no site-wide policy. This release also implements the '
+                . 'maintainer ruling on D-108: the resolved-ticket question keeps its "yes, this helped" '
+                . 'answer but its second button is now REPLY TO REOPEN, which requires an explanation and '
+                . 'returns the ticket to the coordinator who resolved it (to the queue when it has no '
+                . 'claimant). give_feedback() therefore records VERDICT_HELPED only; VERDICT_NOTHELPED '
+                . 'remains readable on rows written before this release and is written by nothing. Twenty-'
+                . 'seven LOW findings from the 2026-08-20 ticket audit are closed here, including a '
+                . 'thread attachment that could be saved onto another actor\'s trail row, a queue filter '
+                . 'that silently refused the needs-info status it claimed to accept, and kb orderings that '
+                . 'returned different articles on PostgreSQL and MariaDB.'
+        );
+
+        upgrade_mod_savepoint(true, 2026082700, 'selfselectadvanced');
     }
 
     return true;

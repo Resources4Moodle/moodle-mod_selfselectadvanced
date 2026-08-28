@@ -72,6 +72,11 @@ class api_escalate extends external_api {
             'noteformat' => $noteformat,
         ]);
 
+        // 1.20.60 (audit L-13): the format is an ENUM, whitelisted like
+        // every other enum this API accepts, before it reaches a method
+        // that will persist it on the trail row.
+        $noteformat = llmapi::known_format_or_plain($noteformat);
+
         $activity = llmapi::activity_for_ticket($ticketid);
         $context = $activity->context();
         self::validate_context($context);

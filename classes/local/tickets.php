@@ -232,6 +232,19 @@ class tickets {
      */
     public const ACTION_FEEDBACK_NOTHELPED = 'feedbacknothelped';
 
+    /**
+     * The requester reopened a resolved ticket, with an explanation
+     * (1.20.60, maintainer ruling on D-108: "let it be `reply to reopen
+     * ticket`. To open a closed ticket, the individual should be asked
+     * to explain").
+     *
+     * Requester-visible like filed/inforeply/withdrawn, and the note is
+     * REQUIRED rather than optional - the explanation IS the action, and
+     * a reopen with nothing said would leave the person who resolved it
+     * with a live ticket and no idea what was wrong with their answer.
+     */
+    public const ACTION_REOPENED = 'reopened';
+
     /** @var int No feedback given yet - the column's own default. */
     public const VERDICT_UNANSWERED = 0;
 
@@ -438,6 +451,15 @@ class tickets {
                 default => 'guide',
             };
             self::require_may_raise($activity, $role, $userid);
+            // The requester's own rate limit (1.20.60), asked at every
+            // door a person goes through so that no ticket type becomes a
+            // way round it. It sits beside the may-raise question because
+            // that is where this method already asks whether this person
+            // may raise anything at all. The one deliberate exception is
+            // the guide-disappeared ticket, which the system files itself
+            // and which has no requester to throttle; see the throttle
+            // class for the whole reasoning.
+            throttle::require_within($activity, $userid);
             // Deliverable C, ON TOP of deliverable A: the responsible-
             // person mode, when on, narrows raising further to the one
             // person responsible for this SPECIFIC group at its current
@@ -588,6 +610,8 @@ class tickets {
         // capacity request permanently unfileable the moment an activity
         // set a disclaimer.
         self::require_may_raise($activity, 'guide', $userid);
+        // The requester's own rate limit (1.20.60), asked at every door.
+        throttle::require_within($activity, $userid);
 
         // Asking for nothing, or for less than the activity's own
         // ceiling allows, is not a request anybody can act on.
@@ -713,6 +737,8 @@ class tickets {
         }
         // Deliverable A, same scope note as file_guidecap() above.
         self::require_may_raise($activity, 'guide', $userid);
+        // The requester's own rate limit (1.20.60), asked at every door.
+        throttle::require_within($activity, $userid);
 
         $ceiling = (new api($activity))->gatekeeper()->resolver()->guide_capacity_ceiling($userid);
         if ($requested < 0) {
@@ -1043,17 +1069,31 @@ class tickets {
         }
         self::require_disclaimer_ack($activity, $disclaimerack);
         self::require_may_raise($activity, self::raiser_role($group, $userid), $userid);
+        // The requester's own rate limit (1.20.60), asked at every door.
+        throttle::require_within($activity, $userid);
 
-        // Locked on the group when there is one (the same lock every
-        // other filing arm takes, so a concurrent leadership or guide
-        // change cannot land between the responsible-mode read and the
-        // insert below); on the REQUESTER when there is not, because a
-        // groupless raiser has no group row to serialise on and the
-        // duplicate guard below still needs to be race-safe against a
-        // second submission from the same person.
-        $lockkey = $group !== null ? ('group:' . $group->id) : ('helpticketraiser:' . $userid);
+        // BOTH LOCKS, ALWAYS THE RAISER'S (1.20.60, audit L-9).
+        //
+        // The guard below is "one live help ticket PER REQUESTER", and
+        // until now the lock taken when the raiser had a group was the
+        // GROUP's - so two submissions from the same person about two
+        // different groups serialised on nothing at all, each read an
+        // empty duplicate check, and both inserted. The one rule this
+        // method exists to enforce was bypassable by the ordinary act of
+        // belonging to two teams. The group lock is still taken when
+        // there is a group, because the responsible-mode re-read below
+        // genuinely needs it (a leadership or guide change must not land
+        // between that read and the insert); it is simply no longer the
+        // only one. The ranks are compatible by construction -
+        // helpticketraiser is rank 4 and group is rank 8 - so
+        // acquire_all() takes them in the one global order and
+        // release_all() gives them back in reverse.
+        $lockkeys = ['helpticketraiser:' . $userid];
+        if ($group !== null) {
+            $lockkeys[] = 'group:' . $group->id;
+        }
         $events = new eventqueue();
-        $lock = locks::acquire($lockkey);
+        $handles = locks::acquire_all($lockkeys);
         try {
             $transaction = $DB->start_delegated_transaction();
 
@@ -1123,7 +1163,7 @@ class tickets {
         } catch (\Throwable $e) {
             self::rollback($transaction ?? null, $e);
         } finally {
-            $lock->release();
+            locks::release_all($handles);
         }
 
         $events->flush();
@@ -1496,6 +1536,30 @@ class tickets {
             );
         }
 
+        // 1.20.60 (audit L-8): RE-READ THE CEILING BEFORE WRITING IT.
+        //
+        // store::save() writes the ticket's STORED number as the guide's
+        // cap, whatever the cap happens to be now. file_guidecap()
+        // refuses an ask that does not raise anything, but it asks that
+        // question when the ticket is FILED - and a guide's ceiling can
+        // move between filing and granting (a manager raises it directly,
+        // an activity default changes, an earlier request of their own is
+        // granted first). Granting a stale request then LOWERED the cap:
+        // "grant" is a word that can only mean more, and this was the one
+        // path where pressing it could take capacity away, silently, with
+        // a resolution note saying it had been given. The check is the
+        // same one filing already makes, asked again at the moment the
+        // number is actually written.
+        $ceiling = (new api($activity))->gatekeeper()->resolver()->guide_capacity_ceiling((int) $ticket->requestedby);
+        if ((int) $ticket->requested <= (int) $ceiling->value) {
+            throw new workflow_refusal(
+                'refusalguidecapstale',
+                'mod_selfselectadvanced',
+                '',
+                (object) ['requested' => (int) $ticket->requested, 'ceiling' => (int) $ceiling->value]
+            );
+        }
+
         // The override first: if writing it is refused - the actor may
         // not set overrides, or may not set this one - the ticket stays
         // claimed and open to be declined or released instead of
@@ -1542,7 +1606,21 @@ class tickets {
                 throw new workflow_refusal('refusalticketnotyours', 'mod_selfselectadvanced');
             }
             if ($fresh->status !== self::STATUS_OPEN) {
-                throw new workflow_refusal('refusalticketclaimed', 'mod_selfselectadvanced', '', $fresh->status);
+                // 1.20.60 (audit L-4): its OWN string, with no {$a}.
+                //
+                // This used to throw refusalticketclaimed with the raw
+                // status column as the parameter, and that string's
+                // placeholder is a PERSON - 'already been taken up by
+                // {$a}' - so a requester who pressed Withdraw a moment
+                // after somebody claimed their ticket read "This ticket
+                // has already been taken up by claimed." Passing the
+                // status rather than the claimant's name was the right
+                // instinct (the requester must not learn who holds it);
+                // what was missing was a requester-facing sentence to
+                // put it in. claim()'s own use of refusalticketclaimed
+                // is left alone: its audience is staff and its $a really
+                // is a person.
+                throw new workflow_refusal('refusalticketnolongeropen', 'mod_selfselectadvanced');
             }
 
             $fresh->status = self::STATUS_WITHDRAWN;
@@ -1608,7 +1686,8 @@ class tickets {
      *
      * @param activity $activity the activity
      * @param int $ticketid the resolved ticket
-     * @param int $verdict self::VERDICT_HELPED or self::VERDICT_NOTHELPED
+     * @param int $verdict self::VERDICT_HELPED - the only value this
+     *        door accepts since 1.20.60 (D-108)
      * @param string $note an optional note explaining the verdict; hand-
      *        rolled plain textarea, stored and rendered FORMAT_MOODLE
      *        exactly like declinereason (no separate format column - see
@@ -1626,14 +1705,23 @@ class tickets {
     ): stdClass {
         global $DB;
 
-        if (!in_array($verdict, [self::VERDICT_HELPED, self::VERDICT_NOTHELPED], true)) {
+        // 1.20.60 (D-108): VERDICT_HELPED ONLY. The "no" arm is not a
+        // verdict any more - it is reopen(), which acts instead of
+        // recording - so this door no longer accepts the value it used
+        // to write. VERDICT_NOTHELPED survives as a constant because
+        // rows written before this release still carry it and every
+        // reader still renders them; nothing writes a new one.
+        if ($verdict !== self::VERDICT_HELPED) {
             // Not a workflow_refusal (contrast the emptiness/duplicate
             // checks elsewhere in this class): no legitimate control
             // this plugin ever renders can produce a verdict outside
             // this pair, exactly the same "caller bug, not something a
             // person typed" reasoning validate_type_filter() states for
             // an unknown queue-filter type.
-            throw new \coding_exception('Unknown ticket verdict ' . $verdict);
+            throw new \coding_exception(
+                'give_feedback() records VERDICT_HELPED only since 1.20.60 (D-108); '
+                    . 'a request that did not help is reopened through reopen(). Given: ' . $verdict
+            );
         }
         $note = trim($note);
 
@@ -1709,13 +1797,216 @@ class tickets {
     }
 
     /**
-     * How many RESOLVED tickets in this activity the requester said did
-     * NOT help (1.20.59 deliverable B) - the coordinator dashboard's own
-     * card. Unfiltered by viewer, like the dashboard's own
-     * $awaitingfreeze/$frozen counts beside it: a "did not help" answer
-     * is a signal about the QUEUE's own outcomes, not about which
-     * tickets this particular viewer may claim, so it carries none of
-     * count_open()'s conflict-of-interest narrowing.
+     * REPLY TO REOPEN: the requester reopens a resolved ticket, saying
+     * why (1.20.60; maintainer ruling on D-108, 2026-08-27).
+     *
+     * THE RULING, AND WHAT IT REPLACED. 1.20.59 shipped a binary "did
+     * this help? yes / no" whose "no" recorded dissatisfaction and moved
+     * nothing, and I recommended keeping it that way - a machine that
+     * can un-close a ticket is the founding "the machine may never
+     * close" rule pointed the other way, and a reopened ticket has no
+     * obvious owner. The maintainer ruled against that: "let it be
+     * `reply to reopen ticket`. To open a closed ticket, the individual
+     * should be asked to explain." So the second button is now an
+     * action, and the explanation is REQUIRED - the one thing my
+     * objection and the ruling agree on is that a reopen with nothing
+     * said is worthless to whoever has to handle it.
+     *
+     * WHO OWNS IT AFTERWARDS. The second ruling was not given, so this
+     * follows the nearest precedent in this class rather than inventing
+     * one: provide_info(), which is already a requester's reply that
+     * moves a ticket out of a waiting state and back to the person
+     * handling it (NEEDSINFO -> CLAIMED, claimedby untouched). A reopen
+     * is the same shape - RESOLVED -> CLAIMED, claimedby untouched - so
+     * the ticket returns to the coordinator who resolved it and never
+     * becomes the ownerless queue row I warned about. When claimedby is
+     * null there is nobody to return it to (a ticket resolved by
+     * autoresolve_unfreeze(), or one stranded by a restore), so it goes
+     * back to the queue as OPEN, which is exactly what close()'s own
+     * release outcome does with the same problem. Flagged in
+     * DECISIONS-PENDING for correction if the maintainer wants "always
+     * back to the queue" instead.
+     *
+     * THE RESOLUTION COLUMNS ARE CLEARED. resolvedby/timeresolved/
+     * resolution described a closure that no longer holds, and a live
+     * ticket carrying them would make every "who resolved this" reader
+     * answer for a resolution that has been rejected. Nothing is lost:
+     * close() logged the resolution text onto its own ACTION_RESOLVED
+     * trail row, which is permanent, and this reopen writes its own row
+     * beside it.
+     *
+     * THE VERDICT IS LEFT UNANSWERED, deliberately. Reopening is not an
+     * answer to "did this help?"; it is a refusal to answer it yet. When
+     * the ticket is resolved again the question is asked again, which is
+     * the loop the maintainer's wording implies.
+     *
+     * Authority is ownership alone, like withdraw() and give_feedback():
+     * the requester of THIS ticket, re-read inside the lock.
+     *
+     * @param activity $activity the activity
+     * @param int $ticketid the resolved ticket
+     * @param string $note the requester's explanation; REQUIRED
+     * @param int $noteformat the format the editor returned
+     * @param int $userid the requester
+     * @return stdClass the updated ticket, carrying ->ticketlogid
+     * @throws \moodle_exception when refused
+     */
+    public static function reopen(
+        activity $activity,
+        int $ticketid,
+        string $note,
+        int $noteformat,
+        int $userid
+    ): stdClass {
+        global $DB;
+
+        // Asked BEFORE the lock, like close()'s own empty-resolution
+        // check: nothing has been read yet, and there is no point
+        // serialising on a ticket to refuse a submission that could
+        // never have been accepted.
+        if (trim(html_to_text($note)) === '') {
+            throw new workflow_refusal('refusalticketreopenreason', 'mod_selfselectadvanced');
+        }
+
+        $events = new eventqueue();
+        $lock = locks::acquire('ticket:' . $ticketid);
+        try {
+            $transaction = $DB->start_delegated_transaction();
+
+            $fresh = $DB->get_record('selfselectadvanced_ticket', ['id' => $ticketid], '*', MUST_EXIST);
+            if ((int) $fresh->activityid !== $activity->id()) {
+                throw new \moodle_exception('errticketnotfound', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->requestedby !== $userid) {
+                throw new workflow_refusal('refusalticketnotyours', 'mod_selfselectadvanced');
+            }
+            if ($fresh->status !== self::STATUS_RESOLVED) {
+                throw new workflow_refusal('refusalticketreopennotresolved', 'mod_selfselectadvanced');
+            }
+            if ((int) $fresh->verdict !== self::VERDICT_UNANSWERED) {
+                // The same one-shot door give_feedback() keeps: somebody
+                // who has already said the answer helped is not offered
+                // this, and a stale form must not slip past the door
+                // just because the page still shows it.
+                throw new workflow_refusal('refusalticketfeedbackalreadygiven', 'mod_selfselectadvanced');
+            }
+
+            $claimant = (int) ($fresh->claimedby ?? 0);
+            $now = time();
+            $fresh->status = $claimant > 0 ? self::STATUS_CLAIMED : self::STATUS_OPEN;
+            if ($claimant <= 0) {
+                $fresh->timeclaimed = null;
+            }
+            $fresh->resolvedby = null;
+            $fresh->timeresolved = null;
+            $fresh->resolution = null;
+            $fresh->resolutionformat = FORMAT_MOODLE;
+            $fresh->timemodified = $now;
+            $DB->update_record('selfselectadvanced_ticket', $fresh);
+
+            $ticketlogid = self::log($ticketid, $userid, self::ACTION_REOPENED, $note, $noteformat);
+
+            // The row id, for save_post_attachments() (audit L-3/L-10/L-15).
+            $fresh->ticketlogid = $ticketlogid;
+
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_reopened::create([
+                'objectid' => $ticketid,
+                'context' => $activity->context(),
+                'relateduserid' => $claimant > 0 ? $claimant : null,
+                'other' => [
+                    'type' => $fresh->type,
+                    'action' => self::ACTION_REOPENED,
+                    'groupid' => (int) ($fresh->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                    'returnedto' => $fresh->status,
+                ],
+            ]));
+
+            $transaction->allow_commit();
+        } catch (\Throwable $e) {
+            self::rollback($transaction ?? null, $e);
+        } finally {
+            $lock->release();
+        }
+
+        $events->flush();
+
+        $groupname = self::subject_name($activity, $fresh);
+        if ($claimant > 0) {
+            // The person whose answer was rejected, exactly as
+            // provide_info() notifies the claimant it is now waiting on.
+            notifier::send(
+                $activity,
+                'tickets',
+                $claimant,
+                'msgticketreopenedsubject',
+                'msgticketreopenedbody',
+                (object) [
+                    'group' => $groupname,
+                    'type' => get_string('tickettype' . $fresh->type, 'mod_selfselectadvanced'),
+                    'pluginuid' => (string) ($fresh->pluginuid ?? ''),
+                    'reason' => trim(html_to_text($note)),
+                ],
+                new \moodle_url('/mod/selfselectadvanced/ticket.php', ['t' => $ticketid]),
+                $groupname
+            );
+        } else {
+            // Back in the queue with nobody to tell, so the queue is
+            // told - the same fan-out a newly filed ticket uses.
+            self::notify_workers($activity, $fresh, self::group_of($activity, $fresh));
+        }
+
+        return $fresh;
+    }
+
+    /**
+     * How many tickets in this activity the requester REOPENED (1.20.60,
+     * D-108) - the coordinator dashboard's own card, and the staff
+     * queue's.
+     *
+     * This replaces the "did not help" card 1.20.59 shipped. The signal
+     * is the same one that card was for - a resolution that did not
+     * settle things - but it is now an event with a consequence rather
+     * than a recorded opinion, so counting it is counting work that came
+     * back rather than counting complaints.
+     *
+     * Unfiltered by viewer, like the dashboard's own $awaitingfreeze and
+     * $frozen counts beside it: a reopened request is a fact about the
+     * QUEUE's own outcomes, not about which tickets this particular
+     * viewer may claim, so it carries none of count_open()'s
+     * conflict-of-interest narrowing.
+     *
+     * @param activity $activity the activity
+     * @return int
+     */
+    public static function count_reopened(activity $activity): int {
+        global $DB;
+
+        // Distinct TICKETS, not trail rows: a request reopened twice is
+        // one troubled request, and a card that counted the rows would
+        // grow every time the same person pressed the button again.
+        return $DB->count_records_sql(
+            "SELECT COUNT(DISTINCT l.ticketid)
+               FROM {selfselectadvanced_ticketlog} l
+               JOIN {selfselectadvanced_ticket} t ON t.id = l.ticketid
+              WHERE t.activityid = :activityid AND l.action = :action",
+            [
+                'activityid' => $activity->id(),
+                'action' => self::ACTION_REOPENED,
+            ]
+        );
+    }
+
+    /**
+     * How many RESOLVED tickets carry the LEGACY "did not help" verdict
+     * (1.20.59 deliverable B, superseded by D-108 in 1.20.60).
+     *
+     * Nothing writes VERDICT_NOTHELPED any more - the button that did is
+     * now Reply to reopen - so this counts a fixed historical set that
+     * can only shrink as those tickets are deleted. Kept because the
+     * rows are real and a reader of an old thread still sees the
+     * verdict; count_reopened() above is what the dashboard shows now.
      *
      * @param activity $activity the activity
      * @return int
@@ -2404,6 +2695,22 @@ class tickets {
                 $outcome === self::STATUS_OPEN ? FORMAT_PLAIN : $resolutionformat
             );
 
+            // 1.20.60 (audit L-3/L-10/L-15): HAND THE ROW ID BACK.
+            //
+            // A transient property, not a column: it exists only on the
+            // object this call returns, so the page that just wrote this
+            // trail row can save its attachments AGAINST THIS ROW rather
+            // than re-reading the trail afterwards and taking whatever
+            // is newest. "Newest" stopped being safe in 1.20.46, which
+            // gave the automated assistant a comment() endpoint that can
+            // write to a CLAIMED ticket at any instant, and it was
+            // already unsafe for escalate(), which any manage holder may
+            // fire without holding the claim - either of which could
+            // land between the service call releasing its lock and the
+            // page saving the file, stealing the attachment onto a
+            // staff-internal row the uploader may not even read back.
+            $fresh->ticketlogid = $ticketlogid;
+
             // Relateduserid is the requester: every outcome close()
             // reaches (resolved, declined, a claimant's own release, or
             // a manager's force-release) is a STAFF action about this
@@ -2529,6 +2836,9 @@ class tickets {
 
             $ticketlogid = self::log($ticketid, $actorid, self::ACTION_NEEDSINFO, $question, $questionformat);
 
+            // The row id, for save_post_attachments() (audit L-3/L-10/L-15).
+            $fresh->ticketlogid = $ticketlogid;
+
             // Queued, not triggered here: CONC-001 requirement 2.
             $events->push(\mod_selfselectadvanced\event\ticket_info_requested::create([
                 'objectid' => $ticketid,
@@ -2638,6 +2948,9 @@ class tickets {
             $DB->update_record('selfselectadvanced_ticket', $fresh);
 
             $ticketlogid = self::log($ticketid, $userid, self::ACTION_INFOREPLY, $reply, $replyformat);
+
+            // The row id, for save_post_attachments() (audit L-3/L-10/L-15).
+            $fresh->ticketlogid = $ticketlogid;
 
             // Queued, not triggered here: CONC-001 requirement 2.
             $events->push(\mod_selfselectadvanced\event\ticket_info_provided::create([
@@ -2768,6 +3081,9 @@ class tickets {
 
             $ticketlogid = self::log($ticketid, $actorid, self::ACTION_COMMENTED, $note, $noteformat);
 
+            // The row id, for save_post_attachments() (audit L-3/L-10/L-15).
+            $fresh->ticketlogid = $ticketlogid;
+
             $event = \mod_selfselectadvanced\event\ticket_commented::create([
                 'objectid' => $ticketid,
                 'context' => $activity->context(),
@@ -2854,6 +3170,7 @@ class tickets {
         // one row. It now also writes a log row, and the two must
         // commit or roll back together - the same reason every other
         // transition here already opens one before its first write.
+        $events = new eventqueue();
         $lock = locks::acquire('ticket:' . $candidate->id);
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -2875,7 +3192,36 @@ class tickets {
             $live->timemodified = $now;
             $DB->update_record('selfselectadvanced_ticket', $live);
 
-            self::log($live->id, $userid, self::ACTION_RESOLVED, $live->resolution, $live->resolutionformat);
+            $ticketlogid = self::log($live->id, $userid, self::ACTION_RESOLVED, $live->resolution, $live->resolutionformat);
+
+            // 1.20.60 (audit L-6/L-18): THIS TRANSITION IS LOGGABLE TOO.
+            //
+            // Every other transition in this class queues or triggers an
+            // event inside its own critical section, and the 1.20 release
+            // states the rule outright - "Every ticket action is a
+            // loggable fact. Each transition fires a Moodle event carrying
+            // the actor, the ticket, the other party, and the ticketlog
+            // row id". This one closed a ticket and fired nothing, so
+            // anyone auditing the Moodle log for how a ticket reached
+            // 'resolved' found a filing, maybe a claim, and then silence -
+            // the closing transition simply absent, with no event carrying
+            // the ticketlogid that joins the log entry back to the stored
+            // resolution text. It is the one close nobody performed by
+            // hand, which is exactly the one a reader most needs
+            // explained. Shape and payload copied from close()'s own.
+            // Queued, not triggered here: CONC-001 requirement 2.
+            $events->push(\mod_selfselectadvanced\event\ticket_closed::create([
+                'objectid' => (int) $live->id,
+                'context' => $activity->context(),
+                'relateduserid' => (int) $live->requestedby,
+                'other' => [
+                    'type' => $live->type,
+                    'outcome' => self::STATUS_RESOLVED,
+                    'action' => self::ACTION_RESOLVED,
+                    'groupid' => (int) ($live->groupid ?? 0),
+                    'ticketlogid' => $ticketlogid,
+                ],
+            ]));
 
             $transaction->allow_commit();
         } catch (\Throwable $e) {
@@ -2883,6 +3229,10 @@ class tickets {
         } finally {
             $lock->release();
         }
+
+        // Flushed here, outside the lock and after the commit - the
+        // eventqueue idiom every sibling transition in this class uses.
+        $events->flush();
     }
 
     /**
@@ -2981,44 +3331,128 @@ class tickets {
     }
 
     /**
-     * Save a submitted draft area into the MOST RECENT ticketpost row
-     * (1.20.44 part 2): the second half of the two-step sequence
-     * request_info()/provide_info()/close()'s resolve outcome/
-     * grant_guidecap() all follow from their page - the log row those
-     * calls just wrote does not exist until they return, so the draft
-     * area a form prepared before the request cannot be keyed on it in
-     * advance (the exact reason group.php's own filing forms mint a
-     * fresh draft and save it only once the real id exists).
+     * Refuse a draft area that breaks the attachment limits this plugin
+     * documents (1.20.60, audit L-16).
      *
-     * "Most recent" is safe here specifically because the caller is a
-     * single HTTP request: it just wrote exactly one new trail row a
-     * moment ago (under the service call's own lock) and is now the
-     * only actor that could possibly be racing to add another.
+     * WHY THIS EXISTS. file_options() has said "maxfiles 5" since the
+     * feature shipped, and every filemanager element rendered from it
+     * enforced that - IN THE BROWSER. Not one attachment POST was ever
+     * checked on the server: the handlers read the draft id straight out
+     * of optional_param() and handed it to file_save_draft_area_files(),
+     * which is a copy operation and enforces nothing. A submission that
+     * did not come from the rendered form - a replayed POST, a hand-made
+     * one, a filemanager whose JavaScript never ran - could attach any
+     * number of files of any size, and the documented limit existed only
+     * as a hint to the honest.
+     *
+     * Called by every path that saves ticket attachments, so there is one
+     * answer rather than one per page. A workflow_refusal, not a coding
+     * exception: this is something a PERSON did, and the refusal idiom is
+     * what shows them a sentence instead of a fault.
+     *
+     * @param int $draftitemid the submitted draft area, or 0 for none
+     * @throws \moodle_exception refusalticketattachmentcount or
+     *         refusalticketattachmentsize
+     */
+    public static function require_within_file_limits(int $draftitemid): void {
+        global $USER;
+
+        if ($draftitemid <= 0) {
+            return;
+        }
+
+        $options = self::file_options();
+        $usercontext = \context_user::instance((int) $USER->id);
+        $files = get_file_storage()->get_area_files(
+            $usercontext->id,
+            'user',
+            'draft',
+            $draftitemid,
+            'id',
+            false
+        );
+
+        if (count($files) > (int) $options['maxfiles']) {
+            throw new workflow_refusal(
+                'refusalticketattachmentcount',
+                'mod_selfselectadvanced',
+                '',
+                (int) $options['maxfiles']
+            );
+        }
+
+        // The site's own ceiling, the same one the filemanager element is
+        // built with when no smaller activity limit applies.
+        $maxbytes = (int) get_config('moodlecourse', 'maxbytes');
+        $maxbytes = $maxbytes > 0 ? $maxbytes : (int) get_config('core', 'maxbytes');
+        if ($maxbytes > 0) {
+            foreach ($files as $file) {
+                if ((int) $file->get_filesize() > $maxbytes) {
+                    throw new workflow_refusal(
+                        'refusalticketattachmentsize',
+                        'mod_selfselectadvanced',
+                        '',
+                        display_size($maxbytes)
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Save a submitted draft area into THE TRAIL ROW THE SERVICE JUST
+     * WROTE (1.20.44 part 2, re-keyed in 1.20.60): the second half of
+     * the two-step sequence request_info()/provide_info()/close()'s
+     * resolve outcome/grant_guidecap() all follow from their page - the
+     * log row those calls just wrote does not exist until they return,
+     * so the draft area a form prepared before the request cannot be
+     * keyed on it in advance (the exact reason group.php's own filing
+     * forms mint a fresh draft and save it only once the real id
+     * exists).
+     *
+     * WHAT CHANGED, AND WHY (audit L-3/L-10/L-15). This used to re-read
+     * the trail and take end($trail) - "the most recent row" - which it
+     * defended on the grounds that the caller is a single HTTP request
+     * and "is now the only actor that could possibly be racing to add
+     * another". That was true when every writer was a human page arm
+     * serialised by the ticket lock. It stopped being true in 1.20.46,
+     * which gave the automated assistant a comment() endpoint that may
+     * write to a CLAIMED ticket at any instant, and it had never been
+     * true for escalate(), which any manage-level holder may fire on a
+     * live ticket without holding the claim. The service call's lock is
+     * RELEASED before this method runs (provide_info() even sends its
+     * notifications in between), so nothing serialised the two steps: a
+     * row arriving in that window took the file. When the winner was an
+     * escalation the attachment landed on a STAFF_INTERNAL_ACTIONS row,
+     * where may_access_ticket_file() then refused it to the very person
+     * who had uploaded it, and their own reply showed no attachment at
+     * all. The id is now handed in by the caller, which received it on
+     * the row the service returned, so there is nothing left to guess.
      *
      * A zero draftitemid (no filemanager submission at all, or nothing
      * chosen) is a deliberate no-op - there is nothing to save, and
      * asking the file API to act on a non-existent draft area would be
-     * make-work at best.
+     * make-work at best. A zero ticketlogid is the same no-op: it means
+     * the caller has no row to attach to, which no live path produces.
      *
      * @param activity $activity the activity
-     * @param int $ticketid the ticket just acted on
+     * @param int $ticketlogid the trail row the service just wrote, as
+     *        handed back on the returned ticket's ->ticketlogid
      * @param int $draftitemid the submitted draft area, or 0 for none
      */
-    public static function save_post_attachments(activity $activity, int $ticketid, int $draftitemid): void {
-        if ($draftitemid <= 0) {
+    public static function save_post_attachments(activity $activity, int $ticketlogid, int $draftitemid): void {
+        if ($draftitemid <= 0 || $ticketlogid <= 0) {
             return;
         }
-        $trail = self::trail($activity, $ticketid, true);
-        if (!$trail) {
-            return;
-        }
-        $last = end($trail);
+        // 1.20.60 (audit L-16): the documented limits, enforced where the
+        // files are actually taken rather than only in the browser.
+        self::require_within_file_limits($draftitemid);
         file_save_draft_area_files(
             $draftitemid,
             $activity->context()->id,
             'mod_selfselectadvanced',
             self::FILEAREA_POST,
-            (int) $last->id,
+            $ticketlogid,
             self::file_options()
         );
     }
@@ -3202,6 +3636,69 @@ class tickets {
                 'confirmed' => groups::STATUS_CONFIRMED,
             ]
         ));
+    }
+
+    /**
+     * involvement()'s answer for EVERY group in the activity at once,
+     * as groupid => localised involvement (1.20.60, audit L-20).
+     *
+     * involved_group_ids() above already answers "which groups", in one
+     * query, and is pinned against involvement() by test. What the queue
+     * page needed was the same set WITH THE REASON, because it prints
+     * the reason as the disabled Claim button's title and beside it -
+     * and the only way to get a reason was to call involvement() per
+     * row, which meant reading the group row per row too. On a 200-row
+     * page that was up to 400 queries inside the render loop, for a
+     * question whose whole answer is three arms of one SELECT.
+     *
+     * The arms and their order match involvement() exactly (guide,
+     * then nominated successor, then confirmed member; a :manage holder
+     * is exempt and gets the empty map), and a test pins the two
+     * producers to the same answers, as one already does for
+     * involved_group_ids().
+     *
+     * @param activity $activity the activity
+     * @param int $userid the actor
+     * @return array<int, string> groupid => localised involvement
+     */
+    public static function involvement_map(activity $activity, int $userid): array {
+        global $DB;
+
+        if (has_capability('mod/selfselectadvanced:manage', $activity->context(), $userid)) {
+            return [];
+        }
+
+        $rows = $DB->get_records_sql(
+            "SELECT g.id,
+                    CASE WHEN g.guideid = :guide THEN 1
+                         WHEN g.guidesuccessorid = :successor THEN 2
+                         ELSE 3 END AS arm
+               FROM {selfselectadvanced_group} g
+              WHERE g.activityid = :activityid
+                AND (g.guideid = :guide2 OR g.guidesuccessorid = :successor2
+                     OR EXISTS (SELECT 1 FROM {selfselectadvanced_member} m
+                                 WHERE m.groupid = g.id AND m.userid = :member AND m.status = :confirmed))",
+            [
+                'activityid' => $activity->id(),
+                'guide' => $userid,
+                'successor' => $userid,
+                'guide2' => $userid,
+                'successor2' => $userid,
+                'member' => $userid,
+                'confirmed' => groups::STATUS_CONFIRMED,
+            ]
+        );
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row->id] = match ((int) $row->arm) {
+                1 => get_string('coiguide', 'mod_selfselectadvanced'),
+                2 => get_string('coisuccessor', 'mod_selfselectadvanced'),
+                default => get_string('coimember', 'mod_selfselectadvanced'),
+            };
+        }
+
+        return $map;
     }
 
     /**
@@ -3502,20 +3999,23 @@ class tickets {
 
     /**
      * The ticket statuses offered as a queue/my-requests FILTER value
-     * (1.20.57 deliverables A and B): the same five tickets.php's own
-     * queue page has whitelisted since slice C2 - open, claimed,
-     * resolved, declined, withdrawn.
+     * (1.20.57 deliverables A and B): ALL SIX of them - open, claimed,
+     * needs-info, resolved, declined, withdrawn.
      *
-     * DELIBERATELY not every self::STATUS_* constant: STATUS_NEEDSINFO
-     * is missing, exactly as it always has been in the queue page's own
-     * whitelist. A status filter is UI vocabulary the two pages must
-     * share (spec: "the same vocabulary the queue already uses, so the
-     * two pages cannot drift apart") - widening it for one page alone
-     * would be the very drift the spec forbids, so this is extracted
-     * from tickets.php's own literal rather than left as two copies
-     * that could disagree. validate_status_filter() below still accepts
-     * the full six-status set for any OTHER caller, because that guards
-     * the SERVICE layer against a coding bug, not this UI whitelist.
+     * 1.20.60 (audit L-7/L-23) ADDED STATUS_NEEDSINFO. Until then this
+     * list carried five, and the omission was defended here as
+     * deliberate on the grounds that the queue page had never offered
+     * it. That defence was wrong twice over. needsinfo is a first-class
+     * queue status everywhere else in this class - it sorts as its own
+     * tier in queue()'s ORDER BY, it has its own badge, it has its own
+     * landing-page count in handling_awaiting_reply_count(), and
+     * validate_status_filter() has always accepted it - so the one
+     * place a coordinator could not ask for it was the triage filter
+     * that exists to ask. Worse, a hand-typed ?status=needsinfo was
+     * silently reset to '' by the whitelist, so the filter appeared to
+     * work and did not. The vocabulary is still shared between the
+     * queue and my-requests, which was the real point of extracting it;
+     * it is now shared at the full six rather than at five.
      *
      * @return string[] self::STATUS_* values offered as a filter
      */
@@ -3523,6 +4023,7 @@ class tickets {
         return [
             self::STATUS_OPEN,
             self::STATUS_CLAIMED,
+            self::STATUS_NEEDSINFO,
             self::STATUS_RESOLVED,
             self::STATUS_DECLINED,
             self::STATUS_WITHDRAWN,
@@ -3980,8 +4481,10 @@ class tickets {
      *        require_queue_authority()
      * @param int $excludeticketid the ticket already on screen, left out;
      *        0 to exclude nothing
-     * @return stdClass[] ticket rows, each with groupname and
-     *         grouppluginuid, newest first
+     * @param int $limitfrom first row to return (1.20.60, audit L-22)
+     * @param int $limitnum how many rows, 0 for every one of them
+     * @return stdClass[] partial ticket rows - id, type, status,
+     *         timecreated, groupname, grouppluginuid - newest first
      * @throws \required_capability_exception when the viewer lacks
      *         queue authority
      */
@@ -3989,18 +4492,69 @@ class tickets {
         activity $activity,
         int $requesterid,
         int $viewerid,
-        int $excludeticketid = 0
+        int $excludeticketid = 0,
+        int $limitfrom = 0,
+        int $limitnum = 0
     ): array {
         global $DB;
 
         self::require_queue_authority($activity, $viewerid);
 
+        // 1.20.60 (audit L-22): BOUNDED, AND ONLY THE COLUMNS THE TWO
+        // CALLERS READ. This selected t.* for every ticket the requester
+        // had ever filed, with no limit, and the thread rendered all of
+        // them on every staff view - so a course's heaviest requester
+        // made the thread page slower for the coordinator every single
+        // time it was opened, and each row dragged the full ticket
+        // record (resolution text, notes) across for six fields. The
+        // limit is the caller's, defaulting to "everything" so no
+        // existing caller changes meaning.
         return $DB->get_records_sql(
-            "SELECT t.*, g.name AS groupname, g.pluginuid AS grouppluginuid
+            "SELECT t.id, t.type, t.status, t.timecreated,
+                    g.name AS groupname, g.pluginuid AS grouppluginuid
                FROM {selfselectadvanced_ticket} t
           LEFT JOIN {selfselectadvanced_group} g ON g.id = t.groupid
               WHERE t.activityid = :activityid AND t.requestedby = :userid AND t.id <> :excludeid
            ORDER BY t.timecreated DESC, t.id DESC",
+            [
+                'activityid' => $activity->id(),
+                'userid' => $requesterid,
+                'excludeid' => $excludeticketid,
+            ],
+            $limitfrom,
+            $limitnum
+        );
+    }
+
+    /**
+     * How many OTHER tickets this requester has filed - the count that
+     * belongs beside history()'s bounded slice (1.20.60, audit L-22).
+     *
+     * Same criteria as history() itself, including the exclusion, so a
+     * page can say "showing 20 of 63" and be right about both numbers.
+     * Authority is history()'s: this is the same staff-only fact.
+     *
+     * @param activity $activity the activity
+     * @param int $requesterid whose other tickets
+     * @param int $viewerid the staff member asking
+     * @param int $excludeticketid the ticket already on screen; 0 for none
+     * @return int
+     * @throws \required_capability_exception when the viewer lacks
+     *         queue authority
+     */
+    public static function history_count(
+        activity $activity,
+        int $requesterid,
+        int $viewerid,
+        int $excludeticketid = 0
+    ): int {
+        global $DB;
+
+        self::require_queue_authority($activity, $viewerid);
+
+        return $DB->count_records_select(
+            'selfselectadvanced_ticket',
+            'activityid = :activityid AND requestedby = :userid AND id <> :excludeid',
             [
                 'activityid' => $activity->id(),
                 'userid' => $requesterid,

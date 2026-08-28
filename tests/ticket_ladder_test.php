@@ -586,6 +586,103 @@ final class ticket_ladder_test extends \advanced_testcase {
     }
 
     /**
+     * ESCALATION FROM NEEDS-INFO, by a coordinator (audit L-24).
+     *
+     * escalate() has always accepted STATUS_NEEDSINFO - it is one of the
+     * three live statuses in its own guard - and nothing tested it, so
+     * "a ticket waiting on the requester can be escalated" was an
+     * unproven claim about the one status where escalation does the most
+     * damage if it is wrong: the requester has a question pending, and
+     * the coordinator's claim is what makes their answer reach anybody.
+     *
+     * What actually happens, pinned here: a mere coordinator's claim is
+     * released and the ticket becomes OPEN, exactly as it does from
+     * CLAIMED. The pending question does NOT hold the ticket in
+     * needs-info - and it must not, because the person the requester
+     * would be answering has just said the ticket is above them. The
+     * answer is not lost: provide_info() reads the trail, and the
+     * question is on it permanently.
+     */
+    public function test_escalate_from_needsinfo_by_a_coordinator_releases_the_claim(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, , $coordinator1] = $this->setup_world();
+
+        $ticket = $this->file($activity, $group, $guide);
+        tickets::claim($activity, (int) $ticket->id, (int) $coordinator1->id);
+        tickets::request_info($activity, (int) $ticket->id, 'Which specialist?', FORMAT_PLAIN, (int) $coordinator1->id);
+        $this->assertSame(
+            tickets::STATUS_NEEDSINFO,
+            tickets::get($activity, (int) $ticket->id)->status,
+            'fixture: the ticket must genuinely be waiting on the requester'
+        );
+
+        $escalated = tickets::escalate(
+            $activity,
+            (int) $ticket->id,
+            'I cannot judge this one',
+            FORMAT_PLAIN,
+            (int) $coordinator1->id
+        );
+
+        $this->assertSame(1, (int) $escalated->escalated);
+        $this->assertSame(tickets::STATUS_OPEN, $escalated->status);
+        $this->assertNull($escalated->claimedby, 'a mere coordinator\'s claim is released from needsinfo too');
+        $this->assertNull($escalated->timeclaimed);
+
+        // The question survives on the trail, which is where
+        // provide_info() reads it from - the requester has lost nothing.
+        $trail = array_values(tickets::trail($activity, (int) $ticket->id, true));
+        $actions = array_map(static fn($row) => $row->action, $trail);
+        $this->assertContains(tickets::ACTION_NEEDSINFO, $actions);
+        $this->assertContains(tickets::ACTION_ESCALATED, $actions);
+    }
+
+    /**
+     * The same escalation by a MANAGE holder (audit L-24): they already
+     * qualify to keep handling an escalated ticket, so nothing is
+     * released - and the ticket stays in NEEDSINFO, still waiting on the
+     * requester, with the very same person waiting for the answer.
+     */
+    public function test_escalate_from_needsinfo_by_a_manager_keeps_the_wait(): void {
+        $this->resetAfterTest();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, $manager] = $this->setup_world();
+
+        $ticket = $this->file($activity, $group, $guide);
+        tickets::claim($activity, (int) $ticket->id, (int) $manager->id);
+        tickets::request_info($activity, (int) $ticket->id, 'Which specialist?', FORMAT_PLAIN, (int) $manager->id);
+
+        $escalated = tickets::escalate(
+            $activity,
+            (int) $ticket->id,
+            'Flagging this for the record',
+            FORMAT_PLAIN,
+            (int) $manager->id
+        );
+
+        $this->assertSame(1, (int) $escalated->escalated);
+        $this->assertSame(
+            tickets::STATUS_NEEDSINFO,
+            $escalated->status,
+            'a manage holder keeps the ticket, so the requester is still the one being waited on'
+        );
+        $this->assertSame((int) $manager->id, (int) $escalated->claimedby);
+
+        // And the requester can still answer: the door provide_info()
+        // guards is open, which is the whole point of keeping the state.
+        $answered = tickets::provide_info(
+            $activity,
+            (int) $ticket->id,
+            'The maths specialist.',
+            FORMAT_PLAIN,
+            (int) $guide->id
+        );
+        $this->assertSame(tickets::STATUS_CLAIMED, $answered->status);
+        $this->assertSame((int) $manager->id, (int) $answered->claimedby);
+    }
+
+    /**
      * A manage-level holder may escalate a ticket nobody has claimed at
      * all ("even when unclaimed", spec verbatim).
      */

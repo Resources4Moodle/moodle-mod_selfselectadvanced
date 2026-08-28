@@ -82,6 +82,11 @@ if ($action === 'filehelp' && data_submitted() && confirm_sesskey()) {
     );
     $ack = (bool) optional_param('disclaimerack', 0, PARAM_BOOL);
     try {
+        // 1.20.60 (audit L-16): the documented "maxfiles 5" checked on
+        // the SERVER, before anything is filed. Until now it lived only
+        // in the rendered filemanager, so the limit bound the honest and
+        // nobody else.
+        tickets::require_within_file_limits($draftitemid);
         $filedticket = tickets::file_help($activity, $group, $reason, $reasonformat, (int) $USER->id, $ack);
         file_save_draft_area_files(
             $draftitemid,
@@ -101,7 +106,21 @@ if ($action === 'filehelp' && data_submitted() && confirm_sesskey()) {
             \core\output\notification::NOTIFY_SUCCESS
         );
     } catch (\mod_selfselectadvanced\local\workflow_refusal | \required_capability_exception $e) {
-        redirect($baseurl, selfselectadvanced_refusal_notice($e), null, \core\output\notification::NOTIFY_ERROR);
+        // 1.20.60 (audit L-17): KEEP THE FILES. A refusal used to send
+        // the person back to an empty form, silently discarding an
+        // attachment they had already uploaded - and the refusals here
+        // are the ordinary ones (a duplicate live request, a disclaimer
+        // not acknowledged, a race with a leadership change), not
+        // exceptional ones. The draft area is real storage keyed on the
+        // itemid and the uploader, so it survives the redirect; carrying
+        // its id lets the re-rendered form adopt the same area instead
+        // of minting an empty one.
+        redirect(
+            new moodle_url($baseurl, $draftitemid > 0 ? ['tdraft' => $draftitemid] : []),
+            selfselectadvanced_refusal_notice($e),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
     }
 }
 
@@ -166,7 +185,11 @@ if ($refusal !== null) {
         // A brand new ticket has no id yet, so a fresh draft area is
         // minted (itemid null) - the two-step sequence the 'filehelp'
         // action above completes once the real ticket id exists.
-        $ticketdraftid = 0;
+        // 1.20.60 (audit L-17): adopt the draft area a refused submission
+        // left behind, when the redirect above named one, so the files
+        // are still attached to the form the person is looking at. Zero
+        // otherwise, which mints a fresh one exactly as before.
+        $ticketdraftid = optional_param('tdraft', 0, PARAM_INT);
         file_prepare_draft_area(
             $ticketdraftid,
             $context->id,

@@ -103,6 +103,9 @@ class behat_mod_selfselectadvanced extends behat_base {
             'core sync' => '/mod/selfselectadvanced/coresync.php',
             'guide queue' => '/mod/selfselectadvanced/guidequeue.php',
             'my requests' => '/mod/selfselectadvanced/myrequests.php',
+            // 1.20.60: the staff screen for slowing one flooding
+            // requester down.
+            'request limits' => '/mod/selfselectadvanced/ticketthrottle.php',
             // 1.20.43 deliverable B: the landing page's own filing entry
             // for the general help type, needing no group in view.
             'file help' => '/mod/selfselectadvanced/filehelp.php',

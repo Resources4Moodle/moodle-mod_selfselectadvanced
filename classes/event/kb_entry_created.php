@@ -64,4 +64,27 @@ class kb_entry_created extends \core\event\base {
             'id' => $this->contextinstanceid,
         ]);
     }
+
+    /**
+     * Map the objectid for backup and restore.
+     *
+     * 1.20.60 (audit L-19): without this, core's logstore restore has no
+     * way to translate this event's objectid into the id the row was
+     * given on the target site, so the log record is dropped rather than
+     * carried through - and the ticket trail, which every other part of
+     * this plugin backs up and restores faithfully, loses its matching
+     * log entries. Every other event class in this plugin already
+     * declares one; the ticket and knowledgebank families were the
+     * exception.
+     *
+     * 'restore' is the name the restore step gave this table's MAPPING
+     * (set_mapping('ssaticket', ...) / set_mapping('ssakbentry', ...)),
+     * not the table name - a mapping name that does not exist would
+     * silently map nothing, which is the state this is fixing.
+     *
+     * @return array mapping description
+     */
+    public static function get_objectid_mapping(): array {
+        return ['db' => 'selfselectadvanced_kb', 'restore' => 'ssakbentry'];
+    }
 }

@@ -286,9 +286,16 @@ final class myrequests_test extends \advanced_testcase {
         tickets::claim($activity, (int) $second->id, (int) $manager->id);
         try {
             tickets::withdraw($activity, (int) $second->id, (int) $member->id);
-            $this->fail('Expected refusalticketclaimed');
+            $this->fail('Expected refusalticketnolongeropen');
         } catch (\moodle_exception $e) {
-            $this->assertSame('refusalticketclaimed', $e->errorcode);
+            // 1.20.60 (audit L-4): the requester's own string, not the
+            // staff-facing refusalticketclaimed whose {$a} is a PERSON -
+            // reusing it here printed "already been taken up by claimed".
+            $this->assertSame('refusalticketnolongeropen', $e->errorcode);
+            $this->assertStringNotContainsString('claimed.', $e->getMessage());
+            // And it must not leak WHO took it: that is why withdraw()
+            // never passed the claimant's name in the first place.
+            $this->assertStringNotContainsString(fullname($manager), $e->getMessage());
         }
     }
 

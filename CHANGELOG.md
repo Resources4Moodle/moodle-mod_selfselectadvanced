@@ -1,5 +1,169 @@
 # Changelog
 
+## 1.20.60 — reply to reopen, request limits, and twenty-seven audit fixes (2026-08-27)
+
+> Serial `2026082700` / `1.20.60`. **Schema change:** a new table,
+> `selfselectadvanced_ticketthrottle`, with a UNIQUE index on
+> `(activityid, userid)`. Nothing existing is altered and nobody is limited by the
+> upgrade. Maturity stays RC.
+
+### D-108 is ruled: reply to reopen
+
+1.20.59 asked a resolved ticket's requester whether it helped, and shipped that
+question with the answer to **D-108 deliberately left open** — whether a "no"
+should reopen the ticket. My recommendation was that it should not: the escalation
+ladder goes up only, the machine may never close a ticket, and a reopened ticket
+has no obvious owner.
+
+**The maintainer ruled against that, and the ruling is implemented in full**:
+
+> "Let us not have the same as a `this didnt help` instead, let it be `reply to
+> reopen ticket`. To open a closed ticket, the individual should be asked to
+> explain."
+
+So the second button is now an **action**, not an opinion. **Reply to reopen this
+request** takes the requester back into the conversation, and the explanation is
+**required** — an empty one is refused before anything is read, and an editor's
+empty paragraph counts as empty. The one thing my objection and the ruling agree on
+is that a reopen with nothing said is worthless to whoever has to handle it.
+
+**Where a reopened ticket goes** was the half of the question the ruling did not
+settle, so it follows the nearest precedent in the codebase rather than inventing
+one: `provide_info()`, which is already a requester's reply that moves a ticket out
+of a waiting state and back to the person handling it. A reopened ticket returns to
+**the coordinator who resolved it, still claimed by them** — never the ownerless
+queue row I warned about. Only a ticket nobody holds (resolved by the unfreeze
+autoresolver, or stranded by a restore) falls back to the queue as open, which is
+exactly what a release already does with the same problem. This is recorded in
+`DECISIONS-PENDING.md` for correction if the maintainer wants "always back to the
+queue" instead.
+
+The resolution columns are **cleared** — `resolvedby`, `timeresolved`, `resolution`
+described a closure that no longer holds — and nothing is lost, because the
+resolution text is permanently on its own trail row. The verdict is left
+**unanswered**: reopening is a refusal to answer "did this help?", not an answer to
+it, so the question is asked again when the ticket is resolved again.
+
+`give_feedback()` now records **`VERDICT_HELPED` only** and refuses the retired
+value outright, including from a stale external client posting the old integer.
+Rows written by 1.20.59 still read correctly everywhere — the queue row, the
+dashboard counter, the trail, the privacy export — and the tests that used to
+produce them now write them as fixtures, because nothing in the plugin will produce
+one again. The coordinator dashboard's "did not help" card is replaced by
+**reopened by requesters**, which counts work that came back rather than complaints
+recorded.
+
+### Request limits: slowing one flood down
+
+> "To prevent the support ticket system from being flooded, we should have a
+> mechanism where the agent (Teacher or group coordinator) can initiate a throttle
+> (number of tickets per + wait till before next ticket)."
+
+Both halves of that instruction, and nothing more. A member of staff with queue
+authority may limit **one person** to so many requests per rolling window, and/or
+set a time before their next request is accepted. Either half stands alone.
+
+It is **staff-initiated and per person**. There is no site default and no
+activity-wide policy: a limit that applied to everybody would punish the ordinary
+user for a problem one person is causing, and this plugin's whole ticket design
+assumes asking is cheap and welcome. Nobody is limited until somebody decides they
+should be, the upgrade limits nobody, and a test says so.
+
+**The reason is required**, because the requester is quoted it when a request of
+theirs is refused — a limit somebody meets without being told why is a support
+ticket about the support tickets. **Staff cannot be throttled**: their filings are
+their work, and one coordinator restraining another is an authority nobody granted.
+
+**Withdrawn and declined requests still count.** Counting only live tickets would
+let somebody withdraw their way back to an empty allowance, which is precisely the
+flood this exists to stop.
+
+The limit is asked at **every filing door** — and that is a test rather than a
+promise, because the shape of enforcing a rule at the door somebody happened to
+look at, while the door beside it stays open, is exactly the defect fixed elsewhere
+in this same release (below, L-9). The one deliberate exception is the
+guide-disappeared ticket, which the system files itself and which has no requester
+to throttle; it is named in the test as an exception rather than quietly skipped.
+
+Staff reach the screen from the queue, or from a requester's own thread beside the
+list of everything else they have filed — which is where a flood is actually
+recognised. The link is hidden for a requester who holds queue authority, because
+the service would refuse that target anyway and offering a control that can only
+fail is itself one of the defects below.
+
+### The 2026-08-20 audit: twenty-seven LOW findings closed
+
+Several collapse into one fix; all are proven by test.
+
+**Correctness**
+
+- **L-3 / L-10 / L-15** — a thread attachment could land on **another actor's trail
+  row**. `save_post_attachments()` re-read the trail and took the newest row, on the
+  reasoning that one HTTP request could not be racing itself. That stopped being
+  true when the assistant gained `comment()`, and had never been true for
+  `escalate()`, which any manage holder may fire on a live ticket. The service call's
+  lock is released before the save runs, so a row arriving in that window took the
+  file — onto a staff-internal row, where the access rule then refused the uploader
+  their own attachment. The row id is now handed back by the service and in by the
+  caller; there is nothing left to guess.
+- **L-7 / L-23** — the queue's status filter offered **needs-info** and the service
+  silently refused it. Both now share `filterable_statuses()`.
+- **L-8** — a guide-capacity grant re-reads the ceiling before writing, so a grant
+  computed against a stale ceiling is refused rather than applied.
+- **L-9** — the "one live help ticket per requester" rule was serialised on the
+  **group** lock, so two submissions from one person about two different groups
+  serialised on nothing and both inserted. The raiser's own lock is now always taken.
+- **L-12 / L-21** — knowledgebank orderings with no tiebreaker returned **different
+  articles** on PostgreSQL and MariaDB, not merely a different order, because the
+  results are capped. The determinism scan that guards this class of defect was
+  widened from `timecreated` to `timemodified` — the column three real orderings
+  were hiding behind.
+- **L-16** — attachment limits were enforced **in the browser only**. A replayed or
+  hand-made POST could attach any number of files of any size.
+- **L-17** — a refused filing no longer discards the attachment the person chose.
+- **L-1** — a coordinator without `:override` was offered a Grant button that could
+  only fail; they now get the ordinary resolve/decline pair.
+- **L-2** — the contact-privacy claim rule widened to the live claimed pair.
+- **L-6 / L-18** — the unfreeze autoresolver fires `ticket_closed` like every other
+  closure.
+- **L-13** — the LLM API whitelists the note format instead of storing what it was
+  handed.
+
+**Performance**
+
+- **L-11 / L-20** — two N+1 queries on the queue page: one per ticket for the
+  requester's name, one per row for the involvement wording.
+- **L-22** — the thread page asked for **every ticket a requester had ever filed**
+  and rendered all of them, on every staff view. It is now a bounded slice with the
+  true total stated beside it, because a truncated list that does not admit it reads
+  as the whole record.
+
+**Data and privacy**
+
+- **L-19** — `get_objectid_mapping()` on the ticket and knowledgebank events, so a
+  restored site's log entries point at the restored rows.
+- **L-4** — withdrawing a ticket that is no longer open gets its own requester-facing
+  wording instead of a claimed-ticket refusal.
+- **L-5** — verified already fixed in 1.20.55; not "fixed" a second time.
+- **L-14** — the backup writes the trail oldest-first.
+- **L-24** — escalation **from needs-info** was accepted by the service and tested by
+  nothing. Both arms are now pinned: a coordinator's claim is released, a manage
+  holder keeps the ticket and the requester can still answer.
+- **L-25** — the knowledgebank's backup and restore round trip, including all three
+  of its remappings.
+- **L-26** — the article author's own privacy: found by both privacy APIs, exported
+  by title, and **de-linked rather than deleted** on erasure, because the article is
+  the course's answer to a question the course keeps being asked.
+- **L-27** — the viewer exclusion, proven on all three of `queue()`, `queue_count()`
+  and `count_open()`. Three copies of one rule and nothing compared them: a queue
+  that hides a row while the counter above it still counts it produces a heading
+  that is off by one for everybody below.
+
+The new table is deliberately **not** in the backup, and both throttle events
+declare no restore mapping, with the reason written where a future reader will find
+it: a rate limit is a moment-in-time moderation decision about a live queue, not
+course content.
+
 ## 1.20.59 — did the resolution actually help (2026-08-21)
 
 > Serial `2026082005` / `1.20.59`. **Schema change:** three columns on

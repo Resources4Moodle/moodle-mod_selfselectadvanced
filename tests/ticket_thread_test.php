@@ -250,6 +250,125 @@ final class ticket_thread_test extends \advanced_testcase {
     }
 
     /**
+     * history() IS BOUNDED, AND history_count() TELLS THE TRUTH ABOUT
+     * WHAT WAS LEFT OUT (1.20.60, audit L-22).
+     *
+     * The thread page asked for EVERY ticket a requester had ever filed
+     * and rendered all of them, on every staff view of every thread -
+     * unbounded work on the page staff open most. It is now a slice with
+     * a count beside it, because a truncated list that does not admit it
+     * reads as the whole record.
+     *
+     * Six tickets, a limit of two: the slice is the two NEWEST, the
+     * count is the true total, and the two disagree - which is the whole
+     * point, and is asserted rather than assumed.
+     */
+    public function test_history_is_bounded_and_the_count_states_the_total(): void {
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, , $coordinator] = $this->setup_world();
+
+        // Six help tickets - the one type a requester may file
+        // repeatedly (file() refuses a second live compchange).
+        // Withdrawn as they go: a requester may hold only one LIVE help
+        // ticket (file_help()'s own duplicate guard), and history()
+        // returns every status, so a withdrawn one is exactly as much
+        // history as a live one.
+        $filed = [];
+        for ($i = 1; $i <= 6; $i++) {
+            $one = tickets::file_help($activity, $group, 'Ask number ' . $i, FORMAT_PLAIN, (int) $guide->id);
+            tickets::withdraw($activity, (int) $one->id, (int) $guide->id);
+            $filed[] = (int) $one->id;
+        }
+
+        $total = tickets::history_count($activity, (int) $guide->id, (int) $coordinator->id);
+        $this->assertSame(6, $total, 'the count must be the true total, not the page size');
+
+        $slice = tickets::history($activity, (int) $guide->id, (int) $coordinator->id, 0, 0, 2);
+        $this->assertCount(2, $slice, 'the slice must respect its limit');
+        $this->assertSame(
+            [$filed[5], $filed[4]],
+            array_map(static fn($r) => (int) $r->id, array_values($slice)),
+            'the slice must be the NEWEST, not an arbitrary two'
+        );
+
+        // Excluding the one on screen narrows BOTH, in step - a count
+        // that ignored the exclusion would over-report by one forever.
+        $this->assertSame(5, tickets::history_count($activity, (int) $guide->id, (int) $coordinator->id, $filed[5]));
+
+        // Unlimited is still unlimited: nothing here has quietly capped
+        // the callers that ask for everything.
+        $this->assertCount(6, tickets::history($activity, (int) $guide->id, (int) $coordinator->id));
+    }
+
+    /**
+     * The page says so (1.20.60, audit L-22): with more tickets than
+     * ticket_page's own cap, the export carries the truncation flag and
+     * a sentence naming both numbers - and with fewer, it carries
+     * neither, so the notice cannot become permanent furniture.
+     */
+    public function test_the_thread_page_admits_when_the_history_is_truncated(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+        $this->redirectMessages();
+        [$activity, $group, , , $guide, , $coordinator] = $this->setup_world();
+        $output = $PAGE->get_renderer('core');
+
+        $onscreen = tickets::file_help($activity, $group, 'The one on screen', FORMAT_PLAIN, (int) $guide->id);
+        // Withdrawn so the twenty-five below can be filed at all - the
+        // thread page renders a withdrawn ticket perfectly well, and
+        // the history it carries is what this test is about.
+        tickets::withdraw($activity, (int) $onscreen->id, (int) $guide->id);
+        $ticket = tickets::get($activity, (int) $onscreen->id);
+        $page = new \mod_selfselectadvanced\output\ticket_page(
+            $activity,
+            $ticket,
+            $group,
+            (int) $coordinator->id,
+            false,
+            true
+        );
+        $short = $page->export_for_template($output);
+        $this->assertFalse(
+            (bool) ($short->historytruncated ?? false),
+            'a history that fits must not claim to be truncated'
+        );
+
+        // Now past the cap. The constant is private, so the number is
+        // read from the behaviour rather than restated here: file
+        // plainly more than any sane cap and assert the flag flips.
+        for ($i = 1; $i <= 25; $i++) {
+            $one = tickets::file_help($activity, $group, 'Ask number ' . $i, FORMAT_PLAIN, (int) $guide->id);
+            tickets::withdraw($activity, (int) $one->id, (int) $guide->id);
+        }
+        $page = new \mod_selfselectadvanced\output\ticket_page(
+            $activity,
+            $ticket,
+            $group,
+            (int) $coordinator->id,
+            false,
+            true
+        );
+        $long = $page->export_for_template($output);
+        $this->assertTrue((bool) $long->historytruncated, 'a truncated history must say so');
+        $this->assertLessThan(
+            25,
+            count($long->history),
+            'the page must be rendering a slice, not every ticket the person ever filed'
+        );
+        $this->assertNotEmpty($long->historymore);
+        $this->assertStringContainsString(
+            (string) count($long->history),
+            $long->historymore,
+            'the notice must name how many are shown'
+        );
+        $this->assertStringContainsString('25', $long->historymore, 'and how many there are in total');
+    }
+
+    /**
      * (3) tickets::mine() ranks NEEDSINFO in the live band, ahead of
      * open and claimed (addendum item 2) - never sunk to the
      * closed/withdrawn tier the way B1 left it. This is the RED-first

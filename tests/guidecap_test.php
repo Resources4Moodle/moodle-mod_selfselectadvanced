@@ -280,8 +280,14 @@ final class guidecap_test extends \advanced_testcase {
         // Withdrawn frees the slot, so a fresh request is accepted.
         $second = tickets::file_guidecap($activity, 5, 'Asking properly', FORMAT_PLAIN, (int) $guide->id);
         tickets::claim($activity, (int) $second->id, (int) $manager->id);
+        // 1.20.60 (audit L-4): withdraw() now refuses with the
+        // REQUESTER'S own wording. It used to reuse
+        // refusalticketclaimed, whose {$a} is a PERSON - so the sentence
+        // this guide actually read was "already been taken up by
+        // claimed", the status name standing where a name belonged.
+        // myrequests_test.php pins the same rename from the other side.
         $this->assert_refused(
-            'refusalticketclaimed',
+            'refusalticketnolongeropen',
             fn() => tickets::withdraw($activity, (int) $second->id, (int) $guide->id)
         );
         $sink->close();

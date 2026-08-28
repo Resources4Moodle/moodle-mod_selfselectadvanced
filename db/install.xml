@@ -523,6 +523,29 @@
         <KEY NAME="fk_actorid" TYPE="foreign" FIELDS="actorid" REFTABLE="user" REFFIELDS="id"/>
       </KEYS>
     </TABLE>
+    <TABLE NAME="selfselectadvanced_ticketthrottle" COMMENT="1.20.60: a rate limit one requester is under, set by a member of staff who is looking at a flood. Two numbers and a date: how many requests they may file per window, and a time before which the next one is refused outright. One row per (activity, person); absence means no limit.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="activityid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The requester being throttled"/>
+        <FIELD NAME="maxtickets" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="How many requests this person may file within windowhours; 0 means the count is not limited and only nextallowed applies"/>
+        <FIELD NAME="windowhours" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="24" SEQUENCE="false" COMMENT="The rolling window maxtickets is counted over, in hours"/>
+        <FIELD NAME="nextallowed" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Wait until this time before the next request; null when no such wait is imposed"/>
+        <FIELD NAME="reason" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="What staff told the requester; shown to them in the refusal"/>
+        <FIELD NAME="setby" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The member of staff who set it"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_activityid" TYPE="foreign" FIELDS="activityid" REFTABLE="selfselectadvanced" REFFIELDS="id"/>
+        <KEY NAME="fk_userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="fk_setby" TYPE="foreign" FIELDS="setby" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="activity_user" UNIQUE="true" FIELDS="activityid, userid"/>
+      </INDEXES>
+    </TABLE>
     <TABLE NAME="selfselectadvanced_kb" COMMENT="1.20.45: the knowledgebank - staff-edited FAQ articles grown from resolved tickets (publish_from_ticket, sourceticketid names the origin) or authored directly (sourceticketid 0). Anonymised by the human edit before publishing; the service refuses the lazy path where the wording still names the requester or the group verbatim.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>

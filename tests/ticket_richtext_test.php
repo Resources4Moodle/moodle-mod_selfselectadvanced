@@ -669,15 +669,30 @@ final class ticket_richtext_test extends \advanced_testcase {
             $ticketpage,
             'ticket.php: provide_info() must be called with the format the editor returned'
         );
-        // FORMAT_MOODLE may still appear, but ONLY in the four places
-        // that are genuinely unaffected by this slice (refer, escalate,
-        // decline's hardcoded constant) or as a ??-fallback default on
-        // the four converted fields (question, resolution x2, reply) -
-        // never as a hardcoded call-site argument on a converted field.
+        // FORMAT_MOODLE may still appear, but ONLY in the places that
+        // are genuinely unaffected by this slice (refer, escalate,
+        // decline's hardcoded constant, and since 1.20.60 reopen's) or
+        // as a ??-fallback default on the four converted fields
+        // (question, resolution x2, reply) - never as a hardcoded
+        // call-site argument on a converted field.
+        //
+        // THE COUNT ROSE TO 8 IN 1.20.60, and the reason is the same one
+        // that lets decline keep its constant: the D-108 reopen arm
+        // shares the feedback box's plain textarea, which is not an
+        // editor and returns no format, so there is nothing to derive
+        // and a hardcoded FORMAT_MOODLE is the honest value. A census is
+        // only worth keeping if a rise has to be justified in writing,
+        // which is what this paragraph is.
+        $this->assertStringContainsString(
+            'tickets::reopen($activity, $t, $note, FORMAT_MOODLE,',
+            $ticketpage,
+            'ticket.php: reopen() shares the feedback textarea, so its format is the constant, not a derived one'
+        );
         $this->assertSame(
-            7,
+            8,
             substr_count($ticketpage, 'FORMAT_MOODLE'),
-            'ticket.php: refer(1) + escalate(1) + decline(1) + four ??-fallback defaults(4) = 7, no more, no less'
+            'ticket.php: refer(1) + escalate(1) + decline(1) + reopen(1) + four ??-fallback defaults(4) = 8, '
+                . 'no more, no less'
         );
     }
 
